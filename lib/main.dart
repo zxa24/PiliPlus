@@ -83,7 +83,7 @@ Future<void> _initDownPath() async {
 }
 
 Future<void> _initTmpPath() async {
-  tmpDirPath = (await getTemporaryDirectory()).path;
+  tmpDirPath = (await appTempDirectory()).path;
 }
 
 Future<void> _initAppPath() async {

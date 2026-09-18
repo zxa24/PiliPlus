@@ -30,8 +30,13 @@ abstract final class SelfTest {
     return i != -1 && i + 1 < args.length ? args[i + 1] : null;
   }
 
-  /// Schedules the run once the first frame is on screen.
+  /// Schedules the run once the first frame is on screen. Writes a
+  /// `started` marker right away so a caller can tell "app never started"
+  /// from "test still running".
   static void schedule(List<String> args) {
+    if (_arg(args, '--out') case final out?) {
+      File(out).writeAsStringSync(jsonEncode({'stage': 'started'}));
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(seconds: 2), () => _run(args));
     });

@@ -1,5 +1,6 @@
 import 'dart:io' show Directory, File;
 
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
@@ -11,6 +12,7 @@ abstract final class CacheManager {
 
   static Future<void> ensureInitialized() => DefaultCacheManager.init(
     maxNrOfCacheLength: Pref.maxCacheSize.toInt(),
+    cacheDirectoryProvider: appTempDirectory,
   ).then((i) => manager = i);
 
   // 获取缓存目录
