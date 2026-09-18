@@ -1858,7 +1858,8 @@ class HeaderControlState extends State<HeaderControl>
                       : const SizedBox.shrink(),
                 ),
               ],
-              if (!isPortrait || isFullScreen || PlatformUtils.isDesktop) ...[
+              if (!Pref.hideInteraction &&
+                  (!isPortrait || isFullScreen || PlatformUtils.isDesktop)) ...[
                 SizedBox(
                   width: btnWidth,
                   height: btnHeight,

@@ -13,6 +13,7 @@ import 'package:PiliPlus/models_new/space/space/reservation_card_list.dart';
 import 'package:PiliPlus/models_new/space/space/setting.dart';
 import 'package:PiliPlus/models_new/space/space/tab2.dart';
 import 'package:PiliPlus/pages/common/common_data_controller.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/extension/nested_scroll_ext.dart';
 import 'package:PiliPlus/utils/request_utils.dart';
@@ -104,6 +105,10 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
                   ? -10
                   : card?.relation?.status ?? 2
             : data.relation ?? 0;
+    }
+    if (!account.isLogin) {
+      relation.value = LocalLibrary.isFollowed(mid) ? 2 : 0;
+      LocalLibrary.updateFollowInfo(mid, name: username, face: userAvatar);
     }
     tab2 = data.tab2;
     live = data.live;
@@ -231,14 +236,12 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
     } else if (relation.value == 128) {
       _onBlock();
     } else {
-      if (!account.isLogin) {
-        SmartDialog.showToast('账号未登录');
-        return;
-      }
       RequestUtils.actionRelationMod(
         context: context,
         mid: mid,
         isFollow: isFollow,
+        name: username,
+        face: userAvatar,
         afterMod: (attribute) => relation.value = attribute,
       );
     }

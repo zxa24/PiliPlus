@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models/user/danmaku_rule_adapter.dart';
 import 'package:PiliPlus/models/user/info.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account_adapter.dart';
 import 'package:PiliPlus/utils/accounts/account_type_adapter.dart';
@@ -55,6 +56,7 @@ abstract final class GStorage {
       // 视频设置
       Hive.openBox('video').then((res) => video = res),
       Accounts.init(),
+      LocalLibrary.init(),
       Hive.openBox<int>(
         'watchProgress',
         keyComparator: _intStrDescKeyComparator,

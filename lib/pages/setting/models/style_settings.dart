@@ -357,7 +357,7 @@ List<SettingsModel> get styleSettings => [
       '/barSetting',
       arguments: {
         'key': SettingBoxKey.navBarSort,
-        'defaultBars': NavigationBarType.values,
+        'defaultBars': NavigationBarType.defaultOrder,
         'title': 'Navbar',
       },
     ),

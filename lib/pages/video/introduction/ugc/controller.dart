@@ -27,6 +27,7 @@ import 'package:PiliPlus/pages/dynamics_repost/view.dart';
 import 'package:PiliPlus/pages/video/related/controller.dart';
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
@@ -139,6 +140,13 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     if (isLogin) {
       queryAllStatus();
       queryFollowStatus();
+    } else {
+      initLocalFav();
+      if (videoDetail.value.owner?.mid case final mid?) {
+        followStatus.value = RelationData(
+          attribute: LocalLibrary.isFollowed(mid) ? 2 : 0,
+        );
+      }
     }
   }
 
@@ -278,6 +286,30 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   (Object, int) get getFavRidType => (IdUtils.bv2av(bvid), 2);
 
   @override
+  String? get localFavKey {
+    final aid = videoDetail.value.aid;
+    return aid == null ? null : 'av$aid';
+  }
+
+  @override
+  Map<String, dynamic>? get localFavData {
+    final v = videoDetail.value;
+    if (v.aid == null || v.title == null) return null;
+    return LocalLibrary.buildFavData(
+      aid: v.aid,
+      bvid: v.bvid,
+      title: v.title!,
+      cover: v.pic,
+      durationSec: v.duration,
+      pubdate: v.pubdate,
+      mid: v.owner?.mid,
+      author: v.owner?.name,
+      play: v.stat?.view,
+      danmaku: v.stat?.danmaku,
+    );
+  }
+
+  @override
   StatDetail? getStat() => videoDetail.value.stat;
 
   // 分享视频
@@ -414,11 +446,23 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
 
   // 关注/取关up
   Future<void> actionRelationMod(BuildContext context) async {
+    final videoDetail = this.videoDetail.value;
     if (!isLogin) {
-      SmartDialog.showToast('账号未登录');
+      if (videoDetail.staff?.isNotEmpty == true) return;
+      final owner = videoDetail.owner;
+      if (owner?.mid == null) return;
+      RequestUtils.actionRelationMod(
+        context: context,
+        mid: owner!.mid,
+        isFollow: LocalLibrary.isFollowed(owner.mid),
+        name: owner.name,
+        face: owner.face,
+        afterMod: (attribute) => followStatus
+          ..value.attribute = attribute
+          ..refresh(),
+      );
       return;
     }
-    final videoDetail = this.videoDetail.value;
     if (videoDetail.staff?.isNotEmpty == true) {
       return;
     }

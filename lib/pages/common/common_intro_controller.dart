@@ -9,8 +9,10 @@ import 'package:PiliPlus/models_new/fav/fav_folder/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/stat_detail.dart';
 import 'package:PiliPlus/models_new/video/video_tag/data.dart';
+import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/triple_mixin.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
@@ -202,10 +204,52 @@ mixin FavMixin on TripleMixin {
     return this.quickFavId = list.first.id;
   }
 
+  /// LibrePili local favorites (used when not logged in).
+  /// `av<aid>` / `ep<epid>`; null when the item cannot be favorited locally.
+  String? get localFavKey => null;
+  Map<String, dynamic>? get localFavData => null;
+
+  void initLocalFav() {
+    if (localFavKey case final key?) {
+      hasFav.value = LocalLibrary.isFav(key);
+    }
+  }
+
+  void _onLocalFavChanged(bool fav) {
+    if (hasFav.value != fav) {
+      updateFavCount(fav ? 1 : -1);
+      hasFav.value = fav;
+    }
+  }
+
+  Future<void> _localFav(BuildContext context, bool isLongPress) async {
+    final key = localFavKey;
+    final data = localFavData;
+    if (key == null || data == null) {
+      SmartDialog.showToast('暂时无法收藏');
+      return;
+    }
+    // quick fav: tap toggles the default folder, long press picks folders
+    if (enableQuickFav && !isLongPress) {
+      final fav = !LocalLibrary.isFav(key);
+      await LocalLibrary.setFolders(
+        key,
+        data,
+        fav ? {LocalLibrary.defaultFolderId} : {},
+      );
+      _onLocalFavChanged(fav);
+      SmartDialog.showToast(fav ? '已加入本地收藏' : '已取消本地收藏');
+      return;
+    }
+    if (!enableQuickFav && isLongPress) return;
+    final fav = await showLocalFavSheet(context, key: key, data: data);
+    if (fav != null) _onLocalFavChanged(fav);
+  }
+
   // 收藏
   void showFavBottomSheet(BuildContext context, {bool isLongPress = false}) {
     if (!Accounts.main.isLogin) {
-      SmartDialog.showToast('账号未登录');
+      _localFav(context, isLongPress);
       return;
     }
     // 快速收藏 &

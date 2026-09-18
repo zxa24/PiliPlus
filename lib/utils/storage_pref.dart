@@ -383,6 +383,10 @@ abstract final class Pref {
   static bool get showVideoReply =>
       _setting.get(SettingBoxKey.showVideoReply, defaultValue: true);
 
+  /// Hide comment sections and danmaku sending entries (LibrePili).
+  static bool get hideInteraction =>
+      _setting.get(SettingBoxKey.hideInteraction, defaultValue: true);
+
   static bool get showBangumiReply =>
       _setting.get(SettingBoxKey.showBangumiReply, defaultValue: true);
 

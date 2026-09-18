@@ -26,6 +26,7 @@ import 'package:PiliPlus/pages/fav_detail/controller.dart'
     show BaseFavController;
 import 'package:PiliPlus/pages/group_panel/view.dart';
 import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
@@ -137,11 +138,24 @@ abstract final class RequestUtils {
     required bool isFollow,
     required ValueChanged<int>? afterMod,
     RelationData? followStatus,
+    String? name,
+    String? face,
   }) async {
     if (mid == null) {
       return;
     }
     feedBack();
+    if (!Accounts.main.isLogin) {
+      // LibrePili: follow locally without an account
+      final followed = await LocalLibrary.toggleFollow(
+        mid is int ? mid : int.parse('$mid'),
+        name: name,
+        face: face,
+      );
+      SmartDialog.showToast(followed ? '已加入本地关注' : '已取消本地关注');
+      afterMod?.call(followed ? 2 : 0);
+      return;
+    }
     if (!isFollow) {
       final res = await VideoHttp.relationMod(
         mid: mid,

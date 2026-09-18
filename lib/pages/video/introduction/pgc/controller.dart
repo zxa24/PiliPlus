@@ -19,6 +19,7 @@ import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/dynamics_repost/view.dart';
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
@@ -49,6 +50,38 @@ class PgcIntroController extends CommonIntroController {
   (Object, int) get getFavRidType => (epId!, 24);
 
   @override
+  String? get localFavKey => epId == null ? null : 'ep$epId';
+
+  @override
+  Map<String, dynamic>? get localFavData {
+    final epId = this.epId;
+    if (epId == null) return null;
+    final ep = pgcItem.episodes?.firstWhereOrNull(
+      (e) => (e.epId ?? e.id) == epId,
+    );
+    final season = pgcItem.seasonTitle ?? pgcItem.title ?? '';
+    final epTitle = ep == null
+        ? ''
+        : ep.showTitle ??
+              [ep.title, ep.longTitle].whereType<String>().join(' ');
+    return LocalLibrary.buildFavData(
+      aid: ep?.aid,
+      bvid: ep?.bvid,
+      title: epTitle.isEmpty ? season : '$season $epTitle',
+      cover: ep?.cover ?? pgcItem.cover,
+      durationSec: ep?.duration == null
+          ? null
+          : ep!.from == 'pugv'
+          ? ep.duration
+          : ep.duration! ~/ 1000,
+      pubdate: ep?.pubTime,
+      author: pgcItem.upInfo?.uname,
+      mid: pgcItem.upInfo?.mid,
+      jumpUrl: ep?.link ?? 'https://www.bilibili.com/bangumi/play/ep$epId',
+    );
+  }
+
+  @override
   StatDetail? getStat() => pgcItem.stat;
 
   late final RxBool isFollowed = false.obs;
@@ -71,6 +104,8 @@ class PgcIntroController extends CommonIntroController {
         if (epId != null) {
           queryPgcLikeCoinFav();
         }
+      } else {
+        initLocalFav();
       }
       queryVideoTags();
     }
@@ -285,6 +320,8 @@ class PgcIntroController extends CommonIntroController {
 
       if (isPgc && isLogin) {
         queryPgcLikeCoinFav();
+      } else if (!isLogin) {
+        initLocalFav();
       }
 
       hasLater.value = videoDetailCtr.sourceType == SourceType.watchLater;

@@ -129,6 +129,13 @@ List<SettingsModel> get extraSettings => [
     defaultVal: true,
   ),
   const SwitchModel(
+    title: '隐藏评论与发弹幕',
+    subtitle: '隐藏视频评论区和发弹幕入口，弹幕仍正常显示',
+    leading: Icon(Icons.comments_disabled_outlined),
+    setKey: SettingBoxKey.hideInteraction,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '显示视频评论',
     leading: Icon(MdiIcons.commentTextOutline),
     setKey: SettingBoxKey.showVideoReply,
