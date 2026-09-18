@@ -510,10 +510,12 @@ class ReplyItemGrpc extends StatelessWidget {
     }
     // LibrePili: replying / liking need login; hidden when not logged in
     final isLogin = Accounts.main.isLogin;
+    // writing replies is also hidden by the hide-interaction switch
+    final canReply = isLogin && !Pref.hideInteraction;
     return Row(
       children: [
         const SizedBox(width: 36),
-        if (isLogin)
+        if (canReply)
           SizedBox(
             height: 32,
             child: TextButton(
@@ -536,7 +538,7 @@ class ReplyItemGrpc extends StatelessWidget {
               ),
             ),
           ),
-        if (isLogin) const SizedBox(width: 2),
+        if (canReply) const SizedBox(width: 2),
         if (replyControl.translationSwitch ==
             .TRANSLATION_SWITCH_SHOW_TRANSLATION) ...[
           _buildTranslateBtn(

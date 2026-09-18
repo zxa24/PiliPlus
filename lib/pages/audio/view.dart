@@ -717,15 +717,14 @@ class _AudioPageState extends State<AudioPage> {
               ),
             ),
           ],
-          if (!Pref.hideInteraction)
-            ActionItem(
-              icon: const Icon(FontAwesomeIcons.comment),
-              onTap: _controller.showReply,
-              semanticsLabel: '评论',
-              text: NumUtils.numFormat(
-                audioItem.stat.reply,
-              ),
+          ActionItem(
+            icon: const Icon(FontAwesomeIcons.comment),
+            onTap: _controller.showReply,
+            semanticsLabel: '评论',
+            text: NumUtils.numFormat(
+              audioItem.stat.reply,
             ),
+          ),
           ActionItem(
             icon: const Icon(
               FontAwesomeIcons.shareFromSquare,

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
+import 'package:PiliPlus/models/model_hot_video_item.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
@@ -179,6 +180,18 @@ abstract final class SelfTest {
     final service = Get.find<DownloadService>();
     await service.waitForInitialization;
 
+    // `hot`: first video of the current popular list, so the test does not
+    // depend on one video staying online
+    if (bvid == 'hot') {
+      final hot = await VideoHttp.hotVideoList(pn: 1, ps: 10);
+      final picked = hot is Success<List<HotVideoItemModel>>
+          ? hot.response.firstWhereOrNull((e) => e.bvid != null)?.bvid
+          : null;
+      if (picked == null) {
+        return {'pass': false, 'error': 'hot list failed: $hot'};
+      }
+      bvid = picked;
+    }
     final res = await VideoHttp.videoIntro(bvid: bvid);
     if (res is! Success<VideoDetailData>) {
       return {'pass': false, 'error': 'videoIntro failed: $res'};

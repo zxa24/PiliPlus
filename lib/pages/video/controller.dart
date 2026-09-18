@@ -153,7 +153,7 @@ class VideoDetailController extends GetxController
   // 预设的解码格式
   late List<VideoDecodeFormatType> preferCodecs = Pref.preferCodecs;
 
-  bool get showReply => isFileSource || Pref.hideInteraction
+  bool get showReply => isFileSource
       ? false
       : isUgc
       ? plPlayerController.showVideoReply

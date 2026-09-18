@@ -388,7 +388,8 @@ abstract final class Pref {
   static bool get loginMode =>
       _setting.get(SettingBoxKey.loginMode, defaultValue: false);
 
-  /// Hide comment sections and danmaku sending entries (LibrePili).
+  /// Hide comment-writing and danmaku-sending entries; comments and danmaku
+  /// still display (LibrePili).
   static bool get hideInteraction =>
       _setting.get(SettingBoxKey.hideInteraction, defaultValue: true);
 
