@@ -110,6 +110,11 @@ class DetailItem extends StatelessWidget {
             return;
           }
           if (entry.isCompleted) {
+            if (entry.mergedPath case final merged?
+                when !File(merged).existsSync()) {
+              SmartDialog.showToast('视频文件已被移动或删除，可删除此条后重新下载');
+              return;
+            }
             await PageUtils.toVideoPage(
               aid: entry.avid,
               cid: cid!,

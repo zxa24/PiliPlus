@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode, jsonEncode;
-import 'dart:io' show Directory, File;
+import 'dart:io' show Directory, File, FileSystemException, Platform;
+import 'dart:isolate' show Isolate;
 
+import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/http/download.dart';
 import 'package:PiliPlus/http/init.dart';
@@ -16,10 +18,13 @@ import 'package:PiliPlus/models_new/video/video_detail/page.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/danmaku_utils.dart';
+import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/extension/file_ext.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
+import 'package:PiliPlus/utils/mp4_remux.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
+import 'package:PiliPlus/utils/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -505,18 +510,137 @@ class DownloadService extends GetxService {
     if (entry == null) {
       return;
     }
-    entry
-      ..downloadedBytes = entry.totalBytes
-      ..isCompleted = true;
+    _downloadManager = null;
+    _audioDownloadManager = null;
+    entry.downloadedBytes = entry.totalBytes;
+    _updateCurStatus(DownloadStatus.merging);
+    await _mergeDownload(entry);
+    if (!Directory(entry.entryDirPath).existsSync()) {
+      // deleted while merging
+      await _deleteMerged(entry);
+      return;
+    }
+    entry.isCompleted = true;
     await _updateBiliDownloadEntryJson(entry);
     waitDownloadQueue.remove(entry);
     downloadList.insert(0, entry);
     flagNotifier.refresh();
-    _curCid = null;
-    curDownload.value = null;
-    _downloadManager = null;
-    _audioDownloadManager = null;
-    nextDownload();
+    if (curDownload.value?.cid == entry.cid) {
+      _curCid = null;
+      curDownload.value = null;
+      nextDownload();
+    }
+  }
+
+  /// Turns the downloaded streams into one complete video file in the export
+  /// directory and removes the separate stream files. On failure the stream
+  /// files are kept, so the entry still plays in-app as before.
+  Future<void> _mergeDownload(BiliDownloadEntryInfo entry) async {
+    final videoDir = path.join(entry.entryDirPath, entry.typeTag);
+    final List<String> inputs;
+    if (entry.mediaType == 1) {
+      inputs = [path.join(videoDir, PathUtils.videoNameType1)];
+    } else {
+      final audio = path.join(videoDir, PathUtils.audioNameType2);
+      inputs = [
+        path.join(videoDir, PathUtils.videoNameType2),
+        if (entry.hasDashAudio && File(audio).existsSync()) audio,
+      ];
+    }
+    String? output;
+    try {
+      output = await _exportFilePath(entry);
+      if (entry.mediaType == 1) {
+        await _moveFile(inputs.first, output);
+      } else {
+        await _remuxInBackground(inputs, output);
+        for (final input in inputs) {
+          await File(input).tryDel();
+        }
+      }
+      entry.mergedPath = output;
+    } catch (e) {
+      if (output != null) await File(output).tryDel();
+      SmartDialog.showToast('合并音视频失败，已保留分离的音视频文件');
+      if (kDebugMode) debugPrint('merge download error: $e');
+    }
+  }
+
+  // Static so the isolate closure only captures the two arguments.
+  static Future<void> _remuxInBackground(List<String> inputs, String output) =>
+      Isolate.run(() => Mp4Remuxer.remux(inputs: inputs, output: output));
+
+  static Future<void> _moveFile(String from, String to) async {
+    try {
+      await File(from).rename(to);
+    } on FileSystemException {
+      // across volumes
+      await File(from).copy(to);
+      await File(from).tryDel();
+    }
+  }
+
+  Future<void> _deleteMerged(BiliDownloadEntryInfo entry) async {
+    if (entry.mergedPath case final merged?) {
+      await File(merged).tryDel();
+    }
+  }
+
+  /// Where complete videos are written. Android: the public
+  /// `Download/<app name>` folder so galleries and file managers see them;
+  /// elsewhere: the (user-configurable) download folder.
+  static Future<String> _exportDir() async {
+    if (Platform.isAndroid) {
+      // downloadPath is `<storage root>/Android/data/<package>/files/download`
+      final i = downloadPath.indexOf('/Android/data/');
+      if (i != -1 &&
+          (DeviceUtils.sdkInt >= 30 ||
+              await Permission.storage.request().isGranted)) {
+        final dir = Directory(
+          path.join(
+            downloadPath.substring(0, i),
+            'Download',
+            Constants.appName,
+          ),
+        );
+        try {
+          await dir.create(recursive: true);
+          return dir.path;
+        } catch (e) {
+          if (kDebugMode) debugPrint('public download dir error: $e');
+        }
+      }
+    }
+    return _getDownloadPath();
+  }
+
+  static final _illegalFileChars = RegExp(r'[\\/:*?"<>|\x00-\x1F]');
+
+  static Future<String> _exportFilePath(BiliDownloadEntryInfo entry) async {
+    final dir = await _exportDir();
+    final parts = <String>[entry.title];
+    if (entry.ep case final ep?) {
+      parts.add(ep.showTitle ?? '${ep.index} ${ep.indexTitle}');
+    } else if (entry.pageData case final page?) {
+      final part = page.part;
+      if (part != null && part.isNotEmpty && part != entry.title) {
+        parts.add('P${page.page} $part');
+      }
+    }
+    var name = parts
+        .join(' - ')
+        .replaceAll(_illegalFileChars, '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (name.length > 120) name = name.substring(0, 120).trim();
+    if (entry.qualityPithyDescription.isNotEmpty) {
+      name += ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
+    }
+    var file = path.join(dir, '$name.mp4');
+    for (var i = 2; File(file).existsSync(); i++) {
+      file = path.join(dir, '$name ($i).mp4');
+    }
+    return file;
   }
 
   void nextDownload() {
@@ -544,6 +668,7 @@ class DownloadService extends GetxService {
         downloadNext: downloadNext,
       );
     }
+    await _deleteMerged(entry);
     final downloadDir = Directory(entry.pageDirPath);
     if (downloadDir.existsSync()) {
       if (!await downloadDir.lengthGte(2)) {
@@ -564,6 +689,9 @@ class DownloadService extends GetxService {
     required String pageDirPath,
     bool refresh = true,
   }) async {
+    for (final entry in downloadList) {
+      if (entry.pageDirPath == pageDirPath) await _deleteMerged(entry);
+    }
     await Directory(pageDirPath).tryDel(recursive: true);
     downloadList.removeWhere((e) => e.pageDirPath == pageDirPath);
     if (refresh) {

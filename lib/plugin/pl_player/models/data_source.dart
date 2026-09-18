@@ -22,18 +22,25 @@ class FileSource extends DataSource {
   final String dir;
   final bool isMp4;
 
+  /// When set, a single complete (merged) video file to play instead of the
+  /// separate cached streams.
+  final String? mergedPath;
+
   FileSource({
     required this.dir,
     required this.isMp4,
     required bool hasDashAudio,
     required String typeTag,
+    this.mergedPath,
   }) : super(
-         videoSource: path.join(
-           dir,
-           typeTag,
-           isMp4 ? PathUtils.videoNameType1 : PathUtils.videoNameType2,
-         ),
-         audioSource: isMp4 || !hasDashAudio
+         videoSource:
+             mergedPath ??
+             path.join(
+               dir,
+               typeTag,
+               isMp4 ? PathUtils.videoNameType1 : PathUtils.videoNameType2,
+             ),
+         audioSource: mergedPath != null || isMp4 || !hasDashAudio
              ? null
              : path.join(dir, typeTag, PathUtils.audioNameType2),
        );

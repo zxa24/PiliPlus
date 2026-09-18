@@ -1,3 +1,5 @@
+import 'dart:io' show File;
+
 import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show MultiSelectData;
@@ -36,6 +38,11 @@ class BiliDownloadEntryInfo with MultiSelectData {
   final String? seasonId;
   final SourceInfo? source;
   EpInfo? ep;
+
+  /// Absolute path of the merged single-file video (audio + video), set once
+  /// the downloaded DASH streams have been remuxed. Null for legacy entries
+  /// that still play from the separate `.m4s` files.
+  String? mergedPath;
 
   late String pageDirPath;
   late String entryDirPath;
@@ -102,13 +109,18 @@ class BiliDownloadEntryInfo with MultiSelectData {
           PopupMenuItem(
             height: 38,
             child: const Text('打开本地文件夹', style: TextStyle(fontSize: 13)),
-            onTap: () => PathUtils.openDir(entryDirPath),
+            onTap: () => PathUtils.openDir(
+              mergedPath != null ? File(mergedPath!).parent.path : entryDirPath,
+            ),
           )
         else
           PopupMenuItem(
             height: 38,
-            child: const Text('复制缓存路径', style: TextStyle(fontSize: 13)),
-            onTap: () => Utils.copyText(entryDirPath),
+            child: Text(
+              mergedPath != null ? '复制视频路径' : '复制缓存路径',
+              style: const TextStyle(fontSize: 13),
+            ),
+            onTap: () => Utils.copyText(mergedPath ?? entryDirPath),
           ),
         if (ownerId case final mid?)
           PopupMenuItem(
@@ -151,6 +163,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     this.seasonId,
     this.source,
     this.ep,
+    this.mergedPath,
   });
 
   factory BiliDownloadEntryInfo.fromJson(Map<String, dynamic> json) =>
@@ -189,6 +202,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
         ep: json['ep'] != null
             ? EpInfo.fromJson(json['ep'] as Map<String, dynamic>)
             : null,
+        mergedPath: json['merged_path'] as String?,
       );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -219,6 +233,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     'season_id': ?seasonId,
     'source': ?source?.toJson(),
     'ep': ?ep?.toJson(),
+    'merged_path': ?mergedPath,
   };
 
   @override
@@ -401,12 +416,14 @@ enum DownloadStatus {
   audioDownloading('正在下载音频'),
   getDanmaku('获取弹幕'),
   getPlayUrl('获取播放地址'),
+  merging('合并音视频'),
   //
   completed('下载完成'),
   failDownload('下载失败'),
   failDownloadAudio('音频下载失败'),
   failDanmaku('获取弹幕失败'),
   failPlayUrl('获取播放地址失败'),
+  failMerge('合并音视频失败'),
   pause('暂停中'),
   wait('等待中'),
   ;
@@ -414,5 +431,5 @@ enum DownloadStatus {
   final String message;
   const DownloadStatus(this.message);
 
-  bool get isDownloading => index <= 3;
+  bool get isDownloading => index <= 4;
 }
