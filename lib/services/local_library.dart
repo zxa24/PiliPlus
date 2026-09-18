@@ -35,7 +35,8 @@ abstract final class LocalLibrary {
 
   // ---------------------------------------------------------------- follows
 
-  static bool isFollowed(int? mid) => mid != null && _follows.containsKey('$mid');
+  static bool isFollowed(int? mid) =>
+      mid != null && _follows.containsKey('$mid');
 
   static Future<void> follow(int mid, {String? name, String? face}) {
     final old = _follows.get('$mid') as Map?;
@@ -50,7 +51,11 @@ abstract final class LocalLibrary {
   static Future<void> unfollow(int mid) => _follows.delete('$mid');
 
   /// Returns the new follow state.
-  static Future<bool> toggleFollow(int mid, {String? name, String? face}) async {
+  static Future<bool> toggleFollow(
+    int mid, {
+    String? name,
+    String? face,
+  }) async {
     if (isFollowed(mid)) {
       await unfollow(mid);
       return false;

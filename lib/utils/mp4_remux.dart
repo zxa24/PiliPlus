@@ -23,7 +23,10 @@ abstract final class Mp4Remuxer {
     if (inputs.isEmpty) throw ArgumentError('no input');
     final tracks = <_Track>[];
     for (final input in inputs) {
-      tracks.add(await _Track.parse(input)..index = tracks.length);
+      tracks.add(
+        await _Track.parse(input)
+          ..index = tracks.length,
+      );
     }
 
     final chunks = [for (final t in tracks) ...t.chunks]
@@ -533,7 +536,15 @@ class _Track {
 
     final stbl = _box(
       'stbl',
-      _concat([stsd, _stts(), ?_ctts(), ?_stss(), _stsz(), _stsc(), _stco(useCo64)]),
+      _concat([
+        stsd,
+        _stts(),
+        ?_ctts(),
+        ?_stss(),
+        _stsz(),
+        _stsc(),
+        _stco(useCo64),
+      ]),
     );
     final minf = _box('minf', _concat([mediaHeader, dinf, stbl]));
     final mdia = _box('mdia', _concat([_box('mdhd', mdhd.bytes), hdlr, minf]));

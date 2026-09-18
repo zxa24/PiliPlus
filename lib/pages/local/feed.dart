@@ -101,7 +101,7 @@ class _LocalFeedTabState extends State<LocalFeedTab>
     super.build(context);
     final theme = Theme.of(context);
     if (_followCount == 0 && !_loading) {
-      return _Hint(
+      return const _Hint(
         icon: Icons.person_add_alt_outlined,
         text: '还没有本地关注\n在视频页或 UP 主页点「关注」即可添加，无需登录',
       );
@@ -164,7 +164,11 @@ class _Hint extends StatelessWidget {
           children: [
             Icon(icon, size: 48, color: color),
             const SizedBox(height: 12),
-            Text(text, textAlign: TextAlign.center, style: TextStyle(color: color)),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: color),
+            ),
           ],
         ),
       ),
