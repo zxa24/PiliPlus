@@ -2,6 +2,8 @@ import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/fav/fav_folder/list.dart';
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
+import 'package:PiliPlus/pages/local/fav_sheet.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/bili_utils.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:get/get.dart';
@@ -24,6 +26,86 @@ class FavPanel extends StatefulWidget {
 class _FavPanelState extends State<FavPanel> {
   LoadingState loadingState = LoadingState.loading();
 
+  // LibrePili: local folders are listed separately above account folders
+  late final String? _localKey = widget.ctr.localFavKey;
+  late final Map<String, dynamic>? _localData = widget.ctr.localFavData;
+  late List<LocalFavFolder> _localFolders = LocalLibrary.folders();
+  late final Set<int> _localSelected = _localKey == null
+      ? <int>{}
+      : LocalLibrary.foldersOf(_localKey);
+
+  bool get _hasLocal => _localKey != null && _localData != null;
+
+  Future<void> _createLocalFolder() async {
+    final name = await showFolderNameDialog(context);
+    if (name == null) return;
+    final folder = await LocalLibrary.createFolder(name);
+    if (!mounted) return;
+    setState(() {
+      _localFolders = LocalLibrary.folders();
+      _localSelected.add(folder.id);
+    });
+  }
+
+  Widget _sectionHeader(String title, {Widget? trailing}) => Padding(
+    padding: const .fromLTRB(16, 10, 8, 2),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+        ?trailing,
+      ],
+    ),
+  );
+
+  List<Widget> get _localSection => [
+    _sectionHeader(
+      '本地收藏夹',
+      trailing: TextButton(
+        onPressed: _createLocalFolder,
+        child: const Text('新建'),
+      ),
+    ),
+    for (final folder in _localFolders)
+      ListTile(
+        dense: true,
+        onTap: () => setState(() {
+          _localSelected.contains(folder.id)
+              ? _localSelected.remove(folder.id)
+              : _localSelected.add(folder.id);
+        }),
+        leading: const Icon(Icons.phone_android_outlined),
+        minLeadingWidth: 0,
+        title: Text(folder.title),
+        subtitle: Text('${LocalLibrary.folderCount(folder.id)}个内容 . 仅本机'),
+        trailing: Transform.scale(
+          scale: 0.9,
+          child: Checkbox(
+            value: _localSelected.contains(folder.id),
+            onChanged: (_) => setState(() {
+              _localSelected.contains(folder.id)
+                  ? _localSelected.remove(folder.id)
+                  : _localSelected.add(folder.id);
+            }),
+          ),
+        ),
+      ),
+    _sectionHeader('账号收藏夹'),
+  ];
+
+  Future<void> _saveLocal() async {
+    if (_hasLocal) {
+      await LocalLibrary.setFolders(_localKey!, _localData!, _localSelected);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -44,11 +126,13 @@ class _FavPanelState extends State<FavPanel> {
         return m3eLoading;
       case Success():
         final list = widget.ctr.favFolderData.value.list!;
+        final header = _hasLocal ? _localSection : const <Widget>[];
         return ListView.builder(
           controller: widget.scrollController,
-          itemCount: list.length,
+          itemCount: header.length + list.length,
           itemBuilder: (context, index) {
-            FavFolderInfo item = list[index];
+            if (index < header.length) return header[index];
+            FavFolderInfo item = list[index - header.length];
             return Material(
               type: .transparency,
               child: Builder(
@@ -159,8 +243,9 @@ class _FavPanelState extends State<FavPanel> {
                 child: const Text('取消'),
               ),
               FilledButton.tonal(
-                onPressed: () {
+                onPressed: () async {
                   feedBack();
+                  await _saveLocal();
                   widget.ctr.actionFavVideo();
                 },
                 style: const ButtonStyle(visualDensity: .compact),

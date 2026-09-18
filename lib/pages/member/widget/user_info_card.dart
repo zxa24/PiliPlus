@@ -424,7 +424,8 @@ class UserInfoCard extends StatelessWidget {
         spacing: 10,
         mainAxisSize: .min,
         children: [
-          if (!isOwner)
+          // LibrePili: messaging needs login
+          if (!isOwner && Accounts.main.isLogin)
             IconButton.outlined(
               onPressed: () {
                 if (Accounts.main.isLogin) {

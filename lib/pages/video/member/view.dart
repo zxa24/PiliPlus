@@ -359,14 +359,12 @@ class _HorizontalMemberPageState extends State<HorizontalMemberPage> {
                 if (widget.mid == account.mid) {
                   Get.toNamed('/editProfile');
                 } else {
-                  if (!account.isLogin) {
-                    SmartDialog.showToast('账号未登录');
-                    return;
-                  }
                   RequestUtils.actionRelationMod(
                     context: context,
                     mid: widget.mid,
                     isFollow: memberInfoModel.isFollowed ?? false,
+                    name: memberInfoModel.name,
+                    face: memberInfoModel.face,
                     afterMod: (attribute) {
                       _controller
                         ..userState.value.data.isFollowed = attribute != 0

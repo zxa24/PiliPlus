@@ -508,32 +508,35 @@ class ReplyItemGrpc extends StatelessWidget {
         ),
       );
     }
+    // LibrePili: replying / liking need login; hidden when not logged in
+    final isLogin = Accounts.main.isLogin;
     return Row(
       children: [
         const SizedBox(width: 36),
-        SizedBox(
-          height: 32,
-          child: TextButton(
-            style: buttonStyle,
-            onPressed: () {
-              feedBack();
-              onReply?.call(replyItem);
-            },
-            child: Row(
-              spacing: 3,
-              mainAxisSize: .min,
-              children: [
-                Icon(
-                  Icons.reply,
-                  size: 18,
-                  color: colorScheme.outline.withValues(alpha: 0.8),
-                ),
-                Text('回复', style: textStyle),
-              ],
+        if (isLogin)
+          SizedBox(
+            height: 32,
+            child: TextButton(
+              style: buttonStyle,
+              onPressed: () {
+                feedBack();
+                onReply?.call(replyItem);
+              },
+              child: Row(
+                spacing: 3,
+                mainAxisSize: .min,
+                children: [
+                  Icon(
+                    Icons.reply,
+                    size: 18,
+                    color: colorScheme.outline.withValues(alpha: 0.8),
+                  ),
+                  Text('回复', style: textStyle),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 2),
+        if (isLogin) const SizedBox(width: 2),
         if (replyControl.translationSwitch ==
             .TRANSLATION_SWITCH_SHOW_TRANSLATION) ...[
           _buildTranslateBtn(
@@ -555,7 +558,7 @@ class ReplyItemGrpc extends StatelessWidget {
         ],
         ?dialogBtn,
         const Spacer(),
-        ZanButtonGrpc(replyItem: replyItem),
+        if (isLogin) ZanButtonGrpc(replyItem: replyItem),
         const SizedBox(width: 5),
       ],
     );

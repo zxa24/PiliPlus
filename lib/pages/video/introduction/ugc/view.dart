@@ -471,41 +471,44 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
       child: Row(
         crossAxisAlignment: .start,
         children: [
-          Obx(
-            () => ActionItem(
-              animation: introController.tripleAnimation,
-              icon: const Icon(FontAwesomeIcons.thumbsUp),
-              selectIcon: const Icon(FontAwesomeIcons.solidThumbsUp),
-              selectStatus: introController.hasLike.value,
-              semanticsLabel: '点赞',
-              text: !isLoading ? NumUtils.numFormat(stat!.like) : null,
-              onStartTriple: introController.onStartTriple,
-              onCancelTriple: introController.onCancelTriple,
-            ),
-          ),
-          Obx(
-            () => ActionItem(
-              icon: const Icon(FontAwesomeIcons.thumbsDown),
-              selectIcon: const Icon(FontAwesomeIcons.solidThumbsDown),
-              onTap: () => introController.handleAction(
-                introController.actionDislikeVideo,
+          // LibrePili: login-only actions are hidden when not logged in
+          if (introController.isLogin) ...[
+            Obx(
+              () => ActionItem(
+                animation: introController.tripleAnimation,
+                icon: const Icon(FontAwesomeIcons.thumbsUp),
+                selectIcon: const Icon(FontAwesomeIcons.solidThumbsUp),
+                selectStatus: introController.hasLike.value,
+                semanticsLabel: '点赞',
+                text: !isLoading ? NumUtils.numFormat(stat!.like) : null,
+                onStartTriple: introController.onStartTriple,
+                onCancelTriple: introController.onCancelTriple,
               ),
-              selectStatus: introController.hasDislike.value,
-              semanticsLabel: '点踩',
-              text: "点踩",
             ),
-          ),
-          Obx(
-            () => ActionItem(
-              animation: introController.tripleAnimation,
-              icon: const Icon(FontAwesomeIcons.b),
-              selectIcon: const Icon(FontAwesomeIcons.b),
-              onTap: introController.actionCoinVideo,
-              selectStatus: introController.hasCoin,
-              semanticsLabel: '投币',
-              text: !isLoading ? NumUtils.numFormat(stat!.coin) : null,
+            Obx(
+              () => ActionItem(
+                icon: const Icon(FontAwesomeIcons.thumbsDown),
+                selectIcon: const Icon(FontAwesomeIcons.solidThumbsDown),
+                onTap: () => introController.handleAction(
+                  introController.actionDislikeVideo,
+                ),
+                selectStatus: introController.hasDislike.value,
+                semanticsLabel: '点踩',
+                text: "点踩",
+              ),
             ),
-          ),
+            Obx(
+              () => ActionItem(
+                animation: introController.tripleAnimation,
+                icon: const Icon(FontAwesomeIcons.b),
+                selectIcon: const Icon(FontAwesomeIcons.b),
+                onTap: introController.actionCoinVideo,
+                selectStatus: introController.hasCoin,
+                semanticsLabel: '投币',
+                text: !isLoading ? NumUtils.numFormat(stat!.coin) : null,
+              ),
+            ),
+          ],
           Obx(
             () => ActionItem(
               animation: introController.tripleAnimation,
@@ -521,17 +524,18 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
               text: !isLoading ? NumUtils.numFormat(stat!.favorite) : null,
             ),
           ),
-          Obx(
-            () => ActionItem(
-              icon: const Icon(FontAwesomeIcons.clock),
-              selectIcon: const Icon(FontAwesomeIcons.solidClock),
-              onTap: () =>
-                  introController.handleAction(introController.viewLater),
-              selectStatus: introController.hasLater.value,
-              semanticsLabel: '再看',
-              text: '再看',
+          if (introController.isLogin)
+            Obx(
+              () => ActionItem(
+                icon: const Icon(FontAwesomeIcons.clock),
+                selectIcon: const Icon(FontAwesomeIcons.solidClock),
+                onTap: () =>
+                    introController.handleAction(introController.viewLater),
+                selectStatus: introController.hasLater.value,
+                semanticsLabel: '再看',
+                text: '再看',
+              ),
             ),
-          ),
           ActionItem(
             icon: const Icon(FontAwesomeIcons.shareFromSquare),
             onTap: () => introController.actionShareVideo(context),

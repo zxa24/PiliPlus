@@ -13,6 +13,7 @@ import 'package:PiliPlus/pages/dynamics/controller.dart';
 import 'package:PiliPlus/pages/home/controller.dart';
 import 'package:PiliPlus/pages/mine/view.dart';
 import 'package:PiliPlus/services/account_service.dart';
+import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/extension/get_ext.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
@@ -238,9 +239,12 @@ class MainController extends GetxController
           .map(NavigationBarType.values.elementAt)
           .toList();
     }
-    this.navigationBars = navigationBars;
+    // LibrePili: the followed-feed tab needs login; the 本地 tab replaces it
+    this.navigationBars = Accounts.main.isLogin
+        ? navigationBars
+        : navigationBars.where((e) => e != .dynamics).toList();
     final defPage = Pref.defaultHomePage;
-    selectedIndex.value = math.max(0, navigationBars.indexOf(defPage));
+    selectedIndex.value = math.max(0, this.navigationBars.indexOf(defPage));
   }
 
   void checkDefaultSearch([bool shouldCheck = false]) {

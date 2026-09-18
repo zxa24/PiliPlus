@@ -37,6 +37,7 @@ import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -667,60 +668,64 @@ class _AudioPageState extends State<AudioPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Obx(
-            () => ActionItem(
-              animation: _controller.tripleAnimation,
-              icon: const Icon(FontAwesomeIcons.thumbsUp),
-              selectIcon: const Icon(
-                FontAwesomeIcons.solidThumbsUp,
+          // LibrePili: like / coin / (account) favorite need login
+          if (_controller.isLogin) ...[
+            Obx(
+              () => ActionItem(
+                animation: _controller.tripleAnimation,
+                icon: const Icon(FontAwesomeIcons.thumbsUp),
+                selectIcon: const Icon(
+                  FontAwesomeIcons.solidThumbsUp,
+                ),
+                selectStatus: _controller.hasLike.value,
+                semanticsLabel: '点赞',
+                text: NumUtils.numFormat(audioItem.stat.like),
+                onStartTriple: _controller.onStartTriple,
+                onCancelTriple: _controller.onCancelTriple,
               ),
-              selectStatus: _controller.hasLike.value,
-              semanticsLabel: '点赞',
-              text: NumUtils.numFormat(audioItem.stat.like),
-              onStartTriple: _controller.onStartTriple,
-              onCancelTriple: _controller.onCancelTriple,
             ),
-          ),
-          Obx(
-            () => ActionItem(
-              animation: _controller.tripleAnimation,
-              icon: const Icon(FontAwesomeIcons.b),
-              selectIcon: const Icon(FontAwesomeIcons.b),
-              onTap: _controller.actionCoinVideo,
-              selectStatus: _controller.hasCoin,
-              semanticsLabel: '投币',
+            Obx(
+              () => ActionItem(
+                animation: _controller.tripleAnimation,
+                icon: const Icon(FontAwesomeIcons.b),
+                selectIcon: const Icon(FontAwesomeIcons.b),
+                onTap: _controller.actionCoinVideo,
+                selectStatus: _controller.hasCoin,
+                semanticsLabel: '投币',
+                text: NumUtils.numFormat(
+                  audioItem.stat.coin,
+                ),
+              ),
+            ),
+            Obx(
+              () => ActionItem(
+                animation: _controller.tripleAnimation,
+                icon: const Icon(FontAwesomeIcons.star),
+                selectIcon: const Icon(
+                  FontAwesomeIcons.solidStar,
+                ),
+                onTap: () => _controller.showFavBottomSheet(context),
+                onLongPress: () => _controller.showFavBottomSheet(
+                  context,
+                  isLongPress: true,
+                ),
+                selectStatus: _controller.hasFav.value,
+                semanticsLabel: '收藏',
+                text: NumUtils.numFormat(
+                  audioItem.stat.favourite,
+                ),
+              ),
+            ),
+          ],
+          if (!Pref.hideInteraction)
+            ActionItem(
+              icon: const Icon(FontAwesomeIcons.comment),
+              onTap: _controller.showReply,
+              semanticsLabel: '评论',
               text: NumUtils.numFormat(
-                audioItem.stat.coin,
+                audioItem.stat.reply,
               ),
             ),
-          ),
-          Obx(
-            () => ActionItem(
-              animation: _controller.tripleAnimation,
-              icon: const Icon(FontAwesomeIcons.star),
-              selectIcon: const Icon(
-                FontAwesomeIcons.solidStar,
-              ),
-              onTap: () => _controller.showFavBottomSheet(context),
-              onLongPress: () => _controller.showFavBottomSheet(
-                context,
-                isLongPress: true,
-              ),
-              selectStatus: _controller.hasFav.value,
-              semanticsLabel: '收藏',
-              text: NumUtils.numFormat(
-                audioItem.stat.favourite,
-              ),
-            ),
-          ),
-          ActionItem(
-            icon: const Icon(FontAwesomeIcons.comment),
-            onTap: _controller.showReply,
-            semanticsLabel: '评论',
-            text: NumUtils.numFormat(
-              audioItem.stat.reply,
-            ),
-          ),
           ActionItem(
             icon: const Icon(
               FontAwesomeIcons.shareFromSquare,

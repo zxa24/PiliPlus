@@ -62,28 +62,29 @@ class _BottomControlState extends State<BottomControl> with HeaderMixin {
               onTap: widget.onRefresh,
             ),
             const Spacer(),
-            ComBtn(
-              height: 30,
-              tooltip: '屏蔽',
-              icon: const Icon(
-                size: 18,
-                Icons.block,
-                color: Colors.white,
+            if (kDebugMode || liveRoomCtr.isLogin)
+              ComBtn(
+                height: 30,
+                tooltip: '屏蔽',
+                icon: const Icon(
+                  size: 18,
+                  Icons.block,
+                  color: Colors.white,
+                ),
+                onTap: () {
+                  if (kDebugMode || liveRoomCtr.isLogin) {
+                    Get.toNamed(
+                      '/liveDmBlockPage',
+                      parameters: {
+                        'roomId': liveRoomCtr.roomId.toString(),
+                      },
+                      arguments: liveRoomCtr,
+                    );
+                  } else {
+                    SmartDialog.showToast('账号未登录');
+                  }
+                },
               ),
-              onTap: () {
-                if (kDebugMode || liveRoomCtr.isLogin) {
-                  Get.toNamed(
-                    '/liveDmBlockPage',
-                    parameters: {
-                      'roomId': liveRoomCtr.roomId.toString(),
-                    },
-                    arguments: liveRoomCtr,
-                  );
-                } else {
-                  SmartDialog.showToast('账号未登录');
-                }
-              },
-            ),
             const SizedBox(width: 3),
             Obx(
               () {

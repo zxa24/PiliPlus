@@ -768,6 +768,8 @@ class _LiveRoomPageState extends State<LiveRoomPage>
   }
 
   Widget get _buildInputWidget {
+    // LibrePili: sending danmaku / liking needs login
+    if (!_liveRoomController.isLogin) return const SizedBox.shrink();
     final child = Container(
       padding: .only(top: 5, left: 10, right: 10, bottom: padding.bottom),
       height: 70 + padding.bottom,

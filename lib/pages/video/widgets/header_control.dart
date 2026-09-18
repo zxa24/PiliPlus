@@ -1859,6 +1859,7 @@ class HeaderControlState extends State<HeaderControl>
                 ),
               ],
               if (!Pref.hideInteraction &&
+                  Accounts.main.isLogin &&
                   (!isPortrait || isFullScreen || PlatformUtils.isDesktop)) ...[
                 SizedBox(
                   width: btnWidth,

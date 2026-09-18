@@ -253,7 +253,7 @@ class _PgcIntroPageState extends State<PgcIntroPage> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          subBtn(),
+          if (introController.isLogin) subBtn(),
         ],
       );
       List<Widget> desc() => [
@@ -390,29 +390,32 @@ class _PgcIntroPageState extends State<PgcIntroPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Obx(
-            () => ActionItem(
-              animation: introController.tripleAnimation,
-              icon: const Icon(FontAwesomeIcons.thumbsUp),
-              selectIcon: const Icon(FontAwesomeIcons.solidThumbsUp),
-              selectStatus: introController.hasLike.value,
-              semanticsLabel: '点赞',
-              text: NumUtils.numFormat(stat.like),
-              onStartTriple: introController.onStartTriple,
-              onCancelTriple: introController.onCancelTriple,
+          // LibrePili: login-only actions are hidden when not logged in
+          if (introController.isLogin) ...[
+            Obx(
+              () => ActionItem(
+                animation: introController.tripleAnimation,
+                icon: const Icon(FontAwesomeIcons.thumbsUp),
+                selectIcon: const Icon(FontAwesomeIcons.solidThumbsUp),
+                selectStatus: introController.hasLike.value,
+                semanticsLabel: '点赞',
+                text: NumUtils.numFormat(stat.like),
+                onStartTriple: introController.onStartTriple,
+                onCancelTriple: introController.onCancelTriple,
+              ),
             ),
-          ),
-          Obx(
-            () => ActionItem(
-              animation: introController.tripleAnimation,
-              icon: const Icon(FontAwesomeIcons.b),
-              selectIcon: const Icon(FontAwesomeIcons.b),
-              onTap: introController.actionCoinVideo,
-              selectStatus: introController.hasCoin,
-              semanticsLabel: '投币',
-              text: NumUtils.numFormat(stat.coin),
+            Obx(
+              () => ActionItem(
+                animation: introController.tripleAnimation,
+                icon: const Icon(FontAwesomeIcons.b),
+                selectIcon: const Icon(FontAwesomeIcons.b),
+                onTap: introController.actionCoinVideo,
+                selectStatus: introController.hasCoin,
+                semanticsLabel: '投币',
+                text: NumUtils.numFormat(stat.coin),
+              ),
             ),
-          ),
+          ],
           Obx(
             () => ActionItem(
               animation: introController.tripleAnimation,
@@ -428,17 +431,18 @@ class _PgcIntroPageState extends State<PgcIntroPage> {
               text: NumUtils.numFormat(stat.favorite),
             ),
           ),
-          Obx(
-            () => ActionItem(
-              icon: const Icon(FontAwesomeIcons.clock),
-              selectIcon: const Icon(FontAwesomeIcons.solidClock),
-              onTap: () =>
-                  introController.handleAction(introController.viewLater),
-              selectStatus: introController.hasLater.value,
-              semanticsLabel: '再看',
-              text: '再看',
+          if (introController.isLogin)
+            Obx(
+              () => ActionItem(
+                icon: const Icon(FontAwesomeIcons.clock),
+                selectIcon: const Icon(FontAwesomeIcons.solidClock),
+                onTap: () =>
+                    introController.handleAction(introController.viewLater),
+                selectStatus: introController.hasLater.value,
+                semanticsLabel: '再看',
+                text: '再看',
+              ),
             ),
-          ),
           ActionItem(
             icon: const Icon(FontAwesomeIcons.shareFromSquare),
             onTap: () => introController.actionShareVideo(context),

@@ -86,9 +86,12 @@ class _MediaPageState extends CommonPageState<MinePage>
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: [
                     _buildUserInfo(theme, secondary),
-                    _buildActions(secondary),
+                    Obx(() => _buildActions(secondary)),
                     Obx(
-                      () => controller.loadingState.value is Loading
+                      () =>
+                          // LibrePili: account favorites only when logged in
+                          !controller.isLogin ||
+                              controller.loadingState.value is Loading
                           ? const SizedBox.shrink()
                           : _buildFav(theme, secondary),
                     ),
@@ -103,9 +106,11 @@ class _MediaPageState extends CommonPageState<MinePage>
   }
 
   Widget _buildActions(Color primary) {
+    // LibrePili: history / subscriptions / watch-later need login
+    final list = controller.isLogin ? controller.list : controller.list.take(1);
     return Row(
       mainAxisAlignment: .spaceEvenly,
-      children: controller.list
+      children: list
           .map(
             (e) => Flexible(
               child: InkWell(

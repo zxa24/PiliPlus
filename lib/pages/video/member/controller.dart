@@ -5,6 +5,7 @@ import 'package:PiliPlus/models/member/info.dart';
 import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
 import 'package:get/get.dart';
@@ -28,6 +29,10 @@ class HorizontalMemberPageController
 
   Future<void> getUserInfo() async {
     final res = await MemberHttp.memberInfo(mid: mid);
+    // LibrePili: logged out, the follow state comes from local follows
+    if (res case Success(:final response) when !Accounts.main.isLogin) {
+      response.isFollowed = LocalLibrary.isFollowed(int.tryParse('$mid'));
+    }
     userState.value = res;
     if (res.isSuccess) {
       getMemberStat();
