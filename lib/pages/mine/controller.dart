@@ -11,7 +11,9 @@ import 'package:PiliPlus/pages/common/common_data_controller.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
+import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -38,8 +40,9 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
   ThemeType get nextThemeType =>
       ThemeType.values[(themeType.value.index + 1) % ThemeType.values.length];
 
+  /// LibrePili: incognito is the default; it means login mode is off.
   static RxBool anonymity =
-      (Accounts.account.isNotEmpty && !Accounts.heartbeat.isLogin).obs;
+      (!LoginPolicy.loginMode || !Accounts.heartbeat.isLogin).obs;
 
   late final list = <({IconData icon, String title, VoidCallback onTap})>[
     (
@@ -80,7 +83,7 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
   void onInit() {
     super.onInit();
     UserInfoData? userInfoCache = Pref.userInfoCache;
-    if (userInfoCache != null) {
+    if (userInfoCache != null && LoginPolicy.loginMode) {
       userInfo.value = userInfoCache;
       queryData();
       queryUserInfo();
@@ -146,120 +149,74 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
     );
   }
 
-  static void onChangeAnonymity() {
+  /// Toggles between incognito (default, login mode off) and login mode.
+  static Future<void> onChangeAnonymity() async {
     if (Accounts.account.isEmpty) {
-      SmartDialog.showToast('请先登录');
+      SmartDialog.showToast('当前为无痕模式（默认）。需要账号功能时，请先在设置中登录');
       return;
     }
-    final newVal = !anonymity.value;
-    anonymity.value = newVal;
-    if (newVal) {
-      SmartDialog.dismiss();
-      SmartDialog.show<bool>(
-        clickMaskDismiss: false,
-        usePenetrate: true,
-        displayTime: const Duration(seconds: 2),
-        alignment: Alignment.bottomCenter,
-        builder: (context) {
-          final theme = Theme.of(context);
-          final style = TextStyle(
-            color: theme.colorScheme.onSecondaryContainer,
-          );
-          return ColoredBox(
-            color: theme.colorScheme.secondaryContainer,
-            child: Padding(
-              padding: EdgeInsets.only(
-                top: 15,
-                left: 20,
-                right: 20,
-                bottom: MediaQuery.viewPaddingOf(context).bottom + 15,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      const Icon(MdiIcons.incognito, size: 20),
-                      const SizedBox(width: 10),
-                      Text('已进入无痕模式', style: theme.textTheme.titleMedium),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '搜索不携带身份信息\n'
-                    '不产生查询或播放记录\n'
-                    '点赞等其它操作不受影响\n'
-                    '播放进度信息跟随视频取流\n'
-                    '上次观看分p信息跟随主账号\n'
-                    '(前往隐私设置了解详情)',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      TextButton(
-                        onPressed: () {
-                          SmartDialog.dismiss(result: true);
-                          SmartDialog.showToast('已设为永久无痕模式');
-                        },
-                        child: Text('保存为永久', style: style),
-                      ),
-                      const SizedBox(width: 10),
-                      TextButton(
-                        onPressed: () {
-                          SmartDialog.dismiss();
-                          SmartDialog.showToast('已设为临时无痕模式');
-                        },
-                        child: Text('仅本次（默认）', style: style),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ).then((res) {
-        if (res == false) {
-          return;
-        }
-        res == true
-            ? Accounts.set(AccountType.heartbeat, AnonymousAccount())
-            : Accounts.accountMode[AccountType.heartbeat.index] =
-                  AnonymousAccount();
-      });
-    } else {
-      Accounts.set(AccountType.heartbeat, Accounts.main);
-      SmartDialog.dismiss(result: false);
-      SmartDialog.show(
-        clickMaskDismiss: false,
-        usePenetrate: true,
-        displayTime: const Duration(seconds: 1),
-        alignment: Alignment.bottomCenter,
-        builder: (context) {
-          final theme = Theme.of(context);
-          return ColoredBox(
-            color: theme.colorScheme.secondaryContainer,
-            child: Padding(
-              padding: EdgeInsets.only(
-                top: 15,
-                left: 20,
-                right: 20,
-                bottom: MediaQuery.viewPaddingOf(context).bottom + 15,
-              ),
-              child: Row(
-                children: [
-                  const Icon(MdiIcons.incognitoOff, size: 20),
-                  const SizedBox(width: 10),
-                  Text('已退出无痕模式', style: theme.textTheme.titleMedium),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+    final enterIncognito = !anonymity.value;
+    await GStorage.setting.put(SettingBoxKey.loginMode, !enterIncognito);
+    await Accounts.refresh();
+    anonymity.value = enterIncognito;
+    if (enterIncognito) {
+      await LoginUtils.onLogoutMain();
+    } else if (Accounts.main.isLogin) {
+      await LoginUtils.onLoginMain();
     }
+    SmartDialog.dismiss();
+    SmartDialog.show(
+      clickMaskDismiss: true,
+      usePenetrate: true,
+      displayTime: const Duration(seconds: 3),
+      alignment: Alignment.bottomCenter,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return ColoredBox(
+          color: theme.colorScheme.secondaryContainer,
+          child: Padding(
+            padding: EdgeInsets.only(
+              top: 15,
+              left: 20,
+              right: 20,
+              bottom: MediaQuery.viewPaddingOf(context).bottom + 15,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      enterIncognito
+                          ? MdiIcons.incognito
+                          : MdiIcons.incognitoOff,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      enterIncognito ? '已进入无痕模式' : '已开启登录模式',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  enterIncognito
+                      ? '所有请求（推荐、搜索、播放等）均不携带账号\n'
+                            '账号仍保存在本机，但不会被使用\n'
+                            '需要登录才能用的功能将隐藏'
+                      : '只有必须登录的请求才会携带账号：\n'
+                            '点赞/投币/评论等操作、历史与账号收藏、消息、高画质取流\n'
+                            '推荐、搜索、视频信息等仍然匿名',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void onChangeTheme() {

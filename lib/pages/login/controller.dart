@@ -13,6 +13,8 @@ import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -619,6 +621,8 @@ class LoginPageController extends GetxController
   }
 
   Future<void> setAccount(Map tokenInfo, List cookieInfo) async {
+    // LibrePili: finishing a login is the explicit opt-in to login mode
+    await GStorage.setting.put(SettingBoxKey.loginMode, true);
     final account = LoginAccount(
       BiliCookieJar.fromList(cookieInfo),
       tokenInfo['access_token'],

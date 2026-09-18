@@ -101,7 +101,12 @@ abstract final class LoginUtils {
     return 'XY${md5Str[2]}${md5Str[12]}${md5Str[22]}$md5Str';
   }
 
+  /// Persistent device id: only for requests that carry the account.
   static final buvid = Pref.buvid;
+
+  /// LibrePili: fresh device id per launch for anonymous requests, so they
+  /// cannot be linked across launches or to the logged-in account.
+  static final sessionBuvid = generateBuvid();
 
   // static String getUUID() {
   //   return const Uuid().v4().replaceAll('-', '');

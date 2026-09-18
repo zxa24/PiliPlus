@@ -16,25 +16,30 @@ abstract final class GrpcHeaders {
   static const _mobiApp = 'android_hd';
   static const _device = 'android';
 
-  static String get _buvid => LoginUtils.buvid;
+  /// Account-bound headers use the persistent device id; anonymous ones a
+  /// per-launch id (LibrePili).
+  static String _buvidFor(String? accessKey) =>
+      accessKey != null ? LoginUtils.buvid : LoginUtils.sessionBuvid;
   static String get _traceId => Constants.traceId;
   static String get _sessionId => Utils.generateRandomString(8);
 
-  static final Map<String, String> _base = {
+  static final _bases = <String, Map<String, String>>{};
+
+  static Map<String, String> _base(String buvid) => _bases[buvid] ??= {
     'grpc-encoding': 'gzip',
     'gzip-accept-encoding': 'gzip,identity',
     'user-agent': Constants.userAgent,
     'x-bili-gaia-vtoken': '',
     'x-bili-aurora-zone': '',
     'x-bili-trace-id': _traceId,
-    'buvid': _buvid,
+    'buvid': buvid,
     'bili-http-engine': 'cronet',
     // 'te': 'trailers', // dio not supported
     'x-bili-device-bin': base64Encode(
       Device(
         appId: 5,
         build: _build,
-        buvid: _buvid,
+        buvid: buvid,
         mobiApp: _mobiApp,
         platform: _device,
         channel: _biliChannel,
@@ -66,8 +71,9 @@ abstract final class GrpcHeaders {
   );
 
   static Map<String, String> newHeaders([String? accessKey]) {
+    final buvid = _buvidFor(accessKey);
     return {
-      ..._base,
+      ..._base(buvid),
       if (accessKey != null) 'authorization': 'identify_v1 $accessKey',
       'x-bili-fawkes-req-bin': fawkes,
       'x-bili-metadata-bin': base64Encode(
@@ -77,7 +83,7 @@ abstract final class GrpcHeaders {
           device: _device,
           build: _build,
           channel: _biliChannel,
-          buvid: _buvid,
+          buvid: buvid,
           platform: _device,
         ).writeToBuffer(),
       ),

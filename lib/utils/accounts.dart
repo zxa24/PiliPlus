@@ -2,6 +2,7 @@ import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:hive_ce/hive.dart';
 
@@ -34,9 +35,15 @@ abstract final class Accounts {
   }
 
   static Future<void> refresh() {
-    for (final a in account.values) {
-      for (final t in a.type) {
-        accountMode[t.index] = a;
+    for (int i = 0; i < AccountType.values.length; i++) {
+      accountMode[i] = AnonymousAccount();
+    }
+    // LibrePili: stored accounts stay dormant unless login mode is on
+    if (LoginPolicy.loginMode) {
+      for (final a in account.values) {
+        for (final t in a.type) {
+          accountMode[t.index] = a;
+        }
       }
     }
     return Future.wait(
@@ -72,6 +79,11 @@ abstract final class Accounts {
     final oldAccount = accountMode[key.index]..type.remove(key);
     accountMode[key.index] = account..type.add(key);
     await Future.wait([?account.onChange(), ?oldAccount.onChange()]);
+    if (!LoginPolicy.loginMode) {
+      // role is saved on the account but stays dormant until login mode
+      accountMode[key.index] = AnonymousAccount();
+      return;
+    }
     if (!account.activated) await Request.buvidActive(account);
     switch (key) {
       case AccountType.main:

@@ -7,6 +7,7 @@ import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/accounts/api_type.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/app_sign.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -231,7 +232,15 @@ class AccountManager extends Interceptor {
 
   static Account _bindRequestAccount(RequestOptions options) {
     assert(options.extra['account'] is Account?);
-    return options.extra['account'] ??= _findAccount(options.path);
+    var account =
+        options.extra['account'] as Account? ?? _findAccount(options.path);
+    // LibrePili: no global login. Even in login mode the account is only
+    // attached where it is required; everything else goes out anonymously.
+    if (account is LoginAccount &&
+        (!LoginPolicy.loginMode || !LoginPolicy.requiresAccount(options))) {
+      account = AnonymousAccount();
+    }
+    return options.extra['account'] = account;
   }
 
   static Account? _boundRequestAccount(RequestOptions options) {

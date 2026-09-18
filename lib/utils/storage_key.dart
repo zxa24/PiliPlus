@@ -79,6 +79,7 @@ abstract final class SettingBoxKey {
       showRelatedVideo = 'showRelatedVideo',
       showVideoReply = 'showVideoReply',
       hideInteraction = 'hideInteraction',
+      loginMode = 'loginMode',
       showBangumiReply = 'showBangumiReply',
       alwaysExpandIntroPanel = 'alwaysExapndIntroPanel',
       expandIntroPanelH = 'exapndIntroPanelH',

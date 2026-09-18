@@ -12,7 +12,8 @@ class AccountService extends GetxService {
   void onInit() {
     super.onInit();
     UserInfoData? userInfo = Pref.userInfoCache;
-    if (userInfo != null) {
+    // LibrePili: a cached profile only counts while login mode is on
+    if (userInfo != null && Pref.loginMode) {
       face.value = userInfo.face ?? '';
       isLogin.value = true;
     } else {

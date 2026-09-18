@@ -383,6 +383,11 @@ abstract final class Pref {
   static bool get showVideoReply =>
       _setting.get(SettingBoxKey.showVideoReply, defaultValue: true);
 
+  /// Opt-in login mode (LibrePili). Off: all requests are anonymous and
+  /// stored accounts stay dormant.
+  static bool get loginMode =>
+      _setting.get(SettingBoxKey.loginMode, defaultValue: false);
+
   /// Hide comment sections and danmaku sending entries (LibrePili).
   static bool get hideInteraction =>
       _setting.get(SettingBoxKey.hideInteraction, defaultValue: true);
