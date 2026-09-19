@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/video_progress_indicator.dart';
@@ -12,6 +11,7 @@ import 'package:PiliPlus/models/common/video/source_type.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
+import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/downloading/view.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -44,7 +44,9 @@ class DetailItem extends StatelessWidget {
   final BiliDownloadEntryInfo entry;
   final ChangeNotifier? progress;
   final DownloadService downloadService;
-  final VoidCallback? onDelete;
+
+  /// Gets whether the exported video folder is deleted too.
+  final void Function(bool deleteExported)? onDelete;
   final bool showTitle;
   final bool isCurr;
   //
@@ -67,13 +69,13 @@ class DetailItem extends StatelessWidget {
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
               children: [
                 DialogOption(
-                  onPressed: () {
+                  onPressed: () async {
                     Get.back();
-                    showConfirmDialog(
-                      context: context,
-                      title: const Text('确定删除该视频？'),
-                      onConfirm: onDelete,
+                    final deleteExported = await showDeleteDownloadDialog(
+                      context,
+                      exportOption: entry.mergedPath != null,
                     );
+                    if (deleteExported != null) onDelete!(deleteExported);
                   },
                   child: const Text('删除', style: TextStyle(fontSize: 14)),
                 ),

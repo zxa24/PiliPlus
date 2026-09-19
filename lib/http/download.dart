@@ -148,18 +148,19 @@ abstract final class DownloadHttp {
           userAgent: userAgent,
         );
       } else {
-        final first = response.durl!.first;
+        // LibrePili: every segment, in timeline order (not just the first)
         final List<Type1Segment> segmentList = [
-          Type1Segment(
-            backupUrls: [],
-            bytes: first.size!,
-            duration: first.length!,
-            md5: '',
-            metaUrl: '',
-            order: first.order!,
-            url: VideoUtils.getCdnUrl(first.playUrls),
-          ),
-        ];
+          for (final (i, durl) in response.durl!.indexed)
+            Type1Segment(
+              backupUrls: durl.playUrls.toList(),
+              bytes: durl.size ?? 0,
+              duration: durl.length ?? 0,
+              md5: '',
+              metaUrl: '',
+              order: durl.order ?? i + 1,
+              url: VideoUtils.getCdnUrl(durl.playUrls),
+            ),
+        ]..sort((a, b) => a.order.compareTo(b.order));
         final FormatItem? formatItem = response.supportFormats
             ?.firstWhereOrNull((e) => e.quality == response.quality);
         final String description =

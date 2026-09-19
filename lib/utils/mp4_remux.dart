@@ -1,6 +1,9 @@
 import 'dart:io';
-import 'dart:math' show max;
+import 'dart:math' show max, min;
 import 'dart:typed_data';
+
+part 'flv_demux.dart';
+part 'mp4_join.dart';
 
 /// Losslessly merges single-track fragmented MP4 inputs (bilibili DASH
 /// `video.m4s` / `audio.m4s`) into one progressive MP4 with `moov` placed
@@ -28,7 +31,79 @@ abstract final class Mp4Remuxer {
           ..index = tracks.length,
       );
     }
+    await _write(tracks, output, onProgress);
+  }
 
+  /// Whether [path] starts with an FLV header.
+  static bool isFlv(String path) => _hasMagic(path, 0, 'FLV');
+
+  /// Whether [path] is an (ISO BMFF) MP4 file.
+  static bool isMp4(String path) => _hasMagic(path, 4, 'ftyp');
+
+  static bool _hasMagic(String path, int offset, String magic) {
+    final raf = File(path).openSync();
+    try {
+      raf.setPositionSync(offset);
+      return String.fromCharCodes(raf.readSync(magic.length)) == magic;
+    } finally {
+      raf.closeSync();
+    }
+  }
+
+  /// Joins FLV segments (in timeline order) into one progressive MP4.
+  /// Supports H.264 video and AAC audio; anything else throws
+  /// [UnsupportedError] so the caller can keep the original file.
+  static Future<void> remuxFlv({
+    required List<String> inputs,
+    required String output,
+    void Function(int copied, int total)? onProgress,
+  }) async {
+    if (inputs.isEmpty) throw ArgumentError('no input');
+    await _write(_FlvDemuxer.demux(inputs), output, onProgress);
+  }
+
+  /// Joins progressive MP4 segments (in timeline order) into one MP4.
+  /// Throws [UnsupportedError] when the segments' tracks or codec
+  /// configurations differ, so the caller can keep them separate.
+  static Future<void> joinMp4({
+    required List<String> inputs,
+    required String output,
+    void Function(int copied, int total)? onProgress,
+  }) async {
+    if (inputs.isEmpty) throw ArgumentError('no input');
+    await _write(_Mp4Joiner.join(inputs), output, onProgress);
+  }
+
+  /// The tracks an FLV demux produces; for tests only.
+  static List<Map<String, Object>> debugFlvTracks(List<String> inputs) =>
+      _debugSummary(_FlvDemuxer.demux(inputs));
+
+  /// The tracks [joinMp4] reads from progressive MP4 inputs; for tests only.
+  static List<Map<String, Object>> debugMp4JoinTracks(List<String> inputs) =>
+      _debugSummary(_Mp4Joiner.join(inputs));
+
+  static List<Map<String, Object>> _debugSummary(List<_Track> tracks) => [
+    for (final t in tracks)
+      {
+        'type': t.sampleEntryType,
+        'timescale': t.timescale,
+        'sizes': t.sizes,
+        'durations': t.durations,
+        'ctos': t.ctos,
+        'syncs': t.syncs,
+        'stsd': t.stsd,
+        'tkhdTail': t.tkhdTail,
+        'edits': [
+          for (final e in t.edits) [e.segmentDuration, e.mediaTime],
+        ],
+      },
+  ];
+
+  static Future<void> _write(
+    List<_Track> tracks,
+    String output,
+    void Function(int copied, int total)? onProgress,
+  ) async {
     final chunks = [for (final t in tracks) ...t.chunks]
       ..sort((a, b) {
         final c = a.startSeconds.compareTo(b.startSeconds);
@@ -71,8 +146,8 @@ abstract final class Mp4Remuxer {
       final buffer = Uint8List(_copyBufferSize);
       var copied = 0;
       for (final c in chunks) {
-        final src = sources[c.track.path] ??= await File(
-          c.track.path,
+        final src = sources[c.sourcePath] ??= await File(
+          c.sourcePath,
         ).open();
         await src.setPosition(c.sourceOffset);
         var remaining = c.length;
@@ -83,7 +158,7 @@ abstract final class Mp4Remuxer {
             remaining < buffer.length ? remaining : buffer.length,
           );
           if (n <= 0) {
-            throw FormatException('unexpected EOF in ${c.track.path}');
+            throw FormatException('unexpected EOF in ${c.sourcePath}');
           }
           await out.writeFrom(buffer, 0, n);
           remaining -= n;
@@ -167,8 +242,17 @@ final _unityMatrix = () {
 }();
 
 class _Chunk {
-  _Chunk(this.track, this.sourceOffset, this.firstSample, this.startDts);
+  _Chunk(
+    this.track,
+    this.sourceOffset,
+    this.firstSample,
+    this.startDts, [
+    String? sourcePath,
+  ]) : sourcePath = sourcePath ?? track.path;
   final _Track track;
+
+  /// File the chunk's bytes are read from (FLV input: one per segment).
+  final String sourcePath;
   final int sourceOffset;
   final int firstSample;
   final int startDts;
@@ -680,6 +764,8 @@ class _W {
   final _b = BytesBuilder();
   final _tmp = ByteData(8);
   Uint8List get bytes => _b.toBytes();
+
+  void u8(int v) => _b.addByte(v & 0xFF);
 
   void u16(int v) {
     _tmp.setUint16(0, v);

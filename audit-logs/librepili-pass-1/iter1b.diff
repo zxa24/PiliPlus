@@ -1,0 +1,3487 @@
+diff --git a/.github/workflows/ios.yml b/.github/workflows/ios.yml
+index f0565015e..f737f3cde 100644
+--- a/.github/workflows/ios.yml
++++ b/.github/workflows/ios.yml
+@@ -40,7 +40,7 @@ jobs:
+           ln -sf ./build/ios/iphoneos Payload
+           # make AltSign happy...
+           find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
+-          zip -r9 PiliPlus_ios_${{env.version}}.ipa Payload/Runner.app
++          zip -r9 LibrePili_ios_${{env.version}}.ipa Payload/Runner.app
+ 
+       - name: Release
+         if: ${{ github.event.inputs.tag != '' }}
+@@ -49,11 +49,11 @@ jobs:
+           tag_name: ${{ github.event.inputs.tag }}
+           name: ${{ github.event.inputs.tag }}
+           files: |
+-            PiliPlus_ios_*.ipa
++            LibrePili_ios_*.ipa
+ 
+       - name: Upload ios release
+         uses: actions/upload-artifact@v7
+         with:
+           archive: false
+           name: iOS-release
+-          path: PiliPlus_ios_*.ipa
++          path: LibrePili_ios_*.ipa
+diff --git a/.github/workflows/linux_x64.yml b/.github/workflows/linux_x64.yml
+index c72e4670a..2b7ef3d83 100644
+--- a/.github/workflows/linux_x64.yml
++++ b/.github/workflows/linux_x64.yml
+@@ -46,22 +46,22 @@ jobs:
+         run: flutter build linux --release --dart-define-from-file=pili_release.json --no-pub
+ 
+       - name: Package .tar.gz
+-        run: tar -zcvf PiliPlus_linux_${{ env.version }}_amd64.tar.gz -C build/linux/x64/release/bundle .
++        run: tar -zcvf LibrePili_linux_${{ env.version }}_amd64.tar.gz -C build/linux/x64/release/bundle .
+ 
+       - name: Packege deb
+         run: |
+           printf "建立构建目录...\n"
+-          mkdir "PiliPlus_linux_${{ env.version }}_amd64"
+-          pushd "PiliPlus_linux_${{ env.version }}_amd64"
+-          mkdir -p opt/PiliPlus
++          mkdir "LibrePili_linux_${{ env.version }}_amd64"
++          pushd "LibrePili_linux_${{ env.version }}_amd64"
++          mkdir -p opt/LibrePili
+           mkdir -p usr/share/applications
+           mkdir -p usr/share/icons/hicolor/512x512/apps
+ 
+           printf "复制文件...\n"
+-          cp -r ../build/linux/x64/release/bundle/* opt/PiliPlus
++          cp -r ../build/linux/x64/release/bundle/* opt/LibrePili
+           cp -r ../assets/linux/DEBIAN .
+-          cp ../assets/linux/com.example.piliplus.desktop usr/share/applications
+-          cp ../assets/images/logo/logo.png usr/share/icons/hicolor/512x512/apps/piliplus.png
++          cp ../assets/linux/com.zxa24.librepili.desktop usr/share/applications
++          cp ../assets/images/logo/logo.png usr/share/icons/hicolor/512x512/apps/librepili.png
+ 
+           printf "修改控制文件...\n"
+           # 替换版本号
+@@ -74,9 +74,9 @@ jobs:
+           sed -i "9s/size_need_change/${SIZE_KB}/g" DEBIAN/control
+ 
+           printf "生成并写入 md5sums ...\n"
+-          md5sum opt/PiliPlus/piliplus >> DEBIAN/md5sums
+-          md5sum opt/PiliPlus/lib/* >> DEBIAN/md5sums
+-          md5sum opt/PiliPlus/data/icudtl.dat >> DEBIAN/md5sums
++          md5sum opt/LibrePili/librepili >> DEBIAN/md5sums
++          md5sum opt/LibrePili/lib/* >> DEBIAN/md5sums
++          md5sum opt/LibrePili/data/icudtl.dat >> DEBIAN/md5sums
+ 
+           printf "设置权限...\n"
+           chmod 0644 DEBIAN/control
+@@ -87,8 +87,8 @@ jobs:
+ 
+           printf "打包 deb 文件...\n"
+           popd
+-          dpkg-deb --build --verbose --root-owner-group "PiliPlus_linux_${{ env.version }}_amd64"
+-          printf "完成: PiliPlus_linux_%s_amd64.deb\n" "${{ env.version }}"
++          dpkg-deb --build --verbose --root-owner-group "LibrePili_linux_${{ env.version }}_amd64"
++          printf "完成: LibrePili_linux_%s_amd64.deb\n" "${{ env.version }}"
+         shell: bash
+ 
+       - name: Packege rpm
+@@ -99,46 +99,46 @@ jobs:
+ 
+           printf "准备源码归档（仅包含运行时与元数据）...\n"
+           DATE="$(date '+%a %b %d %Y')"
+-          SRC_DIR="$PWD/piliplus-${{ env.version }}"
++          SRC_DIR="$PWD/librepili-${{ env.version }}"
+           mkdir -p "$SRC_DIR/bundle" "$SRC_DIR/assets"
+           cp -r build/linux/x64/release/bundle/* "$SRC_DIR/bundle/"
+-          cp assets/linux/com.example.piliplus.desktop "$SRC_DIR/assets/com.example.piliplus.desktop"
+-          cp assets/images/logo/logo.png "$SRC_DIR/assets/piliplus.png"
+-          tar -zcvf "$RPM_BUILD_ROOT/SOURCES/piliplus-${{ env.version }}.tar.gz" -C "$PWD" "piliplus-${{ env.version }}"
++          cp assets/linux/com.zxa24.librepili.desktop "$SRC_DIR/assets/com.zxa24.librepili.desktop"
++          cp assets/images/logo/logo.png "$SRC_DIR/assets/librepili.png"
++          tar -zcvf "$RPM_BUILD_ROOT/SOURCES/librepili-${{ env.version }}.tar.gz" -C "$PWD" "librepili-${{ env.version }}"
+ 
+           printf "生成 spec 文件...\n"
+-          cat > "$RPM_BUILD_ROOT/SPECS/piliplus.spec" <<EOF
+-          Name:           piliplus
++          cat > "$RPM_BUILD_ROOT/SPECS/librepili.spec" <<EOF
++          Name:           librepili
+           Version:        ${{ env.version }}
+           Release:        1%{?dist}
+-          Summary:        PiliPlus Linux Version
++          Summary:        LibrePili Linux Version
+           License:        GPL-3.0
+-          Source0:        piliplus-${{ env.version }}.tar.gz
++          Source0:        librepili-${{ env.version }}.tar.gz
+           Requires:       desktop-file-utils, hicolor-icon-theme
+ 
+           %description
+           使用 Flutter 开发的 BiliBili 第三方客户端
+ 
+           %prep
+-          %setup -q -n piliplus-${{ env.version }}
++          %setup -q -n librepili-${{ env.version }}
+ 
+           %build
+ 
+           %install
+-          mkdir -p %{buildroot}/opt/PiliPlus
+-          cp -r bundle/* %{buildroot}/opt/PiliPlus/
++          mkdir -p %{buildroot}/opt/LibrePili
++          cp -r bundle/* %{buildroot}/opt/LibrePili/
+ 
+           # 二进制权限与命令行入口
+-          chmod 755 %{buildroot}/opt/PiliPlus/piliplus
++          chmod 755 %{buildroot}/opt/LibrePili/librepili
+           mkdir -p %{buildroot}/usr/bin
+-          ln -sf /opt/PiliPlus/piliplus %{buildroot}/usr/bin/piliplus
++          ln -sf /opt/LibrePili/librepili %{buildroot}/usr/bin/librepili
+ 
+           # 桌面集成
+           mkdir -p %{buildroot}/usr/share/applications
+-          install -m 644 assets/com.example.piliplus.desktop %{buildroot}/usr/share/applications/com.example.piliplus.desktop
++          install -m 644 assets/com.zxa24.librepili.desktop %{buildroot}/usr/share/applications/com.zxa24.librepili.desktop
+ 
+           mkdir -p %{buildroot}/usr/share/icons/hicolor/512x512/apps
+-          install -m 644 assets/piliplus.png %{buildroot}/usr/share/icons/hicolor/512x512/apps/piliplus.png
++          install -m 644 assets/librepili.png %{buildroot}/usr/share/icons/hicolor/512x512/apps/librepili.png
+ 
+           %post
+           update-desktop-database -q || true
+@@ -149,25 +149,25 @@ jobs:
+           gtk-update-icon-cache -q -t -f %{_datadir}/icons/hicolor || true
+ 
+           %files
+-          /opt/PiliPlus
+-          /usr/bin/piliplus
+-          /usr/share/applications/com.example.piliplus.desktop
+-          /usr/share/icons/hicolor/512x512/apps/piliplus.png
++          /opt/LibrePili
++          /usr/bin/librepili
++          /usr/share/applications/com.zxa24.librepili.desktop
++          /usr/share/icons/hicolor/512x512/apps/librepili.png
+ 
+           %changelog
+           * DATE - ${{ env.version }}-1
+           - Initial RPM release
+           EOF
+ 
+-          sed -i "s/DATE/${DATE}/g" "$RPM_BUILD_ROOT/SPECS/piliplus.spec"
++          sed -i "s/DATE/${DATE}/g" "$RPM_BUILD_ROOT/SPECS/librepili.spec"
+ 
+           printf "构建 RPM 包...\n"
+-          rpmbuild --define "_topdir $RPM_BUILD_ROOT" -bb "$RPM_BUILD_ROOT/SPECS/piliplus.spec"
++          rpmbuild --define "_topdir $RPM_BUILD_ROOT" -bb "$RPM_BUILD_ROOT/SPECS/librepili.spec"
+ 
+           printf "移动生成的 RPM...\n"
+-          find "$RPM_BUILD_ROOT/RPMS" -name "*.rpm" -exec mv {} "PiliPlus_linux_${{ env.version }}_amd64.rpm" \;
++          find "$RPM_BUILD_ROOT/RPMS" -name "*.rpm" -exec mv {} "LibrePili_linux_${{ env.version }}_amd64.rpm" \;
+ 
+-          printf "完成: PiliPlus_linux_%s_amd64.rpm\n" "${{ env.version }}"
++          printf "完成: LibrePili_linux_%s_amd64.rpm\n" "${{ env.version }}"
+         shell: bash
+ 
+       - name: Package AppImage
+@@ -177,7 +177,7 @@ jobs:
+           chmod +x appimagetool-x86_64.AppImage
+ 
+           printf "建立 AppDir 目录结构...\n"
+-          APPDIR="PiliPlus.AppDir"
++          APPDIR="LibrePili.AppDir"
+           mkdir -p "$APPDIR/usr/bin"
+           mkdir -p "$APPDIR/usr/lib"
+           mkdir -p "$APPDIR/usr/share/applications"
+@@ -187,10 +187,10 @@ jobs:
+           cp -r build/linux/x64/release/bundle/* "$APPDIR/usr/bin/"
+ 
+           printf "复制桌面文件和图标...\n"
+-          cp assets/linux/com.example.piliplus.desktop "$APPDIR/com.example.piliplus.desktop"
+-          cp assets/linux/com.example.piliplus.desktop "$APPDIR/usr/share/applications/com.example.piliplus.desktop"
+-          cp assets/images/logo/logo.png "$APPDIR/piliplus.png"
+-          cp assets/images/logo/logo.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/piliplus.png"
++          cp assets/linux/com.zxa24.librepili.desktop "$APPDIR/com.zxa24.librepili.desktop"
++          cp assets/linux/com.zxa24.librepili.desktop "$APPDIR/usr/share/applications/com.zxa24.librepili.desktop"
++          cp assets/images/logo/logo.png "$APPDIR/librepili.png"
++          cp assets/images/logo/logo.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/librepili.png"
+ 
+           printf "创建 AppRun 启动脚本...\n"
+           cat > "$APPDIR/AppRun" <<'APPRUN_EOF'
+@@ -199,18 +199,18 @@ jobs:
+           HERE=${SELF%/*}
+           export PATH="${HERE}/usr/bin:${PATH}"
+           export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+-          exec "${HERE}/usr/bin/piliplus" "$@"
++          exec "${HERE}/usr/bin/librepili" "$@"
+           APPRUN_EOF
+           chmod +x "$APPDIR/AppRun"
+ 
+           printf "修改桌面文件中的 Exec 路径...\n"
+-          sed -i 's|Exec=piliplus|Exec=piliplus|g' "$APPDIR/com.example.piliplus.desktop"
+-          sed -i 's|Icon=piliplus|Icon=piliplus|g' "$APPDIR/com.example.piliplus.desktop"
++          sed -i 's|Exec=librepili|Exec=librepili|g' "$APPDIR/com.zxa24.librepili.desktop"
++          sed -i 's|Icon=librepili|Icon=librepili|g' "$APPDIR/com.zxa24.librepili.desktop"
+ 
+           printf "打包 AppImage...\n"
+-          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "PiliPlus_linux_${{ env.version }}_amd64.AppImage"
++          ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPDIR" "LibrePili_linux_${{ env.version }}_amd64.AppImage"
+ 
+-          printf "完成: PiliPlus_linux_%s_amd64.AppImage\n" "${{ env.version }}"
++          printf "完成: LibrePili_linux_%s_amd64.AppImage\n" "${{ env.version }}"
+         shell: bash
+ 
+       - name: Release
+@@ -220,35 +220,35 @@ jobs:
+           tag_name: ${{ github.event.inputs.tag }}
+           name: ${{ github.event.inputs.tag }}
+           files: |
+-            PiliPlus_linux_*.tar.gz
+-            PiliPlus_linux_*.deb
+-            PiliPlus_linux_*.rpm
+-            PiliPlus_linux_*.AppImage
++            LibrePili_linux_*.tar.gz
++            LibrePili_linux_*.deb
++            LibrePili_linux_*.rpm
++            LibrePili_linux_*.AppImage
+ 
+       - name: Upload linux targz package
+         uses: actions/upload-artifact@v7
+         with:
+           archive: false
+           name: Linux_targz_amd64_packege
+-          path: PiliPlus_linux_*.tar.gz
++          path: LibrePili_linux_*.tar.gz
+ 
+       - name: Upload linux deb package
+         uses: actions/upload-artifact@v7
+         with:
+           archive: false
+           name: Linux_deb_amd64_package
+-          path: PiliPlus_linux_*.deb
++          path: LibrePili_linux_*.deb
+ 
+       - name: Upload linux rpm package
+         uses: actions/upload-artifact@v7
+         with:
+           archive: false
+           name: Linux_rpm_amd64_package
+-          path: PiliPlus_linux_*.rpm
++          path: LibrePili_linux_*.rpm
+ 
+       - name: Upload linux AppImage package
+         uses: actions/upload-artifact@v7
+         with:
+           archive: false
+           name: Linux_AppImage_amd64_package
+-          path: PiliPlus_linux_*.AppImage
++          path: LibrePili_linux_*.AppImage
+diff --git a/.github/workflows/mac.yml b/.github/workflows/mac.yml
+index ba8e6f938..821a35ef7 100644
+--- a/.github/workflows/mac.yml
++++ b/.github/workflows/mac.yml
+@@ -40,11 +40,11 @@ jobs:
+       - name: Prepare Upload
+         run: |
+           npm install --global create-dmg
+-          create-dmg build/macos/Build/Products/Release/PiliPlus.app || true
++          create-dmg build/macos/Build/Products/Release/LibrePili.app || true
+         continue-on-error: true
+ 
+       - name: Rename DMG
+-        run: mv PiliPlus*.dmg PiliPlus_macos_${{ env.version }}.dmg
++        run: mv LibrePili*.dmg LibrePili_macos_${{ env.version }}.dmg
+ 
+       - name: Release
+         if: ${{ github.event.inputs.tag != '' }}
+@@ -53,11 +53,11 @@ jobs:
+           tag_name: ${{ github.event.inputs.tag }}
+           name: ${{ github.event.inputs.tag }}
+           files: |
+-            PiliPlus_macos_*.dmg
++            LibrePili_macos_*.dmg
+ 
+       - name: Upload macos release
+         uses: actions/upload-artifact@v7
+         with:
+           archive: false
+           name: macOS-release
+-          path: PiliPlus_macos_*.dmg
++          path: LibrePili_macos_*.dmg
+diff --git a/.gitignore b/.gitignore
+index edb399e53..8a82b12af 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -149,4 +149,5 @@ pili_release.json
+ 
+ dist
+ 
+-test*
+\ No newline at end of file
++test*
++audit-logs/
+diff --git a/assets/linux/DEBIAN/control b/assets/linux/DEBIAN/control
+index 484ad25d6..ba97fa025 100644
+--- a/assets/linux/DEBIAN/control
++++ b/assets/linux/DEBIAN/control
+@@ -1,4 +1,4 @@
+-Package: PiliPlus
++Package: LibrePili
+ Version: version_need_change
+ Maintainer: gh-MzA4Nzk <githubaccount2333@proton.me>
+ Original-Maintainer: bggRGjQaUbCoE <githubaccount56556@proton.me>
+@@ -8,7 +8,7 @@ Architecture: amd64
+ Essential: no
+ Installed-Size: size_need_change
+ Description: third-party Bilibili client developed in Flutter
+-Homepage: https://github.com/bggRGjQaUbCoE/PiliPlus
++Homepage: https://github.com/zxa24/PiliPlus
+ Depends: libgtk-3-0t64,
+          libmpv2,
+          gir1.2-ayatanaappindicator3-0.1,
+diff --git a/assets/linux/DEBIAN/postinst b/assets/linux/DEBIAN/postinst
+index e017701ae..384bd9de3 100644
+--- a/assets/linux/DEBIAN/postinst
++++ b/assets/linux/DEBIAN/postinst
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env bash
+ 
+-ln -sf /opt/PiliPlus/piliplus /usr/bin/piliplus
+-chmod +x /usr/bin/piliplus
++ln -sf /opt/LibrePili/librepili /usr/bin/librepili
++chmod +x /usr/bin/librepili
+ 
+ if [ $1 == "configure" ] && [ -x /usr/bin/update-mime-database ]; then
+     echo "updating mime database..."
+diff --git a/assets/linux/DEBIAN/postrm b/assets/linux/DEBIAN/postrm
+index 1d2892a7a..a4deaae22 100644
+--- a/assets/linux/DEBIAN/postrm
++++ b/assets/linux/DEBIAN/postrm
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env bash
+-rm /usr/bin/piliplus
++rm /usr/bin/librepili
+ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+     if [ -x /usr/bin/update-desktop-database ]; then
+         echo "updating desktop database..."
+@@ -19,8 +19,8 @@ fi
+ 
+ if [ $1 = "purge" ]; then
+     echo "Removing user data..."
+-    rm -rf /home/*/.local/share/com.example.PiliPlus || true
+-    rm -rf /root/.local/share/com.example.PiliPlus || true
++    rm -rf /home/*/.local/share/com.zxa24.librepili || true
++    rm -rf /root/.local/share/com.zxa24.librepili || true
+ fi
+ 
+ exit 0
+diff --git a/assets/linux/DEBIAN/prerm b/assets/linux/DEBIAN/prerm
+index 6cb73834c..771b50857 100644
+--- a/assets/linux/DEBIAN/prerm
++++ b/assets/linux/DEBIAN/prerm
+@@ -1,8 +1,8 @@
+ #!/usr/bin/env bash
+ 
+ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
+-    echo "Stopping PiliPlus if running..."
+-    pkill -x piliplus || true
++    echo "Stopping LibrePili if running..."
++    pkill -x librepili || true
+ fi
+ 
+ exit 0
+diff --git a/assets/linux/com.example.piliplus.desktop b/assets/linux/com.example.piliplus.desktop
+deleted file mode 100644
+index cfe4ad050..000000000
+--- a/assets/linux/com.example.piliplus.desktop
++++ /dev/null
+@@ -1,11 +0,0 @@
+-[Desktop Entry]
+-Type=Application
+-Name=PiliPlus
+-Comment=A third-party Bilibili Client developed in Flutter
+-Comment[zh_CN]=使用 Flutter 开发的 BiliBili 第三方客户端
+-Exec=piliplus %u
+-Icon=piliplus
+-Terminal=false
+-StartupWMClass=com.example.piliplus
+-Categories=Video;AudioVideo;Player;
+-MimeType=x-scheme-handler/bilibili;
+diff --git a/ios/Runner.xcodeproj/project.pbxproj b/ios/Runner.xcodeproj/project.pbxproj
+index 2a88a9627..a37b71897 100644
+--- a/ios/Runner.xcodeproj/project.pbxproj
++++ b/ios/Runner.xcodeproj/project.pbxproj
+@@ -387,7 +387,7 @@
+ 					"$(inherited)",
+ 					"@executable_path/Frameworks",
+ 				);
+-				PRODUCT_BUNDLE_IDENTIFIER = com.example.piliplus;
++				PRODUCT_BUNDLE_IDENTIFIER = com.zxa24.librepili;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+@@ -516,7 +516,7 @@
+ 					"$(inherited)",
+ 					"@executable_path/Frameworks",
+ 				);
+-				PRODUCT_BUNDLE_IDENTIFIER = com.example.piliplus;
++				PRODUCT_BUNDLE_IDENTIFIER = com.zxa24.librepili;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+ 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+@@ -539,7 +539,7 @@
+ 					"$(inherited)",
+ 					"@executable_path/Frameworks",
+ 				);
+-				PRODUCT_BUNDLE_IDENTIFIER = com.example.piliplus;
++				PRODUCT_BUNDLE_IDENTIFIER = com.zxa24.librepili;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+diff --git a/ios/Runner/Info.plist b/ios/Runner/Info.plist
+index bf70bfefd..8197935b1 100644
+--- a/ios/Runner/Info.plist
++++ b/ios/Runner/Info.plist
+@@ -28,7 +28,7 @@
+ 		<key>CFBundleDevelopmentRegion</key>
+ 		<string>$(DEVELOPMENT_LANGUAGE)</string>
+ 		<key>CFBundleDisplayName</key>
+-		<string>PiliPlus</string>
++		<string>LibrePili</string>
+ 		<key>CFBundleExecutable</key>
+ 		<string>$(EXECUTABLE_NAME)</string>
+ 		<key>CFBundleIdentifier</key>
+@@ -36,7 +36,7 @@
+ 		<key>CFBundleInfoDictionaryVersion</key>
+ 		<string>6.0</string>
+ 		<key>CFBundleName</key>
+-		<string>PiliPlus</string>
++		<string>LibrePili</string>
+ 		<key>CFBundlePackageType</key>
+ 		<string>APPL</string>
+ 		<key>CFBundleShortVersionString</key>
+diff --git a/lib/http/download.dart b/lib/http/download.dart
+index 28b5d79d7..9638487f1 100644
+--- a/lib/http/download.dart
++++ b/lib/http/download.dart
+@@ -148,18 +148,19 @@ abstract final class DownloadHttp {
+           userAgent: userAgent,
+         );
+       } else {
+-        final first = response.durl!.first;
++        // LibrePili: every segment, in timeline order (not just the first)
+         final List<Type1Segment> segmentList = [
+-          Type1Segment(
+-            backupUrls: [],
+-            bytes: first.size!,
+-            duration: first.length!,
+-            md5: '',
+-            metaUrl: '',
+-            order: first.order!,
+-            url: VideoUtils.getCdnUrl(first.playUrls),
+-          ),
+-        ];
++          for (final (i, durl) in response.durl!.indexed)
++            Type1Segment(
++              backupUrls: durl.playUrls.toList(),
++              bytes: durl.size ?? 0,
++              duration: durl.length ?? 0,
++              md5: '',
++              metaUrl: '',
++              order: durl.order ?? i + 1,
++              url: VideoUtils.getCdnUrl(durl.playUrls),
++            ),
++        ]..sort((a, b) => a.order.compareTo(b.order));
+         final FormatItem? formatItem = response.supportFormats
+             ?.firstWhereOrNull((e) => e.quality == response.quality);
+         final String description =
+diff --git a/lib/http/live.dart b/lib/http/live.dart
+index 34a824be8..783ce7ad3 100644
+--- a/lib/http/live.dart
++++ b/lib/http/live.dart
+@@ -3,7 +3,6 @@ import 'package:PiliPlus/http/api.dart';
+ import 'package:PiliPlus/http/browser_ua.dart';
+ import 'package:PiliPlus/http/init.dart';
+ import 'package:PiliPlus/http/loading_state.dart';
+-import 'package:PiliPlus/http/login.dart';
+ import 'package:PiliPlus/models/common/account_type.dart';
+ import 'package:PiliPlus/models/common/live/live_contribution_rank_type.dart';
+ import 'package:PiliPlus/models/common/live/live_search_type.dart';
+diff --git a/lib/http/video.dart b/lib/http/video.dart
+index b51fb205b..1430168f6 100644
+--- a/lib/http/video.dart
++++ b/lib/http/video.dart
+@@ -7,7 +7,6 @@ import 'package:PiliPlus/http/api.dart';
+ import 'package:PiliPlus/http/browser_ua.dart';
+ import 'package:PiliPlus/http/init.dart';
+ import 'package:PiliPlus/http/loading_state.dart';
+-import 'package:PiliPlus/http/login.dart';
+ import 'package:PiliPlus/models/common/account_type.dart';
+ import 'package:PiliPlus/models/common/video/video_type.dart';
+ import 'package:PiliPlus/models/home/rcmd/result.dart';
+diff --git a/lib/main.dart b/lib/main.dart
+index d79cabdcb..3e1538953 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -54,6 +54,10 @@ WebViewEnvironment? webViewEnvironment;
+ EdgeInsets? tmpPadding;
+ 
+ Future<void> _initDownPath() async {
++  if (isSelfTestProfile) {
++    downloadPath = defDownloadPath;
++    return;
++  }
+   if (PlatformUtils.isDesktop) {
+     final customDownPath = Pref.downloadPath;
+     if (customDownPath != null && customDownPath.isNotEmpty) {
+@@ -88,12 +92,18 @@ Future<void> _initTmpPath() async {
+ }
+ 
+ Future<void> _initAppPath() async {
+-  appSupportDirPath = (await getApplicationSupportDirectory()).path;
++  var dir = (await getApplicationSupportDirectory()).path;
++  if (isSelfTestProfile) {
++    dir = path.join(dir, 'selftest');
++    await Directory(dir).create(recursive: true);
++  }
++  appSupportDirPath = dir;
+ }
+ 
+ void main(List<String> args) async {
+   ScaledWidgetsFlutterBinding.ensureInitialized();
+   MediaKit.ensureInitialized();
++  isSelfTestProfile = SelfTest.isRequested(args);
+   await _initAppPath();
+   try {
+     await GStorage.init();
+diff --git a/lib/pages/audio/view.dart b/lib/pages/audio/view.dart
+index 065cccaf7..548706cba 100644
+--- a/lib/pages/audio/view.dart
++++ b/lib/pages/audio/view.dart
+@@ -37,7 +37,6 @@ import 'package:PiliPlus/utils/page_utils.dart';
+ import 'package:PiliPlus/utils/platform_utils.dart';
+ import 'package:PiliPlus/utils/storage.dart';
+ import 'package:PiliPlus/utils/storage_key.dart';
+-import 'package:PiliPlus/utils/storage_pref.dart';
+ import 'package:PiliPlus/utils/utils.dart';
+ import 'package:flutter/foundation.dart' show kDebugMode;
+ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+diff --git a/lib/pages/common/common_intro_controller.dart b/lib/pages/common/common_intro_controller.dart
+index a1a1a6c63..b28560e00 100644
+--- a/lib/pages/common/common_intro_controller.dart
++++ b/lib/pages/common/common_intro_controller.dart
+@@ -215,12 +215,8 @@ mixin FavMixin on TripleMixin {
+     }
+   }
+ 
+-  void _onLocalFavChanged(bool fav) {
+-    if (hasFav.value != fav) {
+-      updateFavCount(fav ? 1 : -1);
+-      hasFav.value = fav;
+-    }
+-  }
++  // device-local only: the public favorite count is left as is
++  void _onLocalFavChanged(bool fav) => hasFav.value = fav;
+ 
+   Future<void> _localFav(BuildContext context, bool isLongPress) async {
+     final key = localFavKey;
+@@ -231,14 +227,17 @@ mixin FavMixin on TripleMixin {
+     }
+     // quick fav: tap toggles the default folder, long press picks folders
+     if (enableQuickFav && !isLongPress) {
+-      final fav = !LocalLibrary.isFav(key);
+-      await LocalLibrary.setFolders(
+-        key,
+-        data,
+-        fav ? {LocalLibrary.defaultFolderId} : {},
+-      );
+-      _onLocalFavChanged(fav);
+-      SmartDialog.showToast(fav ? '已加入本地收藏' : '已取消本地收藏');
++      // only the default folder; other folders keep the item
++      final folders = {...LocalLibrary.foldersOf(key)};
++      final add = !folders.contains(LocalLibrary.defaultFolderId);
++      if (add) {
++        folders.add(LocalLibrary.defaultFolderId);
++      } else {
++        folders.remove(LocalLibrary.defaultFolderId);
++      }
++      await LocalLibrary.setFolders(key, data, folders);
++      _onLocalFavChanged(folders.isNotEmpty);
++      SmartDialog.showToast(add ? '已加入本地收藏' : '已取消本地收藏');
+       return;
+     }
+     if (!enableQuickFav && isLongPress) return;
+diff --git a/lib/pages/common/dyn/common_dyn_page.dart b/lib/pages/common/dyn/common_dyn_page.dart
+index cf38001da..f373f5586 100644
+--- a/lib/pages/common/dyn/common_dyn_page.dart
++++ b/lib/pages/common/dyn/common_dyn_page.dart
+@@ -16,6 +16,7 @@ import 'package:PiliPlus/pages/common/fab_mixin.dart';
+ import 'package:PiliPlus/pages/video/reply/vote/reply_vote_item.dart';
+ import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
+ import 'package:PiliPlus/pages/video/reply_reply/view.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/extension/num_ext.dart';
+ import 'package:PiliPlus/utils/extension/size_ext.dart';
+ import 'package:PiliPlus/utils/feed_back.dart';
+@@ -335,19 +336,22 @@ mixin CommonDynPageMixin<T extends StatefulWidget>
+     child: replyButton,
+   );
+ 
+-  Widget get replyButton => FloatingActionButton(
+-    heroTag: null,
+-    onPressed: () {
+-      try {
+-        feedBack();
+-        controller.onReply(
+-          null,
+-          oid: controller.oid,
+-          replyType: controller.replyType,
++  // dynamic / article / music / match detail: hidden like the video page's
++  Widget get replyButton => !LoginPolicy.canInteract
++      ? const SizedBox.shrink()
++      : FloatingActionButton(
++          heroTag: null,
++          onPressed: () {
++            try {
++              feedBack();
++              controller.onReply(
++                null,
++                oid: controller.oid,
++                replyType: controller.replyType,
++              );
++            } catch (_) {}
++          },
++          tooltip: '评论',
++          child: const Icon(Icons.reply),
+         );
+-      } catch (_) {}
+-    },
+-    tooltip: '评论',
+-    child: const Icon(Icons.reply),
+-  );
+ }
+diff --git a/lib/pages/common/reply_controller.dart b/lib/pages/common/reply_controller.dart
+index 0e7796f1f..ff68d9e6d 100644
+--- a/lib/pages/common/reply_controller.dart
++++ b/lib/pages/common/reply_controller.dart
+@@ -8,6 +8,7 @@ import 'package:PiliPlus/models/common/reply/reply_sort_type.dart';
+ import 'package:PiliPlus/pages/common/common_list_controller.dart';
+ import 'package:PiliPlus/pages/common/publish/publish_route.dart';
+ import 'package:PiliPlus/pages/video/reply_new/view.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/feed_back.dart';
+ import 'package:PiliPlus/utils/reply_utils.dart';
+ import 'package:PiliPlus/utils/storage_pref.dart';
+@@ -130,6 +131,8 @@ abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
+     int? oid,
+     int? replyType,
+   }) {
++    // the writing UI is hidden then; guard any path that still gets here
++    if (!LoginPolicy.canInteract) return;
+     if (loadingState.value case Error(:final errMsg, :final code)) {
+       if (errMsg != null && (code == 12061 || code == 12002)) {
+         SmartDialog.showToast(errMsg);
+diff --git a/lib/pages/download/controller.dart b/lib/pages/download/controller.dart
+index 1dee8af8c..ad254a109 100644
+--- a/lib/pages/download/controller.dart
++++ b/lib/pages/download/controller.dart
+@@ -1,13 +1,12 @@
+ import 'dart:async';
+ 
+-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+ import 'package:PiliPlus/models_new/download/download_info.dart';
+ import 'package:PiliPlus/pages/common/multi_select/base.dart'
+     show BaseMultiSelectMixin;
++import 'package:PiliPlus/pages/download/delete_dialog.dart';
+ import 'package:PiliPlus/services/download/download_service.dart';
+ import 'package:PiliPlus/utils/storage.dart';
+ import 'package:collection/collection.dart';
+-import 'package:flutter/widgets.dart' show Text;
+ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+ import 'package:get/get.dart';
+ 
+@@ -74,29 +73,33 @@ class DownloadPageController extends GetxController
+   }
+ 
+   @override
+-  void onRemove() {
+-    showConfirmDialog(
+-      context: Get.context!,
+-      title: const Text('确定删除选中视频？'),
+-      onConfirm: () async {
+-        SmartDialog.showLoading();
+-        final watchProgress = GStorage.watchProgress;
+-        for (final page in allChecked) {
+-          await watchProgress.deleteAll(
+-            page.entries.map((e) => e.cid.toString()),
+-          );
+-          await _downloadService.deletePage(
+-            pageDirPath: page.dirPath,
+-            refresh: false,
+-          );
+-        }
+-        _downloadService.flagNotifier.refresh();
+-        if (enableMultiSelect.value) {
+-          rxCount.value = 0;
+-          enableMultiSelect.value = false;
+-        }
+-        SmartDialog.dismiss();
+-      },
++  Future<void> onRemove() async {
++    final allChecked = this.allChecked.toList();
++    final deleteExported = await showDeleteDownloadDialog(
++      Get.context!,
++      title: '确定删除选中视频？',
++      exportOption: allChecked.any(
++        (page) => page.entries.any((e) => e.mergedPath != null),
++      ),
+     );
++    if (deleteExported == null) return;
++    SmartDialog.showLoading();
++    final watchProgress = GStorage.watchProgress;
++    for (final page in allChecked) {
++      await watchProgress.deleteAll(
++        page.entries.map((e) => e.cid.toString()),
++      );
++      await _downloadService.deletePage(
++        pageDirPath: page.dirPath,
++        refresh: false,
++        deleteExported: deleteExported,
++      );
++    }
++    _downloadService.flagNotifier.refresh();
++    if (enableMultiSelect.value) {
++      rxCount.value = 0;
++      enableMultiSelect.value = false;
++    }
++    SmartDialog.dismiss();
+   }
+ }
+diff --git a/lib/pages/download/detail/view.dart b/lib/pages/download/detail/view.dart
+index 46a7368a7..d53e317ea 100644
+--- a/lib/pages/download/detail/view.dart
++++ b/lib/pages/download/detail/view.dart
+@@ -1,7 +1,6 @@
+ import 'dart:async';
+ 
+ import 'package:PiliPlus/common/widgets/appbar/appbar.dart';
+-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+ import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
+ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
+ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+@@ -10,6 +9,7 @@ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+ import 'package:PiliPlus/pages/common/multi_select/base.dart'
+     show BaseMultiSelectMixin;
+ import 'package:PiliPlus/pages/download/controller.dart';
++import 'package:PiliPlus/pages/download/delete_dialog.dart';
+ import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
+ import 'package:PiliPlus/services/download/download_service.dart';
+ import 'package:PiliPlus/utils/grid.dart';
+@@ -157,11 +157,12 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
+                           progress: widget.progress,
+                           downloadService: _downloadService,
+                           showTitle: false,
+-                          onDelete: () async {
++                          onDelete: (deleteExported) async {
+                             if (_downloadItems.length == 1) {
+                               await _closeSub();
+                               await _downloadService.deletePage(
+                                 pageDirPath: entry.pageDirPath,
++                                deleteExported: deleteExported,
+                               );
+                               if (mounted) {
+                                 Get.back();
+@@ -170,6 +171,7 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
+                               _downloadService.deleteDownload(
+                                 entry: entry,
+                                 removeList: true,
++                                deleteExported: deleteExported,
+                               );
+                             }
+                             GStorage.watchProgress.delete(entry.cid.toString());
+@@ -191,40 +193,41 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
+   }
+ 
+   @override
+-  void onRemove() {
+-    showConfirmDialog(
+-      context: context,
+-      title: const Text('确定删除选中视频？'),
+-      onConfirm: () async {
+-        SmartDialog.showLoading();
+-        final allChecked = this.allChecked.toList();
+-        final isDeleteAll = allChecked.length == _downloadItems.length;
+-        await Future.wait([
+-          if (isDeleteAll) _closeSub(),
+-          GStorage.watchProgress.deleteAll(
+-            allChecked.map((e) => e.cid.toString()),
+-          ),
+-          for (final entry in allChecked)
+-            _downloadService.deleteDownload(
+-              entry: entry,
+-              removeList: true,
+-              refresh: false,
+-            ),
+-        ]);
+-        _downloadService.flagNotifier.refresh();
+-        if (isDeleteAll) {
+-          SmartDialog.dismiss();
+-          if (mounted) {
+-            Get.back();
+-          }
+-        } else {
+-          if (enableMultiSelect.value) {
+-            rxCount.value = 0;
+-            enableMultiSelect.value = false;
+-          }
+-          SmartDialog.dismiss();
+-        }
+-      },
++  Future<void> onRemove() async {
++    final allChecked = this.allChecked.toList();
++    final deleteExported = await showDeleteDownloadDialog(
++      context,
++      title: '确定删除选中视频？',
++      exportOption: allChecked.any((e) => e.mergedPath != null),
+     );
++    if (deleteExported == null) return;
++    SmartDialog.showLoading();
++    final isDeleteAll = allChecked.length == _downloadItems.length;
++    await Future.wait([
++      if (isDeleteAll) _closeSub(),
++      GStorage.watchProgress.deleteAll(
++        allChecked.map((e) => e.cid.toString()),
++      ),
++      for (final entry in allChecked)
++        _downloadService.deleteDownload(
++          entry: entry,
++          removeList: true,
++          refresh: false,
++          deleteExported: deleteExported,
++        ),
++    ]);
++    _downloadService.flagNotifier.refresh();
++    if (isDeleteAll) {
++      SmartDialog.dismiss();
++      if (mounted) {
++        Get.back();
++      }
++    } else {
++      if (enableMultiSelect.value) {
++        rxCount.value = 0;
++        enableMultiSelect.value = false;
++      }
++      SmartDialog.dismiss();
++    }
+   }
+ }
+diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
+index 7f5888e46..f1a88e0ca 100644
+--- a/lib/pages/download/detail/widgets/item.dart
++++ b/lib/pages/download/detail/widgets/item.dart
+@@ -2,7 +2,6 @@ import 'dart:io';
+ 
+ import 'package:PiliPlus/common/style.dart';
+ import 'package:PiliPlus/common/widgets/badge.dart';
+-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+ import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
+ import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+ import 'package:PiliPlus/common/widgets/progress_bar/video_progress_indicator.dart';
+@@ -12,6 +11,7 @@ import 'package:PiliPlus/models/common/video/source_type.dart';
+ import 'package:PiliPlus/models/common/video/video_quality.dart';
+ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+ import 'package:PiliPlus/pages/common/multi_select/base.dart';
++import 'package:PiliPlus/pages/download/delete_dialog.dart';
+ import 'package:PiliPlus/pages/download/downloading/view.dart';
+ import 'package:PiliPlus/services/download/download_service.dart';
+ import 'package:PiliPlus/utils/cache_manager.dart';
+@@ -44,7 +44,9 @@ class DetailItem extends StatelessWidget {
+   final BiliDownloadEntryInfo entry;
+   final ChangeNotifier? progress;
+   final DownloadService downloadService;
+-  final VoidCallback? onDelete;
++
++  /// Gets whether the exported video folder is deleted too.
++  final void Function(bool deleteExported)? onDelete;
+   final bool showTitle;
+   final bool isCurr;
+   //
+@@ -67,13 +69,13 @@ class DetailItem extends StatelessWidget {
+               contentPadding: const EdgeInsets.symmetric(vertical: 12),
+               children: [
+                 DialogOption(
+-                  onPressed: () {
++                  onPressed: () async {
+                     Get.back();
+-                    showConfirmDialog(
+-                      context: context,
+-                      title: const Text('确定删除该视频？'),
+-                      onConfirm: onDelete,
++                    final deleteExported = await showDeleteDownloadDialog(
++                      context,
++                      exportOption: entry.mergedPath != null,
+                     );
++                    if (deleteExported != null) onDelete!(deleteExported);
+                   },
+                   child: const Text('删除', style: TextStyle(fontSize: 14)),
+                 ),
+diff --git a/lib/pages/download/downloading/view.dart b/lib/pages/download/downloading/view.dart
+index edcde764b..98c5d0b87 100644
+--- a/lib/pages/download/downloading/view.dart
++++ b/lib/pages/download/downloading/view.dart
+@@ -79,7 +79,7 @@ class _DownloadingPageState extends State<DownloadingPage>
+                           downloadService: _downloadService,
+                           showTitle: true,
+                           isCurr: isCurr,
+-                          onDelete: () => _downloadService.deleteDownload(
++                          onDelete: (_) => _downloadService.deleteDownload(
+                             entry: entry,
+                             removeQueue: true,
+                             downloadNext:
+diff --git a/lib/pages/download/search/controller.dart b/lib/pages/download/search/controller.dart
+index 310170f00..9487084a7 100644
+--- a/lib/pages/download/search/controller.dart
++++ b/lib/pages/download/search/controller.dart
+@@ -1,12 +1,11 @@
+-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+ import 'package:PiliPlus/http/loading_state.dart';
+ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+ import 'package:PiliPlus/pages/common/multi_select/base.dart'
+     show BaseMultiSelectMixin;
+ import 'package:PiliPlus/pages/common/search/common_search_controller.dart';
++import 'package:PiliPlus/pages/download/delete_dialog.dart';
+ import 'package:PiliPlus/services/download/download_service.dart';
+ import 'package:PiliPlus/utils/storage.dart';
+-import 'package:flutter/widgets.dart' show Text;
+ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+ import 'package:get/get.dart';
+ 
+@@ -39,43 +38,49 @@ class DownloadSearchController
+     );
+   }
+ 
+-  void onRemoveSingle(int index, BiliDownloadEntryInfo entry) {
++  void onRemoveSingle(
++    int index,
++    BiliDownloadEntryInfo entry,
++    bool deleteExported,
++  ) {
+     loadingState
+       ..value.data!.removeAt(index)
+       ..refresh();
+     _downloadService.deleteDownload(
+       entry: entry,
+       removeList: true,
++      deleteExported: deleteExported,
+     );
+     GStorage.watchProgress.delete(entry.cid.toString());
+   }
+ 
+   @override
+-  void onRemove() {
+-    showConfirmDialog(
+-      context: Get.context!,
+-      title: const Text('确定删除选中视频？'),
+-      onConfirm: () async {
+-        SmartDialog.showLoading();
+-        final allChecked = this.allChecked.toSet();
+-        for (final entry in allChecked) {
+-          await GStorage.watchProgress.delete(entry.cid.toString());
+-          await _downloadService.deleteDownload(
+-            entry: entry,
+-            removeList: true,
+-            refresh: false,
+-          );
+-        }
+-        loadingState
+-          ..value.data!.removeWhere(allChecked.contains)
+-          ..refresh();
+-        _downloadService.flagNotifier.refresh();
+-        if (enableMultiSelect.value) {
+-          rxCount.value = 0;
+-          enableMultiSelect.value = false;
+-        }
+-        SmartDialog.dismiss();
+-      },
++  Future<void> onRemove() async {
++    final allChecked = this.allChecked.toSet();
++    final deleteExported = await showDeleteDownloadDialog(
++      Get.context!,
++      title: '确定删除选中视频？',
++      exportOption: allChecked.any((e) => e.mergedPath != null),
+     );
++    if (deleteExported == null) return;
++    SmartDialog.showLoading();
++    for (final entry in allChecked) {
++      await GStorage.watchProgress.delete(entry.cid.toString());
++      await _downloadService.deleteDownload(
++        entry: entry,
++        removeList: true,
++        refresh: false,
++        deleteExported: deleteExported,
++      );
++    }
++    loadingState
++      ..value.data!.removeWhere(allChecked.contains)
++      ..refresh();
++    _downloadService.flagNotifier.refresh();
++    if (enableMultiSelect.value) {
++      rxCount.value = 0;
++      enableMultiSelect.value = false;
++    }
++    SmartDialog.dismiss();
+   }
+ }
+diff --git a/lib/pages/download/search/view.dart b/lib/pages/download/search/view.dart
+index edd4e40c2..759a12a2f 100644
+--- a/lib/pages/download/search/view.dart
++++ b/lib/pages/download/search/view.dart
+@@ -93,7 +93,8 @@ class _DownloadSearchPageState
+             progress: widget.progress,
+             downloadService: _downloadService,
+             showTitle: true,
+-            onDelete: () => controller.onRemoveSingle(index, entry),
++            onDelete: (deleteExported) =>
++                controller.onRemoveSingle(index, entry, deleteExported),
+             controller: controller,
+           );
+         },
+diff --git a/lib/pages/download/view.dart b/lib/pages/download/view.dart
+index 8f26cc729..59525f9f0 100644
+--- a/lib/pages/download/view.dart
++++ b/lib/pages/download/view.dart
+@@ -3,7 +3,6 @@ import 'dart:async';
+ import 'package:PiliPlus/common/style.dart';
+ import 'package:PiliPlus/common/widgets/appbar/appbar.dart';
+ import 'package:PiliPlus/common/widgets/badge.dart';
+-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+ import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
+ import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
+ import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+@@ -13,6 +12,7 @@ import 'package:PiliPlus/common/widgets/select_mask.dart';
+ import 'package:PiliPlus/models/common/badge_type.dart';
+ import 'package:PiliPlus/models_new/download/download_info.dart';
+ import 'package:PiliPlus/pages/download/controller.dart';
++import 'package:PiliPlus/pages/download/delete_dialog.dart';
+ import 'package:PiliPlus/pages/download/detail/view.dart';
+ import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
+ import 'package:PiliPlus/pages/download/search/view.dart';
+@@ -182,10 +182,11 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
+                                 progress: _progress,
+                                 downloadService: _downloadService,
+                                 showTitle: true,
+-                                onDelete: () {
++                                onDelete: (deleteExported) {
+                                   _downloadService.deleteDownload(
+                                     entry: entry,
+                                     removeList: true,
++                                    deleteExported: deleteExported,
+                                   );
+                                   GStorage.watchProgress.delete(
+                                     entry.cid.toString(),
+@@ -233,19 +234,22 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
+               contentPadding: const EdgeInsets.symmetric(vertical: 12),
+               children: [
+                 DialogOption(
+-                  onPressed: () {
++                  onPressed: () async {
+                     Get.back();
+-                    showConfirmDialog(
+-                      context: context,
+-                      title: const Text('确定删除？'),
+-                      onConfirm: () async {
+-                        await GStorage.watchProgress.deleteAll(
+-                          pageInfo.entries.map((e) => e.cid.toString()),
+-                        );
+-                        _downloadService.deletePage(
+-                          pageDirPath: pageInfo.dirPath,
+-                        );
+-                      },
++                    final deleteExported = await showDeleteDownloadDialog(
++                      context,
++                      title: '确定删除？',
++                      exportOption: pageInfo.entries.any(
++                        (e) => e.mergedPath != null,
++                      ),
++                    );
++                    if (deleteExported == null) return;
++                    await GStorage.watchProgress.deleteAll(
++                      pageInfo.entries.map((e) => e.cid.toString()),
++                    );
++                    _downloadService.deletePage(
++                      pageDirPath: pageInfo.dirPath,
++                      deleteExported: deleteExported,
+                     );
+                   },
+                   child: const Text('删除', style: TextStyle(fontSize: 14)),
+diff --git a/lib/pages/live_room/controller.dart b/lib/pages/live_room/controller.dart
+index c6a42fef3..b0827debd 100644
+--- a/lib/pages/live_room/controller.dart
++++ b/lib/pages/live_room/controller.dart
+@@ -29,6 +29,7 @@ import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
+ import 'package:PiliPlus/services/service_locator.dart';
+ import 'package:PiliPlus/tcp/live.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/android/bindings.g.dart';
+ import 'package:PiliPlus/utils/connectivity_utils.dart';
+ import 'package:PiliPlus/utils/danmaku_utils.dart';
+@@ -735,6 +736,8 @@ class LiveRoomController extends GetxController {
+       toastNotLogin();
+       return;
+     }
++    // also reached from the @-user menu and shortcuts
++    if (!LoginPolicy.canInteract) return;
+     Get.key.currentState!.push(
+       PublishRoute(
+         barrierColor: Colors.transparent,
+diff --git a/lib/pages/live_room/view.dart b/lib/pages/live_room/view.dart
+index 74573f01e..019caff7b 100644
+--- a/lib/pages/live_room/view.dart
++++ b/lib/pages/live_room/view.dart
+@@ -34,6 +34,7 @@ import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
+ import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
+ import 'package:PiliPlus/plugin/pl_player/view/view.dart';
+ import 'package:PiliPlus/services/service_locator.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/android/bindings.g.dart';
+ import 'package:PiliPlus/utils/extension/num_ext.dart';
+ import 'package:PiliPlus/utils/extension/size_ext.dart';
+@@ -770,6 +771,8 @@ class _LiveRoomPageState extends State<LiveRoomPage>
+   Widget get _buildInputWidget {
+     // LibrePili: sending danmaku / liking needs login
+     if (!_liveRoomController.isLogin) return const SizedBox.shrink();
++    // "hide interaction": keep the danmaku toggle and like, drop sending
++    final canSend = LoginPolicy.canInteract;
+     final child = Container(
+       padding: .only(top: 5, left: 10, right: 10, bottom: padding.bottom),
+       height: 70 + padding.bottom,
+@@ -779,7 +782,7 @@ class _LiveRoomPageState extends State<LiveRoomPage>
+         color: Color(0x1AFFFFFF),
+       ),
+       child: GestureDetector(
+-        onTap: _liveRoomController.onSendDanmaku,
++        onTap: canSend ? _liveRoomController.onSendDanmaku : null,
+         behavior: .opaque,
+         child: Padding(
+           padding: const .only(top: 5, bottom: 10),
+@@ -823,8 +826,10 @@ class _LiveRoomPageState extends State<LiveRoomPage>
+                     );
+                   },
+                 ),
+-                const Expanded(
+-                  child: Text('发送弹幕', style: TextStyle(color: baseWhite)),
++                Expanded(
++                  child: canSend
++                      ? const Text('发送弹幕', style: TextStyle(color: baseWhite))
++                      : const SizedBox.shrink(),
+                 ),
+                 Builder(
+                   builder: (context) {
+@@ -894,19 +899,20 @@ class _LiveRoomPageState extends State<LiveRoomPage>
+                     );
+                   },
+                 ),
+-                SizedBox(
+-                  width: 34,
+-                  height: 34,
+-                  child: IconButton(
+-                    style: IconButton.styleFrom(padding: EdgeInsets.zero),
+-                    onPressed: () => _liveRoomController.onSendDanmaku(true),
+-                    icon: const Icon(
+-                      size: 22,
+-                      color: baseWhite,
+-                      Icons.emoji_emotions_outlined,
++                if (canSend)
++                  SizedBox(
++                    width: 34,
++                    height: 34,
++                    child: IconButton(
++                      style: IconButton.styleFrom(padding: EdgeInsets.zero),
++                      onPressed: () => _liveRoomController.onSendDanmaku(true),
++                      icon: const Icon(
++                        size: 22,
++                        color: baseWhite,
++                        Icons.emoji_emotions_outlined,
++                      ),
+                     ),
+                   ),
+-                ),
+               ],
+             ),
+           ),
+diff --git a/lib/pages/live_room/widgets/chat_panel.dart b/lib/pages/live_room/widgets/chat_panel.dart
+index 7d0822de2..2fec2e6a3 100644
+--- a/lib/pages/live_room/widgets/chat_panel.dart
++++ b/lib/pages/live_room/widgets/chat_panel.dart
+@@ -11,6 +11,7 @@ import 'package:PiliPlus/pages/live_room/controller.dart';
+ import 'package:PiliPlus/pages/live_room/superchat/superchat_card.dart';
+ import 'package:PiliPlus/pages/member/widget/medal_widget.dart';
+ import 'package:PiliPlus/pages/video/widgets/header_control.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/extension/theme_ext.dart';
+ import 'package:PiliPlus/utils/utils.dart';
+ import 'package:flutter/foundation.dart' show kDebugMode;
+@@ -338,11 +339,12 @@ class LiveRoomChatPanel extends StatelessWidget {
+           child: const Text('去TA的个人空间', style: TextStyle(fontSize: 13)),
+         ),
+         if (liveRoomController.isLogin) ...[
+-          PopupMenuItem(
+-            height: 38,
+-            onTap: () => liveRoomController.onAtUser(item),
+-            child: const Text('@TA', style: TextStyle(fontSize: 13)),
+-          ),
++          if (LoginPolicy.canInteract)
++            PopupMenuItem(
++              height: 38,
++              onTap: () => liveRoomController.onAtUser(item),
++              child: const Text('@TA', style: TextStyle(fontSize: 13)),
++            ),
+           PopupMenuItem(
+             height: 38,
+             onTap: () async {
+diff --git a/lib/pages/live_room/widgets/header_control.dart b/lib/pages/live_room/widgets/header_control.dart
+index 894ffa214..831590521 100644
+--- a/lib/pages/live_room/widgets/header_control.dart
++++ b/lib/pages/live_room/widgets/header_control.dart
+@@ -13,7 +13,7 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
+ import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
+ import 'package:PiliPlus/services/shutdown_timer_service.dart'
+     show shutdownTimerService;
+-import 'package:PiliPlus/utils/accounts.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/android/bindings.g.dart';
+ import 'package:PiliPlus/utils/extension/context_ext.dart';
+ import 'package:PiliPlus/utils/extension/size_ext.dart';
+@@ -154,7 +154,7 @@ class _LiveHeaderControlState extends State<LiveHeaderControl>
+               );
+             }),
+           if ((isFullScreen || PlatformUtils.isDesktop) &&
+-              Accounts.main.isLogin)
++              LoginPolicy.canInteract)
+             ComBtn(
+               height: btnHeight,
+               tooltip: '发弹幕',
+diff --git a/lib/pages/local/fav_sheet.dart b/lib/pages/local/fav_sheet.dart
+index 9b409a321..3f76be627 100644
+--- a/lib/pages/local/fav_sheet.dart
++++ b/lib/pages/local/fav_sheet.dart
+@@ -23,13 +23,39 @@ Future<String?> showFolderNameDialog(
+   String title = '新建收藏夹',
+   String initial = '',
+ }) {
+-  final controller = TextEditingController(text: initial);
+   return showDialog<String>(
+     context: context,
+-    builder: (context) => AlertDialog(
+-      title: Text(title),
++    builder: (context) => _FolderNameDialog(title: title, initial: initial),
++  );
++}
++
++/// Owns its text controller, so it is disposed with the dialog (after the
++/// closing animation) instead of when the dialog is popped.
++class _FolderNameDialog extends StatefulWidget {
++  const _FolderNameDialog({required this.title, required this.initial});
++
++  final String title;
++  final String initial;
++
++  @override
++  State<_FolderNameDialog> createState() => _FolderNameDialogState();
++}
++
++class _FolderNameDialogState extends State<_FolderNameDialog> {
++  late final _controller = TextEditingController(text: widget.initial);
++
++  @override
++  void dispose() {
++    _controller.dispose();
++    super.dispose();
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    return AlertDialog(
++      title: Text(widget.title),
+       content: TextField(
+-        controller: controller,
++        controller: _controller,
+         autofocus: true,
+         maxLength: 30,
+         decoration: const InputDecoration(hintText: '收藏夹名称'),
+@@ -41,7 +67,7 @@ Future<String?> showFolderNameDialog(
+         ),
+         TextButton(
+           onPressed: () {
+-            final name = controller.text.trim();
++            final name = _controller.text.trim();
+             if (name.isEmpty) {
+               SmartDialog.showToast('名称不能为空');
+               return;
+@@ -51,8 +77,8 @@ Future<String?> showFolderNameDialog(
+           child: const Text('确定'),
+         ),
+       ],
+-    ),
+-  ).whenComplete(controller.dispose);
++    );
++  }
+ }
+ 
+ class _LocalFavSheet extends StatefulWidget {
+diff --git a/lib/pages/login/controller.dart b/lib/pages/login/controller.dart
+index 5ee9ca834..0cacb1424 100644
+--- a/lib/pages/login/controller.dart
++++ b/lib/pages/login/controller.dart
+@@ -10,8 +10,10 @@ import 'package:PiliPlus/http/login.dart';
+ import 'package:PiliPlus/models/common/account_type.dart';
+ import 'package:PiliPlus/models/login/model.dart';
+ import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
++import 'package:PiliPlus/pages/mine/controller.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
+ import 'package:PiliPlus/utils/accounts/account.dart';
++import 'package:PiliPlus/utils/login_utils.dart';
+ import 'package:PiliPlus/utils/platform_utils.dart';
+ import 'package:PiliPlus/utils/storage.dart';
+ import 'package:PiliPlus/utils/storage_key.dart';
+@@ -628,13 +630,16 @@ class LoginPageController extends GetxController
+       tokenInfo['access_token'],
+       tokenInfo['refresh_token'],
+     );
+-    await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
+-    for (int i = 0; i < AccountType.values.length; i++) {
+-      if (Accounts.accountMode[i].mid == account.mid) {
+-        Accounts.accountMode[i] = account;
+-      }
++    // re-login of a stored account keeps its saved roles
++    for (final a in Accounts.account.values) {
++      if (a.mid == account.mid) account.type.addAll(a.type);
+     }
++    await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
++    // login mode was just turned on: activate the saved roles
++    await Accounts.refresh();
++    MineController.anonymity.value = !Accounts.heartbeat.isLogin;
+     if (Accounts.main.isLogin) {
++      await LoginUtils.onLoginMain();
+       SmartDialog.showToast('登录成功');
+     } else {
+       SmartDialog.showToast('登录成功, 请先设置账号模式');
+@@ -648,7 +653,9 @@ class LoginPageController extends GetxController
+       return Get.toNamed('/loginPage');
+     }
+     final colorScheme = ColorScheme.of(context);
+-    final selectAccount = List.of(Accounts.accountMode);
++    // the saved roles, not accountMode (all anonymous in incognito)
++    final savedMode = Accounts.savedMode();
++    final selectAccount = List.of(savedMode);
+     final options = {
+       AnonymousAccount(): '0',
+       ...Accounts.account.toMap().map(
+@@ -756,7 +763,7 @@ class LoginPageController extends GetxController
+                 final account = quickSelect
+                     ? selectAccount.first
+                     : selectAccount[index];
+-                if (account != Accounts.accountMode[index]) {
++                if (account != savedMode[index]) {
+                   Accounts.set(type, account);
+                 }
+               }
+diff --git a/lib/pages/main/controller.dart b/lib/pages/main/controller.dart
+index 16c5996ab..412cc4cd8 100644
+--- a/lib/pages/main/controller.dart
++++ b/lib/pages/main/controller.dart
+@@ -27,7 +27,7 @@ import 'package:get/get.dart';
+ import 'package:material_ui/material_ui.dart';
+ 
+ class MainController extends GetxController
+-    with GetSingleTickerProviderStateMixin, AccountMixin {
++    with GetTickerProviderStateMixin, AccountMixin {
+   @override
+   final AccountService accountService = Get.find<AccountService>();
+ 
+@@ -82,13 +82,7 @@ class MainController extends GetxController
+ 
+     setNavBarConfig();
+ 
+-    controller = mainTabBarView
+-        ? TabController(
+-            vsync: this,
+-            initialIndex: selectedIndex.value,
+-            length: navigationBars.length,
+-          )
+-        : PageController(initialPage: selectedIndex.value);
++    controller = _createController();
+ 
+     hideBottomBar =
+         !useSideBar && navigationBars.length > 1 && Pref.hideBottomBar;
+@@ -235,18 +229,73 @@ class MainController extends GetxController
+     if (navBarSort == null || navBarSort.isEmpty) {
+       navigationBars = NavigationBarType.defaultOrder;
+     } else {
++      // LibrePili: the 本地 tab is new; add it once to a saved/imported order
++      if (!navBarSort.contains(NavigationBarType.local.index) &&
++          GStorage.setting.get(SettingBoxKey.navBarLocalAdded) != true) {
++        final mineIndex = navBarSort.indexOf(NavigationBarType.mine.index);
++        navBarSort.insert(
++          mineIndex == -1 ? navBarSort.length : mineIndex,
++          NavigationBarType.local.index,
++        );
++        GStorage.setting
++          ..put(SettingBoxKey.navBarSort, navBarSort)
++          ..put(SettingBoxKey.navBarLocalAdded, true);
++      }
+       navigationBars = navBarSort
+           .map(NavigationBarType.values.elementAt)
+           .toList();
+     }
+     // LibrePili: the followed-feed tab needs login; the 本地 tab replaces it
+-    this.navigationBars = Accounts.main.isLogin
+-        ? navigationBars
+-        : navigationBars.where((e) => e != .dynamics).toList();
++    List<NavigationBarType> filter(List<NavigationBarType> bars) =>
++        Accounts.main.isLogin
++        ? bars
++        : bars.where((e) => e != .dynamics).toList();
++    this.navigationBars = filter(navigationBars);
++    if (this.navigationBars.isEmpty) {
++      this.navigationBars = filter(NavigationBarType.defaultOrder);
++    }
+     final defPage = Pref.defaultHomePage;
+     selectedIndex.value = math.max(0, this.navigationBars.indexOf(defPage));
+   }
+ 
++  dynamic _createController() => mainTabBarView
++      ? TabController(
++          vsync: this,
++          initialIndex: selectedIndex.value,
++          length: navigationBars.length,
++        )
++      : PageController(initialPage: selectedIndex.value);
++
++  /// Bumped when [navigationBars] change; the main view rebuilds on it.
++  final RxInt navBarEpoch = 0.obs;
++
++  /// The dynamics tab depends on the login state: recompute the bars when it
++  /// changes (e.g. login mode toggled) instead of waiting for a restart.
++  void _updateNavBar() {
++    final oldBars = navigationBars;
++    final oldIndex = selectedIndex.value;
++    setNavBarConfig();
++    if (const ListEquality<NavigationBarType>().equals(
++      oldBars,
++      navigationBars,
++    )) {
++      selectedIndex.value = oldIndex;
++      return;
++    }
++    final index = navigationBars.indexOf(oldBars[oldIndex]);
++    if (index != -1) selectedIndex.value = index;
++    hasDyn = navigationBars.contains(NavigationBarType.dynamics);
++    hasHome = navigationBars.contains(NavigationBarType.home);
++    _mineIndex = null;
++    final oldController = controller;
++    controller = _createController();
++    // still attached to the current page view until the rebuild
++    WidgetsBinding.instance.addPostFrameCallback(
++      (_) => oldController.dispose(),
++    );
++    navBarEpoch.value++;
++  }
++
+   void checkDefaultSearch([bool shouldCheck = false]) {
+     if (hasHome && homeController.enableSearchWord) {
+       if (shouldCheck &&
+@@ -362,6 +411,7 @@ class MainController extends GetxController
+ 
+   @override
+   void onChangeAccount(bool isLogin) {
++    _updateNavBar();
+     if (isLogin) {
+       queryUnreadMsg();
+       getUnreadDynamic();
+diff --git a/lib/pages/main/view.dart b/lib/pages/main/view.dart
+index bc81a2d77..2ea0750ca 100644
+--- a/lib/pages/main/view.dart
++++ b/lib/pages/main/view.dart
+@@ -1,3 +1,4 @@
++import 'dart:async';
+ import 'dart:io';
+ 
+ import 'package:PiliPlus/common/assets.dart';
+@@ -73,8 +74,13 @@ class _MainAppState extends PopScopeState<MainApp>
+     if (PlatformUtils.isMobile || Platform.isLinux || Platform.isWindows) {
+       PiliScheme.init();
+     }
++    _navBarListener = _mainController.navBarEpoch.listen((_) {
++      if (mounted) setState(() {});
++    });
+   }
+ 
++  StreamSubscription<int>? _navBarListener;
++
+   @override
+   void didChangeDependencies() {
+     super.didChangeDependencies();
+@@ -130,6 +136,7 @@ class _MainAppState extends PopScopeState<MainApp>
+       windowManager.removeListener(this);
+     }
+     removeObserverMobile(this);
++    _navBarListener?.cancel();
+     PiliScheme.listener?.cancel();
+     GStorage.close();
+     super.dispose();
+diff --git a/lib/pages/main_reply/view.dart b/lib/pages/main_reply/view.dart
+index bc1d7d98f..80373acf0 100644
+--- a/lib/pages/main_reply/view.dart
++++ b/lib/pages/main_reply/view.dart
+@@ -13,6 +13,7 @@ import 'package:PiliPlus/pages/common/fab_mixin.dart';
+ import 'package:PiliPlus/pages/main_reply/controller.dart';
+ import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
+ import 'package:PiliPlus/pages/video/reply_reply/view.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/extension/widget_ext.dart';
+ import 'package:PiliPlus/utils/feed_back.dart';
+ import 'package:PiliPlus/utils/num_utils.dart';
+@@ -81,30 +82,32 @@ class _MainReplyPageState extends State<MainReplyPage>
+           ),
+         ).constraintWidth(),
+       ),
+-      fab: SlideTransition(
+-        position: fabAnimation,
+-        child: Padding(
+-          padding: .only(
+-            right: kFloatingActionButtonMargin + padding.right,
+-            bottom: kFloatingActionButtonMargin + padding.bottom,
+-          ),
+-          child: FloatingActionButton(
+-            heroTag: null,
+-            onPressed: () {
+-              try {
+-                feedBack();
+-                _controller.onReply(
+-                  null,
+-                  oid: _controller.oid,
+-                  replyType: _controller.replyType,
+-                );
+-              } catch (_) {}
+-            },
+-            tooltip: '评论',
+-            child: const Icon(Icons.reply),
+-          ),
+-        ),
+-      ),
++      fab: !LoginPolicy.canInteract
++          ? null
++          : SlideTransition(
++              position: fabAnimation,
++              child: Padding(
++                padding: .only(
++                  right: kFloatingActionButtonMargin + padding.right,
++                  bottom: kFloatingActionButtonMargin + padding.bottom,
++                ),
++                child: FloatingActionButton(
++                  heroTag: null,
++                  onPressed: () {
++                    try {
++                      feedBack();
++                      _controller.onReply(
++                        null,
++                        oid: _controller.oid,
++                        replyType: _controller.replyType,
++                      );
++                    } catch (_) {}
++                  },
++                  tooltip: '评论',
++                  child: const Icon(Icons.reply),
++                ),
++              ),
++            ),
+     );
+   }
+ 
+diff --git a/lib/pages/mine/controller.dart b/lib/pages/mine/controller.dart
+index ea1abe1c4..65347f489 100644
+--- a/lib/pages/mine/controller.dart
++++ b/lib/pages/mine/controller.dart
+@@ -2,7 +2,6 @@ import 'package:PiliPlus/common/widgets/custom_icon.dart';
+ import 'package:PiliPlus/http/fav.dart';
+ import 'package:PiliPlus/http/loading_state.dart';
+ import 'package:PiliPlus/http/user.dart';
+-import 'package:PiliPlus/models/common/account_type.dart';
+ import 'package:PiliPlus/models/common/theme/theme_type.dart';
+ import 'package:PiliPlus/models/user/info.dart';
+ import 'package:PiliPlus/models/user/stat.dart';
+@@ -10,7 +9,6 @@ import 'package:PiliPlus/models_new/fav/fav_folder/data.dart';
+ import 'package:PiliPlus/pages/common/common_data_controller.dart';
+ import 'package:PiliPlus/services/account_service.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
+-import 'package:PiliPlus/utils/accounts/account.dart';
+ import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
+ import 'package:PiliPlus/utils/login_utils.dart';
+diff --git a/lib/pages/pgc_review/view.dart b/lib/pages/pgc_review/view.dart
+index edb10180d..423d2ea0a 100644
+--- a/lib/pages/pgc_review/view.dart
++++ b/lib/pages/pgc_review/view.dart
+@@ -4,6 +4,7 @@ import 'package:PiliPlus/models/common/pgc_review_type.dart';
+ import 'package:PiliPlus/pages/pgc_review/child/controller.dart';
+ import 'package:PiliPlus/pages/pgc_review/child/view.dart';
+ import 'package:PiliPlus/pages/pgc_review/post/view.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
+ import 'package:PiliPlus/utils/extension/theme_ext.dart';
+ import 'package:get/get.dart';
+@@ -105,55 +106,64 @@ class _PgcReviewPageState extends State<PgcReviewPage>
+           ),
+         ],
+       ),
+-      fab: Padding(
+-        padding: .only(
+-          right: kFloatingActionButtonMargin,
+-          bottom:
+-              MediaQuery.viewPaddingOf(context).bottom +
+-              kFloatingActionButtonMargin,
+-        ),
+-        child: FloatingActionButton(
+-          onPressed: () => showDialog(
+-            context: context,
+-            builder: (context) => SimpleDialog(
+-              clipBehavior: Clip.hardEdge,
+-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+-              children: [
+-                DialogOption(
+-                  child: const Text('写短评', style: TextStyle(fontSize: 14)),
+-                  onPressed: () {
+-                    Get.back();
+-                    showModalBottomSheet(
+-                      context: context,
+-                      useSafeArea: true,
+-                      isScrollControlled: true,
+-                      builder: (context) {
+-                        return PgcReviewPostPanel(
+-                          name: widget.name,
+-                          mediaId: widget.mediaId,
+-                        );
+-                      },
+-                    );
+-                  },
++      // writing reviews: hidden like comment writing (LoginPolicy.canInteract)
++      fab: !LoginPolicy.canInteract
++          ? null
++          : Padding(
++              padding: .only(
++                right: kFloatingActionButtonMargin,
++                bottom:
++                    MediaQuery.viewPaddingOf(context).bottom +
++                    kFloatingActionButtonMargin,
++              ),
++              child: FloatingActionButton(
++                onPressed: () => showDialog(
++                  context: context,
++                  builder: (context) => SimpleDialog(
++                    clipBehavior: Clip.hardEdge,
++                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
++                    children: [
++                      DialogOption(
++                        child: const Text(
++                          '写短评',
++                          style: TextStyle(fontSize: 14),
++                        ),
++                        onPressed: () {
++                          Get.back();
++                          showModalBottomSheet(
++                            context: context,
++                            useSafeArea: true,
++                            isScrollControlled: true,
++                            builder: (context) {
++                              return PgcReviewPostPanel(
++                                name: widget.name,
++                                mediaId: widget.mediaId,
++                              );
++                            },
++                          );
++                        },
++                      ),
++                      DialogOption(
++                        child: const Text(
++                          '写长评',
++                          style: TextStyle(fontSize: 14),
++                        ),
++                        onPressed: () => Get
++                          ..back()
++                          ..toNamed(
++                            '/webview',
++                            parameters: {
++                              'url':
++                                  'https://member.bilibili.com/article-text/mobile?theme=${theme.isDark ? 1 : 0}&media_id=${widget.mediaId}',
++                            },
++                          ),
++                      ),
++                    ],
++                  ),
+                 ),
+-                DialogOption(
+-                  child: const Text('写长评', style: TextStyle(fontSize: 14)),
+-                  onPressed: () => Get
+-                    ..back()
+-                    ..toNamed(
+-                      '/webview',
+-                      parameters: {
+-                        'url':
+-                            'https://member.bilibili.com/article-text/mobile?theme=${theme.isDark ? 1 : 0}&media_id=${widget.mediaId}',
+-                      },
+-                    ),
+-                ),
+-              ],
++                child: const Icon(Icons.edit),
++              ),
+             ),
+-          ),
+-          child: const Icon(Icons.edit),
+-        ),
+-      ),
+     );
+   }
+ 
+diff --git a/lib/pages/setting/models/extra_settings.dart b/lib/pages/setting/models/extra_settings.dart
+index 8f1ccb8c9..e6d6a6d03 100644
+--- a/lib/pages/setting/models/extra_settings.dart
++++ b/lib/pages/setting/models/extra_settings.dart
+@@ -130,7 +130,7 @@ List<SettingsModel> get extraSettings => [
+   ),
+   const SwitchModel(
+     title: '隐藏发评论与发弹幕',
+-    subtitle: '评论和弹幕照常显示，只隐藏发表评论、回复和发弹幕的入口',
++    subtitle: '评论和弹幕照常显示，只隐藏全应用中发表评论、回复、发弹幕和直播发言的入口',
+     leading: Icon(Icons.comments_disabled_outlined),
+     setKey: SettingBoxKey.hideInteraction,
+     defaultVal: true,
+diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
+index 1eafd103f..849153866 100644
+--- a/lib/pages/video/controller.dart
++++ b/lib/pages/video/controller.dart
+@@ -1,4 +1,5 @@
+ import 'dart:async';
++import 'dart:convert' show utf8;
+ import 'dart:io' show Directory, File;
+ import 'dart:math' show min;
+ import 'dart:ui';
+@@ -54,6 +55,7 @@ import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
+ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+ import 'package:PiliPlus/services/download/download_service.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/connectivity_utils.dart';
+ import 'package:PiliPlus/utils/extension/context_ext.dart';
+ import 'package:PiliPlus/utils/extension/iterable_ext.dart';
+@@ -68,6 +70,7 @@ import 'package:PiliPlus/utils/theme_utils.dart';
+ import 'package:PiliPlus/utils/utils.dart';
+ import 'package:PiliPlus/utils/video_utils.dart';
+ import 'package:collection/collection.dart';
++import 'package:crypto/crypto.dart' show md5;
+ import 'package:dio/dio.dart' show Options;
+ import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
+     show ExtendedNestedScrollViewState;
+@@ -329,11 +332,23 @@ class VideoDetailController extends GetxController
+   final isLoginVideo = Accounts.get(AccountType.video).isLogin;
+ 
+   late final watchProgress = GStorage.watchProgress;
++
++  /// Plain local files all have cid 0: key their progress by path instead
++  /// (hashed: Hive keys are ASCII, at most 255 chars).
++  String get _progressKey {
++    if (cid.value == 0) {
++      if (entry.mergedPath case final file?) {
++        return 'f${md5.convert(utf8.encode(file))}';
++      }
++    }
++    return cid.value.toString();
++  }
++
+   void cacheLocalProgress() {
+     if (plPlayerController.playerStatus.isCompleted) {
+-      watchProgress.put(cid.value.toString(), entry.totalTimeMilli);
++      watchProgress.put(_progressKey, entry.totalTimeMilli);
+     } else if (playedTime case final playedTime?) {
+-      watchProgress.put(cid.value.toString(), playedTime.inMilliseconds);
++      watchProgress.put(_progressKey, playedTime.inMilliseconds);
+     }
+   }
+ 
+@@ -353,8 +368,9 @@ class VideoDetailController extends GetxController
+       width: entry.ep?.width ?? entry.pageData?.width ?? 1,
+       height: entry.ep?.height ?? entry.pageData?.height ?? 1,
+     );
+-    if (watchProgress.get(cid.value.toString()) case final int progress?) {
+-      if (progress >= entry.totalTimeMilli - 400) {
++    if (watchProgress.get(_progressKey) case final int progress?) {
++      // duration unknown (plain local files): resume as is
++      if (entry.totalTimeMilli > 0 && progress >= entry.totalTimeMilli - 400) {
+         defaultST = Duration.zero;
+       } else {
+         defaultST = Duration(milliseconds: progress);
+@@ -622,6 +638,8 @@ class VideoDetailController extends GetxController
+ 
+   /// 发送弹幕
+   Future<void> showShootDanmakuSheet() async {
++    // also reached from the keyboard shortcut
++    if (!LoginPolicy.canInteract) return;
+     if (plPlayerController.dmState.contains(cid.value)) {
+       SmartDialog.showToast('UP主已关闭弹幕');
+       return;
+diff --git a/lib/pages/video/introduction/local/controller.dart b/lib/pages/video/introduction/local/controller.dart
+index a0ed0bb78..9aa858ccb 100644
+--- a/lib/pages/video/introduction/local/controller.dart
++++ b/lib/pages/video/introduction/local/controller.dart
+@@ -57,8 +57,7 @@ class LocalIntroController extends CommonIntroController {
+     if (Get.isRegistered<DownloadPageController>()) {
+       final controller = Get.find<DownloadPageController>();
+       for (final e in controller.pages) {
+-        final items = e.entries
+-          ..sort((a, b) => a.sortKey.compareTo(b.sortKey));
++        final items = e.entries..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+         final completed = items.where((e) => e.isCompleted);
+         list.addAllIf(completed.isNotEmpty, completed);
+         if (completed.length == 1) {
+@@ -66,12 +65,17 @@ class LocalIntroController extends CommonIntroController {
+         }
+       }
+     }
+-    if (list.isEmpty) {
+-      list.add(videoDetailCtr.entry);
+-      aidSet.add(videoDetailCtr.entry.pageId);
++    final currCid = videoDetailCtr.cid.value;
++    // also when the video is not one of the downloads (e.g. a dropped file)
++    if (!list.any((e) => e.cid == currCid)) {
++      list
++        ..clear()
++        ..add(videoDetailCtr.entry);
++      aidSet
++        ..clear()
++        ..add(videoDetailCtr.entry.pageId);
+     }
+     this.list.value = list;
+-    final currCid = videoDetailCtr.cid.value;
+     final index = list.indexWhere((e) => e.cid == currCid);
+     this.index.value = index;
+     if (PlatformUtils.isMobile) {
+diff --git a/lib/pages/video/reply/local_reply_panel.dart b/lib/pages/video/reply/local_reply_panel.dart
+index b879d3d5d..096a51071 100644
+--- a/lib/pages/video/reply/local_reply_panel.dart
++++ b/lib/pages/video/reply/local_reply_panel.dart
+@@ -1,13 +1,14 @@
+ import 'dart:convert';
+ import 'dart:io';
+ 
+-import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+ import 'package:PiliPlus/utils/date_utils.dart';
+ import 'package:PiliPlus/utils/num_utils.dart';
+ import 'package:material_ui/material_ui.dart';
++import 'package:path/path.dart' as p;
+ 
+ /// LibrePili: read-only comments saved with a download
+-/// (`<base>.comments.json`, format `librepili-comments-1`).
++/// (`<base>.comments.json`, format `librepili-comments-1`). Fully offline:
++/// no avatars, pictures and emotes come from the files saved with it.
+ class LocalReplyPanel extends StatefulWidget {
+   const LocalReplyPanel({super.key, required this.path});
+ 
+@@ -61,7 +62,10 @@ class _LocalReplyPanelState extends State<LocalReplyPanel>
+                 ),
+               );
+             }
+-            return _CommentTile(comment: comments[index - 1]);
++            return _CommentTile(
++              comment: comments[index - 1],
++              dir: p.dirname(widget.path),
++            );
+           },
+         );
+       },
+@@ -70,10 +74,13 @@ class _LocalReplyPanelState extends State<LocalReplyPanel>
+ }
+ 
+ class _CommentTile extends StatefulWidget {
+-  const _CommentTile({required this.comment});
++  const _CommentTile({required this.comment, required this.dir});
+ 
+   final Map comment;
+ 
++  /// Folder of the comments file; image paths are relative to it.
++  final String dir;
++
+   @override
+   State<_CommentTile> createState() => _CommentTileState();
+ }
+@@ -129,11 +136,11 @@ class _CommentTileState extends State<_CommentTile> {
+     return Row(
+       crossAxisAlignment: CrossAxisAlignment.start,
+       children: [
+-        NetworkImgLayer(
+-          src: c['avatar'] as String?,
+-          width: avatarSize,
+-          height: avatarSize,
+-          type: .avatar,
++        // no avatar: it would be a network request
++        CircleAvatar(
++          radius: avatarSize / 2,
++          backgroundColor: theme.colorScheme.onInverseSurface,
++          child: Icon(Icons.person, size: avatarSize * 0.6, color: outline),
+         ),
+         const SizedBox(width: 10),
+         Expanded(
+@@ -145,10 +152,19 @@ class _CommentTileState extends State<_CommentTile> {
+                 style: TextStyle(fontSize: 13, color: outline),
+               ),
+               const SizedBox(height: 2),
+-              SelectableText(
+-                '${c['content'] ?? ''}',
+-                style: const TextStyle(fontSize: 14, height: 1.5),
+-              ),
++              _content(c),
++              if ((c['pictures'] as List?)?.cast<String>() case final pics?
++                  when pics.isNotEmpty)
++                Padding(
++                  padding: const EdgeInsets.only(top: 6),
++                  child: Wrap(
++                    spacing: 6,
++                    runSpacing: 6,
++                    children: [
++                      for (final pic in pics) _picture(context, pic),
++                    ],
++                  ),
++                ),
+               const SizedBox(height: 2),
+               Text(
+                 '${ctime == 0 ? '' : DateFormatUtils.dateFormat(ctime)}'
+@@ -162,4 +178,69 @@ class _CommentTileState extends State<_CommentTile> {
+       ],
+     );
+   }
++
++  File _file(String relative) => File(p.join(widget.dir, relative));
++
++  static final _emoteReg = RegExp(r'\[[^\[\]]+\]');
++
++  /// Text with the saved emotes inline.
++  Widget _content(Map c) {
++    const style = TextStyle(fontSize: 14, height: 1.5);
++    final text = '${c['content'] ?? ''}';
++    final emotes = (c['emotes'] as Map?)?.cast<String, String>();
++    if (emotes == null || emotes.isEmpty) {
++      return SelectableText(text, style: style);
++    }
++    final spans = <InlineSpan>[];
++    var last = 0;
++    for (final m in _emoteReg.allMatches(text)) {
++      final local = emotes[m[0]];
++      if (local == null) continue;
++      if (m.start > last) {
++        spans.add(TextSpan(text: text.substring(last, m.start)));
++      }
++      spans.add(
++        WidgetSpan(
++          alignment: PlaceholderAlignment.middle,
++          child: Image.file(
++            _file(local),
++            width: 20,
++            height: 20,
++            errorBuilder: (_, _, _) => Text(m[0]!),
++          ),
++        ),
++      );
++      last = m.end;
++    }
++    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
++    return Text.rich(TextSpan(children: spans), style: style);
++  }
++
++  Widget _picture(BuildContext context, String relative) {
++    final file = _file(relative);
++    return GestureDetector(
++      onTap: () => showDialog<void>(
++        context: context,
++        builder: (context) => GestureDetector(
++          onTap: Navigator.of(context).pop,
++          child: InteractiveViewer(child: Image.file(file)),
++        ),
++      ),
++      child: ClipRRect(
++        borderRadius: BorderRadius.circular(6),
++        child: Image.file(
++          file,
++          width: 96,
++          height: 96,
++          fit: BoxFit.cover,
++          cacheWidth: 288,
++          errorBuilder: (_, _, _) => const SizedBox(
++            width: 96,
++            height: 96,
++            child: Icon(Icons.broken_image_outlined),
++          ),
++        ),
++      ),
++    );
++  }
+ }
+diff --git a/lib/pages/video/reply_reply/controller.dart b/lib/pages/video/reply_reply/controller.dart
+index 77dbd0388..c4c73e0eb 100644
+--- a/lib/pages/video/reply_reply/controller.dart
++++ b/lib/pages/video/reply_reply/controller.dart
+@@ -5,6 +5,7 @@ import 'package:PiliPlus/http/loading_state.dart';
+ import 'package:PiliPlus/pages/common/publish/publish_route.dart';
+ import 'package:PiliPlus/pages/common/reply_controller.dart';
+ import 'package:PiliPlus/pages/video/reply_new/view.dart';
++import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/id_utils.dart';
+ import 'package:PiliPlus/utils/storage_pref.dart';
+ import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart';
+@@ -154,6 +155,8 @@ class VideoReplyReplyController extends ReplyController
+     int? index,
+   }) {
+     assert(replyItem != null && index != null);
++    // the writing UI is hidden then; guard any path that still gets here
++    if (!LoginPolicy.canInteract) return;
+ 
+     final (bool inputDisable, String? hint) = replyHint;
+     if (inputDisable) {
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index 292146635..e70de90b0 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1838,7 +1838,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+ 
+   Widget videoReplyPanel({bool isNested = false}) =>
+       videoDetailController.isFileSource
+-      ? LocalReplyPanel(path: videoDetailController.localCommentsPath!)
++      ? switch (videoDetailController.localCommentsPath) {
++          // keyed: reload when the offline playlist switches videos
++          final path? => LocalReplyPanel(key: ValueKey(path), path: path),
++          null => const SizedBox.shrink(),
++        }
+       : VideoReplyPanel(
+           key: videoReplyPanelKey,
+           isNested: isNested,
+diff --git a/lib/services/download/download_extras.dart b/lib/services/download/download_extras.dart
+index 5c80e8b91..61870b651 100644
+--- a/lib/services/download/download_extras.dart
++++ b/lib/services/download/download_extras.dart
+@@ -6,12 +6,15 @@ import 'package:PiliPlus/grpc/bilibili/community/service/dm/v1.pb.dart';
+ import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart';
+ import 'package:PiliPlus/grpc/dm.dart';
+ import 'package:PiliPlus/grpc/reply.dart';
++import 'package:PiliPlus/http/init.dart';
+ import 'package:PiliPlus/http/loading_state.dart';
+ import 'package:PiliPlus/http/video.dart';
+ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
++import 'package:PiliPlus/utils/extension/string_ext.dart';
+ import 'package:PiliPlus/utils/path_utils.dart';
+ import 'package:PiliPlus/utils/storage_pref.dart';
++import 'package:crypto/crypto.dart' show md5;
+ import 'package:fixnum/fixnum.dart';
+ import 'package:flutter/foundation.dart';
+ import 'package:path/path.dart' as path;
+@@ -167,6 +170,7 @@ abstract final class DownloadExtras {
+     }
+     if (roots.length > maxRoots) roots.removeRange(maxRoots, roots.length);
+ 
++    final images = CommentImages(folder);
+     final items = <Map<String, Object?>>[];
+     for (final root in roots) {
+       var replies = root.replies.toList();
+@@ -175,9 +179,10 @@ abstract final class DownloadExtras {
+         replies = await _replies(oid, root.id.toInt(), wanted);
+       }
+       items.add(
+-        replyToJson(root)
++        await replyToJson(root, images)
+           ..['replies'] = [
+-            for (final r in replies.take(maxReplies)) replyToJson(r),
++            for (final r in replies.take(maxReplies))
++              await replyToJson(r, images),
+           ],
+       );
+     }
+@@ -195,7 +200,7 @@ abstract final class DownloadExtras {
+     await File(path.join(folder, '$base$commentsSuffix')).writeAsString(
+       const JsonEncoder.withIndent(' ').convert(json),
+     );
+-    return '${items.length} comments';
++    return '${items.length} comments, ${images.saved} images';
+   }
+ 
+   static Future<List<ReplyInfo>> _replies(int oid, int root, int wanted) async {
+@@ -219,16 +224,38 @@ abstract final class DownloadExtras {
+     return out;
+   }
+ 
+-  static Map<String, Object?> replyToJson(ReplyInfo r) => {
+-    'rpid': r.id.toInt(),
+-    'mid': r.mid.toInt(),
+-    'uname': r.member.name,
+-    'avatar': r.member.face,
+-    'content': r.content.message,
+-    'ctime': r.ctime.toInt(),
+-    'like': r.like.toInt(),
+-    'replyCount': r.count.toInt(),
+-  };
++  /// [images] saves the comment's pictures and emotes next to the video;
++  /// their paths (relative to the comments file) are recorded, so the
++  /// offline panel shows them without any network request.
++  static Future<Map<String, Object?>> replyToJson(
++    ReplyInfo r, [
++    CommentImages? images,
++  ]) async {
++    final pictures = <String>[];
++    final emotes = <String, String>{};
++    if (images != null) {
++      for (final p in r.content.pictures) {
++        if (await images.save(p.imgSrc) case final local?) pictures.add(local);
++      }
++      for (final e in r.content.emotes.entries) {
++        if (await images.save(e.value.url) case final local?) {
++          emotes[e.key] = local;
++        }
++      }
++    }
++    return {
++      'rpid': r.id.toInt(),
++      'mid': r.mid.toInt(),
++      'uname': r.member.name,
++      'avatar': r.member.face,
++      'content': r.content.message,
++      'ctime': r.ctime.toInt(),
++      'like': r.like.toInt(),
++      'replyCount': r.count.toInt(),
++      if (pictures.isNotEmpty) 'pictures': pictures,
++      if (emotes.isNotEmpty) 'emotes': emotes,
++    };
++  }
+ 
+   // ------------------------------------------------------------ danmaku
+ 
+@@ -275,9 +302,7 @@ abstract final class DownloadExtras {
+           mode: int.tryParse(p[1]) ?? 1,
+           fontsize: int.tryParse(p[2]) ?? 25,
+           color: int.tryParse(p[3]) ?? 0xFFFFFF,
+-          ctime: p.length > 4
+-              ? Int64.parseInt(p[4].isEmpty ? '0' : p[4])
+-              : null,
++          ctime: p.length > 4 ? Int64(int.tryParse(p[4]) ?? 0) : null,
+           pool: p.length > 5 ? int.tryParse(p[5]) : null,
+           midHash: p.length > 6 ? p[6] : null,
+           idStr: p.length > 7 ? p[7] : null,
+@@ -439,3 +464,39 @@ abstract final class DownloadExtras {
+ 
+   static String _safe(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|\s]'), '_');
+ }
++
++/// Pictures and emotes of saved comments, stored once per URL in
++/// `comments_images/` next to the comments file.
++class CommentImages {
++  CommentImages(this.folder);
++
++  static const dirName = 'comments_images';
++
++  final String folder;
++  final _done = <String, String?>{};
++  int saved = 0;
++
++  /// Returns the path relative to [folder], or null if it failed.
++  Future<String?> save(String url) async {
++    if (url.isEmpty) return null;
++    url = url.http2https;
++    if (_done.containsKey(url)) return _done[url];
++    String? result;
++    try {
++      var ext = path.extension(Uri.parse(url).path).toLowerCase();
++      if (ext.isEmpty || ext.length > 5) ext = '.jpg';
++      final name = '${md5.convert(utf8.encode(url))}$ext';
++      final file = File(path.join(folder, dirName, name));
++      if (!file.existsSync()) {
++        final part = '${file.path}.part';
++        await Request.dio.download(url, part);
++        await File(part).rename(file.path);
++        saved++;
++      }
++      result = '$dirName/$name';
++    } catch (e) {
++      if (kDebugMode) debugPrint('comment image $url: $e');
++    }
++    return _done[url] = result;
++  }
++}
+diff --git a/lib/services/download/download_manager.dart b/lib/services/download/download_manager.dart
+index 72dcebac9..286a75800 100644
+--- a/lib/services/download/download_manager.dart
++++ b/lib/services/download/download_manager.dart
+@@ -42,35 +42,45 @@ class DownloadManager {
+         if (u != url) u,
+     ];
+     for (var attempt = 0; ; attempt++) {
+-      final failure = await _attempt(urls[attempt % urls.length]);
+-      if (failure == null) return; // completed
+-      final retry =
+-          _status == DownloadStatus.downloading &&
+-          !_cancelToken.isCancelled &&
+-          attempt + 1 < _maxAttempts;
+-      if (!retry) {
+-        await _fail(failure.error, delete: failure.beforeData);
++      final error = await _attempt(urls[attempt % urls.length]);
++      if (error == null) return; // completed
++      if (!_canRetry || attempt + 1 >= _maxAttempts) {
++        await _fail(error);
++        return;
++      }
++      // resume from what is on disk, on the next address; pause/delete
++      // cuts the wait short
++      await Future.any<void>([
++        Future.delayed(Duration(seconds: attempt + 1)),
++        _cancelToken.whenCancel,
++      ]);
++      if (!_canRetry) {
++        await _fail(error);
+         return;
+       }
+-      // resume from what is on disk, on the next address
+-      await Future.delayed(Duration(seconds: attempt + 1));
+     }
+   }
+ 
+-  Future<void> _fail(Object e, {required bool delete}) async {
++  bool get _canRetry =>
++      _status == DownloadStatus.downloading && !_cancelToken.isCancelled;
++
++  Future<void> _fail(Object e) async {
+     final file = File(path);
+     if (_status == DownloadStatus.downloading) {
+       _status = DownloadStatus.failDownload;
+-      if (delete && file.existsSync()) {
++      // keep any saved bytes: a later start resumes from them
++      if (file.existsSync() && file.lengthSync() == 0) {
+         await file.tryDel();
+       }
+     }
+     onDone(e);
+   }
+ 
++  static final _contentRangeReg = RegExp(r'bytes\s+(\d+)-\d+/(\d+|\*)');
++
+   /// One transfer attempt. Returns null when the file is complete, else the
+-  /// error and whether it happened before any data was received.
+-  Future<({Object error, bool beforeData})?> _attempt(String url) async {
++  /// error.
++  Future<Object?> _attempt(String url) async {
+     int received;
+ 
+     final file = File(path);
+@@ -81,16 +91,6 @@ class DownloadManager {
+       received = 0;
+     }
+ 
+-    final sink = file.openWrite(
+-      mode: received == 0 ? FileMode.writeOnly : FileMode.writeOnlyAppend,
+-    );
+-
+-    Future<void> closeSink() async {
+-      try {
+-        await sink.close();
+-      } catch (_) {}
+-    }
+-
+     Response<ResponseBody> response;
+     try {
+       response = await Request.http11Dio.get<ResponseBody>(
+@@ -105,14 +105,57 @@ class DownloadManager {
+         cancelToken: _cancelToken,
+       );
+     } on DioException catch (e) {
+-      await closeSink();
+-      return (error: e, beforeData: true);
++      return e;
+     }
+     final data = response.data!;
+-    final contentLength = data.contentLength + received;
++    final contentRange = response.headers.value(
++      HttpHeaders.contentRangeHeader,
++    );
++
++    Future<void> discard() async {
++      try {
++        await data.stream.listen(null).cancel();
++      } catch (_) {}
++    }
++
++    if (response.statusCode == 416) {
++      await discard();
++      // nothing left to send: complete only if the file on disk is whole
++      final total = int.tryParse(contentRange?.split('/').last ?? '');
++      if (total != null && total == received) {
++        _status = DownloadStatus.completed;
++        onDone();
++        return null;
++      }
++      // what is on disk does not match the stream: start over
++      await file.writeAsBytes(const []);
++      return 'range not satisfiable ($contentRange, have $received)';
++    }
++
++    int expected = data.contentLength < 0 ? -1 : data.contentLength + received;
++    if (received > 0) {
++      if (response.statusCode != 206) {
++        // Range ignored: the body is the whole file, rewrite it from 0
++        received = 0;
++        expected = data.contentLength;
++      } else {
++        final match = contentRange == null
++            ? null
++            : _contentRangeReg.firstMatch(contentRange);
++        if (match == null || int.parse(match[1]!) != received) {
++          await discard();
++          return 'unexpected content-range: $contentRange (have $received)';
++        }
++        expected = int.tryParse(match[2]!) ?? expected;
++      }
++    }
++
++    final sink = file.openWrite(
++      mode: received == 0 ? FileMode.writeOnly : FileMode.writeOnlyAppend,
++    );
+ 
+     if (received == 0) {
+-      onReceiveProgress?.call(0, contentLength);
++      onReceiveProgress?.call(0, expected);
+     }
+ 
+     int? last;
+@@ -123,17 +166,23 @@ class DownloadManager {
+         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+         if (last != now) {
+           last = now;
+-          onReceiveProgress?.call(received, contentLength);
++          onReceiveProgress?.call(received, expected);
+         }
+       }
+       await sink.close();
+-      _status = DownloadStatus.completed;
+-      onDone();
+-      return null;
+     } catch (e) {
+-      await closeSink();
+-      return (error: e, beforeData: false);
++      try {
++        await sink.close();
++      } catch (_) {}
++      return e;
++    }
++    if (expected >= 0 && received != expected) {
++      // clean early EOF: retry from what was saved
++      return 'incomplete transfer: $received of $expected bytes';
+     }
++    _status = DownloadStatus.completed;
++    onDone();
++    return null;
+   }
+ 
+   Future<void> cancel({required bool isDelete}) {
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 85c11c519..99c1b2db6 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -286,6 +286,8 @@ class DownloadService extends GetxService {
+   }
+ 
+   Future<void> startDownload(BiliDownloadEntryInfo entry) {
++    // already finished downloading; the merge completes it
++    if (entry.cid == _mergingCid) return Future.value();
+     return _lock.synchronized(() async {
+       await _downloadManager?.cancel(isDelete: false);
+       await _audioDownloadManager?.cancel(isDelete: false);
+@@ -408,13 +410,7 @@ class DownloadService extends GetxService {
+ 
+       switch (mediaFileInfo) {
+         case Type1 mediaFileInfo:
+-          final first = mediaFileInfo.segmentList.first;
+-          _downloadManager = DownloadManager(
+-            url: first.url,
+-            path: path.join(videoDir.path, PathUtils.videoNameType1),
+-            onReceiveProgress: _onReceive,
+-            onDone: _onDone,
+-          );
++          _startSegment(mediaFileInfo.segmentList, 0, videoDir.path);
+           break;
+         case Type2 mediaFileInfo:
+           _downloadManager = DownloadManager(
+@@ -454,6 +450,33 @@ class DownloadService extends GetxService {
+     }
+   }
+ 
++  /// Old single-URL (durl) streams may come in several segments: they are
++  /// downloaded one after another (resuming what is on disk) and joined by
++  /// [_mergeDownload]. Progress runs over their total size.
++  void _startSegment(List<Type1Segment> segments, int index, String dir) {
++    final total = segments.fold<int>(0, (s, e) => s + e.bytes);
++    final done = segments.take(index).fold<int>(0, (s, e) => s + e.bytes);
++    final segment = segments[index];
++    late final DownloadManager manager;
++    manager = DownloadManager(
++      url: segment.url,
++      backupUrls: segment.backupUrls,
++      path: path.join(dir, PathUtils.segmentNameType1(index)),
++      onReceiveProgress: segments.length == 1 || total <= 0
++          ? _onReceive
++          : (received, _) => _onReceive(done + received, total),
++      onDone: ([error]) {
++        if (error != null || index + 1 == segments.length) {
++          return _onDone(error);
++        }
++        // paused / deleted / replaced meanwhile
++        if (!identical(_downloadManager, manager)) return;
++        _startSegment(segments, index + 1, dir);
++      },
++    );
++    _downloadManager = manager;
++  }
++
+   Future<void> _updateBiliDownloadEntryJson(BiliDownloadEntryInfo entry) {
+     final entryJsonFile = File(path.join(entry.entryDirPath, _entryFile));
+     return entryJsonFile.writeAsString(jsonEncode(entry.toJson()));
+@@ -528,15 +551,30 @@ class DownloadService extends GetxService {
+     _downloadManager = null;
+     _audioDownloadManager = null;
+     entry.downloadedBytes = entry.totalBytes;
++    _mergingCid = entry.cid;
++    _mergeDeleted = false;
+     _updateCurStatus(DownloadStatus.merging);
+-    await _mergeDownload(entry);
+-    if (!Directory(entry.entryDirPath).existsSync()) {
+-      // deleted while merging
++    final (:output, :inputs) = await _mergeDownload(entry);
++    _mergingCid = null;
++    if (_mergeDeleted || !Directory(entry.entryDirPath).existsSync()) {
++      // deleted while merging (the merge may have kept files open, so the
++      // delete may not have removed everything)
+       await _deleteMerged(entry);
++      await Directory(entry.entryDirPath).tryDel(recursive: true);
++      waitDownloadQueue.remove(entry);
++      if (curDownload.value == null) nextDownload();
+       return;
+     }
++    // record completion before removing the stream files, so a crash here
++    // cannot turn the entry back into an incomplete one
+     entry.isCompleted = true;
+     await _updateBiliDownloadEntryJson(entry);
++    if (output != null) {
++      for (final input in inputs) {
++        await File(input).tryDel();
++      }
++      if (Platform.isAndroid) await _scanMedia(output);
++    }
+     waitDownloadQueue.remove(entry);
+     downloadList.insert(0, entry);
+     flagNotifier.refresh();
+@@ -545,16 +583,46 @@ class DownloadService extends GetxService {
+       curDownload.value = null;
+       nextDownload();
+     }
++    // comments / subtitles etc. can take many requests: do not hold the
++    // queue for them
++    if (output != null) {
++      unawaited(
++        DownloadExtras.export(
++          entry: entry,
++          folder: path.dirname(output),
++          base: path.basenameWithoutExtension(output),
++        ),
++      );
++    }
+   }
+ 
++  /// cid of the entry being merged; pause/start requests for it are ignored.
++  int? _mergingCid;
++
++  /// Set when the entry being merged is deleted.
++  bool _mergeDeleted = false;
++
+   /// Turns the downloaded streams into one complete video file in the export
+-  /// directory and removes the separate stream files. On failure the stream
+-  /// files are kept, so the entry still plays in-app as before.
+-  Future<void> _mergeDownload(BiliDownloadEntryInfo entry) async {
++  /// directory. Returns the file (null on failure) and the stream files the
++  /// caller removes once completion is saved. On failure the stream files
++  /// are kept, so the entry still plays in-app as before.
++  Future<({String? output, List<String> inputs})> _mergeDownload(
++    BiliDownloadEntryInfo entry,
++  ) async {
+     final videoDir = path.join(entry.entryDirPath, entry.typeTag);
+     final List<String> inputs;
+     if (entry.mediaType == 1) {
+-      inputs = [path.join(videoDir, PathUtils.videoNameType1)];
++      inputs = [
++        for (
++          var i = 0;
++          File(path.join(videoDir, PathUtils.segmentNameType1(i))).existsSync();
++          i++
++        )
++          path.join(videoDir, PathUtils.segmentNameType1(i)),
++      ];
++      if (inputs.isEmpty) {
++        inputs.add(path.join(videoDir, PathUtils.videoNameType1));
++      }
+     } else {
+       final audio = path.join(videoDir, PathUtils.audioNameType2);
+       inputs = [
+@@ -566,20 +634,12 @@ class DownloadService extends GetxService {
+     try {
+       output = await _exportFilePath(entry);
+       if (entry.mediaType == 1) {
+-        await _moveFile(inputs.first, output);
++        output = await _exportType1(inputs, output);
+       } else {
+         await _remuxInBackground(inputs, output);
+-        for (final input in inputs) {
+-          await File(input).tryDel();
+-        }
+       }
+       entry.mergedPath = output;
+-      if (Platform.isAndroid) await _scanMedia(output);
+-      await DownloadExtras.export(
+-        entry: entry,
+-        folder: path.dirname(output),
+-        base: path.basenameWithoutExtension(output),
+-      );
++      return (output: output, inputs: inputs);
+     } catch (e) {
+       if (output != null) {
+         await File(output).tryDel();
+@@ -590,7 +650,35 @@ class DownloadService extends GetxService {
+       }
+       SmartDialog.showToast('合并音视频失败，已保留分离的音视频文件');
+       if (kDebugMode) debugPrint('merge download error: $e');
++      return (output: null, inputs: inputs);
++    }
++  }
++
++  /// Old single-URL (durl) streams. FLV with H.264 + AAC is remuxed into a
++  /// real mp4, all segments joined; a single mp4 segment is moved as is.
++  /// Anything else keeps its own data and extension (several segments:
++  /// `<base>.flv`, `<base>.2.flv`, ...). Returns the (first) exported file.
++  static Future<String> _exportType1(List<String> inputs, String output) async {
++    final isFlv = Mp4Remuxer.isFlv(inputs.first);
++    if (isFlv) {
++      try {
++        await Isolate.run(
++          () => Mp4Remuxer.remuxFlv(inputs: inputs, output: output),
++        );
++        return output;
++      } on UnsupportedError catch (e) {
++        if (kDebugMode) debugPrint('FLV kept as is: $e');
++      }
++    } else if (inputs.length == 1) {
++      await _moveFile(inputs.first, output);
++      return output;
+     }
++    final ext = isFlv ? '.flv' : '.mp4';
++    final base = path.withoutExtension(output);
++    for (var i = 0; i < inputs.length; i++) {
++      await _moveFile(inputs[i], i == 0 ? '$base$ext' : '$base.${i + 1}$ext');
++    }
++    return '$base$ext';
+   }
+ 
+   static const _mediaChannel = MethodChannel('librepili/media');
+@@ -599,7 +687,10 @@ class DownloadService extends GetxService {
+   /// players list it (files written by path are not indexed automatically).
+   static Future<void> _scanMedia(String path) async {
+     try {
+-      await _mediaChannel.invokeMethod<String>('scanFile', {'path': path});
++      await _mediaChannel.invokeMethod<String>('scanFile', {
++        'path': path,
++        'mimeType': path.endsWith('.flv') ? 'video/x-flv' : 'video/mp4',
++      });
+     } catch (e) {
+       if (kDebugMode) debugPrint('media scan failed: $e');
+     }
+@@ -638,7 +729,8 @@ class DownloadService extends GetxService {
+   /// `Download/<app name>` folder so galleries and file managers see them;
+   /// elsewhere: the (user-configurable) download folder.
+   static Future<String> _exportDir() async {
+-    if (Platform.isAndroid) {
++    // the self test exports into its own download folder
++    if (Platform.isAndroid && !isSelfTestProfile) {
+       // downloadPath is `<storage root>/Android/data/<package>/files/download`
+       final i = downloadPath.indexOf('/Android/data/');
+       if (i != -1 &&
+@@ -680,7 +772,11 @@ class DownloadService extends GetxService {
+         .replaceAll(_illegalFileChars, '_')
+         .replaceAll(RegExp(r'\s+'), ' ')
+         .trim();
+-    if (name.length > 120) name = name.substring(0, 120).trim();
++    // cut by code point (never half an emoji); the name is used twice in
++    // the path (folder and file), so keep it short for Windows' 260 limit
++    if (name.runes.length > 80) {
++      name = String.fromCharCodes(name.runes.take(80)).trim();
++    }
+     if (entry.qualityPithyDescription.isNotEmpty) {
+       name +=
+           ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
+@@ -707,6 +803,8 @@ class DownloadService extends GetxService {
+     bool removeQueue = false,
+     bool refresh = true,
+     bool downloadNext = true,
++    // the exported video folder is the user's own copy: kept unless asked
++    bool deleteExported = false,
+   }) async {
+     if (removeList) {
+       downloadList.remove(entry);
+@@ -714,13 +812,16 @@ class DownloadService extends GetxService {
+     if (removeQueue) {
+       waitDownloadQueue.remove(entry);
+     }
++    if (entry.cid == _mergingCid) {
++      _mergeDeleted = true;
++    }
+     if (curDownload.value?.cid == entry.cid) {
+       await cancelDownload(
+         isDelete: true,
+         downloadNext: downloadNext,
+       );
+     }
+-    await _deleteMerged(entry);
++    if (deleteExported) await _deleteMerged(entry);
+     final downloadDir = Directory(entry.pageDirPath);
+     if (downloadDir.existsSync()) {
+       if (!await downloadDir.lengthGte(2)) {
+@@ -740,9 +841,12 @@ class DownloadService extends GetxService {
+   Future<void> deletePage({
+     required String pageDirPath,
+     bool refresh = true,
++    bool deleteExported = false,
+   }) async {
+-    for (final entry in downloadList) {
+-      if (entry.pageDirPath == pageDirPath) await _deleteMerged(entry);
++    if (deleteExported) {
++      for (final entry in downloadList) {
++        if (entry.pageDirPath == pageDirPath) await _deleteMerged(entry);
++      }
+     }
+     await Directory(pageDirPath).tryDel(recursive: true);
+     downloadList.removeWhere((e) => e.pageDirPath == pageDirPath);
+@@ -755,6 +859,12 @@ class DownloadService extends GetxService {
+     required bool isDelete,
+     bool downloadNext = true,
+   }) async {
++    // nothing to pause while merging; the merge completes the entry
++    if (!isDelete &&
++        _mergingCid != null &&
++        curDownload.value?.cid == _mergingCid) {
++      return;
++    }
+     await _downloadManager?.cancel(isDelete: isDelete);
+     await _audioDownloadManager?.cancel(isDelete: isDelete);
+     _downloadManager = null;
+diff --git a/lib/services/local_library.dart b/lib/services/local_library.dart
+index f7a2d71a8..695dd3beb 100644
+--- a/lib/services/local_library.dart
++++ b/lib/services/local_library.dart
+@@ -17,6 +17,10 @@ abstract final class LocalLibrary {
+     _follows = await Hive.openBox('localFollows');
+     _folders = await Hive.openBox('localFavFolders');
+     _items = await Hive.openBox('localFavItems');
++    await _ensureDefaultFolder();
++  }
++
++  static Future<void> _ensureDefaultFolder() async {
+     if (_folders.isEmpty) {
+       await _folders.put('$defaultFolderId', {
+         'id': defaultFolderId,
+@@ -27,6 +31,28 @@ abstract final class LocalLibrary {
+     }
+   }
+ 
++  /// The boxes, for backup / compact / close (see GStorage).
++  static List<Box<dynamic>> get boxes => [_follows, _folders, _items];
++
++  /// Restores boxes from a backup made with [boxes]; boxes missing from
++  /// [map] (older backups) are left as they are.
++  static Future<void> importAll(Map<String, dynamic> map) async {
++    for (final box in boxes) {
++      if (map[box.name] case final Map data) {
++        await box.clear();
++        await box.putAll(data);
++      }
++    }
++    await _ensureDefaultFolder();
++  }
++
++  static Future<void> clear() async {
++    for (final box in boxes) {
++      await box.clear();
++    }
++    await _ensureDefaultFolder();
++  }
++
+   static int _now() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+ 
+   static Stream<BoxEvent> watchFollows() => _follows.watch();
+diff --git a/lib/utils/accounts.dart b/lib/utils/accounts.dart
+index de4829e03..c595fd9bd 100644
+--- a/lib/utils/accounts.dart
++++ b/lib/utils/accounts.dart
+@@ -75,10 +75,30 @@ abstract final class Accounts {
+     }
+   }
+ 
++  /// Roles as saved on the stored accounts, whether login mode is on or not.
++  static List<Account> savedMode() {
++    final mode = List<Account>.filled(
++      AccountType.values.length,
++      AnonymousAccount(),
++    );
++    for (final a in account.values) {
++      for (final t in a.type) {
++        mode[t.index] = a;
++      }
++    }
++    return mode;
++  }
++
+   static Future<void> set(AccountType key, Account account) async {
+-    final oldAccount = accountMode[key.index]..type.remove(key);
++    // in incognito accountMode only holds the anonymous placeholder, so drop
++    // the role from every stored account, not just the active holder
++    final changed = <Account>{accountMode[key.index]..type.remove(key)};
++    for (final a in Accounts.account.values) {
++      if (a.type.remove(key)) changed.add(a);
++    }
+     accountMode[key.index] = account..type.add(key);
+-    await Future.wait([?account.onChange(), ?oldAccount.onChange()]);
++    changed.add(account);
++    await Future.wait([for (final a in changed) ?a.onChange()]);
+     if (!LoginPolicy.loginMode) {
+       // role is saved on the account but stays dormant until login mode
+       accountMode[key.index] = AnonymousAccount();
+diff --git a/lib/utils/accounts/account_manager/account_mgr.dart b/lib/utils/accounts/account_manager/account_mgr.dart
+index adae89071..d3d53d591 100644
+--- a/lib/utils/accounts/account_manager/account_mgr.dart
++++ b/lib/utils/accounts/account_manager/account_mgr.dart
+@@ -47,6 +47,11 @@ class AccountManager extends Interceptor {
+ 
+     final account = _bindRequestAccount(options);
+ 
++    // call sites may have put the account's access_key in the params before
++    // the policy anonymized the request: scrub it (and re-sign) so the
++    // anonymous request cannot be tied to the account
++    if (account is! LoginAccount) _scrubAccessKey(options);
++
+     if (account is NoAccount || _skipCookie(path)) return handler.next(options);
+ 
+     if (!account.isLogin && path == Api.heartBeat) {
+@@ -230,10 +235,22 @@ class AccountManager extends Interceptor {
+           ),
+         );
+ 
++  /// Login-flow calls that act on an explicitly passed account (e.g. logging
++  /// it out); they keep that account whatever the mode.
++  static const _explicitAccountApis = {
++    Api.logout,
++    Api.activateBuvidApi,
++    Api.qrcodeConfirm,
++  };
++
+   static Account _bindRequestAccount(RequestOptions options) {
+     assert(options.extra['account'] is Account?);
+-    var account =
+-        options.extra['account'] as Account? ?? _findAccount(options.path);
++    final explicit = options.extra['account'] as Account?;
++    if (explicit is LoginAccount &&
++        _explicitAccountApis.contains(options.path)) {
++      return explicit;
++    }
++    var account = explicit ?? _findAccount(options.path);
+     // LibrePili: no global login. Even in login mode the account is only
+     // attached where it is required; everything else goes out anonymously.
+     if (account is LoginAccount &&
+@@ -243,6 +260,28 @@ class AccountManager extends Interceptor {
+     return options.extra['account'] = account;
+   }
+ 
++  static const _accessKeys = ['access_key', 'mobile_access_key'];
++
++  static void _scrubAccessKey(RequestOptions options) {
++    void scrub(Map<String, dynamic> params) {
++      var removed = false;
++      for (final key in _accessKeys) {
++        if (params.containsKey(key)) {
++          params.remove(key);
++          removed = true;
++        }
++      }
++      if (removed && params.containsKey('sign')) {
++        AppSign.appSign(params..remove('sign'));
++      }
++    }
++
++    scrub(options.queryParameters);
++    if (options.data case final Map data) {
++      scrub(data.cast<String, dynamic>());
++    }
++  }
++
+   static Account? _boundRequestAccount(RequestOptions options) {
+     final path = options.path;
+     final account = options.extra['account'] as Account;
+diff --git a/lib/utils/accounts/login_policy.dart b/lib/utils/accounts/login_policy.dart
+index 207fe8799..2ab4a7937 100644
+--- a/lib/utils/accounts/login_policy.dart
++++ b/lib/utils/accounts/login_policy.dart
+@@ -1,5 +1,6 @@
+ import 'package:PiliPlus/grpc/url.dart';
+ import 'package:PiliPlus/http/api.dart';
++import 'package:PiliPlus/http/constants.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
+ import 'package:PiliPlus/utils/storage_pref.dart';
+ import 'package:dio/dio.dart';
+@@ -65,22 +66,33 @@ abstract final class LoginPolicy {
+   static const _csrfKeys = {'csrf', 'biliCSRF', 'csrf_token'};
+   static const _selfKeys = ['mid', 'vmid', 'up_mid'];
+ 
++  /// Whether UI that writes (comments, replies, danmaku, live chat) is
++  /// shown: it needs a logged-in account and the "hide interaction" switch
++  /// off. Existing comments and danmaku are displayed either way.
++  static bool get canInteract => Accounts.main.isLogin && !Pref.hideInteraction;
++
+   /// Whether [options] may carry the logged-in account. False means it is
+   /// sent anonymously even in login mode.
+   static bool requiresAccount(RequestOptions options) {
+     final path = options.path;
++    // gRPC requests are sent as `appBaseUrl + GrpcUrl.x`
++    final grpcPath = path.startsWith(HttpString.appBaseUrl)
++        ? path.substring(HttpString.appBaseUrl.length)
++        : path;
+     if (_accountApis.contains(path) ||
+-        _grpcAccountApis.contains(path) ||
+-        _grpcAccountPrefixes.any(path.startsWith)) {
++        _grpcAccountApis.contains(grpcPath) ||
++        _grpcAccountPrefixes.any(grpcPath.startsWith)) {
+       return true;
+     }
+     final query = options.queryParameters;
+     final data = options.data;
+-    // web writes are csrf-protected
+-    if (query.keys.any(_csrfKeys.contains) ||
+-        (data is Map && data.keys.any(_csrfKeys.contains)) ||
+-        (data is FormData &&
+-            data.fields.any((e) => _csrfKeys.contains(e.key)))) {
++    // web writes are csrf-protected (some GET reads also carry csrf; they
++    // are not writes and stay anonymous)
++    if (options.method.toUpperCase() != 'GET' &&
++        (query.keys.any(_csrfKeys.contains) ||
++            (data is Map && data.keys.any(_csrfKeys.contains)) ||
++            (data is FormData &&
++                data.fields.any((e) => _csrfKeys.contains(e.key))))) {
+       return true;
+     }
+     // reads scoped to the user themself (own space, own followings...)
+diff --git a/lib/utils/app_scheme.dart b/lib/utils/app_scheme.dart
+index 9b7f16b4b..6d81a04a2 100644
+--- a/lib/utils/app_scheme.dart
++++ b/lib/utils/app_scheme.dart
+@@ -1,6 +1,7 @@
+ // ignore_for_file: constant_identifier_names
+ 
+ import 'dart:async' show StreamSubscription;
++import 'dart:io' show FileSystemEntity, FileSystemEntityType;
+ 
+ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+ import 'package:PiliPlus/common/widgets/view_safe_area.dart';
+@@ -18,6 +19,7 @@ import 'package:PiliPlus/pages/live/view.dart';
+ import 'package:PiliPlus/pages/rank/view.dart';
+ import 'package:PiliPlus/pages/subscription_detail/view.dart';
+ import 'package:PiliPlus/pages/video/reply_reply/view.dart';
++import 'package:PiliPlus/services/local_player.dart';
+ import 'package:PiliPlus/utils/id_utils.dart';
+ import 'package:PiliPlus/utils/page_utils.dart';
+ import 'package:PiliPlus/utils/parse_string.dart';
+@@ -44,9 +46,29 @@ abstract final class PiliScheme {
+     appLinks = AppLinks();
+ 
+     listener?.cancel();
+-    listener = appLinks.uriLinkStream.listen(
+-      PlatformUtils.isDesktop ? _desktopRoutePush : routePush,
+-    );
++    final handler = PlatformUtils.isDesktop ? _desktopRoutePush : routePush;
++    // same as uriLinkStream, plus files opened while already running
++    listener = appLinks.stringLinkStream.listen((link) {
++      if (link.startsWith(_openFilePrefix)) {
++        _openFile(link.substring(_openFilePrefix.length));
++      } else if (Uri.tryParse(link) case final uri?) {
++        handler(uri);
++      }
++    });
++  }
++
++  /// Sent by windows/runner/main.cpp for "Open with" when an instance is
++  /// already running.
++  static const _openFilePrefix = 'librepili-open:';
++
++  static Future<void> _openFile(String target) async {
++    if (PlatformUtils.isDesktop) {
++      await windowManager.show();
++      await windowManager.focus();
++    }
++    if (FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound) {
++      await LocalPlayer.open(target);
++    }
+   }
+ 
+   static Future<bool> _desktopRoutePush(Uri uri) async {
+diff --git a/lib/utils/mp4_remux.dart b/lib/utils/mp4_remux.dart
+index 9ed9cd33f..524d3cc7a 100644
+--- a/lib/utils/mp4_remux.dart
++++ b/lib/utils/mp4_remux.dart
+@@ -1,7 +1,9 @@
+ import 'dart:io';
+-import 'dart:math' show max;
++import 'dart:math' show max, min;
+ import 'dart:typed_data';
+ 
++part 'flv_demux.dart';
++
+ /// Losslessly merges single-track fragmented MP4 inputs (bilibili DASH
+ /// `video.m4s` / `audio.m4s`) into one progressive MP4 with `moov` placed
+ /// before `mdat` (fast start).
+@@ -28,7 +30,60 @@ abstract final class Mp4Remuxer {
+           ..index = tracks.length,
+       );
+     }
++    await _write(tracks, output, onProgress);
++  }
++
++  /// Whether [path] starts with an FLV header.
++  static bool isFlv(String path) => _hasMagic(path, 0, 'FLV');
++
++  /// Whether [path] is an (ISO BMFF) MP4 file.
++  static bool isMp4(String path) => _hasMagic(path, 4, 'ftyp');
++
++  static bool _hasMagic(String path, int offset, String magic) {
++    final raf = File(path).openSync();
++    try {
++      raf.setPositionSync(offset);
++      return String.fromCharCodes(raf.readSync(magic.length)) == magic;
++    } finally {
++      raf.closeSync();
++    }
++  }
+ 
++  /// Joins FLV segments (in timeline order) into one progressive MP4.
++  /// Supports H.264 video and AAC audio; anything else throws
++  /// [UnsupportedError] so the caller can keep the original file.
++  static Future<void> remuxFlv({
++    required List<String> inputs,
++    required String output,
++    void Function(int copied, int total)? onProgress,
++  }) async {
++    if (inputs.isEmpty) throw ArgumentError('no input');
++    await _write(_FlvDemuxer.demux(inputs), output, onProgress);
++  }
++
++  /// The tracks an FLV demux produces; for tests only.
++  static List<Map<String, Object>> debugFlvTracks(List<String> inputs) => [
++    for (final t in _FlvDemuxer.demux(inputs))
++      {
++        'type': t.sampleEntryType,
++        'timescale': t.timescale,
++        'sizes': t.sizes,
++        'durations': t.durations,
++        'ctos': t.ctos,
++        'syncs': t.syncs,
++        'stsd': t.stsd,
++        'tkhdTail': t.tkhdTail,
++        'edits': [
++          for (final e in t.edits) [e.segmentDuration, e.mediaTime],
++        ],
++      },
++  ];
++
++  static Future<void> _write(
++    List<_Track> tracks,
++    String output,
++    void Function(int copied, int total)? onProgress,
++  ) async {
+     final chunks = [for (final t in tracks) ...t.chunks]
+       ..sort((a, b) {
+         final c = a.startSeconds.compareTo(b.startSeconds);
+@@ -71,8 +126,8 @@ abstract final class Mp4Remuxer {
+       final buffer = Uint8List(_copyBufferSize);
+       var copied = 0;
+       for (final c in chunks) {
+-        final src = sources[c.track.path] ??= await File(
+-          c.track.path,
++        final src = sources[c.sourcePath] ??= await File(
++          c.sourcePath,
+         ).open();
+         await src.setPosition(c.sourceOffset);
+         var remaining = c.length;
+@@ -83,7 +138,7 @@ abstract final class Mp4Remuxer {
+             remaining < buffer.length ? remaining : buffer.length,
+           );
+           if (n <= 0) {
+-            throw FormatException('unexpected EOF in ${c.track.path}');
++            throw FormatException('unexpected EOF in ${c.sourcePath}');
+           }
+           await out.writeFrom(buffer, 0, n);
+           remaining -= n;
+@@ -167,8 +222,17 @@ final _unityMatrix = () {
+ }();
+ 
+ class _Chunk {
+-  _Chunk(this.track, this.sourceOffset, this.firstSample, this.startDts);
++  _Chunk(
++    this.track,
++    this.sourceOffset,
++    this.firstSample,
++    this.startDts, [
++    String? sourcePath,
++  ]) : sourcePath = sourcePath ?? track.path;
+   final _Track track;
++
++  /// File the chunk's bytes are read from (FLV input: one per segment).
++  final String sourcePath;
+   final int sourceOffset;
+   final int firstSample;
+   final int startDts;
+@@ -681,6 +745,8 @@ class _W {
+   final _tmp = ByteData(8);
+   Uint8List get bytes => _b.toBytes();
+ 
++  void u8(int v) => _b.addByte(v & 0xFF);
++
+   void u16(int v) {
+     _tmp.setUint16(0, v);
+     _b.add(_tmp.buffer.asUint8List(0, 2));
+diff --git a/lib/utils/path_utils.dart b/lib/utils/path_utils.dart
+index e8c834e38..76af28f97 100644
+--- a/lib/utils/path_utils.dart
++++ b/lib/utils/path_utils.dart
+@@ -11,6 +11,11 @@ late final String appSupportDirPath;
+ 
+ late String downloadPath;
+ 
++/// LibrePili: set for `--selftest`. App data (Hive boxes, webview data) and
++/// downloads then live in a separate `selftest` folder, so the self test
++/// never reads or deletes the user's own data.
++bool isSelfTestProfile = false;
++
+ String get defDownloadPath =>
+     path.join(appSupportDirPath, PathUtils.downloadDir);
+ 
+@@ -30,6 +35,10 @@ Future<Directory> appTempDirectory() async {
+ 
+ abstract final class PathUtils {
+   static const videoNameType1 = '0.mp4';
++
++  /// Segment [index] of an old single-URL (durl) stream; segment 0 is
++  /// [videoNameType1]. The content may be FLV despite the name.
++  static String segmentNameType1(int index) => '$index.mp4';
+   static const _fileExt = '.m4s';
+   static const audioNameType2 = 'audio$_fileExt';
+   static const videoNameType2 = 'video$_fileExt';
+diff --git a/lib/utils/self_test.dart b/lib/utils/self_test.dart
+index 31d4cb80a..f46242774 100644
+--- a/lib/utils/self_test.dart
++++ b/lib/utils/self_test.dart
+@@ -58,6 +58,9 @@ abstract final class SelfTest {
+     final report = <String, dynamic>{
+       'startedAt': DateTime.now().toIso8601String(),
+       'args': args,
++      // isolated profile: never the user's own data (see isSelfTestProfile)
++      'dataDir': appSupportDirPath,
++      'downloadDir': downloadPath,
+       'checks': <Map<String, dynamic>>[],
+     };
+     final checks = report['checks'] as List<Map<String, dynamic>>;
+@@ -369,6 +372,7 @@ abstract final class SelfTest {
+           entry: e,
+           removeList: true,
+           removeQueue: true,
++          deleteExported: true,
+         );
+       }
+     }
+@@ -442,7 +446,11 @@ abstract final class SelfTest {
+         savedMergedPath == merged;
+ 
+     if (!keep) {
+-      await service.deleteDownload(entry: done, removeList: true);
++      await service.deleteDownload(
++        entry: done,
++        removeList: true,
++        deleteExported: true,
++      );
+       result['cleanedUp'] = !(mergedFile?.existsSync() ?? false);
+     }
+     return result;
+diff --git a/lib/utils/storage.dart b/lib/utils/storage.dart
+index 2e345fbf4..90cfb8ff2 100644
+--- a/lib/utils/storage.dart
++++ b/lib/utils/storage.dart
+@@ -83,6 +83,8 @@ abstract final class GStorage {
+     return Utils.jsonEncoder.convert({
+       setting.name: setting.toMap(),
+       video.name: video.toMap(),
++      // local follows / favorites: the only copy without an account
++      for (final box in LocalLibrary.boxes) box.name: box.toMap(),
+     });
+   }
+ 
+@@ -95,6 +97,7 @@ abstract final class GStorage {
+     return Future.wait([
+       setting.clear().then((_) => setting.putAll(map[setting.name])),
+       video.clear().then((_) => video.putAll(map[video.name])),
++      LocalLibrary.importAll(map),
+     ]);
+   }
+ 
+@@ -119,6 +122,7 @@ abstract final class GStorage {
+       video.compact(),
+       Accounts.account.compact(),
+       watchProgress.compact(),
++      for (final box in LocalLibrary.boxes) box.compact(),
+       ?reply?.compact(),
+     ]);
+   }
+@@ -132,6 +136,7 @@ abstract final class GStorage {
+       video.close(),
+       Accounts.account.close(),
+       watchProgress.close(),
++      for (final box in LocalLibrary.boxes) box.close(),
+       ?reply?.close(),
+     ]);
+   }
+@@ -145,6 +150,7 @@ abstract final class GStorage {
+       video.clear(),
+       Accounts.clear(),
+       watchProgress.clear(),
++      LocalLibrary.clear(),
+       ?reply?.clear(),
+     ]);
+   }
+diff --git a/lib/utils/storage_key.dart b/lib/utils/storage_key.dart
+index a63370fc9..0192c5a96 100644
+--- a/lib/utils/storage_key.dart
++++ b/lib/utils/storage_key.dart
+@@ -245,6 +245,7 @@ abstract final class SettingBoxKey {
+       msgBadgeMode = 'msgBadgeMode',
+       msgUnReadTypeV2 = 'msgUnReadTypeV2',
+       navBarSort = 'navBarSort',
++      navBarLocalAdded = 'navBarLocalAdded',
+       tempPlayerConf = 'tempPlayerConf',
+       reduceLuxColor = 'reduceLuxColor',
+       liveCdnUrl = 'liveCdnUrl',
+diff --git a/linux/CMakeLists.txt b/linux/CMakeLists.txt
+index f215d17ab..b0227bff6 100644
+--- a/linux/CMakeLists.txt
++++ b/linux/CMakeLists.txt
+@@ -4,10 +4,10 @@ project(runner LANGUAGES CXX)
+ 
+ # The name of the executable created for the application. Change this to change
+ # the on-disk name of your application.
+-set(BINARY_NAME "piliplus")
++set(BINARY_NAME "librepili")
+ # The unique GTK application identifier for this application. See:
+ # https://wiki.gnome.org/HowDoI/ChooseApplicationID
+-set(APPLICATION_ID "com.example.piliplus")
++set(APPLICATION_ID "com.zxa24.librepili")
+ 
+ # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
+ # versions of CMake.
+diff --git a/linux/runner/my_application.cc b/linux/runner/my_application.cc
+index 7e868237d..0a9dd76cc 100644
+--- a/linux/runner/my_application.cc
++++ b/linux/runner/my_application.cc
+@@ -45,7 +45,7 @@ static void my_application_activate(GApplication *application) {
+ 
+   const gboolean use_header_bar = [window]() -> gboolean {
+     if (g_file_test(g_build_filename(g_get_user_data_dir(),
+-                                     "com.example.piliplus", "use_ssd", NULL),
++                                     "com.zxa24.librepili", "use_ssd", NULL),
+                     G_FILE_TEST_EXISTS))
+       return FALSE;
+ 
+@@ -64,11 +64,11 @@ static void my_application_activate(GApplication *application) {
+   if (use_header_bar) {
+     GtkHeaderBar *header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+     gtk_widget_show(GTK_WIDGET(header_bar));
+-    gtk_header_bar_set_title(header_bar, "piliplus");
++    gtk_header_bar_set_title(header_bar, "LibrePili");
+     gtk_header_bar_set_show_close_button(header_bar, TRUE);
+     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+   } else {
+-    gtk_window_set_title(window, "piliplus");
++    gtk_window_set_title(window, "LibrePili");
+   }
+ 
+   gtk_window_set_default_size(window, 1280, 720);
+diff --git a/macos/Runner.xcodeproj/project.pbxproj b/macos/Runner.xcodeproj/project.pbxproj
+index 89be960f1..a346b8261 100644
+--- a/macos/Runner.xcodeproj/project.pbxproj
++++ b/macos/Runner.xcodeproj/project.pbxproj
+@@ -55,7 +55,7 @@
+ /* Begin PBXFileReference section */
+ 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
+ 		335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = GeneratedPluginRegistrant.swift; sourceTree = "<group>"; };
+-		33CC10ED2044A3C60003C045 /* piliplus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = piliplus.app; sourceTree = BUILT_PRODUCTS_DIR; };
++		33CC10ED2044A3C60003C045 /* LibrePili.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LibrePili.app; sourceTree = BUILT_PRODUCTS_DIR; };
+ 		33CC10F02044A3C60003C045 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+ 		33CC10F22044A3C60003C045 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Runner/Assets.xcassets; sourceTree = "<group>"; };
+ 		33CC10F52044A3C60003C045 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
+@@ -112,7 +112,7 @@
+ 		33CC10EE2044A3C60003C045 /* Products */ = {
+ 			isa = PBXGroup;
+ 			children = (
+-				33CC10ED2044A3C60003C045 /* piliplus.app */,
++				33CC10ED2044A3C60003C045 /* LibrePili.app */,
+ 			);
+ 			name = Products;
+ 			sourceTree = "<group>";
+@@ -193,7 +193,7 @@
+ 			);
+ 			name = Runner;
+ 			productName = Runner;
+-			productReference = 33CC10ED2044A3C60003C045 /* piliplus.app */;
++			productReference = 33CC10ED2044A3C60003C045 /* LibrePili.app */;
+ 			productType = "com.apple.product-type.application";
+ 		};
+ /* End PBXNativeTarget section */
+diff --git a/macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme b/macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+index 85af28b82..3f17c5659 100644
+--- a/macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
++++ b/macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+@@ -15,7 +15,7 @@
+             <BuildableReference
+                BuildableIdentifier = "primary"
+                BlueprintIdentifier = "33CC10EC2044A3C60003C045"
+-               BuildableName = "piliplus.app"
++               BuildableName = "LibrePili.app"
+                BlueprintName = "Runner"
+                ReferencedContainer = "container:Runner.xcodeproj">
+             </BuildableReference>
+@@ -31,7 +31,7 @@
+          <BuildableReference
+             BuildableIdentifier = "primary"
+             BlueprintIdentifier = "33CC10EC2044A3C60003C045"
+-            BuildableName = "piliplus.app"
++            BuildableName = "LibrePili.app"
+             BlueprintName = "Runner"
+             ReferencedContainer = "container:Runner.xcodeproj">
+          </BuildableReference>
+@@ -54,7 +54,7 @@
+          <BuildableReference
+             BuildableIdentifier = "primary"
+             BlueprintIdentifier = "33CC10EC2044A3C60003C045"
+-            BuildableName = "piliplus.app"
++            BuildableName = "LibrePili.app"
+             BlueprintName = "Runner"
+             ReferencedContainer = "container:Runner.xcodeproj">
+          </BuildableReference>
+@@ -71,7 +71,7 @@
+          <BuildableReference
+             BuildableIdentifier = "primary"
+             BlueprintIdentifier = "33CC10EC2044A3C60003C045"
+-            BuildableName = "piliplus.app"
++            BuildableName = "LibrePili.app"
+             BlueprintName = "Runner"
+             ReferencedContainer = "container:Runner.xcodeproj">
+          </BuildableReference>
+diff --git a/macos/Runner/Configs/AppInfo.xcconfig b/macos/Runner/Configs/AppInfo.xcconfig
+index 42b413325..7d1594eda 100644
+--- a/macos/Runner/Configs/AppInfo.xcconfig
++++ b/macos/Runner/Configs/AppInfo.xcconfig
+@@ -5,10 +5,10 @@
+ // 'flutter create' template.
+ 
+ // The application's name. By default this is also the title of the Flutter window.
+-PRODUCT_NAME = PiliPlus
++PRODUCT_NAME = LibrePili
+ 
+ // The application's bundle identifier
+-PRODUCT_BUNDLE_IDENTIFIER = com.example.piliplus
++PRODUCT_BUNDLE_IDENTIFIER = com.zxa24.librepili
+ 
+ // The copyright displayed in application information
+ PRODUCT_COPYRIGHT = Copyright © 2023 com.example. All rights reserved.
+diff --git a/test/utils/login_policy_test.dart b/test/utils/login_policy_test.dart
+index fe49d0436..cc83676e1 100644
+--- a/test/utils/login_policy_test.dart
++++ b/test/utils/login_policy_test.dart
+@@ -1,5 +1,6 @@
+ import 'package:PiliPlus/grpc/url.dart';
+ import 'package:PiliPlus/http/api.dart';
++import 'package:PiliPlus/http/constants.dart';
+ import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:dio/dio.dart';
+ import 'package:flutter_test/flutter_test.dart';
+@@ -8,7 +9,13 @@ RequestOptions _req(
+   String path, {
+   Map<String, dynamic>? query,
+   Object? data,
+-}) => RequestOptions(path: path, queryParameters: query, data: data);
++  String? method,
++}) => RequestOptions(
++  path: path,
++  queryParameters: query,
++  data: data,
++  method: method,
++);
+ 
+ void main() {
+   group('LoginPolicy.requiresAccount — stays anonymous', () {
+@@ -27,9 +34,9 @@ void main() {
+       Api.replyList,
+       Api.memberInfo,
+       Api.searchArchive,
+-      GrpcUrl.dmSegMobile,
+-      GrpcUrl.mainList,
+-      GrpcUrl.view,
++      HttpString.appBaseUrl + GrpcUrl.dmSegMobile,
++      HttpString.appBaseUrl + GrpcUrl.mainList,
++      HttpString.appBaseUrl + GrpcUrl.view,
+     ]) {
+       test(path, () => expect(LoginPolicy.requiresAccount(_req(path)), false));
+     }
+@@ -56,9 +63,10 @@ void main() {
+       Api.msgFeedReply,
+       Api.likeVideo,
+       Api.logout,
+-      GrpcUrl.sendMsg,
+-      GrpcUrl.sessionMain,
+-      GrpcUrl.audioPlayUrl,
++      HttpString.appBaseUrl + GrpcUrl.sendMsg,
++      HttpString.appBaseUrl + GrpcUrl.sessionMain,
++      HttpString.appBaseUrl + GrpcUrl.audioPlayUrl,
++      HttpString.appBaseUrl + GrpcUrl.dynRed,
+     ]) {
+       test(path, () => expect(LoginPolicy.requiresAccount(_req(path)), true));
+     }
+@@ -66,7 +74,11 @@ void main() {
+     test('csrf-protected write in body (map)', () {
+       expect(
+         LoginPolicy.requiresAccount(
+-          _req(Api.relationMod, data: {'fid': 1, 'act': 1, 'csrf': 'x'}),
++          _req(
++            Api.relationMod,
++            data: {'fid': 1, 'act': 1, 'csrf': 'x'},
++            method: 'POST',
++          ),
+         ),
+         true,
+       );
+@@ -75,7 +87,7 @@ void main() {
+     test('csrf-protected write in query', () {
+       expect(
+         LoginPolicy.requiresAccount(
+-          _req(Api.replyAdd, query: {'csrf': 'x'}),
++          _req(Api.replyAdd, query: {'csrf': 'x'}, method: 'POST'),
+         ),
+         true,
+       );
+@@ -84,7 +96,11 @@ void main() {
+     test('csrf-protected write in form data', () {
+       expect(
+         LoginPolicy.requiresAccount(
+-          _req(Api.shootDanmaku, data: FormData.fromMap({'csrf': 'x'})),
++          _req(
++            Api.shootDanmaku,
++            data: FormData.fromMap({'csrf': 'x'}),
++            method: 'POST',
++          ),
+         ),
+         true,
+       );
+diff --git a/windows/runner/main.cpp b/windows/runner/main.cpp
+index e6d3f9316..8f8cf5a95 100644
+--- a/windows/runner/main.cpp
++++ b/windows/runner/main.cpp
+@@ -2,13 +2,83 @@
+ #include <flutter/flutter_view_controller.h>
+ #include <windows.h>
+ 
++#include <string>
++
+ #include "app_links/app_links_plugin_c_api.h"
+ #include "flutter_window.h"
+ #include "utils.h"
+ 
++// LibrePili: "Open with" passes a plain file/folder path, which app_links
++// does not forward (no URI scheme). Send it to a running instance as a
++// `librepili-open:<full path>` link (handled in lib/utils/app_scheme.dart).
++static bool SendFileToInstance() {
++  int argc;
++  wchar_t **argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
++  if (argv == nullptr) {
++    return false;
++  }
++  std::string path;
++  if (argc == 2 && ::GetFileAttributesW(argv[1]) != INVALID_FILE_ATTRIBUTES) {
++    wchar_t full[32768] = {};
++    if (::GetFullPathNameW(argv[1], 32768, full, nullptr) != 0) {
++      path = Utf8FromUtf16(full);
++    }
++  }
++  ::LocalFree(argv);
++  if (path.empty()) {
++    return false;
++  }
++
++  struct State {
++    HWND found;
++    wchar_t ourExe[MAX_PATH];
++  };
++  State s = {};
++  ::GetModuleFileNameW(nullptr, s.ourExe, MAX_PATH);
++  ::EnumWindows(
++      [](HWND hwnd, LPARAM lp) -> BOOL {
++        auto *s = reinterpret_cast<State *>(lp);
++        wchar_t cls[64] = {};
++        ::GetClassNameW(hwnd, cls, 64);
++        if (_wcsicmp(cls, L"FLUTTER_RUNNER_WIN32_WINDOW") != 0) return TRUE;
++        DWORD pid = 0;
++        ::GetWindowThreadProcessId(hwnd, &pid);
++        HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
++        if (!h) return TRUE;
++        wchar_t exe[MAX_PATH] = {};
++        DWORD len = MAX_PATH;
++        ::QueryFullProcessImageNameW(h, 0, exe, &len);
++        ::CloseHandle(h);
++        if (_wcsicmp(exe, s->ourExe) == 0) {
++          s->found = hwnd;
++          return FALSE;
++        }
++        return TRUE;
++      },
++      reinterpret_cast<LPARAM>(&s));
++  if (!s.found) {
++    return false;
++  }
++
++  const std::string link = "librepili-open:" + path;
++  COPYDATASTRUCT cds = {0};
++  cds.dwData = WM_USER + 2;  // app_links' APPLINK_MSG_ID
++  cds.cbData = static_cast<DWORD>(link.size() + 1);
++  cds.lpData = (PVOID)link.c_str();
++  ::SendMessage(s.found, WM_COPYDATA, (WPARAM)s.found, (LPARAM)(LPVOID)&cds);
++
++  WINDOWPLACEMENT place = {sizeof(WINDOWPLACEMENT)};
++  ::GetWindowPlacement(s.found, &place);
++  ::ShowWindow(s.found, place.showCmd == SW_SHOWMAXIMIZED ? SW_SHOWMAXIMIZED
++                        : place.showCmd == SW_SHOWMINIMIZED ? SW_RESTORE
++                                                            : SW_NORMAL);
++  ::SetForegroundWindow(s.found);
++  return true;
++}
++
+ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
+                       _In_ wchar_t *command_line, _In_ int show_command) {
+-  if (SendAppLinkToInstance()) {
++  if (SendFileToInstance() || SendAppLinkToInstance()) {
+     return EXIT_SUCCESS;
+   }
+ 

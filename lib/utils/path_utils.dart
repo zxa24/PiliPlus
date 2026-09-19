@@ -11,6 +11,11 @@ late final String appSupportDirPath;
 
 late String downloadPath;
 
+/// LibrePili: set for `--selftest`. App data (Hive boxes, webview data) and
+/// downloads then live in a separate `selftest` folder, so the self test
+/// never reads or deletes the user's own data.
+bool isSelfTestProfile = false;
+
 String get defDownloadPath =>
     path.join(appSupportDirPath, PathUtils.downloadDir);
 
@@ -30,6 +35,10 @@ Future<Directory> appTempDirectory() async {
 
 abstract final class PathUtils {
   static const videoNameType1 = '0.mp4';
+
+  /// Segment [index] of an old single-URL (durl) stream; segment 0 is
+  /// [videoNameType1]. The content may be FLV despite the name.
+  static String segmentNameType1(int index) => '$index.mp4';
   static const _fileExt = '.m4s';
   static const audioNameType2 = 'audio$_fileExt';
   static const videoNameType2 = 'video$_fileExt';

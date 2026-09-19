@@ -6,12 +6,15 @@ import 'package:PiliPlus/grpc/bilibili/community/service/dm/v1.pb.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart';
 import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/grpc/reply.dart';
+import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:crypto/crypto.dart' show md5;
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
@@ -167,6 +170,7 @@ abstract final class DownloadExtras {
     }
     if (roots.length > maxRoots) roots.removeRange(maxRoots, roots.length);
 
+    final images = CommentImages(folder);
     final items = <Map<String, Object?>>[];
     for (final root in roots) {
       var replies = root.replies.toList();
@@ -175,9 +179,10 @@ abstract final class DownloadExtras {
         replies = await _replies(oid, root.id.toInt(), wanted);
       }
       items.add(
-        replyToJson(root)
+        await replyToJson(root, images)
           ..['replies'] = [
-            for (final r in replies.take(maxReplies)) replyToJson(r),
+            for (final r in replies.take(maxReplies))
+              await replyToJson(r, images),
           ],
       );
     }
@@ -195,7 +200,7 @@ abstract final class DownloadExtras {
     await File(path.join(folder, '$base$commentsSuffix')).writeAsString(
       const JsonEncoder.withIndent(' ').convert(json),
     );
-    return '${items.length} comments';
+    return '${items.length} comments, ${images.saved} images';
   }
 
   static Future<List<ReplyInfo>> _replies(int oid, int root, int wanted) async {
@@ -219,16 +224,38 @@ abstract final class DownloadExtras {
     return out;
   }
 
-  static Map<String, Object?> replyToJson(ReplyInfo r) => {
-    'rpid': r.id.toInt(),
-    'mid': r.mid.toInt(),
-    'uname': r.member.name,
-    'avatar': r.member.face,
-    'content': r.content.message,
-    'ctime': r.ctime.toInt(),
-    'like': r.like.toInt(),
-    'replyCount': r.count.toInt(),
-  };
+  /// [images] saves the comment's pictures and emotes next to the video;
+  /// their paths (relative to the comments file) are recorded, so the
+  /// offline panel shows them without any network request.
+  static Future<Map<String, Object?>> replyToJson(
+    ReplyInfo r, [
+    CommentImages? images,
+  ]) async {
+    final pictures = <String>[];
+    final emotes = <String, String>{};
+    if (images != null) {
+      for (final p in r.content.pictures) {
+        if (await images.save(p.imgSrc) case final local?) pictures.add(local);
+      }
+      for (final e in r.content.emotes.entries) {
+        if (await images.save(e.value.url) case final local?) {
+          emotes[e.key] = local;
+        }
+      }
+    }
+    return {
+      'rpid': r.id.toInt(),
+      'mid': r.mid.toInt(),
+      'uname': r.member.name,
+      'avatar': r.member.face,
+      'content': r.content.message,
+      'ctime': r.ctime.toInt(),
+      'like': r.like.toInt(),
+      'replyCount': r.count.toInt(),
+      if (pictures.isNotEmpty) 'pictures': pictures,
+      if (emotes.isNotEmpty) 'emotes': emotes,
+    };
+  }
 
   // ------------------------------------------------------------ danmaku
 
@@ -275,9 +302,7 @@ abstract final class DownloadExtras {
           mode: int.tryParse(p[1]) ?? 1,
           fontsize: int.tryParse(p[2]) ?? 25,
           color: int.tryParse(p[3]) ?? 0xFFFFFF,
-          ctime: p.length > 4
-              ? Int64.parseInt(p[4].isEmpty ? '0' : p[4])
-              : null,
+          ctime: p.length > 4 ? Int64(int.tryParse(p[4]) ?? 0) : null,
           pool: p.length > 5 ? int.tryParse(p[5]) : null,
           midHash: p.length > 6 ? p[6] : null,
           idStr: p.length > 7 ? p[7] : null,
@@ -438,4 +463,41 @@ abstract final class DownloadExtras {
       .replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'), '');
 
   static String _safe(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|\s]'), '_');
+}
+
+/// Pictures and emotes of saved comments, stored once per URL in
+/// `comments_images/` next to the comments file.
+class CommentImages {
+  CommentImages(this.folder);
+
+  static const dirName = 'comments_images';
+
+  final String folder;
+  final _done = <String, String?>{};
+  int saved = 0;
+
+  /// Returns the path relative to [folder], or null if it failed.
+  Future<String?> save(String url) async {
+    if (url.isEmpty) return null;
+    url = url.http2https;
+    if (_done.containsKey(url)) return _done[url];
+    String? result;
+    try {
+      var ext = path.extension(Uri.parse(url).path).toLowerCase();
+      if (ext.isEmpty || ext.length > 5) ext = '.jpg';
+      final name = '${md5.convert(utf8.encode(url))}$ext';
+      final file = File(path.join(folder, dirName, name));
+      if (!file.existsSync()) {
+        await file.parent.create(recursive: true);
+        final part = '${file.path}.part';
+        await Request.dio.download(url, part);
+        await File(part).rename(file.path);
+        saved++;
+      }
+      result = '$dirName/$name';
+    } catch (e) {
+      if (kDebugMode) debugPrint('comment image $url: $e');
+    }
+    return _done[url] = result;
+  }
 }

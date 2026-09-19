@@ -16,6 +16,7 @@ import 'package:PiliPlus/pages/common/fab_mixin.dart';
 import 'package:PiliPlus/pages/video/reply/vote/reply_vote_item.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/pages/video/reply_reply/view.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
@@ -335,19 +336,22 @@ mixin CommonDynPageMixin<T extends StatefulWidget>
     child: replyButton,
   );
 
-  Widget get replyButton => FloatingActionButton(
-    heroTag: null,
-    onPressed: () {
-      try {
-        feedBack();
-        controller.onReply(
-          null,
-          oid: controller.oid,
-          replyType: controller.replyType,
+  // dynamic / article / music / match detail: hidden like the video page's
+  Widget get replyButton => !LoginPolicy.canInteract
+      ? const SizedBox.shrink()
+      : FloatingActionButton(
+          heroTag: null,
+          onPressed: () {
+            try {
+              feedBack();
+              controller.onReply(
+                null,
+                oid: controller.oid,
+                replyType: controller.replyType,
+              );
+            } catch (_) {}
+          },
+          tooltip: '评论',
+          child: const Icon(Icons.reply),
         );
-      } catch (_) {}
-    },
-    tooltip: '评论',
-    child: const Icon(Icons.reply),
-  );
 }

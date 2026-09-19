@@ -47,6 +47,11 @@ class AccountManager extends Interceptor {
 
     final account = _bindRequestAccount(options);
 
+    // call sites may have put the account's access_key in the params before
+    // the policy anonymized the request: scrub it (and re-sign) so the
+    // anonymous request cannot be tied to the account
+    if (account is! LoginAccount) _scrubAccessKey(options);
+
     if (account is NoAccount || _skipCookie(path)) return handler.next(options);
 
     if (!account.isLogin && path == Api.heartBeat) {
@@ -230,10 +235,22 @@ class AccountManager extends Interceptor {
           ),
         );
 
+  /// Login-flow calls that act on an explicitly passed account (e.g. logging
+  /// it out); they keep that account whatever the mode.
+  static const _explicitAccountApis = {
+    Api.logout,
+    Api.activateBuvidApi,
+    Api.qrcodeConfirm,
+  };
+
   static Account _bindRequestAccount(RequestOptions options) {
     assert(options.extra['account'] is Account?);
-    var account =
-        options.extra['account'] as Account? ?? _findAccount(options.path);
+    final explicit = options.extra['account'] as Account?;
+    if (explicit is LoginAccount &&
+        _explicitAccountApis.contains(options.path)) {
+      return explicit;
+    }
+    var account = explicit ?? _findAccount(options.path);
     // LibrePili: no global login. Even in login mode the account is only
     // attached where it is required; everything else goes out anonymously.
     if (account is LoginAccount &&
@@ -241,6 +258,28 @@ class AccountManager extends Interceptor {
       account = AnonymousAccount();
     }
     return options.extra['account'] = account;
+  }
+
+  static const _accessKeys = ['access_key', 'mobile_access_key'];
+
+  static void _scrubAccessKey(RequestOptions options) {
+    void scrub(Map<String, dynamic> params) {
+      var removed = false;
+      for (final key in _accessKeys) {
+        if (params.containsKey(key)) {
+          params.remove(key);
+          removed = true;
+        }
+      }
+      if (removed && params.containsKey('sign')) {
+        AppSign.appSign(params..remove('sign'));
+      }
+    }
+
+    scrub(options.queryParameters);
+    if (options.data case final Map data) {
+      scrub(data.cast<String, dynamic>());
+    }
   }
 
   static Account? _boundRequestAccount(RequestOptions options) {

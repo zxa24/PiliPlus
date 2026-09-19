@@ -1,0 +1,69 @@
+- [P1] [A] Account-only gRPC calls never get the account in login mode — lib/utils/accounts/login_policy.dart:55-74
+  `requiresAccount` compares `options.path` with bare `GrpcUrl` constants (`/bilibili.im.interface.v1.ImInterface/...`, `$audio/PlayURL`, `dynRed`). But `GrpcReq.request` sends `HttpString.appBaseUrl + url` (lib/grpc/grpc_req.dart:62), so `options.path` begins with `https://app.bilibili.com`. Neither `contains` nor `startsWith` ever matches. In login mode, private messages, the dynamic red dot, audio play URL and audio like/coin all go out anonymously and fail. test/utils/login_policy_test.dart passes bare paths, so the test hides the bug. Fix: strip the app base URL before comparing (or match on `endsWith`), and test with the real `appBaseUrl + GrpcUrl.x` path.
+
+- [P1] [C] A retried download can delete a nearly complete file — lib/services/download/download_manager.dart:38-60, 104-109
+  The file is deleted when the last attempt failed before any data arrived (`delete: failure.beforeData`). Earlier attempts may already have written most of it. Scenario: the stream breaks at 90%, the network is down for about 15 s, all 5 retries fail at connect time, and `_fail(delete: true)` deletes the 90% file. Before this change, a failure during the stream kept the file. Fix: delete only when this manager wrote nothing at all (track bytes written across attempts), or never delete a resumable partial file.
+
+- [P1] [A] Resuming on a backup CDN does not check for 206, a complete length, or 416 — lib/services/download/download_manager.dart:96-136
+  Resume now depends on `Range` across different mirrors. The code has three gaps:
+  - A mirror that ignores `Range` and returns 200 gets the full body appended to the partial file (`writeOnlyAppend`), which corrupts it.
+  - A clean early EOF is marked `completed` without comparing `received` to `contentLength`, so a short transfer is never retried. Dropped connections are exactly why this feature was added.
+  - A 416 body is accepted and appended.
+  The first two already existed. Retry-on-mirror makes them much more likely. Fix: require 206 when `received > 0` (on 200, truncate and restart), treat `received != contentLength` as a retryable failure, and on 416 check the size instead of writing the body.
+
+- [P2] [A] Tapping an entry while it merges pauses it, and tapping again starts a second download — lib/services/download/download_service.dart:523-547; lib/pages/download/detail/widgets/item.dart:138-149
+  `merging` counts as `isDownloading`, so a tap calls `cancelDownload` (it shows 暂停中 while the isolate keeps remuxing). A second tap calls `startDownload(entry)` → `_startDownload`, which fetches the stream again and creates new DownloadManagers. The m4s files get deleted after the remux, so this becomes a full re-download. Meanwhile `_completeDownload` marks the entry completed and clears `curDownload`, leaving orphan m4s writers. `cancelDownload(... downloadNext: true)` from pause/delete can also call `nextDownload()`, which picks this same entry, because it is still at the head of `waitDownloadQueue` during the merge. Fix: ignore pause/start for an entry in `merging` (or run the merge under `_lock`), and remove it from the queue before merging.
+
+- [P2] [A] Saving comments/subtitles inside the merge step blocks the download queue — lib/services/download/download_service.dart:578-582; lib/services/download/download_extras.dart:146-186
+  `DownloadExtras.export` is awaited before the next download starts. Defaults are 200 root comments and 10 replies each. Each root with more than its preview replies triggers a `detailList` walk with 200 ms sleeps, so a popular video can mean hundreds of anonymous gRPC calls. The queue sits in "merging" for tens of seconds per video, which also widens the race above. Fix: run extras after `nextDownload()` (fire-and-forget or as a separate job).
+
+- [P2] [A] Deleting a download inside the app always deletes the exported MP4 in public storage — lib/services/download/download_service.dart:704-724, 604-613
+  The merged video now lives in the user-visible `Download/LibrePili/<title>/` folder, which galleries index (`_scanMedia`). `deleteDownload`/`deletePage` call `_deleteMerged`, which deletes that whole folder recursively. There is no way to clear the in-app list and keep the file. Fix: make it a choice in the delete dialog ("also delete the exported file").
+
+- [P2] [A] Server-side logout silently fails while in incognito mode — lib/utils/accounts/account_manager/account_mgr.dart:236-243; lib/pages/setting/view.dart:231-238
+  `LoginHttp.logout(account)` passes the account explicitly. `_bindRequestAccount` still swaps it for `AnonymousAccount` when `!LoginPolicy.loginMode`. The logout request goes out without the account's cookies, so the session is never revoked on the server even though the user chose to log out. Fix: treat an explicit `extra['account']` for login-flow APIs (`Api.logout`, `activateBuvidApi`, `qrcodeConfirm`) as authoritative whatever the mode.
+
+- [P2] [A] Local follows and favorites are left out of backup, clear and close — lib/utils/storage.dart:82-140; lib/services/local_library.dart:17-29
+  Boxes `localFollows`, `localFavFolders` and `localFavItems` are not in `exportAllSettings`/`importAllJsonSettings` (the settings/WebDAV backup) or in `GStorage.close()`/`clear()`/`compact()`. This is the only copy of an account-free user's library, so a reinstall or device change loses it, and "clear all data" leaves it behind. Fix: add the three boxes to export/import/clear/close.
+
+- [P2] [A] A local file opened while the download page is in the navigation stack crashes on mobile (index −1) — lib/pages/video/introduction/local/controller.dart:54-78
+  When `DownloadPageController` is registered, `list` is filled with all completed downloads and the "just this video" fallback is skipped. A plain local file (`cid: 0`) is not in that list, so `index == -1` and `list[index]` throws a RangeError on mobile. Fix: add the entry whenever `indexWhere` returns −1, not only when the list is empty.
+
+- [P2] [A] All plain local files share one progress key, and resume is always discarded — lib/services/local_player.dart:108-135; lib/pages/video/controller.dart:332-360
+  `_plainEntry` sets `cid: 0` and `totalTimeMilli: 0`. `watchProgress` is keyed by `cid`, so every plain file reads and writes key `"0"`. The check `progress >= totalTimeMilli - 400` is then always true, so resume never works. Fix: key by a hash of the path and skip the "completed" check when the duration is unknown.
+
+- [P2] [A] The offline comments tab goes stale or can crash when switching videos in the offline playlist — lib/pages/video/reply/local_reply_panel.dart:22; lib/pages/video/view.dart:1839-1846
+  `LocalReplyPanel` caches `_data` as `late final`, keeps itself alive, and has no key tied to `path`. After `playIndex`, it keeps showing the previous video's comments. If the next entry has no comments file, `showReply` becomes false while the `localCommentsPath!` call site may still rebuild, which throws. The crash path is a **hypothesis**, not reproduced. Fix: `key: ValueKey(path)` plus a null guard.
+
+- [P2] [A] Picking a local file on Android probably copies it into the cache and loses its side files — lib/services/local_player.dart:33-40, 88-103
+  **Hypothesis**, based on file_picker's default Android behaviour. `FilePicker.pickFiles` returns a cache copy, so a multi-GB video gets copied. `_entryFor` then looks for `librepili.json`, danmaku, `.srt` and comments next to the copy, not the original. Fix: pick the folder (SAF) or use `withReadStream`/original URI, or at least document that "open folder" is the Android path.
+
+- [P2] [D] The "side-by-side install" rebrand misses Linux, macOS and iOS — linux/CMakeLists.txt:7-10; linux/runner/my_application.cc:48-71; macos/Runner/Configs/AppInfo.xcconfig:8-11; ios/Runner.xcodeproj/project.pbxproj:390
+  The Linux `APPLICATION_ID` is still `com.example.piliplus`. GApplication uniqueness then hands the launch to a running PiliPlus, and the two share a data dir. The same applies to the macOS/iOS bundle id. The commit message and README promise side-by-side install. Fix: rename the ids, or limit that claim to Windows/Android.
+
+- [P2] [A] `--selftest --download` deletes the user's existing download of that video — lib/utils/self_test.dart:364-373
+  "Start from a clean state" calls `deleteDownload` for any entry with the same cid. With `bvid == 'hot'` that is whatever video is currently popular. This now includes the exported public MP4 folder. It runs against the real user profile. Fix: skip or abort when the cid already exists, or use a separate download root for self tests.
+
+- [P3] [A] Switching an account's role in incognito leaves the old holder's role set — lib/utils/accounts.dart:78-86
+  In incognito `accountMode[key]` is always `AnonymousAccount`, so `oldAccount..type.remove(key)` removes nothing from the LoginAccount that held the role. Two stored accounts can then both claim `main`, and `refresh()` in login mode picks whichever comes last. Fix: remove `key` from every `Accounts.account.values` entry before adding it.
+
+- [P3] [A] The navigation bar does not follow login-mode changes — lib/pages/main/controller.dart:233-248
+  The dynamics tab is filtered once at startup using `Accounts.main.isLogin`, so toggling incognito does nothing until restart. If the saved order is `[dynamics]` only, the bar list is empty and a length-0 TabController follows.
+
+- [P3] [B] `DownloadStatus.failMerge` is defined but never set — lib/models_new/download/bili_download_entry_info.dart:426
+  A merge failure only shows a toast, then marks the entry completed with `mergedPath == null`. The status is dead, or the UI misses the failure state.
+
+- [P3] [A] Export file name truncation can split a surrogate pair and produce very long paths — lib/services/download/download_service.dart:666-695
+  `substring(0, 120)` counts UTF-16 units, so an emoji at the boundary leaves a lone surrogate. Folder name plus file name repeat the ≤120-char title twice. On Windows without long-path support this may pass 260 characters and make the merge fail back to m4s. The Windows part is a **hypothesis**.
+
+- [P3] [D] The updater still offers an `exe` asset on Windows, but CI no longer publishes an installer — lib/utils/update.dart:101; .github/workflows/win_x64.yml
+  The button always ends in "platform not found: exe".
+
+- [P3] [A] Local favorites change the displayed server favorite count — lib/pages/common/common_intro_controller.dart:219-224
+  `_onLocalFavChanged` calls `updateFavCount(±1)`, so a device-local action changes the public count shown.
+
+PROBED vs READ:
+- PROBED: nothing was run. `flutter`/`dart` are not on PATH, so neither test file could be executed and nothing was built. I only ran read-only `git log`/`git diff`/`git show`/`git grep`.
+- READ with a grep check: the gRPC path mismatch (grpc_req.dart:62 compared with the GrpcUrl constants and the test inputs); the explicit-account override path (http/login.dart:500 → account_mgr.dart:236-243); backup/close lists in storage.dart; the leftover Linux/macOS/iOS ids.
+- READ in full: login_policy.dart, account_mgr.dart, accounts.dart, account.dart, grpc_headers diff, download_manager.dart, download_service.dart (download/merge/delete paths), download_extras.dart, mp4_remux.dart (box parsing and writing looked sound for single-track fMP4; no findings), local_player.dart, local_library.dart, local/feed.dart, the file-source paths in video/controller.dart, local intro controller, local_reply_panel (top), fav_panel diff, ugc/pgc intro controller diffs, mine controller diff, main.dart diff, the Android MainActivity and manifest diff, the CI workflow diff, and self_test.dart (download and local-library scenarios).
+- Skimmed or not reviewed: lib/pages/local/favs.dart (after line 120), fav_sheet.dart, follows.dart, local/view.dart; audio/view.dart, live_room widgets, dynamic_panel, reply_item_grpc.dart and pgc/view.dart diffs; download_extras_test.dart; the correctness of mp4_remux on real bilibili streams (HEVC/AV1/Dolby, multi-traf moofs) is untested; how complete the `_accountApis` list is for web APIs that need an account but carry no csrf was not checked.

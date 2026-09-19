@@ -1,0 +1,16 @@
+You are an independent code auditor. Repository: C:/Users/Z14/Documents/Coding/Piliplus (a Flutter app; fork of PiliPlus renamed LibrePili). Read-only: do NOT modify any file and do NOT run git commands that change state.
+
+Target: the changes between branch main and branch librepili (`git diff main...librepili`, `git log main..librepili`). Orient yourself from the repo and the diff.
+
+User's original audit request (verbatim, Chinese): "做5轮审计，第1-2轮聚焦fork后的更改，之后全局" (5 audit rounds; rounds 1-2 focus on the changes made after the fork, later rounds are global). This is round 1.
+
+Output findings as:
+
+  - [P<n>] [A|B|C|D] <short title> — <file>:<startline>-<endline>
+    <2-4 line description: the issue, a concrete failure scenario, and what would fix it>
+
+P0 security/data loss, P1 actionable critical, P2 meaningful, P3 nit. Class A = silent failure / data loss / user-visible wrong behavior or a design gap; B = signature/field drift; C = regression; D = doc inconsistency.
+
+End with a short PROBED-vs-READ map: which areas you verified by running something (tests, analyzer, scripts) vs only read, and which areas you did not look at.
+
+Return the findings as your final message — DATA, no preamble.

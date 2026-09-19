@@ -215,12 +215,8 @@ mixin FavMixin on TripleMixin {
     }
   }
 
-  void _onLocalFavChanged(bool fav) {
-    if (hasFav.value != fav) {
-      updateFavCount(fav ? 1 : -1);
-      hasFav.value = fav;
-    }
-  }
+  // device-local only: the public favorite count is left as is
+  void _onLocalFavChanged(bool fav) => hasFav.value = fav;
 
   Future<void> _localFav(BuildContext context, bool isLongPress) async {
     final key = localFavKey;
@@ -231,14 +227,17 @@ mixin FavMixin on TripleMixin {
     }
     // quick fav: tap toggles the default folder, long press picks folders
     if (enableQuickFav && !isLongPress) {
-      final fav = !LocalLibrary.isFav(key);
-      await LocalLibrary.setFolders(
-        key,
-        data,
-        fav ? {LocalLibrary.defaultFolderId} : {},
-      );
-      _onLocalFavChanged(fav);
-      SmartDialog.showToast(fav ? '已加入本地收藏' : '已取消本地收藏');
+      // only the default folder; other folders keep the item
+      final folders = {...LocalLibrary.foldersOf(key)};
+      final add = !folders.contains(LocalLibrary.defaultFolderId);
+      if (add) {
+        folders.add(LocalLibrary.defaultFolderId);
+      } else {
+        folders.remove(LocalLibrary.defaultFolderId);
+      }
+      await LocalLibrary.setFolders(key, data, folders);
+      _onLocalFavChanged(folders.isNotEmpty);
+      SmartDialog.showToast(add ? '已加入本地收藏' : '已取消本地收藏');
       return;
     }
     if (!enableQuickFav && isLongPress) return;

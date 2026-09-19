@@ -17,6 +17,10 @@ abstract final class LocalLibrary {
     _follows = await Hive.openBox('localFollows');
     _folders = await Hive.openBox('localFavFolders');
     _items = await Hive.openBox('localFavItems');
+    await _ensureDefaultFolder();
+  }
+
+  static Future<void> _ensureDefaultFolder() async {
     if (_folders.isEmpty) {
       await _folders.put('$defaultFolderId', {
         'id': defaultFolderId,
@@ -25,6 +29,28 @@ abstract final class LocalLibrary {
         'ctime': _now(),
       });
     }
+  }
+
+  /// The boxes, for backup / compact / close (see GStorage).
+  static List<Box<dynamic>> get boxes => [_follows, _folders, _items];
+
+  /// Restores boxes from a backup made with [boxes]; boxes missing from
+  /// [map] (older backups) are left as they are.
+  static Future<void> importAll(Map<String, dynamic> map) async {
+    for (final box in boxes) {
+      if (map[box.name] case final Map data) {
+        await box.clear();
+        await box.putAll(data);
+      }
+    }
+    await _ensureDefaultFolder();
+  }
+
+  static Future<void> clear() async {
+    for (final box in boxes) {
+      await box.clear();
+    }
+    await _ensureDefaultFolder();
   }
 
   static int _now() => DateTime.now().millisecondsSinceEpoch ~/ 1000;

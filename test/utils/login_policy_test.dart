@@ -1,5 +1,6 @@
 import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/api.dart';
+import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,7 +9,13 @@ RequestOptions _req(
   String path, {
   Map<String, dynamic>? query,
   Object? data,
-}) => RequestOptions(path: path, queryParameters: query, data: data);
+  String? method,
+}) => RequestOptions(
+  path: path,
+  queryParameters: query,
+  data: data,
+  method: method,
+);
 
 void main() {
   group('LoginPolicy.requiresAccount — stays anonymous', () {
@@ -27,9 +34,9 @@ void main() {
       Api.replyList,
       Api.memberInfo,
       Api.searchArchive,
-      GrpcUrl.dmSegMobile,
-      GrpcUrl.mainList,
-      GrpcUrl.view,
+      HttpString.appBaseUrl + GrpcUrl.dmSegMobile,
+      HttpString.appBaseUrl + GrpcUrl.mainList,
+      HttpString.appBaseUrl + GrpcUrl.view,
     ]) {
       test(path, () => expect(LoginPolicy.requiresAccount(_req(path)), false));
     }
@@ -56,9 +63,10 @@ void main() {
       Api.msgFeedReply,
       Api.likeVideo,
       Api.logout,
-      GrpcUrl.sendMsg,
-      GrpcUrl.sessionMain,
-      GrpcUrl.audioPlayUrl,
+      HttpString.appBaseUrl + GrpcUrl.sendMsg,
+      HttpString.appBaseUrl + GrpcUrl.sessionMain,
+      HttpString.appBaseUrl + GrpcUrl.audioPlayUrl,
+      HttpString.appBaseUrl + GrpcUrl.dynRed,
     ]) {
       test(path, () => expect(LoginPolicy.requiresAccount(_req(path)), true));
     }
@@ -66,7 +74,11 @@ void main() {
     test('csrf-protected write in body (map)', () {
       expect(
         LoginPolicy.requiresAccount(
-          _req(Api.relationMod, data: {'fid': 1, 'act': 1, 'csrf': 'x'}),
+          _req(
+            Api.relationMod,
+            data: {'fid': 1, 'act': 1, 'csrf': 'x'},
+            method: 'POST',
+          ),
         ),
         true,
       );
@@ -75,7 +87,7 @@ void main() {
     test('csrf-protected write in query', () {
       expect(
         LoginPolicy.requiresAccount(
-          _req(Api.replyAdd, query: {'csrf': 'x'}),
+          _req(Api.replyAdd, query: {'csrf': 'x'}, method: 'POST'),
         ),
         true,
       );
@@ -84,7 +96,11 @@ void main() {
     test('csrf-protected write in form data', () {
       expect(
         LoginPolicy.requiresAccount(
-          _req(Api.shootDanmaku, data: FormData.fromMap({'csrf': 'x'})),
+          _req(
+            Api.shootDanmaku,
+            data: FormData.fromMap({'csrf': 'x'}),
+            method: 'POST',
+          ),
         ),
         true,
       );

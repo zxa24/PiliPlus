@@ -1,13 +1,12 @@
 import 'dart:async';
 
-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show BaseMultiSelectMixin;
+import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:collection/collection.dart';
-import 'package:flutter/widgets.dart' show Text;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 
@@ -74,29 +73,33 @@ class DownloadPageController extends GetxController
   }
 
   @override
-  void onRemove() {
-    showConfirmDialog(
-      context: Get.context!,
-      title: const Text('确定删除选中视频？'),
-      onConfirm: () async {
-        SmartDialog.showLoading();
-        final watchProgress = GStorage.watchProgress;
-        for (final page in allChecked) {
-          await watchProgress.deleteAll(
-            page.entries.map((e) => e.cid.toString()),
-          );
-          await _downloadService.deletePage(
-            pageDirPath: page.dirPath,
-            refresh: false,
-          );
-        }
-        _downloadService.flagNotifier.refresh();
-        if (enableMultiSelect.value) {
-          rxCount.value = 0;
-          enableMultiSelect.value = false;
-        }
-        SmartDialog.dismiss();
-      },
+  Future<void> onRemove() async {
+    final allChecked = this.allChecked.toList();
+    final deleteExported = await showDeleteDownloadDialog(
+      Get.context!,
+      title: '确定删除选中视频？',
+      exportOption: allChecked.any(
+        (page) => page.entries.any((e) => e.mergedPath != null),
+      ),
     );
+    if (deleteExported == null) return;
+    SmartDialog.showLoading();
+    final watchProgress = GStorage.watchProgress;
+    for (final page in allChecked) {
+      await watchProgress.deleteAll(
+        page.entries.map((e) => e.cid.toString()),
+      );
+      await _downloadService.deletePage(
+        pageDirPath: page.dirPath,
+        refresh: false,
+        deleteExported: deleteExported,
+      );
+    }
+    _downloadService.flagNotifier.refresh();
+    if (enableMultiSelect.value) {
+      rxCount.value = 0;
+      enableMultiSelect.value = false;
+    }
+    SmartDialog.dismiss();
   }
 }

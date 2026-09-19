@@ -42,35 +42,45 @@ class DownloadManager {
         if (u != url) u,
     ];
     for (var attempt = 0; ; attempt++) {
-      final failure = await _attempt(urls[attempt % urls.length]);
-      if (failure == null) return; // completed
-      final retry =
-          _status == DownloadStatus.downloading &&
-          !_cancelToken.isCancelled &&
-          attempt + 1 < _maxAttempts;
-      if (!retry) {
-        await _fail(failure.error, delete: failure.beforeData);
+      final error = await _attempt(urls[attempt % urls.length]);
+      if (error == null) return; // completed
+      if (!_canRetry || attempt + 1 >= _maxAttempts) {
+        await _fail(error);
         return;
       }
-      // resume from what is on disk, on the next address
-      await Future.delayed(Duration(seconds: attempt + 1));
+      // resume from what is on disk, on the next address; pause/delete
+      // cuts the wait short
+      await Future.any<void>([
+        Future.delayed(Duration(seconds: attempt + 1)),
+        _cancelToken.whenCancel,
+      ]);
+      if (!_canRetry) {
+        await _fail(error);
+        return;
+      }
     }
   }
 
-  Future<void> _fail(Object e, {required bool delete}) async {
+  bool get _canRetry =>
+      _status == DownloadStatus.downloading && !_cancelToken.isCancelled;
+
+  Future<void> _fail(Object e) async {
     final file = File(path);
     if (_status == DownloadStatus.downloading) {
       _status = DownloadStatus.failDownload;
-      if (delete && file.existsSync()) {
+      // keep any saved bytes: a later start resumes from them
+      if (file.existsSync() && file.lengthSync() == 0) {
         await file.tryDel();
       }
     }
     onDone(e);
   }
 
+  static final _contentRangeReg = RegExp(r'bytes\s+(\d+)-\d+/(\d+|\*)');
+
   /// One transfer attempt. Returns null when the file is complete, else the
-  /// error and whether it happened before any data was received.
-  Future<({Object error, bool beforeData})?> _attempt(String url) async {
+  /// error.
+  Future<Object?> _attempt(String url) async {
     int received;
 
     final file = File(path);
@@ -79,16 +89,6 @@ class DownloadManager {
     } else {
       file.createSync(recursive: true);
       received = 0;
-    }
-
-    final sink = file.openWrite(
-      mode: received == 0 ? FileMode.writeOnly : FileMode.writeOnlyAppend,
-    );
-
-    Future<void> closeSink() async {
-      try {
-        await sink.close();
-      } catch (_) {}
     }
 
     Response<ResponseBody> response;
@@ -105,14 +105,57 @@ class DownloadManager {
         cancelToken: _cancelToken,
       );
     } on DioException catch (e) {
-      await closeSink();
-      return (error: e, beforeData: true);
+      return e;
     }
     final data = response.data!;
-    final contentLength = data.contentLength + received;
+    final contentRange = response.headers.value(
+      HttpHeaders.contentRangeHeader,
+    );
+
+    Future<void> discard() async {
+      try {
+        await data.stream.listen(null).cancel();
+      } catch (_) {}
+    }
+
+    if (response.statusCode == 416) {
+      await discard();
+      // nothing left to send: complete only if the file on disk is whole
+      final total = int.tryParse(contentRange?.split('/').last ?? '');
+      if (total != null && total == received) {
+        _status = DownloadStatus.completed;
+        onDone();
+        return null;
+      }
+      // what is on disk does not match the stream: start over
+      await file.writeAsBytes(const []);
+      return 'range not satisfiable ($contentRange, have $received)';
+    }
+
+    int expected = data.contentLength < 0 ? -1 : data.contentLength + received;
+    if (received > 0) {
+      if (response.statusCode != 206) {
+        // Range ignored: the body is the whole file, rewrite it from 0
+        received = 0;
+        expected = data.contentLength;
+      } else {
+        final match = contentRange == null
+            ? null
+            : _contentRangeReg.firstMatch(contentRange);
+        if (match == null || int.parse(match[1]!) != received) {
+          await discard();
+          return 'unexpected content-range: $contentRange (have $received)';
+        }
+        expected = int.tryParse(match[2]!) ?? expected;
+      }
+    }
+
+    final sink = file.openWrite(
+      mode: received == 0 ? FileMode.writeOnly : FileMode.writeOnlyAppend,
+    );
 
     if (received == 0) {
-      onReceiveProgress?.call(0, contentLength);
+      onReceiveProgress?.call(0, expected);
     }
 
     int? last;
@@ -123,17 +166,23 @@ class DownloadManager {
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         if (last != now) {
           last = now;
-          onReceiveProgress?.call(received, contentLength);
+          onReceiveProgress?.call(received, expected);
         }
       }
       await sink.close();
-      _status = DownloadStatus.completed;
-      onDone();
-      return null;
     } catch (e) {
-      await closeSink();
-      return (error: e, beforeData: false);
+      try {
+        await sink.close();
+      } catch (_) {}
+      return e;
     }
+    if (expected >= 0 && received != expected) {
+      // clean early EOF: retry from what was saved
+      return 'incomplete transfer: $received of $expected bytes';
+    }
+    _status = DownloadStatus.completed;
+    onDone();
+    return null;
   }
 
   Future<void> cancel({required bool isDelete}) {

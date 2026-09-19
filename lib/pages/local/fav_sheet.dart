@@ -23,13 +23,39 @@ Future<String?> showFolderNameDialog(
   String title = '新建收藏夹',
   String initial = '',
 }) {
-  final controller = TextEditingController(text: initial);
   return showDialog<String>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
+    builder: (context) => _FolderNameDialog(title: title, initial: initial),
+  );
+}
+
+/// Owns its text controller, so it is disposed with the dialog (after the
+/// closing animation) instead of when the dialog is popped.
+class _FolderNameDialog extends StatefulWidget {
+  const _FolderNameDialog({required this.title, required this.initial});
+
+  final String title;
+  final String initial;
+
+  @override
+  State<_FolderNameDialog> createState() => _FolderNameDialogState();
+}
+
+class _FolderNameDialogState extends State<_FolderNameDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
       content: TextField(
-        controller: controller,
+        controller: _controller,
         autofocus: true,
         maxLength: 30,
         decoration: const InputDecoration(hintText: '收藏夹名称'),
@@ -41,7 +67,7 @@ Future<String?> showFolderNameDialog(
         ),
         TextButton(
           onPressed: () {
-            final name = controller.text.trim();
+            final name = _controller.text.trim();
             if (name.isEmpty) {
               SmartDialog.showToast('名称不能为空');
               return;
@@ -51,8 +77,8 @@ Future<String?> showFolderNameDialog(
           child: const Text('确定'),
         ),
       ],
-    ),
-  ).whenComplete(controller.dispose);
+    );
+  }
 }
 
 class _LocalFavSheet extends StatefulWidget {

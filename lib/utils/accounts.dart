@@ -75,10 +75,30 @@ abstract final class Accounts {
     }
   }
 
+  /// Roles as saved on the stored accounts, whether login mode is on or not.
+  static List<Account> savedMode() {
+    final mode = List<Account>.filled(
+      AccountType.values.length,
+      AnonymousAccount(),
+    );
+    for (final a in account.values) {
+      for (final t in a.type) {
+        mode[t.index] = a;
+      }
+    }
+    return mode;
+  }
+
   static Future<void> set(AccountType key, Account account) async {
-    final oldAccount = accountMode[key.index]..type.remove(key);
+    // in incognito accountMode only holds the anonymous placeholder, so drop
+    // the role from every stored account, not just the active holder
+    final changed = <Account>{accountMode[key.index]..type.remove(key)};
+    for (final a in Accounts.account.values) {
+      if (a.type.remove(key)) changed.add(a);
+    }
     accountMode[key.index] = account..type.add(key);
-    await Future.wait([?account.onChange(), ?oldAccount.onChange()]);
+    changed.add(account);
+    await Future.wait([for (final a in changed) ?a.onChange()]);
     if (!LoginPolicy.loginMode) {
       // role is saved on the account but stays dormant until login mode
       accountMode[key.index] = AnonymousAccount();

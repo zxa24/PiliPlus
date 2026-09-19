@@ -10,8 +10,10 @@ import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models/login/model.dart';
 import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
+import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
+import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -628,13 +630,16 @@ class LoginPageController extends GetxController
       tokenInfo['access_token'],
       tokenInfo['refresh_token'],
     );
-    await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
-    for (int i = 0; i < AccountType.values.length; i++) {
-      if (Accounts.accountMode[i].mid == account.mid) {
-        Accounts.accountMode[i] = account;
-      }
+    // re-login of a stored account keeps its saved roles
+    for (final a in Accounts.account.values) {
+      if (a.mid == account.mid) account.type.addAll(a.type);
     }
+    await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
+    // login mode was just turned on: activate the saved roles
+    await Accounts.refresh();
+    MineController.anonymity.value = !Accounts.heartbeat.isLogin;
     if (Accounts.main.isLogin) {
+      await LoginUtils.onLoginMain();
       SmartDialog.showToast('登录成功');
     } else {
       SmartDialog.showToast('登录成功, 请先设置账号模式');
@@ -648,7 +653,9 @@ class LoginPageController extends GetxController
       return Get.toNamed('/loginPage');
     }
     final colorScheme = ColorScheme.of(context);
-    final selectAccount = List.of(Accounts.accountMode);
+    // the saved roles, not accountMode (all anonymous in incognito)
+    final savedMode = Accounts.savedMode();
+    final selectAccount = List.of(savedMode);
     final options = {
       AnonymousAccount(): '0',
       ...Accounts.account.toMap().map(
@@ -756,7 +763,7 @@ class LoginPageController extends GetxController
                 final account = quickSelect
                     ? selectAccount.first
                     : selectAccount[index];
-                if (account != Accounts.accountMode[index]) {
+                if (account != savedMode[index]) {
                   Accounts.set(type, account);
                 }
               }

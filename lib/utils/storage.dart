@@ -83,6 +83,8 @@ abstract final class GStorage {
     return Utils.jsonEncoder.convert({
       setting.name: setting.toMap(),
       video.name: video.toMap(),
+      // local follows / favorites: the only copy without an account
+      for (final box in LocalLibrary.boxes) box.name: box.toMap(),
     });
   }
 
@@ -95,6 +97,7 @@ abstract final class GStorage {
     return Future.wait([
       setting.clear().then((_) => setting.putAll(map[setting.name])),
       video.clear().then((_) => video.putAll(map[video.name])),
+      LocalLibrary.importAll(map),
     ]);
   }
 
@@ -119,6 +122,7 @@ abstract final class GStorage {
       video.compact(),
       Accounts.account.compact(),
       watchProgress.compact(),
+      for (final box in LocalLibrary.boxes) box.compact(),
       ?reply?.compact(),
     ]);
   }
@@ -132,6 +136,7 @@ abstract final class GStorage {
       video.close(),
       Accounts.account.close(),
       watchProgress.close(),
+      for (final box in LocalLibrary.boxes) box.close(),
       ?reply?.close(),
     ]);
   }
@@ -145,6 +150,7 @@ abstract final class GStorage {
       video.clear(),
       Accounts.clear(),
       watchProgress.clear(),
+      LocalLibrary.clear(),
       ?reply?.clear(),
     ]);
   }

@@ -54,6 +54,10 @@ WebViewEnvironment? webViewEnvironment;
 EdgeInsets? tmpPadding;
 
 Future<void> _initDownPath() async {
+  if (isSelfTestProfile) {
+    downloadPath = defDownloadPath;
+    return;
+  }
   if (PlatformUtils.isDesktop) {
     final customDownPath = Pref.downloadPath;
     if (customDownPath != null && customDownPath.isNotEmpty) {
@@ -88,12 +92,18 @@ Future<void> _initTmpPath() async {
 }
 
 Future<void> _initAppPath() async {
-  appSupportDirPath = (await getApplicationSupportDirectory()).path;
+  var dir = (await getApplicationSupportDirectory()).path;
+  if (isSelfTestProfile) {
+    dir = path.join(dir, 'selftest');
+    await Directory(dir).create(recursive: true);
+  }
+  appSupportDirPath = dir;
 }
 
 void main(List<String> args) async {
   ScaledWidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  isSelfTestProfile = SelfTest.isRequested(args);
   await _initAppPath();
   try {
     await GStorage.init();

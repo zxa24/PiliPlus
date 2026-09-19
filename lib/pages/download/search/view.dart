@@ -93,7 +93,8 @@ class _DownloadSearchPageState
             progress: widget.progress,
             downloadService: _downloadService,
             showTitle: true,
-            onDelete: () => controller.onRemoveSingle(index, entry),
+            onDelete: (deleteExported) =>
+                controller.onRemoveSingle(index, entry, deleteExported),
             controller: controller,
           );
         },

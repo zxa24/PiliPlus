@@ -5,6 +5,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/pages/common/publish/publish_route.dart';
 import 'package:PiliPlus/pages/common/reply_controller.dart';
 import 'package:PiliPlus/pages/video/reply_new/view.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart';
@@ -154,6 +155,8 @@ class VideoReplyReplyController extends ReplyController
     int? index,
   }) {
     assert(replyItem != null && index != null);
+    // the writing UI is hidden then; guard any path that still gets here
+    if (!LoginPolicy.canInteract) return;
 
     final (bool inputDisable, String? hint) = replyHint;
     if (inputDisable) {

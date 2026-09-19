@@ -1,5 +1,6 @@
 import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/api.dart';
+import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:dio/dio.dart';
@@ -65,22 +66,33 @@ abstract final class LoginPolicy {
   static const _csrfKeys = {'csrf', 'biliCSRF', 'csrf_token'};
   static const _selfKeys = ['mid', 'vmid', 'up_mid'];
 
+  /// Whether UI that writes (comments, replies, danmaku, live chat) is
+  /// shown: it needs a logged-in account and the "hide interaction" switch
+  /// off. Existing comments and danmaku are displayed either way.
+  static bool get canInteract => Accounts.main.isLogin && !Pref.hideInteraction;
+
   /// Whether [options] may carry the logged-in account. False means it is
   /// sent anonymously even in login mode.
   static bool requiresAccount(RequestOptions options) {
     final path = options.path;
+    // gRPC requests are sent as `appBaseUrl + GrpcUrl.x`
+    final grpcPath = path.startsWith(HttpString.appBaseUrl)
+        ? path.substring(HttpString.appBaseUrl.length)
+        : path;
     if (_accountApis.contains(path) ||
-        _grpcAccountApis.contains(path) ||
-        _grpcAccountPrefixes.any(path.startsWith)) {
+        _grpcAccountApis.contains(grpcPath) ||
+        _grpcAccountPrefixes.any(grpcPath.startsWith)) {
       return true;
     }
     final query = options.queryParameters;
     final data = options.data;
-    // web writes are csrf-protected
-    if (query.keys.any(_csrfKeys.contains) ||
-        (data is Map && data.keys.any(_csrfKeys.contains)) ||
-        (data is FormData &&
-            data.fields.any((e) => _csrfKeys.contains(e.key)))) {
+    // web writes are csrf-protected (some GET reads also carry csrf; they
+    // are not writes and stay anonymous)
+    if (options.method.toUpperCase() != 'GET' &&
+        (query.keys.any(_csrfKeys.contains) ||
+            (data is Map && data.keys.any(_csrfKeys.contains)) ||
+            (data is FormData &&
+                data.fields.any((e) => _csrfKeys.contains(e.key))))) {
       return true;
     }
     // reads scoped to the user themself (own space, own followings...)

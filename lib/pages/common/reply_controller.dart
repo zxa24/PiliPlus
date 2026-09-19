@@ -8,6 +8,7 @@ import 'package:PiliPlus/models/common/reply/reply_sort_type.dart';
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
 import 'package:PiliPlus/pages/common/publish/publish_route.dart';
 import 'package:PiliPlus/pages/video/reply_new/view.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/reply_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -130,6 +131,8 @@ abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
     int? oid,
     int? replyType,
   }) {
+    // the writing UI is hidden then; guard any path that still gets here
+    if (!LoginPolicy.canInteract) return;
     if (loadingState.value case Error(:final errMsg, :final code)) {
       if (errMsg != null && (code == 12061 || code == 12002)) {
         SmartDialog.showToast(errMsg);

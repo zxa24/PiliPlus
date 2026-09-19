@@ -1838,7 +1838,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   Widget videoReplyPanel({bool isNested = false}) =>
       videoDetailController.isFileSource
-      ? LocalReplyPanel(path: videoDetailController.localCommentsPath!)
+      ? switch (videoDetailController.localCommentsPath) {
+          // keyed: reload when the offline playlist switches videos
+          final path? => LocalReplyPanel(key: ValueKey(path), path: path),
+          null => const SizedBox.shrink(),
+        }
       : VideoReplyPanel(
           key: videoReplyPanelKey,
           isNested: isNested,

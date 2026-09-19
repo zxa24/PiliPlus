@@ -1,0 +1,975 @@
+OpenAI Codex v0.146.1
+--------
+workdir: C:\Users\Z14\Documents\Coding\Piliplus
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a0ba0c-3e6f-73f0-8974-90d7f1621920
+--------
+user
+[Pass 1, iter 2 re-review — structured output requested]
+
+Previously RESOLVED in this pass (do NOT re-litigate these — treat as closed):
+
+- [RESOLVED] Finding 1 — access-key leak addressed
+- [RESOLVED] Finding 2 — gRPC path matching fixed
+- [RESOLVED] Finding 3 — csrf GET reads stay anonymous
+- [RESOLVED] Finding 4 — explicit logout account preserved
+- [RESOLVED] Finding 5 — incognito role reassignment fixed
+- [RESOLVED] Finding 6 — nav bar rebuilt and local tab migration added
+- [RESOLVED] Finding 7 — retry no longer deletes partial downloads
+- [RESOLVED] Finding 8 — resume response validation added
+- [RESOLVED] Finding 9 — cancel during retry backoff addressed
+- [RESOLVED] Finding 10 — merge queue/race issues addressed
+- [RESOLVED] Finding 11 — local library boxes included in storage lifecycle
+- [RESOLVED] Finding 12 — local intro index fallback fixed
+- [RESOLVED] Finding 13 — plain local progress key fixed
+- [RESOLVED] Finding 14 — offline comments panel keyed/null-guarded
+- [RESOLVED] Finding 15 — quick-fav only toggles default folder
+- [RESOLVED] Finding 16 — local fav no longer changes public count
+- [RESOLVED] Finding 17 — running Windows instance open-with handled
+- [RESOLVED] Finding 18 — dialog controller lifetime fixed
+- [RESOLVED] Finding 19 — XML danmaku parse hardened
+- [RESOLVED] Finding 20 — filename truncation hardened
+- [RESOLVED] R1 — exported video deletion is opt-in
+- [RESOLVED] R2 — self-test profile isolated
+- [RESOLVED] R5 — hide-interaction scope expanded
+- [RESOLVED] R7 — unused imports removed
+
+Findings still open from your last re-review that needed iter 2 work:
+
+- [PARTIAL] R3 — Type1/FLV handling mostly fixed, but multi-segment MP4 is not joined
+  FLV AVC/AAC remux and tests were added, and all durl segments are downloaded. However `_exportType1()` exports non-FLV multi-segment inputs as separate files (`<base>.mp4`, `<base>.2.mp4`) instead of joining into one timeline-ordered MP4 at `lib/services/download/download_service.dart:676`.
+
+- [PARTIAL] R4 — offline panel is network-free, but image saving fails
+  Avatars were replaced with placeholders and rendering uses local files only. `CommentImages.save()` writes to `comments_images/<hash>.part` without creating `comments_images/`, so picture/emote downloads fail unless the directory already exists (`lib/services/download/download_extras.dart:489`).
+
+- [PARTIAL] R6 — platform rename mostly done, but iOS product name remains Runner
+  Linux and macOS identifiers/names and CI artifact names were updated. iOS bundle/display names changed, but `PRODUCT_NAME` still expands to `$(TARGET_NAME)` in all iOS build configs (`ios/Runner.xcodeproj/project.pbxproj:391`).
+
+
+
+Incremental diff (only the changes the fixer made in iter 2; the iter 1 base diff was already in your conversation history):
+
+```diff
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/lib/services/download/download_extras.dart lib/services/download/download_extras.dart
+--- audit-logs/librepili-pass-1/snap/lib/services/download/download_extras.dart	2026-09-19 11:22:00.047269600 -0400
++++ lib/services/download/download_extras.dart	2026-09-19 11:22:16.862390100 -0400
+@@ -488,6 +488,7 @@
+       final name = '${md5.convert(utf8.encode(url))}$ext';
+       final file = File(path.join(folder, dirName, name));
+       if (!file.existsSync()) {
++        await file.parent.create(recursive: true);
+         final part = '${file.path}.part';
+         await Request.dio.download(url, part);
+         await File(part).rename(file.path);
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/lib/services/download/download_service.dart lib/services/download/download_service.dart
+--- audit-logs/librepili-pass-1/snap/lib/services/download/download_service.dart	2026-09-19 11:22:00.044646500 -0400
++++ lib/services/download/download_service.dart	2026-09-19 11:24:06.621589800 -0400
+@@ -655,23 +655,28 @@
+   }
+ 
+   /// Old single-URL (durl) streams. FLV with H.264 + AAC is remuxed into a
+-  /// real mp4, all segments joined; a single mp4 segment is moved as is.
+-  /// Anything else keeps its own data and extension (several segments:
+-  /// `<base>.flv`, `<base>.2.flv`, ...). Returns the (first) exported file.
++  /// real mp4 and MP4 segments are joined, all segments in timeline order; a
++  /// single mp4 segment is moved as is. When that is not possible (other
++  /// codecs, segments with differing codec configuration) the original data
++  /// is kept with its own extension (several segments: `<base>.flv`,
++  /// `<base>.2.flv`, ...). Returns the (first) exported file.
+   static Future<String> _exportType1(List<String> inputs, String output) async {
+     final isFlv = Mp4Remuxer.isFlv(inputs.first);
+-    if (isFlv) {
++    if (!isFlv && inputs.length == 1) {
++      await _moveFile(inputs.first, output);
++      return output;
++    }
++    if (isFlv || inputs.every(Mp4Remuxer.isMp4)) {
+       try {
+         await Isolate.run(
+-          () => Mp4Remuxer.remuxFlv(inputs: inputs, output: output),
++          () => isFlv
++              ? Mp4Remuxer.remuxFlv(inputs: inputs, output: output)
++              : Mp4Remuxer.joinMp4(inputs: inputs, output: output),
+         );
+         return output;
+       } on UnsupportedError catch (e) {
+-        if (kDebugMode) debugPrint('FLV kept as is: $e');
++        if (kDebugMode) debugPrint('segments kept as they are: $e');
+       }
+-    } else if (inputs.length == 1) {
+-      await _moveFile(inputs.first, output);
+-      return output;
+     }
+     final ext = isFlv ? '.flv' : '.mp4';
+     final base = path.withoutExtension(output);
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/lib/utils/mp4_join.dart lib/utils/mp4_join.dart
+--- audit-logs/librepili-pass-1/snap/lib/utils/mp4_join.dart	1969-12-31 19:00:00.000000000 -0500
++++ lib/utils/mp4_join.dart	2026-09-19 11:27:16.800563500 -0400
+@@ -0,0 +1,296 @@
++part of 'mp4_remux.dart';
++
++/// LibrePili: joins progressive MP4 segments (old single-URL downloads that
++/// come split into several files) into one timeline for [Mp4Remuxer]'s
++/// writer. Samples are read from each segment's sample tables (stts, ctts,
++/// stss, stsc, stsz/stz2, stco/co64) and copied byte-for-byte.
++///
++/// Every segment must carry the same tracks with identical codec
++/// configuration (stsd); otherwise [UnsupportedError] is thrown and the
++/// caller keeps the segments as separate files.
++abstract final class _Mp4Joiner {
++  static List<_Track> join(List<String> inputs) {
++    final tracks = _readProgressive(inputs.first);
++    for (final t in tracks) {
++      _openEndedEdits(t);
++    }
++    for (final input in inputs.skip(1)) {
++      final segment = _readProgressive(input);
++      if (segment.length != tracks.length) {
++        throw UnsupportedError('segments have different tracks: $input');
++      }
++      for (var i = 0; i < tracks.length; i++) {
++        if (!_sameConfig(tracks[i], segment[i])) {
++          throw UnsupportedError('codec configuration differs: $input');
++        }
++      }
++      // start where the longest track ended, so the tracks stay in sync
++      final start = tracks
++          .map((t) => t.mediaDuration / t.timescale)
++          .reduce(max);
++      for (var i = 0; i < tracks.length; i++) {
++        final t = tracks[i];
++        final s = segment[i];
++        final gap = (start * t.timescale).round() - t.mediaDuration;
++        if (gap > 0) t.durations.last += gap;
++        final firstSample = t.sizes.length;
++        final dts = t.mediaDuration;
++        for (final c in s.chunks) {
++          t.chunks.add(
++            _Chunk(
++                t,
++                c.sourceOffset,
++                c.firstSample + firstSample,
++                c.startDts + dts,
++                c.sourcePath,
++              )
++              ..length = c.length
++              ..sampleCount = c.sampleCount,
++          );
++        }
++        t
++          ..durations.addAll(s.durations)
++          ..sizes.addAll(s.sizes)
++          ..ctos.addAll(s.ctos)
++          ..syncs.addAll(s.syncs);
++      }
++    }
++    return tracks;
++  }
++
++  static bool _sameConfig(_Track a, _Track b) {
++    if (a.sampleEntryType != b.sampleEntryType ||
++        a.timescale != b.timescale ||
++        a.stsd.length != b.stsd.length) {
++      return false;
++    }
++    for (var i = 0; i < a.stsd.length; i++) {
++      if (a.stsd[i] != b.stsd[i]) return false;
++    }
++    return true;
++  }
++
++  /// The first segment's edit list is kept (encoder delay, a late start),
++  /// but its playing edit must run to the end of the joined track.
++  static void _openEndedEdits(_Track t) {
++    final firstPlaying = t.edits.indexWhere((e) => e.mediaTime >= 0);
++    if (firstPlaying == -1) {
++      t.edits.clear();
++      return;
++    }
++    final playing = t.edits[firstPlaying];
++    t.edits
++      ..removeRange(firstPlaying, t.edits.length)
++      ..add(_EditEntry(0, playing.mediaTime, playing.rate));
++  }
++
++  static List<_Track> _readProgressive(String path) {
++    final raf = File(path).openSync();
++    Uint8List? moov;
++    try {
++      final length = raf.lengthSync();
++      var pos = 0;
++      while (pos + 8 <= length) {
++        raf.setPositionSync(pos);
++        final header = raf.readSync(16);
++        final hd = ByteData.sublistView(header);
++        var size = hd.getUint32(0);
++        final type = String.fromCharCodes(header, 4, 8);
++        var headerSize = 8;
++        if (size == 1) {
++          size = hd.getUint64(8);
++          headerSize = 16;
++        } else if (size == 0) {
++          size = length - pos;
++        }
++        if (size < headerSize || pos + size > length) {
++          throw FormatException('bad box $type at $pos in $path');
++        }
++        if (type == 'moov') {
++          raf.setPositionSync(pos + headerSize);
++          moov = raf.readSync(size - headerSize);
++        } else if (type == 'moof') {
++          throw UnsupportedError('fragmented MP4 segment: $path');
++        }
++        pos += size;
++      }
++    } finally {
++      raf.closeSync();
++    }
++    if (moov == null) throw FormatException('no moov in $path');
++
++    var movieTimescale = Mp4Remuxer._movieTimescale;
++    final traks = <Uint8List>[];
++    for (final (type, body) in _R(moov).boxes()) {
++      if (type == 'mvhd') {
++        final b = _R(body);
++        final v = b.u8();
++        b.skip(3 + (v == 1 ? 16 : 8));
++        movieTimescale = b.u32();
++      } else if (type == 'trak') {
++        traks.add(body);
++      }
++    }
++    final tracks = <_Track>[];
++    for (final trak in traks) {
++      final t = _Track(path)
++        ..sourceMovieTimescale = movieTimescale
++        .._parseTrak(trak);
++      _readSampleTables(t, trak);
++      if (t.sizes.isNotEmpty) tracks.add(t..index = tracks.length);
++    }
++    if (tracks.isEmpty) throw FormatException('no samples in $path');
++    return tracks;
++  }
++
++  static Map<String, Uint8List> _stbl(Uint8List trak) {
++    for (final (type, mdia) in _R(trak).boxes()) {
++      if (type != 'mdia') continue;
++      for (final (t2, minf) in _R(mdia).boxes()) {
++        if (t2 != 'minf') continue;
++        for (final (t3, stbl) in _R(minf).boxes()) {
++          if (t3 == 'stbl') {
++            return {for (final (k, v) in _R(stbl).boxes()) k: v};
++          }
++        }
++      }
++    }
++    return const {};
++  }
++
++  static void _readSampleTables(_Track t, Uint8List trak) {
++    final stbl = _stbl(trak);
++
++    // sample sizes
++    final sizes = <int>[];
++    if (stbl['stsz'] case final body?) {
++      final b = _R(body)..skip(4);
++      final fixed = b.u32();
++      final n = b.u32();
++      for (var i = 0; i < n; i++) {
++        sizes.add(fixed != 0 ? fixed : b.u32());
++      }
++    } else if (stbl['stz2'] case final body?) {
++      final b = _R(body)..skip(7);
++      final field = b.u8();
++      final n = b.u32();
++      for (var i = 0; i < n; i++) {
++        switch (field) {
++          case 4:
++            final byte = b.data[b.pos + (i >> 1)];
++            sizes.add(i.isEven ? byte >> 4 : byte & 0xF);
++          case 8:
++            sizes.add(b.u8());
++          case 16:
++            sizes.add((b.u8() << 8) | b.u8());
++          default:
++            throw FormatException('bad stz2 field size $field');
++        }
++      }
++    }
++    if (sizes.isEmpty) return;
++    final n = sizes.length;
++
++    // decode durations
++    final durations = <int>[];
++    if (stbl['stts'] case final body?) {
++      final b = _R(body)..skip(4);
++      final entries = b.u32();
++      for (var i = 0; i < entries && durations.length < n; i++) {
++        final count = b.u32();
++        final delta = b.u32();
++        for (var j = 0; j < count && durations.length < n; j++) {
++          durations.add(delta);
++        }
++      }
++    }
++    while (durations.length < n) {
++      durations.add(durations.isEmpty ? 0 : durations.last);
++    }
++
++    // composition offsets
++    final ctos = <int>[];
++    if (stbl['ctts'] case final body?) {
++      final b = _R(body);
++      final signed = b.u8() == 1;
++      b.skip(3);
++      final entries = b.u32();
++      for (var i = 0; i < entries && ctos.length < n; i++) {
++        final count = b.u32();
++        final offset = signed ? b.i32() : b.u32();
++        for (var j = 0; j < count && ctos.length < n; j++) {
++          ctos.add(offset);
++        }
++      }
++    }
++    while (ctos.length < n) {
++      ctos.add(0);
++    }
++
++    // sync samples (no stss: every sample is a sync sample)
++    final syncs = List.filled(n, true);
++    if (stbl['stss'] case final body?) {
++      syncs.fillRange(0, n, false);
++      final b = _R(body)..skip(4);
++      final entries = b.u32();
++      for (var i = 0; i < entries; i++) {
++        final s = b.u32() - 1;
++        if (s >= 0 && s < n) syncs[s] = true;
++      }
++    }
++
++    // chunk offsets and samples per chunk
++    final offsets = <int>[];
++    if (stbl['stco'] case final body?) {
++      final b = _R(body)..skip(4);
++      final entries = b.u32();
++      for (var i = 0; i < entries; i++) {
++        offsets.add(b.u32());
++      }
++    } else if (stbl['co64'] case final body?) {
++      final b = _R(body)..skip(4);
++      final entries = b.u32();
++      for (var i = 0; i < entries; i++) {
++        offsets.add(b.u64());
++      }
++    }
++    final stsc = <(int, int)>[]; // (first chunk, 0-based; samples per chunk)
++    if (stbl['stsc'] case final body?) {
++      final b = _R(body)..skip(4);
++      final entries = b.u32();
++      for (var i = 0; i < entries; i++) {
++        stsc.add((b.u32() - 1, b.u32()));
++        b.skip(4); // sample description index
++      }
++    }
++    if (offsets.isEmpty || stsc.isEmpty) {
++      throw FormatException('missing chunk tables in ${t.path}');
++    }
++
++    var sample = 0;
++    var dts = 0;
++    var entry = 0;
++    for (var c = 0; c < offsets.length && sample < n; c++) {
++      while (entry + 1 < stsc.length && stsc[entry + 1].$1 <= c) {
++        entry++;
++      }
++      final chunk = _Chunk(t, offsets[c], sample, dts);
++      for (var j = 0; j < stsc[entry].$2 && sample < n; j++) {
++        chunk
++          ..length += sizes[sample]
++          ..sampleCount += 1;
++        dts += durations[sample];
++        sample++;
++      }
++      t.chunks.add(chunk);
++    }
++    if (sample < n) {
++      throw FormatException('chunk tables cover $sample of $n samples');
++    }
++    t
++      ..sizes.addAll(sizes)
++      ..durations.addAll(durations)
++      ..ctos.addAll(ctos)
++      ..syncs.addAll(syncs);
++  }
++}
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/lib/utils/mp4_remux.dart lib/utils/mp4_remux.dart
+--- audit-logs/librepili-pass-1/snap/lib/utils/mp4_remux.dart	2026-09-19 11:22:00.219404600 -0400
++++ lib/utils/mp4_remux.dart	2026-09-19 11:23:56.180673200 -0400
+@@ -3,6 +3,7 @@
+ import 'dart:typed_data';
+ 
+ part 'flv_demux.dart';
++part 'mp4_join.dart';
+ 
+ /// Losslessly merges single-track fragmented MP4 inputs (bilibili DASH
+ /// `video.m4s` / `audio.m4s`) into one progressive MP4 with `moov` placed
+@@ -61,9 +62,28 @@
+     await _write(_FlvDemuxer.demux(inputs), output, onProgress);
+   }
+ 
++  /// Joins progressive MP4 segments (in timeline order) into one MP4.
++  /// Throws [UnsupportedError] when the segments' tracks or codec
++  /// configurations differ, so the caller can keep them separate.
++  static Future<void> joinMp4({
++    required List<String> inputs,
++    required String output,
++    void Function(int copied, int total)? onProgress,
++  }) async {
++    if (inputs.isEmpty) throw ArgumentError('no input');
++    await _write(_Mp4Joiner.join(inputs), output, onProgress);
++  }
++
+   /// The tracks an FLV demux produces; for tests only.
+-  static List<Map<String, Object>> debugFlvTracks(List<String> inputs) => [
+-    for (final t in _FlvDemuxer.demux(inputs))
++  static List<Map<String, Object>> debugFlvTracks(List<String> inputs) =>
++      _debugSummary(_FlvDemuxer.demux(inputs));
++
++  /// The tracks [joinMp4] reads from progressive MP4 inputs; for tests only.
++  static List<Map<String, Object>> debugMp4JoinTracks(List<String> inputs) =>
++      _debugSummary(_Mp4Joiner.join(inputs));
++
++  static List<Map<String, Object>> _debugSummary(List<_Track> tracks) => [
++    for (final t in tracks)
+       {
+         'type': t.sampleEntryType,
+         'timescale': t.timescale,
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/ios/Runner.xcodeproj/project.pbxproj ios/Runner.xcodeproj/project.pbxproj
+--- audit-logs/librepili-pass-1/snap/ios/Runner.xcodeproj/project.pbxproj	2026-09-19 11:22:02.390809500 -0400
++++ ios/Runner.xcodeproj/project.pbxproj	2026-09-19 11:22:33.793738200 -0400
+@@ -44,7 +44,7 @@
+ 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+ 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
+ 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
+-		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
++		97C146EE1CF9000F007C117D /* LibrePili.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LibrePili.app; sourceTree = BUILT_PRODUCTS_DIR; };
+ 		97C146FB1CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+ 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+ 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+@@ -96,7 +96,7 @@
+ 		97C146EF1CF9000F007C117D /* Products */ = {
+ 			isa = PBXGroup;
+ 			children = (
+-				97C146EE1CF9000F007C117D /* Runner.app */,
++				97C146EE1CF9000F007C117D /* LibrePili.app */,
+ 			);
+ 			name = Products;
+ 			sourceTree = "<group>";
+@@ -150,7 +150,7 @@
+ 			);
+ 			name = Runner;
+ 			productName = Runner;
+-			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
++			productReference = 97C146EE1CF9000F007C117D /* LibrePili.app */;
+ 			productType = "com.apple.product-type.application";
+ 		};
+ /* End PBXNativeTarget section */
+@@ -388,7 +388,7 @@
+ 					"@executable_path/Frameworks",
+ 				);
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.zxa24.librepili;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				PRODUCT_NAME = LibrePili;
+ 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+ 				VERSIONING_SYSTEM = "apple-generic";
+@@ -517,7 +517,7 @@
+ 					"@executable_path/Frameworks",
+ 				);
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.zxa24.librepili;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				PRODUCT_NAME = LibrePili;
+ 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+ 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+ 				SWIFT_VERSION = 5.0;
+@@ -540,7 +540,7 @@
+ 					"@executable_path/Frameworks",
+ 				);
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.zxa24.librepili;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				PRODUCT_NAME = LibrePili;
+ 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+ 				VERSIONING_SYSTEM = "apple-generic";
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+--- audit-logs/librepili-pass-1/snap/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme	2026-09-19 11:22:02.396168500 -0400
++++ ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme	2026-09-19 11:22:33.896518400 -0400
+@@ -15,7 +15,7 @@
+             <BuildableReference
+                BuildableIdentifier = "primary"
+                BlueprintIdentifier = "97C146ED1CF9000F007C117D"
+-               BuildableName = "Runner.app"
++               BuildableName = "LibrePili.app"
+                BlueprintName = "Runner"
+                ReferencedContainer = "container:Runner.xcodeproj">
+             </BuildableReference>
+@@ -31,7 +31,7 @@
+          <BuildableReference
+             BuildableIdentifier = "primary"
+             BlueprintIdentifier = "97C146ED1CF9000F007C117D"
+-            BuildableName = "Runner.app"
++            BuildableName = "LibrePili.app"
+             BlueprintName = "Runner"
+             ReferencedContainer = "container:Runner.xcodeproj">
+          </BuildableReference>
+@@ -55,7 +55,7 @@
+          <BuildableReference
+             BuildableIdentifier = "primary"
+             BlueprintIdentifier = "97C146ED1CF9000F007C117D"
+-            BuildableName = "Runner.app"
++            BuildableName = "LibrePili.app"
+             BlueprintName = "Runner"
+             ReferencedContainer = "container:Runner.xcodeproj">
+          </BuildableReference>
+@@ -72,7 +72,7 @@
+          <BuildableReference
+             BuildableIdentifier = "primary"
+             BlueprintIdentifier = "97C146ED1CF9000F007C117D"
+-            BuildableName = "Runner.app"
++            BuildableName = "LibrePili.app"
+             BlueprintName = "Runner"
+             ReferencedContainer = "container:Runner.xcodeproj">
+          </BuildableReference>
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/test/utils/flv_demux_test.dart test/utils/flv_demux_test.dart
+--- audit-logs/librepili-pass-1/snap/test/utils/flv_demux_test.dart	2026-09-19 11:22:02.464177300 -0400
++++ test/utils/flv_demux_test.dart	2026-09-19 11:24:41.541873000 -0400
+@@ -143,17 +143,19 @@
+   return out;
+ }
+ 
+-bool _contains(Uint8List hay, List<int> needle) {
++int _indexOf(Uint8List hay, List<int> needle) {
+   outer:
+   for (var i = 0; i + needle.length <= hay.length; i++) {
+     for (var j = 0; j < needle.length; j++) {
+       if (hay[i + j] != needle[j]) continue outer;
+     }
+-    return true;
++    return i;
+   }
+-  return false;
++  return -1;
+ }
+ 
++bool _contains(Uint8List hay, List<int> needle) => _indexOf(hay, needle) != -1;
++
+ void main() {
+   late Directory dir;
+   setUp(() => dir = Directory.systemTemp.createTempSync('flv_test'));
+@@ -290,4 +292,79 @@
+     }
+     expect(File('$output.part').existsSync(), isFalse);
+   });
++
++  group('joinMp4 (multi-segment progressive MP4)', () {
++    /// A progressive MP4 segment (H.264 + AAC), built via remuxFlv.
++    Future<String> mp4Segment(String name, int fill, {List<int>? sps}) async {
++      final flv = _Flv()
++        ..avcHeader(_avcC(sps ?? _sps(20, 15)))
++        ..aacHeader()
++        ..video(0, _nal(100, fill), key: true)
++        ..audio(0, List.filled(30, fill))
++        ..audio(23, List.filled(31, fill))
++        ..video(40, _nal(50, fill), cts: 80)
++        ..audio(46, List.filled(32, fill))
++        ..video(80, _nal(60, fill));
++      final out = '${dir.path}/$name.mp4';
++      await Mp4Remuxer.remuxFlv(
++        inputs: [write('$name.flv', flv.bytes)],
++        output: out,
++      );
++      return out;
++    }
++
++    test('reads a progressive mp4 back sample for sample', () async {
++      final seg = await mp4Segment('one', 1);
++      final tracks = Mp4Remuxer.debugMp4JoinTracks([seg]);
++      expect(tracks.map((t) => t['type']), ['avc1', 'mp4a']);
++      expect(tracks[0]['sizes'], [105, 55, 65]);
++      expect(tracks[0]['durations'], [40, 40, 40]);
++      expect(tracks[0]['ctos'], [0, 80, 0]);
++      expect(tracks[0]['syncs'], [true, false, false]);
++      expect(tracks[1]['sizes'], [30, 31, 32]);
++    });
++
++    test('joins segments in timeline order into one mp4', () async {
++      final s1 = await mp4Segment('s1', 1);
++      final s2 = await mp4Segment('s2', 2);
++      final output = '${dir.path}/joined.mp4';
++      await Mp4Remuxer.joinMp4(inputs: [s1, s2], output: output);
++
++      final tracks = Mp4Remuxer.debugMp4JoinTracks([output]);
++      final v = tracks[0];
++      final a = tracks[1];
++      expect(v['sizes'], [105, 55, 65, 105, 55, 65]);
++      expect(v['durations'], [40, 40, 40, 40, 40, 40]);
++      expect(v['ctos'], [0, 80, 0, 0, 80, 0]);
++      expect(v['syncs'], [true, false, false, true, false, false]);
++      expect(a['sizes'], [30, 31, 32, 30, 31, 32]);
++      // the second segment's audio starts where its video does (120 ms)
++      final audioFirst = (a['durations']! as List<int>).take(3);
++      expect(audioFirst.reduce((x, y) => x + y), 44100 * 120 ~/ 1000);
++
++      final mp4 = File(output).readAsBytesSync();
++      final boxes = _boxes(mp4);
++      expect(boxes.map((e) => e.$1), ['ftyp', 'moov', 'mdat']);
++      final (_, at, size) = boxes[2];
++      final mdat = Uint8List.sublistView(mp4, at + 8, at + size);
++      expect(size - 8, 2 * (105 + 55 + 65 + 30 + 31 + 32));
++      // segment 1's samples come before segment 2's
++      final first = _indexOf(mdat, _nal(100, 1));
++      final second = _indexOf(mdat, _nal(100, 2));
++      expect(first, isNot(-1));
++      expect(second, greaterThan(first));
++    });
++
++    test('differing codec configuration is not joined', () async {
++      final s1 = await mp4Segment('c1', 1);
++      final s2 = await mp4Segment('c2', 2, sps: _sps(120, 68, cropBottom: 4));
++      expect(
++        () => Mp4Remuxer.joinMp4(
++          inputs: [s1, s2],
++          output: '${dir.path}/never.mp4',
++        ),
++        throwsUnsupportedError,
++      );
++    });
++  });
+ }
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-1/snap/.github/workflows/ios.yml .github/workflows/ios.yml
+--- audit-logs/librepili-pass-1/snap/.github/workflows/ios.yml	2026-09-19 11:22:02.474611200 -0400
++++ .github/workflows/ios.yml	2026-09-19 11:22:33.991286500 -0400
+@@ -39,8 +39,8 @@
+           flutter build ios --release --no-codesign --dart-define-from-file=pili_release.json --no-pub
+           ln -sf ./build/ios/iphoneos Payload
+           # make AltSign happy...
+-          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
+-          zip -r9 LibrePili_ios_${{env.version}}.ipa Payload/Runner.app
++          find Payload/LibrePili.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
++          zip -r9 LibrePili_ios_${{env.version}}.ipa Payload/LibrePili.app
+ 
+       - name: Release
+         if: ${{ github.event.inputs.tag != '' }}
+
+```
+
+Reply using the same labels, but ONLY for the unresolved findings above:
+
+  [RESOLVED]    finding fully addressed, no new problems
+  [PARTIAL]     still doesn't fully address — describe what's still missing
+  [REGRESSED]   iter 2 introduced a NEW problem — annotate with new [P<n>]
+  [OVER-ENG]    fix correct but expanded beyond what was needed
+
+If the incremental diff reveals issues OUTSIDE the unresolved set (a truly new problem caused by iter 2), append in first-round format. Do NOT re-evaluate the RESOLVED list above.
+
+Final line must be exactly one of:
+
+  TOTAL: ROUND-OK
+  TOTAL: ROUND-NEEDS-FIX
+
+Default to flagging any new [P0] / [P1] / [P2] as ROUND-NEEDS-FIX. Do NOT re-derive findings from scratch — only evaluate the fix.
+
+
+codex
+I’ll keep this narrow and only verify the three iter-2 targets: multi-segment MP4 joining, comment image directory creation, and iOS product renaming. No re-opening the closed items.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"PRODUCT_NAME =|Runner\\.app|LibrePili\\.app|PiliPlus_ios|LibrePili_ios|Payload/Runner|Payload/LibrePili\" ios .github/workflows/ios.yml" in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$files=@('"'lib/services/download/download_service.dart','lib/utils/mp4_remux.dart','lib/utils/mp4_join.dart','lib/services/download/download_extras.dart','ios/Runner.xcodeproj/project.pbxproj','.github/workflows/ios.yml'); foreach("'$p in $files){ Write-Output "--- $p"; $lines=Get-Content $p; for($i=1;$i -le $lines.Length;$i++){ if($lines[$i-1] -match '"'joinMp4|_exportType1|every\\(Mp4Remuxer\\.isMp4\\)|remuxFlv|file\\.parent\\.create|PRODUCT_NAME|LibrePili\\.app|Runner\\.app|Payload'){ '{0,5}: {1}' -f "'$i,$lines[$i-1] } } }' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'lib\\utils\\mp4_join.dart'; "'$lines=Get-Content $p; for($i=1;$i -le 120;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }; for($i=210;$i -le 296;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1993ms:
+    1: part of 'mp4_remux.dart';
+    2: 
+    3: /// LibrePili: joins progressive MP4 segments (old single-URL downloads that
+    4: /// come split into several files) into one timeline for [Mp4Remuxer]'s
+    5: /// writer. Samples are read from each segment's sample tables (stts, ctts,
+    6: /// stss, stsc, stsz/stz2, stco/co64) and copied byte-for-byte.
+    7: ///
+    8: /// Every segment must carry the same tracks with identical codec
+    9: /// configuration (stsd); otherwise [UnsupportedError] is thrown and the
+   10: /// caller keeps the segments as separate files.
+   11: abstract final class _Mp4Joiner {
+   12:   static List<_Track> join(List<String> inputs) {
+   13:     final tracks = _readProgressive(inputs.first);
+   14:     for (final t in tracks) {
+   15:       _openEndedEdits(t);
+   16:     }
+   17:     for (final input in inputs.skip(1)) {
+   18:       final segment = _readProgressive(input);
+   19:       if (segment.length != tracks.length) {
+   20:         throw UnsupportedError('segments have different tracks: $input');
+   21:       }
+   22:       for (var i = 0; i < tracks.length; i++) {
+   23:         if (!_sameConfig(tracks[i], segment[i])) {
+   24:           throw UnsupportedError('codec configuration differs: $input');
+   25:         }
+   26:       }
+   27:       // start where the longest track ended, so the tracks stay in sync
+   28:       final start = tracks
+   29:           .map((t) => t.mediaDuration / t.timescale)
+   30:           .reduce(max);
+   31:       for (var i = 0; i < tracks.length; i++) {
+   32:         final t = tracks[i];
+   33:         final s = segment[i];
+   34:         final gap = (start * t.timescale).round() - t.mediaDuration;
+   35:         if (gap > 0) t.durations.last += gap;
+   36:         final firstSample = t.sizes.length;
+   37:         final dts = t.mediaDuration;
+   38:         for (final c in s.chunks) {
+   39:           t.chunks.add(
+   40:             _Chunk(
+   41:                 t,
+   42:                 c.sourceOffset,
+   43:                 c.firstSample + firstSample,
+   44:                 c.startDts + dts,
+   45:                 c.sourcePath,
+   46:               )
+   47:               ..length = c.length
+   48:               ..sampleCount = c.sampleCount,
+   49:           );
+   50:         }
+   51:         t
+   52:           ..durations.addAll(s.durations)
+   53:           ..sizes.addAll(s.sizes)
+   54:           ..ctos.addAll(s.ctos)
+   55:           ..syncs.addAll(s.syncs);
+   56:       }
+   57:     }
+   58:     return tracks;
+   59:   }
+   60: 
+   61:   static bool _sameConfig(_Track a, _Track b) {
+   62:     if (a.sampleEntryType != b.sampleEntryType ||
+   63:         a.timescale != b.timescale ||
+   64:         a.stsd.length != b.stsd.length) {
+   65:       return false;
+   66:     }
+   67:     for (var i = 0; i < a.stsd.length; i++) {
+   68:       if (a.stsd[i] != b.stsd[i]) return false;
+   69:     }
+   70:     return true;
+   71:   }
+   72: 
+   73:   /// The first segment's edit list is kept (encoder delay, a late start),
+   74:   /// but its playing edit must run to the end of the joined track.
+   75:   static void _openEndedEdits(_Track t) {
+   76:     final firstPlaying = t.edits.indexWhere((e) => e.mediaTime >= 0);
+   77:     if (firstPlaying == -1) {
+   78:       t.edits.clear();
+   79:       return;
+   80:     }
+   81:     final playing = t.edits[firstPlaying];
+   82:     t.edits
+   83:       ..removeRange(firstPlaying, t.edits.length)
+   84:       ..add(_EditEntry(0, playing.mediaTime, playing.rate));
+   85:   }
+   86: 
+   87:   static List<_Track> _readProgressive(String path) {
+   88:     final raf = File(path).openSync();
+   89:     Uint8List? moov;
+   90:     try {
+   91:       final length = raf.lengthSync();
+   92:       var pos = 0;
+   93:       while (pos + 8 <= length) {
+   94:         raf.setPositionSync(pos);
+   95:         final header = raf.readSync(16);
+   96:         final hd = ByteData.sublistView(header);
+   97:         var size = hd.getUint32(0);
+   98:         final type = String.fromCharCodes(header, 4, 8);
+   99:         var headerSize = 8;
+  100:         if (size == 1) {
+  101:           size = hd.getUint64(8);
+  102:           headerSize = 16;
+  103:         } else if (size == 0) {
+  104:           size = length - pos;
+  105:         }
+  106:         if (size < headerSize || pos + size > length) {
+  107:           throw FormatException('bad box $type at $pos in $path');
+  108:         }
+  109:         if (type == 'moov') {
+  110:           raf.setPositionSync(pos + headerSize);
+  111:           moov = raf.readSync(size - headerSize);
+  112:         } else if (type == 'moof') {
+  113:           throw UnsupportedError('fragmented MP4 segment: $path');
+  114:         }
+  115:         pos += size;
+  116:       }
+  117:     } finally {
+  118:       raf.closeSync();
+  119:     }
+  120:     if (moov == null) throw FormatException('no moov in $path');
+  210: 
+  211:     // composition offsets
+  212:     final ctos = <int>[];
+  213:     if (stbl['ctts'] case final body?) {
+  214:       final b = _R(body);
+  215:       final signed = b.u8() == 1;
+  216:       b.skip(3);
+  217:       final entries = b.u32();
+  218:       for (var i = 0; i < entries && ctos.length < n; i++) {
+  219:         final count = b.u32();
+  220:         final offset = signed ? b.i32() : b.u32();
+  221:         for (var j = 0; j < count && ctos.length < n; j++) {
+  222:           ctos.add(offset);
+  223:         }
+  224:       }
+  225:     }
+  226:     while (ctos.length < n) {
+  227:       ctos.add(0);
+  228:     }
+  229: 
+  230:     // sync samples (no stss: every sample is a sync sample)
+  231:     final syncs = List.filled(n, true);
+  232:     if (stbl['stss'] case final body?) {
+  233:       syncs.fillRange(0, n, false);
+  234:       final b = _R(body)..skip(4);
+  235:       final entries = b.u32();
+  236:       for (var i = 0; i < entries; i++) {
+  237:         final s = b.u32() - 1;
+  238:         if (s >= 0 && s < n) syncs[s] = true;
+  239:       }
+  240:     }
+  241: 
+  242:     // chunk offsets and samples per chunk
+  243:     final offsets = <int>[];
+  244:     if (stbl['stco'] case final body?) {
+  245:       final b = _R(body)..skip(4);
+  246:       final entries = b.u32();
+  247:       for (var i = 0; i < entries; i++) {
+  248:         offsets.add(b.u32());
+  249:       }
+  250:     } else if (stbl['co64'] case final body?) {
+  251:       final b = _R(body)..skip(4);
+  252:       final entries = b.u32();
+  253:       for (var i = 0; i < entries; i++) {
+  254:         offsets.add(b.u64());
+  255:       }
+  256:     }
+  257:     final stsc = <(int, int)>[]; // (first chunk, 0-based; samples per chunk)
+  258:     if (stbl['stsc'] case final body?) {
+  259:       final b = _R(body)..skip(4);
+  260:       final entries = b.u32();
+  261:       for (var i = 0; i < entries; i++) {
+  262:         stsc.add((b.u32() - 1, b.u32()));
+  263:         b.skip(4); // sample description index
+  264:       }
+  265:     }
+  266:     if (offsets.isEmpty || stsc.isEmpty) {
+  267:       throw FormatException('missing chunk tables in ${t.path}');
+  268:     }
+  269: 
+  270:     var sample = 0;
+  271:     var dts = 0;
+  272:     var entry = 0;
+  273:     for (var c = 0; c < offsets.length && sample < n; c++) {
+  274:       while (entry + 1 < stsc.length && stsc[entry + 1].$1 <= c) {
+  275:         entry++;
+  276:       }
+  277:       final chunk = _Chunk(t, offsets[c], sample, dts);
+  278:       for (var j = 0; j < stsc[entry].$2 && sample < n; j++) {
+  279:         chunk
+  280:           ..length += sizes[sample]
+  281:           ..sampleCount += 1;
+  282:         dts += durations[sample];
+  283:         sample++;
+  284:       }
+  285:       t.chunks.add(chunk);
+  286:     }
+  287:     if (sample < n) {
+  288:       throw FormatException('chunk tables cover $sample of $n samples');
+  289:     }
+  290:     t
+  291:       ..sizes.addAll(sizes)
+  292:       ..durations.addAll(durations)
+  293:       ..ctos.addAll(ctos)
+  294:       ..syncs.addAll(syncs);
+  295:   }
+  296: }
+
+ succeeded in 2031ms:
+.github/workflows/ios.yml:42:          find Payload/LibrePili.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
+.github/workflows/ios.yml:43:          zip -r9 LibrePili_ios_${{env.version}}.ipa Payload/LibrePili.app
+.github/workflows/ios.yml:52:            LibrePili_ios_*.ipa
+.github/workflows/ios.yml:59:          path: LibrePili_ios_*.ipa
+ios\Runner.xcodeproj\project.pbxproj:47:		97C146EE1CF9000F007C117D /* LibrePili.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LibrePili.app; sourceTree = BUILT_PRODUCTS_DIR; };
+ios\Runner.xcodeproj\project.pbxproj:99:				97C146EE1CF9000F007C117D /* LibrePili.app */,
+ios\Runner.xcodeproj\project.pbxproj:153:			productReference = 97C146EE1CF9000F007C117D /* LibrePili.app */;
+ios\Runner.xcodeproj\project.pbxproj:391:				PRODUCT_NAME = LibrePili;
+ios\Runner.xcodeproj\project.pbxproj:520:				PRODUCT_NAME = LibrePili;
+ios\Runner.xcodeproj\project.pbxproj:543:				PRODUCT_NAME = LibrePili;
+ios\Runner.xcodeproj\xcshareddata\xcschemes\Runner.xcscheme:18:               BuildableName = "LibrePili.app"
+ios\Runner.xcodeproj\xcshareddata\xcschemes\Runner.xcscheme:34:            BuildableName = "LibrePili.app"
+ios\Runner.xcodeproj\xcshareddata\xcschemes\Runner.xcscheme:58:            BuildableName = "LibrePili.app"
+ios\Runner.xcodeproj\xcshareddata\xcschemes\Runner.xcscheme:75:            BuildableName = "LibrePili.app"
+
+ succeeded in 2126ms:
+--- lib/services/download/download_service.dart
+  637:         output = await _exportType1(inputs, output);
+  663:   static Future<String> _exportType1(List<String> inputs, String output) async {
+  669:     if (isFlv || inputs.every(Mp4Remuxer.isMp4)) {
+  673:               ? Mp4Remuxer.remuxFlv(inputs: inputs, output: output)
+  674:               : Mp4Remuxer.joinMp4(inputs: inputs, output: output),
+--- lib/utils/mp4_remux.dart
+   56:   static Future<void> remuxFlv({
+   68:   static Future<void> joinMp4({
+   81:   /// The tracks [joinMp4] reads from progressive MP4 inputs; for tests only.
+  113:     final payloadSize = chunks.fold<int>(0, (s, c) => s + c.length);
+  116:     final useCo64 = payloadSize + ftyp.length + (64 << 20) > 0xFFFFFFFF;
+  117:     final mdatHeaderSize = payloadSize + 8 > 0xFFFFFFFF ? 16 : 8;
+  138:           ..u64(payloadSize + 16);
+  141:           ..u32(payloadSize + 8)
+  167:         onProgress?.call(copied, payloadSize);
+--- lib/utils/mp4_join.dart
+--- lib/services/download/download_extras.dart
+  491:         await file.parent.create(recursive: true);
+--- ios/Runner.xcodeproj/project.pbxproj
+   47: 		97C146EE1CF9000F007C117D /* LibrePili.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LibrePili.app; sourceTree = BUILT_PRODUCTS_DIR; };
+   99: 				97C146EE1CF9000F007C117D /* LibrePili.app */,
+  153: 			productReference = 97C146EE1CF9000F007C117D /* LibrePili.app */;
+  391: 				PRODUCT_NAME = LibrePili;
+  520: 				PRODUCT_NAME = LibrePili;
+  543: 				PRODUCT_NAME = LibrePili;
+--- .github/workflows/ios.yml
+   40:           ln -sf ./build/ios/iphoneos Payload
+   42:           find Payload/LibrePili.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
+   43:           zip -r9 LibrePili_ios_${{env.version}}.ipa Payload/LibrePili.app
+
+codex
+- [RESOLVED] R3 — multi-segment MP4 joining added
+  `_exportType1()` now routes multi-segment progressive MP4 inputs through `Mp4Remuxer.joinMp4()` instead of exporting separate files, while unsupported cases still fall back to preserved originals. The new joiner is wired via `part 'mp4_join.dart'` and has targeted tests for sample-table reading and joined output.
+
+- [RESOLVED] R4 — comment image directory creation fixed
+  `CommentImages.save()` now creates `comments_images/` before downloading the `.part` file at `lib/services/download/download_extras.dart:491`. That closes the remaining gap where pictures/emotes silently failed to save.
+
+- [RESOLVED] R6 — iOS product name and IPA packaging fixed
+  iOS now uses `LibrePili.app` in the project product reference/scheme, and all three `PRODUCT_NAME` entries are set to `LibrePili`. The iOS workflow also codesigns/zips `Payload/LibrePili.app`.
+
+TOTAL: ROUND-OK
+tokens used
+224,589
+- [RESOLVED] R3 — multi-segment MP4 joining added
+  `_exportType1()` now routes multi-segment progressive MP4 inputs through `Mp4Remuxer.joinMp4()` instead of exporting separate files, while unsupported cases still fall back to preserved originals. The new joiner is wired via `part 'mp4_join.dart'` and has targeted tests for sample-table reading and joined output.
+
+- [RESOLVED] R4 — comment image directory creation fixed
+  `CommentImages.save()` now creates `comments_images/` before downloading the `.part` file at `lib/services/download/download_extras.dart:491`. That closes the remaining gap where pictures/emotes silently failed to save.
+
+- [RESOLVED] R6 — iOS product name and IPA packaging fixed
+  iOS now uses `LibrePili.app` in the project product reference/scheme, and all three `PRODUCT_NAME` entries are set to `LibrePili`. The iOS workflow also codesigns/zips `Payload/LibrePili.app`.
+
+TOTAL: ROUND-OK

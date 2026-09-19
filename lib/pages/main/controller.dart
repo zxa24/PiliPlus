@@ -27,7 +27,7 @@ import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
 class MainController extends GetxController
-    with GetSingleTickerProviderStateMixin, AccountMixin {
+    with GetTickerProviderStateMixin, AccountMixin {
   @override
   final AccountService accountService = Get.find<AccountService>();
 
@@ -82,13 +82,7 @@ class MainController extends GetxController
 
     setNavBarConfig();
 
-    controller = mainTabBarView
-        ? TabController(
-            vsync: this,
-            initialIndex: selectedIndex.value,
-            length: navigationBars.length,
-          )
-        : PageController(initialPage: selectedIndex.value);
+    controller = _createController();
 
     hideBottomBar =
         !useSideBar && navigationBars.length > 1 && Pref.hideBottomBar;
@@ -235,16 +229,71 @@ class MainController extends GetxController
     if (navBarSort == null || navBarSort.isEmpty) {
       navigationBars = NavigationBarType.defaultOrder;
     } else {
+      // LibrePili: the 本地 tab is new; add it once to a saved/imported order
+      if (!navBarSort.contains(NavigationBarType.local.index) &&
+          GStorage.setting.get(SettingBoxKey.navBarLocalAdded) != true) {
+        final mineIndex = navBarSort.indexOf(NavigationBarType.mine.index);
+        navBarSort.insert(
+          mineIndex == -1 ? navBarSort.length : mineIndex,
+          NavigationBarType.local.index,
+        );
+        GStorage.setting
+          ..put(SettingBoxKey.navBarSort, navBarSort)
+          ..put(SettingBoxKey.navBarLocalAdded, true);
+      }
       navigationBars = navBarSort
           .map(NavigationBarType.values.elementAt)
           .toList();
     }
     // LibrePili: the followed-feed tab needs login; the 本地 tab replaces it
-    this.navigationBars = Accounts.main.isLogin
-        ? navigationBars
-        : navigationBars.where((e) => e != .dynamics).toList();
+    List<NavigationBarType> filter(List<NavigationBarType> bars) =>
+        Accounts.main.isLogin
+        ? bars
+        : bars.where((e) => e != .dynamics).toList();
+    this.navigationBars = filter(navigationBars);
+    if (this.navigationBars.isEmpty) {
+      this.navigationBars = filter(NavigationBarType.defaultOrder);
+    }
     final defPage = Pref.defaultHomePage;
     selectedIndex.value = math.max(0, this.navigationBars.indexOf(defPage));
+  }
+
+  dynamic _createController() => mainTabBarView
+      ? TabController(
+          vsync: this,
+          initialIndex: selectedIndex.value,
+          length: navigationBars.length,
+        )
+      : PageController(initialPage: selectedIndex.value);
+
+  /// Bumped when [navigationBars] change; the main view rebuilds on it.
+  final RxInt navBarEpoch = 0.obs;
+
+  /// The dynamics tab depends on the login state: recompute the bars when it
+  /// changes (e.g. login mode toggled) instead of waiting for a restart.
+  void _updateNavBar() {
+    final oldBars = navigationBars;
+    final oldIndex = selectedIndex.value;
+    setNavBarConfig();
+    if (const ListEquality<NavigationBarType>().equals(
+      oldBars,
+      navigationBars,
+    )) {
+      selectedIndex.value = oldIndex;
+      return;
+    }
+    final index = navigationBars.indexOf(oldBars[oldIndex]);
+    if (index != -1) selectedIndex.value = index;
+    hasDyn = navigationBars.contains(NavigationBarType.dynamics);
+    hasHome = navigationBars.contains(NavigationBarType.home);
+    _mineIndex = null;
+    final oldController = controller;
+    controller = _createController();
+    // still attached to the current page view until the rebuild
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => oldController.dispose(),
+    );
+    navBarEpoch.value++;
   }
 
   void checkDefaultSearch([bool shouldCheck = false]) {
@@ -362,6 +411,7 @@ class MainController extends GetxController
 
   @override
   void onChangeAccount(bool isLogin) {
+    _updateNavBar();
     if (isLogin) {
       queryUnreadMsg();
       getUnreadDynamic();

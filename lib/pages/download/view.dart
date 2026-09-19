@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/appbar/appbar.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
-import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -13,6 +12,7 @@ import 'package:PiliPlus/common/widgets/select_mask.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/pages/download/controller.dart';
+import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/detail/view.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
 import 'package:PiliPlus/pages/download/search/view.dart';
@@ -182,10 +182,11 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                                 progress: _progress,
                                 downloadService: _downloadService,
                                 showTitle: true,
-                                onDelete: () {
+                                onDelete: (deleteExported) {
                                   _downloadService.deleteDownload(
                                     entry: entry,
                                     removeList: true,
+                                    deleteExported: deleteExported,
                                   );
                                   GStorage.watchProgress.delete(
                                     entry.cid.toString(),
@@ -233,19 +234,22 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
               children: [
                 DialogOption(
-                  onPressed: () {
+                  onPressed: () async {
                     Get.back();
-                    showConfirmDialog(
-                      context: context,
-                      title: const Text('确定删除？'),
-                      onConfirm: () async {
-                        await GStorage.watchProgress.deleteAll(
-                          pageInfo.entries.map((e) => e.cid.toString()),
-                        );
-                        _downloadService.deletePage(
-                          pageDirPath: pageInfo.dirPath,
-                        );
-                      },
+                    final deleteExported = await showDeleteDownloadDialog(
+                      context,
+                      title: '确定删除？',
+                      exportOption: pageInfo.entries.any(
+                        (e) => e.mergedPath != null,
+                      ),
+                    );
+                    if (deleteExported == null) return;
+                    await GStorage.watchProgress.deleteAll(
+                      pageInfo.entries.map((e) => e.cid.toString()),
+                    );
+                    _downloadService.deletePage(
+                      pageDirPath: pageInfo.dirPath,
+                      deleteExported: deleteExported,
                     );
                   },
                   child: const Text('删除', style: TextStyle(fontSize: 14)),

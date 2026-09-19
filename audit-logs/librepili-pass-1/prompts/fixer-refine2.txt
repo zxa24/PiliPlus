@@ -1,0 +1,25 @@
+[Refinement for R3, R4, R6 in pass 1]
+
+codex re-review reported:
+
+  - [PARTIAL] R3 — Type1/FLV handling mostly fixed, but multi-segment MP4 is not joined
+    FLV AVC/AAC remux and tests were added, and all durl segments are downloaded. However `_exportType1()` exports non-FLV multi-segment inputs as separate files (`<base>.mp4`, `<base>.2.mp4`) instead of joining into one timeline-ordered MP4 at `lib/services/download/download_service.dart:676`.
+
+  - [PARTIAL] R4 — offline panel is network-free, but image saving fails
+    Avatars were replaced with placeholders and rendering uses local files only. `CommentImages.save()` writes to `comments_images/<hash>.part` without creating `comments_images/`, so picture/emote downloads fail unless the directory already exists (`lib/services/download/download_extras.dart:489`).
+
+  - [PARTIAL] R6 — platform rename mostly done, but iOS product name remains Runner
+    Linux and macOS identifiers/names and CI artifact names were updated. iOS bundle/display names changed, but `PRODUCT_NAME` still expands to `$(TARGET_NAME)` in all iOS build configs (`ios/Runner.xcodeproj/project.pbxproj:391`).
+
+You already worked on these. The fixes are in the working tree and you have full context. Make the additional change needed for each.
+
+For R3: the user's requirement is one complete mp4 per video. Join multi-segment progressive MP4 inputs into one mp4 in timeline order — add a minimal progressive-mp4 sample reader (moov/trak/stbl: stsd, stts, ctts, stss, stsc, stsz/stz2, stco/co64) feeding the same writer the FLV path uses, and require matching codec config (stsd) across segments; if configs differ, fall back to the current separate-file behaviour and say so. Add a unit test on synthetic data. For R6: also check the iOS CI workflow's .app/.ipa paths still match whatever product name you set.
+
+Constraints:
+- Do NOT defend your prior fix. If codex's complaint is valid, fix it
+- Touch ONLY what's flagged in this refinement message — don't refactor
+- Run the test command again (`dart analyze lib test` must exit 0, then `flutter test`) and include the TEST RESULTS block
+- Output the cumulative `git diff` for the files you touched in this refinement (new files: list with line counts)
+- One short paragraph per item on what additional change you made
+
+If after reading codex's feedback you believe the original fix is correct and codex is wrong, say so explicitly with reasoning — don't just silently re-do the same thing. The orchestrator will arbitrate.

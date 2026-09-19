@@ -57,8 +57,7 @@ class LocalIntroController extends CommonIntroController {
     if (Get.isRegistered<DownloadPageController>()) {
       final controller = Get.find<DownloadPageController>();
       for (final e in controller.pages) {
-        final items = e.entries
-          ..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+        final items = e.entries..sort((a, b) => a.sortKey.compareTo(b.sortKey));
         final completed = items.where((e) => e.isCompleted);
         list.addAllIf(completed.isNotEmpty, completed);
         if (completed.length == 1) {
@@ -66,12 +65,17 @@ class LocalIntroController extends CommonIntroController {
         }
       }
     }
-    if (list.isEmpty) {
-      list.add(videoDetailCtr.entry);
-      aidSet.add(videoDetailCtr.entry.pageId);
+    final currCid = videoDetailCtr.cid.value;
+    // also when the video is not one of the downloads (e.g. a dropped file)
+    if (!list.any((e) => e.cid == currCid)) {
+      list
+        ..clear()
+        ..add(videoDetailCtr.entry);
+      aidSet
+        ..clear()
+        ..add(videoDetailCtr.entry.pageId);
     }
     this.list.value = list;
-    final currCid = videoDetailCtr.cid.value;
     final index = list.indexWhere((e) => e.cid == currCid);
     this.index.value = index;
     if (PlatformUtils.isMobile) {

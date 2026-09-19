@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:path/path.dart' as p;
 
 /// LibrePili: read-only comments saved with a download
-/// (`<base>.comments.json`, format `librepili-comments-1`).
+/// (`<base>.comments.json`, format `librepili-comments-1`). Fully offline:
+/// no avatars, pictures and emotes come from the files saved with it.
 class LocalReplyPanel extends StatefulWidget {
   const LocalReplyPanel({super.key, required this.path});
 
@@ -61,7 +62,10 @@ class _LocalReplyPanelState extends State<LocalReplyPanel>
                 ),
               );
             }
-            return _CommentTile(comment: comments[index - 1]);
+            return _CommentTile(
+              comment: comments[index - 1],
+              dir: p.dirname(widget.path),
+            );
           },
         );
       },
@@ -70,9 +74,12 @@ class _LocalReplyPanelState extends State<LocalReplyPanel>
 }
 
 class _CommentTile extends StatefulWidget {
-  const _CommentTile({required this.comment});
+  const _CommentTile({required this.comment, required this.dir});
 
   final Map comment;
+
+  /// Folder of the comments file; image paths are relative to it.
+  final String dir;
 
   @override
   State<_CommentTile> createState() => _CommentTileState();
@@ -129,11 +136,11 @@ class _CommentTileState extends State<_CommentTile> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        NetworkImgLayer(
-          src: c['avatar'] as String?,
-          width: avatarSize,
-          height: avatarSize,
-          type: .avatar,
+        // no avatar: it would be a network request
+        CircleAvatar(
+          radius: avatarSize / 2,
+          backgroundColor: theme.colorScheme.onInverseSurface,
+          child: Icon(Icons.person, size: avatarSize * 0.6, color: outline),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -145,10 +152,19 @@ class _CommentTileState extends State<_CommentTile> {
                 style: TextStyle(fontSize: 13, color: outline),
               ),
               const SizedBox(height: 2),
-              SelectableText(
-                '${c['content'] ?? ''}',
-                style: const TextStyle(fontSize: 14, height: 1.5),
-              ),
+              _content(c),
+              if ((c['pictures'] as List?)?.cast<String>() case final pics?
+                  when pics.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final pic in pics) _picture(context, pic),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 2),
               Text(
                 '${ctime == 0 ? '' : DateFormatUtils.dateFormat(ctime)}'
@@ -160,6 +176,71 @@ class _CommentTileState extends State<_CommentTile> {
           ),
         ),
       ],
+    );
+  }
+
+  File _file(String relative) => File(p.join(widget.dir, relative));
+
+  static final _emoteReg = RegExp(r'\[[^\[\]]+\]');
+
+  /// Text with the saved emotes inline.
+  Widget _content(Map c) {
+    const style = TextStyle(fontSize: 14, height: 1.5);
+    final text = '${c['content'] ?? ''}';
+    final emotes = (c['emotes'] as Map?)?.cast<String, String>();
+    if (emotes == null || emotes.isEmpty) {
+      return SelectableText(text, style: style);
+    }
+    final spans = <InlineSpan>[];
+    var last = 0;
+    for (final m in _emoteReg.allMatches(text)) {
+      final local = emotes[m[0]];
+      if (local == null) continue;
+      if (m.start > last) {
+        spans.add(TextSpan(text: text.substring(last, m.start)));
+      }
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Image.file(
+            _file(local),
+            width: 20,
+            height: 20,
+            errorBuilder: (_, _, _) => Text(m[0]!),
+          ),
+        ),
+      );
+      last = m.end;
+    }
+    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+    return Text.rich(TextSpan(children: spans), style: style);
+  }
+
+  Widget _picture(BuildContext context, String relative) {
+    final file = _file(relative);
+    return GestureDetector(
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (context) => GestureDetector(
+          onTap: Navigator.of(context).pop,
+          child: InteractiveViewer(child: Image.file(file)),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.file(
+          file,
+          width: 96,
+          height: 96,
+          fit: BoxFit.cover,
+          cacheWidth: 288,
+          errorBuilder: (_, _, _) => const SizedBox(
+            width: 96,
+            height: 96,
+            child: Icon(Icons.broken_image_outlined),
+          ),
+        ),
+      ),
     );
   }
 }

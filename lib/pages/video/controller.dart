@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert' show utf8;
 import 'dart:io' show Directory, File;
 import 'dart:math' show min;
 import 'dart:ui';
@@ -54,6 +55,7 @@ import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
@@ -68,6 +70,7 @@ import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
+import 'package:crypto/crypto.dart' show md5;
 import 'package:dio/dio.dart' show Options;
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
     show ExtendedNestedScrollViewState;
@@ -329,11 +332,23 @@ class VideoDetailController extends GetxController
   final isLoginVideo = Accounts.get(AccountType.video).isLogin;
 
   late final watchProgress = GStorage.watchProgress;
+
+  /// Plain local files all have cid 0: key their progress by path instead
+  /// (hashed: Hive keys are ASCII, at most 255 chars).
+  String get _progressKey {
+    if (cid.value == 0) {
+      if (entry.mergedPath case final file?) {
+        return 'f${md5.convert(utf8.encode(file))}';
+      }
+    }
+    return cid.value.toString();
+  }
+
   void cacheLocalProgress() {
     if (plPlayerController.playerStatus.isCompleted) {
-      watchProgress.put(cid.value.toString(), entry.totalTimeMilli);
+      watchProgress.put(_progressKey, entry.totalTimeMilli);
     } else if (playedTime case final playedTime?) {
-      watchProgress.put(cid.value.toString(), playedTime.inMilliseconds);
+      watchProgress.put(_progressKey, playedTime.inMilliseconds);
     }
   }
 
@@ -353,8 +368,9 @@ class VideoDetailController extends GetxController
       width: entry.ep?.width ?? entry.pageData?.width ?? 1,
       height: entry.ep?.height ?? entry.pageData?.height ?? 1,
     );
-    if (watchProgress.get(cid.value.toString()) case final int progress?) {
-      if (progress >= entry.totalTimeMilli - 400) {
+    if (watchProgress.get(_progressKey) case final int progress?) {
+      // duration unknown (plain local files): resume as is
+      if (entry.totalTimeMilli > 0 && progress >= entry.totalTimeMilli - 400) {
         defaultST = Duration.zero;
       } else {
         defaultST = Duration(milliseconds: progress);
@@ -622,6 +638,8 @@ class VideoDetailController extends GetxController
 
   /// 发送弹幕
   Future<void> showShootDanmakuSheet() async {
+    // also reached from the keyboard shortcut
+    if (!LoginPolicy.canInteract) return;
     if (plPlayerController.dmState.contains(cid.value)) {
       SmartDialog.showToast('UP主已关闭弹幕');
       return;

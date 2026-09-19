@@ -79,7 +79,7 @@ class _DownloadingPageState extends State<DownloadingPage>
                           downloadService: _downloadService,
                           showTitle: true,
                           isCurr: isCurr,
-                          onDelete: () => _downloadService.deleteDownload(
+                          onDelete: (_) => _downloadService.deleteDownload(
                             entry: entry,
                             removeQueue: true,
                             downloadNext:

@@ -130,7 +130,7 @@ List<SettingsModel> get extraSettings => [
   ),
   const SwitchModel(
     title: '隐藏发评论与发弹幕',
-    subtitle: '评论和弹幕照常显示，只隐藏发表评论、回复和发弹幕的入口',
+    subtitle: '评论和弹幕照常显示，只隐藏全应用中发表评论、回复、发弹幕和直播发言的入口',
     leading: Icon(Icons.comments_disabled_outlined),
     setKey: SettingBoxKey.hideInteraction,
     defaultVal: true,

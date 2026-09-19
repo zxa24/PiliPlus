@@ -58,6 +58,9 @@ abstract final class SelfTest {
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
       'args': args,
+      // isolated profile: never the user's own data (see isSelfTestProfile)
+      'dataDir': appSupportDirPath,
+      'downloadDir': downloadPath,
       'checks': <Map<String, dynamic>>[],
     };
     final checks = report['checks'] as List<Map<String, dynamic>>;
@@ -369,6 +372,7 @@ abstract final class SelfTest {
           entry: e,
           removeList: true,
           removeQueue: true,
+          deleteExported: true,
         );
       }
     }
@@ -442,7 +446,11 @@ abstract final class SelfTest {
         savedMergedPath == merged;
 
     if (!keep) {
-      await service.deleteDownload(entry: done, removeList: true);
+      await service.deleteDownload(
+        entry: done,
+        removeList: true,
+        deleteExported: true,
+      );
       result['cleanedUp'] = !(mergedFile?.existsSync() ?? false);
     }
     return result;

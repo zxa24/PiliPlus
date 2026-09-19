@@ -4,6 +4,7 @@ import 'package:PiliPlus/models/common/pgc_review_type.dart';
 import 'package:PiliPlus/pages/pgc_review/child/controller.dart';
 import 'package:PiliPlus/pages/pgc_review/child/view.dart';
 import 'package:PiliPlus/pages/pgc_review/post/view.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:get/get.dart';
@@ -105,55 +106,64 @@ class _PgcReviewPageState extends State<PgcReviewPage>
           ),
         ],
       ),
-      fab: Padding(
-        padding: .only(
-          right: kFloatingActionButtonMargin,
-          bottom:
-              MediaQuery.viewPaddingOf(context).bottom +
-              kFloatingActionButtonMargin,
-        ),
-        child: FloatingActionButton(
-          onPressed: () => showDialog(
-            context: context,
-            builder: (context) => SimpleDialog(
-              clipBehavior: Clip.hardEdge,
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              children: [
-                DialogOption(
-                  child: const Text('写短评', style: TextStyle(fontSize: 14)),
-                  onPressed: () {
-                    Get.back();
-                    showModalBottomSheet(
-                      context: context,
-                      useSafeArea: true,
-                      isScrollControlled: true,
-                      builder: (context) {
-                        return PgcReviewPostPanel(
-                          name: widget.name,
-                          mediaId: widget.mediaId,
-                        );
-                      },
-                    );
-                  },
+      // writing reviews: hidden like comment writing (LoginPolicy.canInteract)
+      fab: !LoginPolicy.canInteract
+          ? null
+          : Padding(
+              padding: .only(
+                right: kFloatingActionButtonMargin,
+                bottom:
+                    MediaQuery.viewPaddingOf(context).bottom +
+                    kFloatingActionButtonMargin,
+              ),
+              child: FloatingActionButton(
+                onPressed: () => showDialog(
+                  context: context,
+                  builder: (context) => SimpleDialog(
+                    clipBehavior: Clip.hardEdge,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    children: [
+                      DialogOption(
+                        child: const Text(
+                          '写短评',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        onPressed: () {
+                          Get.back();
+                          showModalBottomSheet(
+                            context: context,
+                            useSafeArea: true,
+                            isScrollControlled: true,
+                            builder: (context) {
+                              return PgcReviewPostPanel(
+                                name: widget.name,
+                                mediaId: widget.mediaId,
+                              );
+                            },
+                          );
+                        },
+                      ),
+                      DialogOption(
+                        child: const Text(
+                          '写长评',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        onPressed: () => Get
+                          ..back()
+                          ..toNamed(
+                            '/webview',
+                            parameters: {
+                              'url':
+                                  'https://member.bilibili.com/article-text/mobile?theme=${theme.isDark ? 1 : 0}&media_id=${widget.mediaId}',
+                            },
+                          ),
+                      ),
+                    ],
+                  ),
                 ),
-                DialogOption(
-                  child: const Text('写长评', style: TextStyle(fontSize: 14)),
-                  onPressed: () => Get
-                    ..back()
-                    ..toNamed(
-                      '/webview',
-                      parameters: {
-                        'url':
-                            'https://member.bilibili.com/article-text/mobile?theme=${theme.isDark ? 1 : 0}&media_id=${widget.mediaId}',
-                      },
-                    ),
-                ),
-              ],
+                child: const Icon(Icons.edit),
+              ),
             ),
-          ),
-          child: const Icon(Icons.edit),
-        ),
-      ),
     );
   }
 

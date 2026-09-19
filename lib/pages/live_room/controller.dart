@@ -29,6 +29,7 @@ import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/tcp/live.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
 import 'package:PiliPlus/utils/danmaku_utils.dart';
@@ -735,6 +736,8 @@ class LiveRoomController extends GetxController {
       toastNotLogin();
       return;
     }
+    // also reached from the @-user menu and shortcuts
+    if (!LoginPolicy.canInteract) return;
     Get.key.currentState!.push(
       PublishRoute(
         barrierColor: Colors.transparent,

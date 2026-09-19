@@ -34,6 +34,7 @@ import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/services/service_locator.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
@@ -770,6 +771,8 @@ class _LiveRoomPageState extends State<LiveRoomPage>
   Widget get _buildInputWidget {
     // LibrePili: sending danmaku / liking needs login
     if (!_liveRoomController.isLogin) return const SizedBox.shrink();
+    // "hide interaction": keep the danmaku toggle and like, drop sending
+    final canSend = LoginPolicy.canInteract;
     final child = Container(
       padding: .only(top: 5, left: 10, right: 10, bottom: padding.bottom),
       height: 70 + padding.bottom,
@@ -779,7 +782,7 @@ class _LiveRoomPageState extends State<LiveRoomPage>
         color: Color(0x1AFFFFFF),
       ),
       child: GestureDetector(
-        onTap: _liveRoomController.onSendDanmaku,
+        onTap: canSend ? _liveRoomController.onSendDanmaku : null,
         behavior: .opaque,
         child: Padding(
           padding: const .only(top: 5, bottom: 10),
@@ -823,8 +826,10 @@ class _LiveRoomPageState extends State<LiveRoomPage>
                     );
                   },
                 ),
-                const Expanded(
-                  child: Text('发送弹幕', style: TextStyle(color: baseWhite)),
+                Expanded(
+                  child: canSend
+                      ? const Text('发送弹幕', style: TextStyle(color: baseWhite))
+                      : const SizedBox.shrink(),
                 ),
                 Builder(
                   builder: (context) {
@@ -894,19 +899,20 @@ class _LiveRoomPageState extends State<LiveRoomPage>
                     );
                   },
                 ),
-                SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: IconButton(
-                    style: IconButton.styleFrom(padding: EdgeInsets.zero),
-                    onPressed: () => _liveRoomController.onSendDanmaku(true),
-                    icon: const Icon(
-                      size: 22,
-                      color: baseWhite,
-                      Icons.emoji_emotions_outlined,
+                if (canSend)
+                  SizedBox(
+                    width: 34,
+                    height: 34,
+                    child: IconButton(
+                      style: IconButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () => _liveRoomController.onSendDanmaku(true),
+                      icon: const Icon(
+                        size: 22,
+                        color: baseWhite,
+                        Icons.emoji_emotions_outlined,
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
           ),

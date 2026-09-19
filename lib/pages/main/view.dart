@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:PiliPlus/common/assets.dart';
@@ -73,7 +74,12 @@ class _MainAppState extends PopScopeState<MainApp>
     if (PlatformUtils.isMobile || Platform.isLinux || Platform.isWindows) {
       PiliScheme.init();
     }
+    _navBarListener = _mainController.navBarEpoch.listen((_) {
+      if (mounted) setState(() {});
+    });
   }
+
+  StreamSubscription<int>? _navBarListener;
 
   @override
   void didChangeDependencies() {
@@ -130,6 +136,7 @@ class _MainAppState extends PopScopeState<MainApp>
       windowManager.removeListener(this);
     }
     removeObserverMobile(this);
+    _navBarListener?.cancel();
     PiliScheme.listener?.cancel();
     GStorage.close();
     super.dispose();

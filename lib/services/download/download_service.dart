@@ -286,6 +286,8 @@ class DownloadService extends GetxService {
   }
 
   Future<void> startDownload(BiliDownloadEntryInfo entry) {
+    // already finished downloading; the merge completes it
+    if (entry.cid == _mergingCid) return Future.value();
     return _lock.synchronized(() async {
       await _downloadManager?.cancel(isDelete: false);
       await _audioDownloadManager?.cancel(isDelete: false);
@@ -408,13 +410,7 @@ class DownloadService extends GetxService {
 
       switch (mediaFileInfo) {
         case Type1 mediaFileInfo:
-          final first = mediaFileInfo.segmentList.first;
-          _downloadManager = DownloadManager(
-            url: first.url,
-            path: path.join(videoDir.path, PathUtils.videoNameType1),
-            onReceiveProgress: _onReceive,
-            onDone: _onDone,
-          );
+          _startSegment(mediaFileInfo.segmentList, 0, videoDir.path);
           break;
         case Type2 mediaFileInfo:
           _downloadManager = DownloadManager(
@@ -452,6 +448,33 @@ class DownloadService extends GetxService {
         debugPrint('get download url error: $e');
       }
     }
+  }
+
+  /// Old single-URL (durl) streams may come in several segments: they are
+  /// downloaded one after another (resuming what is on disk) and joined by
+  /// [_mergeDownload]. Progress runs over their total size.
+  void _startSegment(List<Type1Segment> segments, int index, String dir) {
+    final total = segments.fold<int>(0, (s, e) => s + e.bytes);
+    final done = segments.take(index).fold<int>(0, (s, e) => s + e.bytes);
+    final segment = segments[index];
+    late final DownloadManager manager;
+    manager = DownloadManager(
+      url: segment.url,
+      backupUrls: segment.backupUrls,
+      path: path.join(dir, PathUtils.segmentNameType1(index)),
+      onReceiveProgress: segments.length == 1 || total <= 0
+          ? _onReceive
+          : (received, _) => _onReceive(done + received, total),
+      onDone: ([error]) {
+        if (error != null || index + 1 == segments.length) {
+          return _onDone(error);
+        }
+        // paused / deleted / replaced meanwhile
+        if (!identical(_downloadManager, manager)) return;
+        _startSegment(segments, index + 1, dir);
+      },
+    );
+    _downloadManager = manager;
   }
 
   Future<void> _updateBiliDownloadEntryJson(BiliDownloadEntryInfo entry) {
@@ -528,15 +551,30 @@ class DownloadService extends GetxService {
     _downloadManager = null;
     _audioDownloadManager = null;
     entry.downloadedBytes = entry.totalBytes;
+    _mergingCid = entry.cid;
+    _mergeDeleted = false;
     _updateCurStatus(DownloadStatus.merging);
-    await _mergeDownload(entry);
-    if (!Directory(entry.entryDirPath).existsSync()) {
-      // deleted while merging
+    final (:output, :inputs) = await _mergeDownload(entry);
+    _mergingCid = null;
+    if (_mergeDeleted || !Directory(entry.entryDirPath).existsSync()) {
+      // deleted while merging (the merge may have kept files open, so the
+      // delete may not have removed everything)
       await _deleteMerged(entry);
+      await Directory(entry.entryDirPath).tryDel(recursive: true);
+      waitDownloadQueue.remove(entry);
+      if (curDownload.value == null) nextDownload();
       return;
     }
+    // record completion before removing the stream files, so a crash here
+    // cannot turn the entry back into an incomplete one
     entry.isCompleted = true;
     await _updateBiliDownloadEntryJson(entry);
+    if (output != null) {
+      for (final input in inputs) {
+        await File(input).tryDel();
+      }
+      if (Platform.isAndroid) await _scanMedia(output);
+    }
     waitDownloadQueue.remove(entry);
     downloadList.insert(0, entry);
     flagNotifier.refresh();
@@ -545,16 +583,46 @@ class DownloadService extends GetxService {
       curDownload.value = null;
       nextDownload();
     }
+    // comments / subtitles etc. can take many requests: do not hold the
+    // queue for them
+    if (output != null) {
+      unawaited(
+        DownloadExtras.export(
+          entry: entry,
+          folder: path.dirname(output),
+          base: path.basenameWithoutExtension(output),
+        ),
+      );
+    }
   }
 
+  /// cid of the entry being merged; pause/start requests for it are ignored.
+  int? _mergingCid;
+
+  /// Set when the entry being merged is deleted.
+  bool _mergeDeleted = false;
+
   /// Turns the downloaded streams into one complete video file in the export
-  /// directory and removes the separate stream files. On failure the stream
-  /// files are kept, so the entry still plays in-app as before.
-  Future<void> _mergeDownload(BiliDownloadEntryInfo entry) async {
+  /// directory. Returns the file (null on failure) and the stream files the
+  /// caller removes once completion is saved. On failure the stream files
+  /// are kept, so the entry still plays in-app as before.
+  Future<({String? output, List<String> inputs})> _mergeDownload(
+    BiliDownloadEntryInfo entry,
+  ) async {
     final videoDir = path.join(entry.entryDirPath, entry.typeTag);
     final List<String> inputs;
     if (entry.mediaType == 1) {
-      inputs = [path.join(videoDir, PathUtils.videoNameType1)];
+      inputs = [
+        for (
+          var i = 0;
+          File(path.join(videoDir, PathUtils.segmentNameType1(i))).existsSync();
+          i++
+        )
+          path.join(videoDir, PathUtils.segmentNameType1(i)),
+      ];
+      if (inputs.isEmpty) {
+        inputs.add(path.join(videoDir, PathUtils.videoNameType1));
+      }
     } else {
       final audio = path.join(videoDir, PathUtils.audioNameType2);
       inputs = [
@@ -566,20 +634,12 @@ class DownloadService extends GetxService {
     try {
       output = await _exportFilePath(entry);
       if (entry.mediaType == 1) {
-        await _moveFile(inputs.first, output);
+        output = await _exportType1(inputs, output);
       } else {
         await _remuxInBackground(inputs, output);
-        for (final input in inputs) {
-          await File(input).tryDel();
-        }
       }
       entry.mergedPath = output;
-      if (Platform.isAndroid) await _scanMedia(output);
-      await DownloadExtras.export(
-        entry: entry,
-        folder: path.dirname(output),
-        base: path.basenameWithoutExtension(output),
-      );
+      return (output: output, inputs: inputs);
     } catch (e) {
       if (output != null) {
         await File(output).tryDel();
@@ -590,7 +650,40 @@ class DownloadService extends GetxService {
       }
       SmartDialog.showToast('合并音视频失败，已保留分离的音视频文件');
       if (kDebugMode) debugPrint('merge download error: $e');
+      return (output: null, inputs: inputs);
     }
+  }
+
+  /// Old single-URL (durl) streams. FLV with H.264 + AAC is remuxed into a
+  /// real mp4 and MP4 segments are joined, all segments in timeline order; a
+  /// single mp4 segment is moved as is. When that is not possible (other
+  /// codecs, segments with differing codec configuration) the original data
+  /// is kept with its own extension (several segments: `<base>.flv`,
+  /// `<base>.2.flv`, ...). Returns the (first) exported file.
+  static Future<String> _exportType1(List<String> inputs, String output) async {
+    final isFlv = Mp4Remuxer.isFlv(inputs.first);
+    if (!isFlv && inputs.length == 1) {
+      await _moveFile(inputs.first, output);
+      return output;
+    }
+    if (isFlv || inputs.every(Mp4Remuxer.isMp4)) {
+      try {
+        await Isolate.run(
+          () => isFlv
+              ? Mp4Remuxer.remuxFlv(inputs: inputs, output: output)
+              : Mp4Remuxer.joinMp4(inputs: inputs, output: output),
+        );
+        return output;
+      } on UnsupportedError catch (e) {
+        if (kDebugMode) debugPrint('segments kept as they are: $e');
+      }
+    }
+    final ext = isFlv ? '.flv' : '.mp4';
+    final base = path.withoutExtension(output);
+    for (var i = 0; i < inputs.length; i++) {
+      await _moveFile(inputs[i], i == 0 ? '$base$ext' : '$base.${i + 1}$ext');
+    }
+    return '$base$ext';
   }
 
   static const _mediaChannel = MethodChannel('librepili/media');
@@ -599,7 +692,10 @@ class DownloadService extends GetxService {
   /// players list it (files written by path are not indexed automatically).
   static Future<void> _scanMedia(String path) async {
     try {
-      await _mediaChannel.invokeMethod<String>('scanFile', {'path': path});
+      await _mediaChannel.invokeMethod<String>('scanFile', {
+        'path': path,
+        'mimeType': path.endsWith('.flv') ? 'video/x-flv' : 'video/mp4',
+      });
     } catch (e) {
       if (kDebugMode) debugPrint('media scan failed: $e');
     }
@@ -638,7 +734,8 @@ class DownloadService extends GetxService {
   /// `Download/<app name>` folder so galleries and file managers see them;
   /// elsewhere: the (user-configurable) download folder.
   static Future<String> _exportDir() async {
-    if (Platform.isAndroid) {
+    // the self test exports into its own download folder
+    if (Platform.isAndroid && !isSelfTestProfile) {
       // downloadPath is `<storage root>/Android/data/<package>/files/download`
       final i = downloadPath.indexOf('/Android/data/');
       if (i != -1 &&
@@ -680,7 +777,11 @@ class DownloadService extends GetxService {
         .replaceAll(_illegalFileChars, '_')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-    if (name.length > 120) name = name.substring(0, 120).trim();
+    // cut by code point (never half an emoji); the name is used twice in
+    // the path (folder and file), so keep it short for Windows' 260 limit
+    if (name.runes.length > 80) {
+      name = String.fromCharCodes(name.runes.take(80)).trim();
+    }
     if (entry.qualityPithyDescription.isNotEmpty) {
       name +=
           ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
@@ -707,6 +808,8 @@ class DownloadService extends GetxService {
     bool removeQueue = false,
     bool refresh = true,
     bool downloadNext = true,
+    // the exported video folder is the user's own copy: kept unless asked
+    bool deleteExported = false,
   }) async {
     if (removeList) {
       downloadList.remove(entry);
@@ -714,13 +817,16 @@ class DownloadService extends GetxService {
     if (removeQueue) {
       waitDownloadQueue.remove(entry);
     }
+    if (entry.cid == _mergingCid) {
+      _mergeDeleted = true;
+    }
     if (curDownload.value?.cid == entry.cid) {
       await cancelDownload(
         isDelete: true,
         downloadNext: downloadNext,
       );
     }
-    await _deleteMerged(entry);
+    if (deleteExported) await _deleteMerged(entry);
     final downloadDir = Directory(entry.pageDirPath);
     if (downloadDir.existsSync()) {
       if (!await downloadDir.lengthGte(2)) {
@@ -740,9 +846,12 @@ class DownloadService extends GetxService {
   Future<void> deletePage({
     required String pageDirPath,
     bool refresh = true,
+    bool deleteExported = false,
   }) async {
-    for (final entry in downloadList) {
-      if (entry.pageDirPath == pageDirPath) await _deleteMerged(entry);
+    if (deleteExported) {
+      for (final entry in downloadList) {
+        if (entry.pageDirPath == pageDirPath) await _deleteMerged(entry);
+      }
     }
     await Directory(pageDirPath).tryDel(recursive: true);
     downloadList.removeWhere((e) => e.pageDirPath == pageDirPath);
@@ -755,6 +864,12 @@ class DownloadService extends GetxService {
     required bool isDelete,
     bool downloadNext = true,
   }) async {
+    // nothing to pause while merging; the merge completes the entry
+    if (!isDelete &&
+        _mergingCid != null &&
+        curDownload.value?.cid == _mergingCid) {
+      return;
+    }
     await _downloadManager?.cancel(isDelete: isDelete);
     await _audioDownloadManager?.cancel(isDelete: isDelete);
     _downloadManager = null;

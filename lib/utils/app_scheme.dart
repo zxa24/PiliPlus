@@ -1,6 +1,7 @@
 // ignore_for_file: constant_identifier_names
 
 import 'dart:async' show StreamSubscription;
+import 'dart:io' show FileSystemEntity, FileSystemEntityType;
 
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_safe_area.dart';
@@ -18,6 +19,7 @@ import 'package:PiliPlus/pages/live/view.dart';
 import 'package:PiliPlus/pages/rank/view.dart';
 import 'package:PiliPlus/pages/subscription_detail/view.dart';
 import 'package:PiliPlus/pages/video/reply_reply/view.dart';
+import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/parse_string.dart';
@@ -44,9 +46,29 @@ abstract final class PiliScheme {
     appLinks = AppLinks();
 
     listener?.cancel();
-    listener = appLinks.uriLinkStream.listen(
-      PlatformUtils.isDesktop ? _desktopRoutePush : routePush,
-    );
+    final handler = PlatformUtils.isDesktop ? _desktopRoutePush : routePush;
+    // same as uriLinkStream, plus files opened while already running
+    listener = appLinks.stringLinkStream.listen((link) {
+      if (link.startsWith(_openFilePrefix)) {
+        _openFile(link.substring(_openFilePrefix.length));
+      } else if (Uri.tryParse(link) case final uri?) {
+        handler(uri);
+      }
+    });
+  }
+
+  /// Sent by windows/runner/main.cpp for "Open with" when an instance is
+  /// already running.
+  static const _openFilePrefix = 'librepili-open:';
+
+  static Future<void> _openFile(String target) async {
+    if (PlatformUtils.isDesktop) {
+      await windowManager.show();
+      await windowManager.focus();
+    }
+    if (FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound) {
+      await LocalPlayer.open(target);
+    }
   }
 
   static Future<bool> _desktopRoutePush(Uri uri) async {

@@ -13,6 +13,7 @@ import 'package:PiliPlus/pages/common/fab_mixin.dart';
 import 'package:PiliPlus/pages/main_reply/controller.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/pages/video/reply_reply/view.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/extension/widget_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
@@ -81,30 +82,32 @@ class _MainReplyPageState extends State<MainReplyPage>
           ),
         ).constraintWidth(),
       ),
-      fab: SlideTransition(
-        position: fabAnimation,
-        child: Padding(
-          padding: .only(
-            right: kFloatingActionButtonMargin + padding.right,
-            bottom: kFloatingActionButtonMargin + padding.bottom,
-          ),
-          child: FloatingActionButton(
-            heroTag: null,
-            onPressed: () {
-              try {
-                feedBack();
-                _controller.onReply(
-                  null,
-                  oid: _controller.oid,
-                  replyType: _controller.replyType,
-                );
-              } catch (_) {}
-            },
-            tooltip: '评论',
-            child: const Icon(Icons.reply),
-          ),
-        ),
-      ),
+      fab: !LoginPolicy.canInteract
+          ? null
+          : SlideTransition(
+              position: fabAnimation,
+              child: Padding(
+                padding: .only(
+                  right: kFloatingActionButtonMargin + padding.right,
+                  bottom: kFloatingActionButtonMargin + padding.bottom,
+                ),
+                child: FloatingActionButton(
+                  heroTag: null,
+                  onPressed: () {
+                    try {
+                      feedBack();
+                      _controller.onReply(
+                        null,
+                        oid: _controller.oid,
+                        replyType: _controller.replyType,
+                      );
+                    } catch (_) {}
+                  },
+                  tooltip: '评论',
+                  child: const Icon(Icons.reply),
+                ),
+              ),
+            ),
     );
   }
 
