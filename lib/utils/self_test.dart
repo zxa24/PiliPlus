@@ -3,10 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/http/member.dart';
 import 'package:PiliPlus/http/video.dart';
+import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/model_hot_video_item.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/member/search_archive/data.dart';
+import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
@@ -70,6 +74,9 @@ abstract final class SelfTest {
       checks.add(result);
     }
 
+    if (_arg(args, '--feed') case final mid?) {
+      await scenario('feed', () => _feed(int.parse(mid)));
+    }
     if (args.contains('--local')) {
       await scenario('localLibrary', _localLibrary);
     }
@@ -91,6 +98,36 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// Diagnoses the local feed: the web API it uses (searchArchive, WBI) vs
+  /// the app API (spaceArchive, app-signed), both anonymous.
+  static Future<Map<String, dynamic>> _feed(int mid) async {
+    final web = await MemberHttp.searchArchive(mid: mid, pn: 1, ps: 10);
+    final app = await MemberHttp.spaceArchive(
+      type: ContributeType.video,
+      mid: mid,
+    );
+    final webOk = web is Success<SearchArchiveData>;
+    final appOk = app is Success<SpaceArchiveData>;
+    return {
+      'pass': webOk,
+      'mid': mid,
+      'web_searchArchive': webOk
+          ? 'ok, ${web.response.list?.vlist?.length ?? 0} items'
+          : '$web',
+      'app_spaceArchive': appOk
+          ? 'ok, ${app.response.item?.length ?? 0} items'
+          : '$app',
+      if (appOk && (app.response.item?.isNotEmpty ?? false))
+        'app_first_item': {
+          'title': app.response.item!.first.title,
+          'bvid': app.response.item!.first.bvid,
+          'param': app.response.item!.first.param,
+          'ctime': app.response.item!.first.ctime,
+          'duration': app.response.item!.first.duration,
+        },
+    };
+  }
 
   static Future<Map<String, dynamic>> _localLibrary() async {
     const mid = 999999999999; // not a real UP, never collides with user data

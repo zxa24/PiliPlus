@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:PiliPlus/common/widgets/video_card/video_card_h.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/member.dart';
+import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models_new/member/search_archive/vlist.dart';
+import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -25,6 +27,7 @@ class _LocalFeedTabState extends State<LocalFeedTab>
   List<VListItemModel> _items = const [];
   bool _loading = false;
   int _failed = 0;
+  String? _firstError;
   int _followCount = 0;
   int _generation = 0;
   Set<int> _mids = const {};
@@ -61,24 +64,32 @@ class _LocalFeedTabState extends State<LocalFeedTab>
     });
     final result = <VListItemModel>[];
     var failed = 0;
+    String? firstError;
     for (var i = 0; i < follows.length; i += _concurrency) {
       if (generation != _generation || !mounted) return;
       final batch = follows.skip(i).take(_concurrency);
+      // App-side space archive: works anonymously, while the web
+      // searchArchive (WBI) is rejected for anonymous requests.
       final responses = await Future.wait([
         for (final f in batch)
-          MemberHttp.searchArchive(mid: f.mid, pn: 1, ps: _perUp),
+          MemberHttp.spaceArchive(type: ContributeType.video, mid: f.mid),
       ]);
       var j = 0;
       for (final f in batch) {
         final res = responses[j++];
         if (res case Success(:final response)) {
-          final list = response.list?.vlist ?? const <VListItemModel>[];
+          final list = [
+            for (final e in (response.item ?? const []).take(_perUp))
+              if (e.bvid != null) _toVideoItem(e, f.mid),
+          ];
           result.addAll(list);
           if (list.isNotEmpty) {
             LocalLibrary.updateFollowInfo(f.mid, name: list.first.owner.name);
           }
         } else {
           failed++;
+          firstError ??= '$res';
+          debugPrint('local feed: mid ${f.mid} failed: $res');
         }
       }
       if (i + _concurrency < follows.length) {
@@ -92,9 +103,26 @@ class _LocalFeedTabState extends State<LocalFeedTab>
           ? result.sublist(0, _maxItems)
           : result;
       _failed = failed;
+      _firstError = firstError;
       _loading = false;
     });
   }
+
+  static VListItemModel _toVideoItem(SpaceArchiveItem e, int mid) =>
+      VListItemModel.fromJson(
+        LocalLibrary.buildFavData(
+          aid: int.tryParse(e.param ?? ''),
+          bvid: e.bvid,
+          title: e.title,
+          cover: e.cover,
+          durationSec: e.duration > 0 ? e.duration : null,
+          pubdate: e.ctime,
+          mid: mid,
+          author: e.owner.name,
+          play: e.stat.view,
+          danmaku: e.stat.danmu,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -121,7 +149,8 @@ class _LocalFeedTabState extends State<LocalFeedTab>
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Text(
-                    '$_failed 位 UP 主的投稿获取失败（可能触发了风控），下拉重试',
+                    '$_failed 位 UP 主的投稿获取失败，下拉重试'
+                    '${_firstError == null ? '' : '\n原因：$_firstError'}',
                     style: TextStyle(
                       fontSize: 12,
                       color: theme.colorScheme.outline,
