@@ -419,6 +419,7 @@ class DownloadService extends GetxService {
         case Type2 mediaFileInfo:
           _downloadManager = DownloadManager(
             url: mediaFileInfo.video.first.baseUrl,
+            backupUrls: mediaFileInfo.video.first.backupUrl ?? const [],
             path: path.join(videoDir.path, PathUtils.videoNameType2),
             onReceiveProgress: _onReceive,
             onDone: _onDone,
@@ -427,6 +428,7 @@ class DownloadService extends GetxService {
           if (audio != null && audio.isNotEmpty) {
             _audioDownloadManager = DownloadManager(
               url: audio.first.baseUrl,
+              backupUrls: audio.first.backupUrl ?? const [],
               path: path.join(videoDir.path, PathUtils.audioNameType2),
               onReceiveProgress: null,
               onDone: _onAudioDone,
@@ -469,7 +471,14 @@ class DownloadService extends GetxService {
     }
   }
 
+  /// Last download error (diagnostics: self test, logs).
+  String? lastError;
+
   void _onDone([Object? error]) {
+    if (error != null) {
+      lastError = 'video: $error';
+      debugPrint('download failed: $lastError');
+    }
     if (error != null) {
       _updateCurStatus(_downloadManager?.status ?? DownloadStatus.pause);
       return;
@@ -493,6 +502,10 @@ class DownloadService extends GetxService {
   }
 
   void _onAudioDone([Object? error]) {
+    if (error != null) {
+      lastError = 'audio: $error';
+      debugPrint('download failed: $lastError');
+    }
     if (_downloadManager?.status == DownloadStatus.completed) {
       if (error == null) {
         _completeDownload();

@@ -82,6 +82,10 @@ abstract final class DownloadHttp {
         final Type2File videoFile = Type2File(
           id: videoDash.id,
           baseUrl: videoUrl,
+          backupUrl: [
+            for (final u in videoDash.playUrls)
+              if (u != videoUrl) u,
+          ],
           bandwidth: videoDash.bandWidth!,
           codecid: videoDash.codecid!,
           size: 0,
@@ -119,6 +123,10 @@ abstract final class DownloadHttp {
             Type2File(
               id: audioDash.id,
               baseUrl: audioUrl,
+              backupUrl: [
+                for (final u in audioDash.playUrls)
+                  if (u != audioUrl) u,
+              ],
               bandwidth: audioDash.bandWidth!,
               codecid: audioDash.codecid!,
               size: 0,

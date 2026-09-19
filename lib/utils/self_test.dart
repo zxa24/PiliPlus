@@ -208,9 +208,12 @@ abstract final class SelfTest {
     }
     await Future.delayed(Duration(seconds: hold));
     final player = PlPlayerController.getInstance();
+    final detail = Get.find<VideoDetailController>(tag: heroTag);
     return {
       'pass': true,
       'title': entry.showTitle,
+      'subtitles': [for (final s in detail.subtitles) s.lan],
+      'subtitleIndex': detail.vttSubtitlesIndex.value,
       'extras': extras,
       'tabs': ?tabs,
       if (play) ...{
@@ -385,7 +388,7 @@ abstract final class SelfTest {
         if (s.startsWith('fail')) {
           return {
             'pass': false,
-            'error': 'download status $s',
+            'error': 'download status $s: ${service.lastError}',
             'statuses': statuses,
           };
         }
