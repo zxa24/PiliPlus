@@ -26,6 +26,7 @@ import 'package:PiliPlus/utils/mp4_remux.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/permission_handler.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
@@ -559,10 +560,23 @@ class DownloadService extends GetxService {
         }
       }
       entry.mergedPath = output;
+      if (Platform.isAndroid) await _scanMedia(output);
     } catch (e) {
       if (output != null) await File(output).tryDel();
       SmartDialog.showToast('合并音视频失败，已保留分离的音视频文件');
       if (kDebugMode) debugPrint('merge download error: $e');
+    }
+  }
+
+  static const _mediaChannel = MethodChannel('librepili/media');
+
+  /// Adds the file to the Android media library so galleries and video
+  /// players list it (files written by path are not indexed automatically).
+  static Future<void> _scanMedia(String path) async {
+    try {
+      await _mediaChannel.invokeMethod<String>('scanFile', {'path': path});
+    } catch (e) {
+      if (kDebugMode) debugPrint('media scan failed: $e');
     }
   }
 
@@ -634,7 +648,8 @@ class DownloadService extends GetxService {
         .trim();
     if (name.length > 120) name = name.substring(0, 120).trim();
     if (entry.qualityPithyDescription.isNotEmpty) {
-      name += ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
+      name +=
+          ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
     }
     var file = path.join(dir, '$name.mp4');
     for (var i = 2; File(file).existsSync(); i++) {
