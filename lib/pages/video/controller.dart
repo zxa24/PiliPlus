@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Directory, File;
 import 'dart:math' show min;
 import 'dart:ui';
 
@@ -77,6 +78,7 @@ import 'package:get/get.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart' hide Subtitle;
+import 'package:path/path.dart' as path;
 
 class VideoDetailController extends GetxController
     with GetTickerProviderStateMixin, BlockMixin {
@@ -153,8 +155,11 @@ class VideoDetailController extends GetxController
   // 预设的解码格式
   late List<VideoDecodeFormatType> preferCodecs = Pref.preferCodecs;
 
+  /// LibrePili: comments saved with a download, if any.
+  String? localCommentsPath;
+
   bool get showReply => isFileSource
-      ? false
+      ? localCommentsPath != null
       : isUgc
       ? plPlayerController.showVideoReply
       : plPlayerController.showBangumiReply;
@@ -334,6 +339,14 @@ class VideoDetailController extends GetxController
 
   void initFileSource(BiliDownloadEntryInfo entry, {bool isInit = true}) {
     this.entry = entry;
+    localCommentsPath = null;
+    if (entry.mergedPath case final merged?) {
+      final file = path.join(
+        path.dirname(merged),
+        '${path.basenameWithoutExtension(merged)}.comments.json',
+      );
+      if (File(file).existsSync()) localCommentsPath = file;
+    }
     firstVideo = VideoItem(
       id: entry.preferedVideoQuality,
       quality: VideoQuality.fromCode(entry.preferedVideoQuality),
@@ -775,9 +788,37 @@ class VideoDetailController extends GetxController
       if (plPlayerController.showDmChart && dmTrend.value == null) {
         _getDmTrend();
       }
+    } else {
+      _loadLocalSubtitles();
     }
 
     defaultST = null;
+  }
+
+  /// LibrePili: subtitles saved next to a downloaded video
+  /// (`<base>.<lan>.srt` in the video's folder), loaded without network.
+  Future<void> _loadLocalSubtitles() async {
+    vttSubtitles.clear();
+    subtitles.clear();
+    vttSubtitlesIndex.value = 0;
+    final merged = entry.mergedPath;
+    if (merged == null) return;
+    final dir = Directory(path.dirname(merged));
+    final base = path.basenameWithoutExtension(merged);
+    if (!dir.existsSync()) return;
+    final files = dir.listSync().whereType<File>().where((f) {
+      final name = path.basename(f.path);
+      return name.startsWith('$base.') && name.endsWith('.srt');
+    }).toList()..sort((a, b) => a.path.compareTo(b.path));
+    if (files.isEmpty) return;
+    final subs = <Subtitle>[];
+    for (final f in files) {
+      final name = path.basename(f.path);
+      final lan = name.substring(base.length + 1, name.length - 4);
+      vttSubtitles[subs.length] = (isData: true, id: await f.readAsString());
+      subs.add(Subtitle(lan: lan, lanDoc: lan));
+    }
+    if (!isClosed) await _setSubtitle(subs);
   }
 
   bool isQuerying = false;

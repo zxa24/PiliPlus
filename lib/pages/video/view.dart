@@ -41,6 +41,7 @@ import 'package:PiliPlus/pages/video/member/controller.dart';
 import 'package:PiliPlus/pages/video/member/view.dart';
 import 'package:PiliPlus/pages/video/related/view.dart';
 import 'package:PiliPlus/pages/video/reply/controller.dart';
+import 'package:PiliPlus/pages/video/reply/local_reply_panel.dart';
 import 'package:PiliPlus/pages/video/reply/view.dart';
 import 'package:PiliPlus/pages/video/view_point/view.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
@@ -147,7 +148,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       hideSystemBar();
     }
 
-    if (videoDetailController.showReply) {
+    if (videoDetailController.showReply &&
+        !videoDetailController.isFileSource) {
       _videoReplyController = Get.put(
         VideoReplyController(
           aid: videoDetailController.aid,
@@ -1347,6 +1349,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           }
         },
         tabs: tabs.map((text) {
+          if (text == '评论' && videoDetailController.isFileSource) {
+            return const Tab(text: '评论');
+          }
           if (text == '评论') {
             return Obx(() {
               final count = _videoReplyController.count.value;
@@ -1831,11 +1836,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     );
   }
 
-  Widget videoReplyPanel({bool isNested = false}) => VideoReplyPanel(
-    key: videoReplyPanelKey,
-    isNested: isNested,
-    heroTag: heroTag,
-  );
+  Widget videoReplyPanel({bool isNested = false}) =>
+      videoDetailController.isFileSource
+      ? LocalReplyPanel(path: videoDetailController.localCommentsPath!)
+      : VideoReplyPanel(
+          key: videoReplyPanelKey,
+          isNested: isNested,
+          heroTag: heroTag,
+        );
 
   // ai总结
   void showAiBottomSheet() {

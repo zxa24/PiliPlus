@@ -4,10 +4,12 @@ import 'dart:math' as math;
 
 import 'package:PiliPlus/grpc/bilibili/community/service/dm/v1.pb.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart';
+import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/grpc/reply.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:fixnum/fixnum.dart';
@@ -94,12 +96,28 @@ abstract final class DownloadExtras {
       seasonId: entry.seasonId,
       epId: entry.ep?.episodeId,
     );
-    final subtitles = res.dataOrNull?.subtitle?.subtitles ?? const [];
+    var subtitles = <({String lan, String url})>[
+      for (final s in res.dataOrNull?.subtitle?.subtitles ?? const <Subtitle>[])
+        if (s.subtitleUrl case final url? when url.isNotEmpty)
+          (lan: s.lan, url: url),
+    ];
+    if (subtitles.isEmpty) {
+      // anonymous playInfo omits subtitles; the player falls back to DmView
+      final view = await DmGrpc.dmView(entry.avid, entry.cid);
+      if (view case Success(:final response) when response.hasSubtitle()) {
+        subtitles = [
+          for (final s in response.subtitle.subtitles)
+            if (s.subtitleUrl.isNotEmpty)
+              (
+                lan: s.lan,
+                url: s.subtitleUrl.replaceFirst(RegExp('^https?:'), ''),
+              ),
+        ];
+      }
+    }
     final written = <String>[];
     for (final s in subtitles) {
-      final url = s.subtitleUrl;
-      if (url == null || url.isEmpty) continue;
-      final srt = await VideoHttp.getSubtitles(url, format: .srt);
+      final srt = await VideoHttp.getSubtitles(s.url, format: .srt);
       if (srt == null) continue;
       final name = '$base.${_safe(s.lan)}.srt';
       await File(path.join(folder, name)).writeAsString(srt);

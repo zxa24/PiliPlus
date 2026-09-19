@@ -51,15 +51,24 @@ class LocalIntroController extends CommonIntroController {
   void onInit() {
     super.onInit();
     videoDetail.value.title = videoDetailCtr.args['title'];
-    final controller = Get.find<DownloadPageController>();
     final list = <BiliDownloadEntryInfo>[];
-    for (final e in controller.pages) {
-      final items = e.entries..sort((a, b) => a.sortKey.compareTo(b.sortKey));
-      final completed = items.where((e) => e.isCompleted);
-      list.addAllIf(completed.isNotEmpty, completed);
-      if (completed.length == 1) {
-        aidSet.add(e.pageId);
+    // LibrePili: may be opened directly (local player, self test) without
+    // the download page; then the playlist is just this video.
+    if (Get.isRegistered<DownloadPageController>()) {
+      final controller = Get.find<DownloadPageController>();
+      for (final e in controller.pages) {
+        final items = e.entries
+          ..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+        final completed = items.where((e) => e.isCompleted);
+        list.addAllIf(completed.isNotEmpty, completed);
+        if (completed.length == 1) {
+          aidSet.add(e.pageId);
+        }
       }
+    }
+    if (list.isEmpty) {
+      list.add(videoDetailCtr.entry);
+      aidSet.add(videoDetailCtr.entry.pageId);
     }
     this.list.value = list;
     final currCid = videoDetailCtr.cid.value;

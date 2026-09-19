@@ -6,14 +6,17 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/member.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
+import 'package:PiliPlus/models/common/video/source_type.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/model_hot_video_item.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/member/search_archive/data.dart';
 import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
+import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/widgets.dart';
@@ -80,6 +83,11 @@ abstract final class SelfTest {
     if (args.contains('--local')) {
       await scenario('localLibrary', _localLibrary);
     }
+    if (args.contains('--open-offline')) {
+      final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
+      final tab = int.tryParse(_arg(args, '--tab') ?? '');
+      await scenario('openOffline', () => _openOffline(hold, tab: tab));
+    }
     if (_arg(args, '--download') case final bvid?) {
       final qn = int.tryParse(_arg(args, '--qn') ?? '') ?? 80;
       await scenario(
@@ -98,6 +106,62 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// Opens the newest completed download (merged file present) in the
+  /// offline player and keeps it on screen for [hold] seconds, so a caller
+  /// can screenshot it. Reports which folder extras it should pick up.
+  static Future<Map<String, dynamic>> _openOffline(int hold, {int? tab}) async {
+    const heroTag = 'selftest_offline';
+    final service = Get.find<DownloadService>();
+    await service.waitForInitialization;
+    final entry = service.downloadList.firstWhereOrNull(
+      (e) => e.mergedPath != null && File(e.mergedPath!).existsSync(),
+    );
+    if (entry == null) {
+      return {
+        'pass': false,
+        'error': 'no completed download with a video file',
+      };
+    }
+    final merged = entry.mergedPath!;
+    final folder = Directory(path.dirname(merged));
+    final base = path.basenameWithoutExtension(merged);
+    final extras = [
+      for (final f in folder.listSync().whereType<File>())
+        if (path.basename(f.path).startsWith('$base.') &&
+            !f.path.endsWith('.mp4'))
+          path.basename(f.path).substring(base.length),
+    ];
+    unawaited(
+      PageUtils.toVideoPage(
+        aid: entry.avid,
+        cid: entry.cid,
+        cover: entry.cover,
+        title: entry.showTitle,
+        isVertical: entry.pageData?.isVertical ?? false,
+        extraArguments: {
+          'sourceType': SourceType.file,
+          'entry': entry,
+          'dirPath': entry.entryDirPath,
+          'heroTag': heroTag,
+        },
+      ),
+    );
+    String? tabs;
+    if (tab != null) {
+      await Future.delayed(const Duration(seconds: 5));
+      final ctr = Get.find<VideoDetailController>(tag: heroTag);
+      tabs = 'tabs=${ctr.tabCtr.length}, showReply=${ctr.showReply}';
+      if (tab < ctr.tabCtr.length) ctr.tabCtr.animateTo(tab);
+    }
+    await Future.delayed(Duration(seconds: hold));
+    return {
+      'pass': true,
+      'title': entry.showTitle,
+      'extras': extras,
+      'tabs': ?tabs,
+    };
+  }
 
   /// Diagnoses the local feed: the web API it uses (searchArchive, WBI) vs
   /// the app API (spaceArchive, app-signed), both anonymous.
