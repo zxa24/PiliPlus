@@ -2,14 +2,18 @@ import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:dio/dio.dart';
 
 /// LibrePili privacy model: incognito by default, login is opt-in, and even
 /// in login mode the account is attached only to requests that need it.
 ///
-/// Everything else (recommend, search, video info, comments, spaces...) is
-/// sent anonymously so it cannot be tied to the account.
+/// In login mode the home "推荐" feed (and its "不感兴趣" feedback) uses the
+/// account assigned to the recommend role, so the feed is personalised; with
+/// that role left anonymous it stays anonymous. Everything else (search,
+/// other home tabs, video info, comments, spaces...) is sent anonymously so
+/// it cannot be tied to the account. Incognito: everything is anonymous.
 abstract final class LoginPolicy {
   /// Opt-in switch. Off: every account role is anonymous (stored accounts
   /// stay dormant). On: see [requiresAccount].
@@ -24,6 +28,10 @@ abstract final class LoginPolicy {
     Api.userInfo, Api.userStatOwner, Api.getCoin, Api.coinLog, Api.loginLog,
     Api.expLog, Api.moralLog, Api.loginDevices, Api.userRealName,
     Api.myEmote, Api.spaceSetting,
+    // own profile (账号资料) page: read + app-API edits (access_key, no csrf)
+    '${HttpString.appBaseUrl}/x/v2/account/myinfo',
+    '/x/member/app/uname/update', '/x/member/app/sign/update',
+    '/x/member/app/sex/update', '/x/member/app/birthday/update',
     // relation to the current user
     Api.pgcLikeCoinFav,
     Api.videoRelation, Api.seasonStatus, Api.relation, Api.relations,
@@ -34,6 +42,8 @@ abstract final class LoginPolicy {
     Api.favFolder, Api.userFavFolder, Api.favFolderInfo, Api.userSubFolder,
     Api.favPgc, Api.favArticle, Api.favPugv, Api.favTopicList,
     Api.favSeasonList, Api.seeYouLater, Api.historyList, Api.historyStatus,
+    // folder contents (private folders) and watch-later / fav "play all"
+    Api.favResourceList, Api.mediaList,
     Api.searchHistory, Api.noteList, Api.archiveNote, Api.userNoteList,
     // playback history reporting
     Api.heartBeat, Api.historyReport, Api.roomEntryAction,
@@ -41,6 +51,8 @@ abstract final class LoginPolicy {
     // followed feed
     Api.followUp, Api.dynUplist, Api.followDynamic, Api.getUnreadDynamic,
     Api.liveFollow, Api.getLiveFavTag, Api.followeeVotes,
+    // saving the favourite live areas (app-API write, access_key only)
+    Api.setLiveFavTag,
     // messages
     Api.msgUnread, Api.msgFeedUnread, Api.msgFeedReply, Api.msgFeedAt,
     Api.msgFeedLike, Api.msgLikeDetail, Api.msgSysNotify,
@@ -51,6 +63,16 @@ abstract final class LoginPolicy {
     Api.likeVideo, Api.dislikeVideo, Api.coinVideo,
     // login flow
     Api.qrcodeConfirm, Api.logout, Api.activateBuvidApi,
+  };
+
+  /// The home "推荐" feed and its dislike feedback (user decision: not
+  /// anonymous in login mode). Bound to the recommend role's account (see
+  /// ApiType), which may itself be anonymous.
+  static const Set<String> _recommendApis = {
+    Api.recommendListApp,
+    Api.recommendListWeb,
+    Api.feedDislike,
+    Api.feedDislikeCancel,
   };
 
   static const Set<String> _grpcAccountApis = {
@@ -71,6 +93,22 @@ abstract final class LoginPolicy {
   /// off. Existing comments and danmaku are displayed either way.
   static bool get canInteract => Accounts.main.isLogin && !Pref.hideInteraction;
 
+  /// The account [options] goes out with: [account] is the one its role
+  /// resolved to (see ApiType), kept only when login mode is on and the
+  /// request needs it; otherwise anonymous. [loginMode] defaults to the
+  /// setting (tests pass it).
+  static Account bind(
+    Account account,
+    RequestOptions options, {
+    bool? loginMode,
+  }) {
+    if (account is LoginAccount &&
+        (!(loginMode ?? LoginPolicy.loginMode) || !requiresAccount(options))) {
+      return AnonymousAccount();
+    }
+    return account;
+  }
+
   /// Whether [options] may carry the logged-in account. False means it is
   /// sent anonymously even in login mode.
   static bool requiresAccount(RequestOptions options) {
@@ -80,6 +118,7 @@ abstract final class LoginPolicy {
         ? path.substring(HttpString.appBaseUrl.length)
         : path;
     if (_accountApis.contains(path) ||
+        _recommendApis.contains(path) ||
         _grpcAccountApis.contains(grpcPath) ||
         _grpcAccountPrefixes.any(grpcPath.startsWith)) {
       return true;

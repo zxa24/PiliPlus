@@ -107,6 +107,18 @@ static gboolean my_application_local_command_line(GApplication *application,
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
 
+  // The self test runs as its own instance (separate data profile) instead
+  // of being forwarded to an already running app.
+  for (gchar **arg = *arguments + 1; *arg != nullptr; arg++) {
+    if (g_strcmp0(*arg, "--selftest") == 0) {
+      g_application_set_flags(
+          application,
+          static_cast<GApplicationFlags>(g_application_get_flags(application) |
+                                         G_APPLICATION_NON_UNIQUE));
+      break;
+    }
+  }
+
   g_autoptr(GError) error = nullptr;
   if (!g_application_register(application, nullptr, &error)) {
     g_warning("Failed to register: %s", error->message);

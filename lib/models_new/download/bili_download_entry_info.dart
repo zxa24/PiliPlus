@@ -44,6 +44,15 @@ class BiliDownloadEntryInfo with MultiSelectData {
   /// that still play from the separate `.m4s` files.
   String? mergedPath;
 
+  /// LibrePili (Android local player): the video is played from this
+  /// `content://` URI (system grant, not copied); [mergedPath] then names it
+  /// inside a cache folder that holds only the small side files. Not saved.
+  String? playUri;
+
+  /// Stable identity of [playUri] (provider + document id), for the resume
+  /// position. Not saved.
+  String? playKey;
+
   late String pageDirPath;
   late String entryDirPath;
   late DownloadStatus status = .wait;

@@ -1,0 +1,1566 @@
+diff --git a/lib/http/init.dart b/lib/http/init.dart
+index fa0ee27b0..89f0ff77f 100644
+--- a/lib/http/init.dart
++++ b/lib/http/init.dart
+@@ -40,7 +40,7 @@ class Request {
+     accountManager = AccountManager();
+     dio.interceptors.add(accountManager);
+     Accounts.refresh();
+-    LoginUtils.setWebCookie();
++    LoginUtils.setAnonymousWebCookie();
+ 
+     if (Accounts.main.isLogin) {
+       final coin = Pref.userInfoCache?.money;
+diff --git a/lib/main.dart b/lib/main.dart
+index 3e1538953..2943c62f2 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -16,6 +16,7 @@ import 'package:PiliPlus/services/download/download_service.dart';
+ import 'package:PiliPlus/services/local_player.dart';
+ import 'package:PiliPlus/services/logger.dart';
+ import 'package:PiliPlus/services/service_locator.dart';
++import 'package:PiliPlus/utils/app_scheme.dart';
+ import 'package:PiliPlus/utils/cache_manager.dart';
+ import 'package:PiliPlus/utils/calc_window_position.dart';
+ import 'package:PiliPlus/utils/date_utils.dart';
+@@ -231,6 +232,7 @@ void main(List<String> args) async {
+       case final target?
+       when FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound) {
+     // LibrePili: launched with a video file / folder ("Open with")
++    PiliScheme.launchFile = target;
+     WidgetsBinding.instance.addPostFrameCallback(
+       (_) => LocalPlayer.open(target),
+     );
+diff --git a/lib/pages/about/view.dart b/lib/pages/about/view.dart
+index 2d52046c5..47ca7df93 100644
+--- a/lib/pages/about/view.dart
++++ b/lib/pages/about/view.dart
+@@ -24,6 +24,8 @@ import 'package:PiliPlus/utils/login_utils.dart';
+ import 'package:PiliPlus/utils/page_utils.dart';
+ import 'package:PiliPlus/utils/platform_utils.dart';
+ import 'package:PiliPlus/utils/storage.dart';
++import 'package:PiliPlus/utils/storage_key.dart';
++import 'package:PiliPlus/utils/storage_pref.dart';
+ import 'package:PiliPlus/utils/update.dart';
+ import 'package:PiliPlus/utils/utils.dart';
+ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+@@ -249,7 +251,7 @@ Commit Hash: ${BuildConfig.commitHash}''',
+                 );
+                 await Accounts.account.putAll(res);
+                 await Accounts.refresh();
+-                MineController.anonymity.value = !Accounts.heartbeat.isLogin;
++                MineController.anonymity.value = !Pref.loginMode;
+                 if (Accounts.main.isLogin) {
+                   await LoginUtils.onLoginMain();
+                 }
+@@ -281,10 +283,17 @@ Commit Hash: ${BuildConfig.commitHash}''',
+                     DialogOption(
+                       onPressed: () async {
+                         Get.back();
++                        // login mode is not an exportable setting: keep it
++                        // (the running account state is not re-applied)
++                        final loginMode = Pref.loginMode;
+                         await Future.wait([
+                           GStorage.setting.clear(),
+                           GStorage.video.clear(),
+                         ]);
++                        await GStorage.setting.put(
++                          SettingBoxKey.loginMode,
++                          loginMode,
++                        );
+                         SmartDialog.showToast('重置成功');
+                       },
+                       child: const Text('重置可导出的设置', style: style),
+diff --git a/lib/pages/danmaku/controller.dart b/lib/pages/danmaku/controller.dart
+index e7b006664..875c029ed 100644
+--- a/lib/pages/danmaku/controller.dart
++++ b/lib/pages/danmaku/controller.dart
+@@ -11,6 +11,7 @@ import 'package:PiliPlus/utils/accounts.dart';
+ import 'package:PiliPlus/utils/danmaku_utils.dart';
+ import 'package:PiliPlus/utils/path_utils.dart';
+ import 'package:PiliPlus/utils/utils.dart';
++import 'package:collection/collection.dart' show IterableExtension;
+ import 'package:path/path.dart' as path;
+ 
+ class PlDanmakuController {
+@@ -124,14 +125,16 @@ class PlDanmakuController {
+       if (!file.existsSync()) {
+         // LibrePili: videos opened from a folder carry XML danmaku
+         if (source.mergedPath case final merged?) {
+-          final xml = File(
+-            path.join(
+-              path.dirname(merged),
+-              '${path.basenameWithoutExtension(merged)}'
+-              '${DownloadExtras.xmlSuffix}',
+-            ),
++          // ours (`base.danmaku.xml`), else the common `base.xml`
++          final base = path.join(
++            path.dirname(merged),
++            path.basenameWithoutExtension(merged),
+           );
+-          if (xml.existsSync()) {
++          final xml = [
++            File('$base${DownloadExtras.xmlSuffix}'),
++            File('$base.xml'),
++          ].firstWhereOrNull((f) => f.existsSync());
++          if (xml != null) {
+             handleDanmaku(
+               DownloadExtras.xmlToDanmaku(await xml.readAsString()),
+             );
+diff --git a/lib/pages/fav_panel/view.dart b/lib/pages/fav_panel/view.dart
+index 6863d0e5a..d12b43ae3 100644
+--- a/lib/pages/fav_panel/view.dart
++++ b/lib/pages/fav_panel/view.dart
+@@ -1,3 +1,4 @@
++import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
+ import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
+ import 'package:PiliPlus/http/loading_state.dart';
+ import 'package:PiliPlus/models_new/fav/fav_folder/list.dart';
+@@ -171,6 +172,16 @@ class _FavPanelState extends State<FavPanel> {
+           },
+         );
+       case Error(:final errMsg):
++        // the device-only folders do not depend on the account query
++        if (_hasLocal) {
++          return CustomScrollView(
++            controller: widget.scrollController,
++            slivers: [
++              SliverList.list(children: _localSection),
++              HttpError(errMsg: errMsg, onReload: _queryVideoInFolder),
++            ],
++          );
++        }
+         return scrollErrorWidget(
+           errMsg: errMsg,
+           controller: widget.scrollController,
+@@ -246,6 +257,11 @@ class _FavPanelState extends State<FavPanel> {
+                 onPressed: () async {
+                   feedBack();
+                   await _saveLocal();
++                  // account folders failed to load: only the local choice
++                  if (loadingState is Error) {
++                    Get.back();
++                    return;
++                  }
+                   widget.ctr.actionFavVideo();
+                 },
+                 style: const ButtonStyle(visualDensity: .compact),
+diff --git a/lib/pages/live_room/controller.dart b/lib/pages/live_room/controller.dart
+index b0827debd..69735ff58 100644
+--- a/lib/pages/live_room/controller.dart
++++ b/lib/pages/live_room/controller.dart
+@@ -548,7 +548,9 @@ class LiveRoomController extends GetxController {
+         LiveMessageStream(
+             streamToken: info.token,
+             roomId: roomId,
+-            uid: Accounts.heartbeat.mid,
++            // the token is fetched anonymously (not on the LoginPolicy
++            // list): pairing it with the account uid would tie them together
++            uid: 0,
+             servers: info.hostList
+                 .map((host) => 'wss://${host.host}:${host.wssPort}/sub')
+                 .toList(),
+diff --git a/lib/pages/live_room/view.dart b/lib/pages/live_room/view.dart
+index 019caff7b..75368c9e2 100644
+--- a/lib/pages/live_room/view.dart
++++ b/lib/pages/live_room/view.dart
+@@ -769,9 +769,9 @@ class _LiveRoomPageState extends State<LiveRoomPage>
+   }
+ 
+   Widget get _buildInputWidget {
+-    // LibrePili: sending danmaku / liking needs login
+-    if (!_liveRoomController.isLogin) return const SizedBox.shrink();
+-    // "hide interaction": keep the danmaku toggle and like, drop sending
++    // LibrePili: sending danmaku / liking needs login; logged out (or with
++    // "hide interaction") the bar keeps the danmaku toggle and drops sending
++    final isLogin = _liveRoomController.isLogin;
+     final canSend = LoginPolicy.canInteract;
+     final child = Container(
+       padding: .only(top: 5, left: 10, right: 10, bottom: padding.bottom),
+@@ -831,74 +831,75 @@ class _LiveRoomPageState extends State<LiveRoomPage>
+                       ? const Text('发送弹幕', style: TextStyle(color: baseWhite))
+                       : const SizedBox.shrink(),
+                 ),
+-                Builder(
+-                  builder: (context) {
+-                    final isLogin = kDebugMode || _liveRoomController.isLogin;
+-                    final colorScheme = ColorScheme.of(context);
+-                    return Material(
+-                      type: MaterialType.transparency,
+-                      child: Stack(
+-                        clipBehavior: Clip.none,
+-                        children: [
+-                          InkWell(
+-                            overlayColor: _overlayColor(colorScheme),
+-                            customBorder: const CircleBorder(),
+-                            onTap: isLogin
+-                                ? null
+-                                : _liveRoomController.toastNotLogin,
+-                            onTapDown: isLogin
+-                                ? _liveRoomController.onLikeTapDown
+-                                : null,
+-                            onTapUp: isLogin
+-                                ? _liveRoomController.onLikeTapUp
+-                                : null,
+-                            onTapCancel: isLogin
+-                                ? _liveRoomController.onLikeTapUp
+-                                : null,
+-                            child: const SizedBox.square(
+-                              dimension: 34,
+-                              child: Icon(
+-                                size: 22,
+-                                color: baseWhite,
+-                                Icons.thumb_up_off_alt,
++                if (isLogin)
++                  Builder(
++                    builder: (context) {
++                      final isLogin = kDebugMode || _liveRoomController.isLogin;
++                      final colorScheme = ColorScheme.of(context);
++                      return Material(
++                        type: MaterialType.transparency,
++                        child: Stack(
++                          clipBehavior: Clip.none,
++                          children: [
++                            InkWell(
++                              overlayColor: _overlayColor(colorScheme),
++                              customBorder: const CircleBorder(),
++                              onTap: isLogin
++                                  ? null
++                                  : _liveRoomController.toastNotLogin,
++                              onTapDown: isLogin
++                                  ? _liveRoomController.onLikeTapDown
++                                  : null,
++                              onTapUp: isLogin
++                                  ? _liveRoomController.onLikeTapUp
++                                  : null,
++                              onTapCancel: isLogin
++                                  ? _liveRoomController.onLikeTapUp
++                                  : null,
++                              child: const SizedBox.square(
++                                dimension: 34,
++                                child: Icon(
++                                  size: 22,
++                                  color: baseWhite,
++                                  Icons.thumb_up_off_alt,
++                                ),
+                               ),
+                             ),
+-                          ),
+-                          Positioned(
+-                            left: 30,
+-                            top: -12,
+-                            child: Obx(() {
+-                              final likeClickTime =
+-                                  _liveRoomController.likeClickTime.value;
+-                              if (likeClickTime == 0) {
+-                                return const SizedBox.shrink();
+-                              }
+-                              return AnimatedSwitcher(
+-                                duration: const Duration(milliseconds: 160),
+-                                transitionBuilder: (child, animation) {
+-                                  return ScaleTransition(
+-                                    scale: animation,
+-                                    child: child,
+-                                  );
+-                                },
+-                                child: Text(
+-                                  key: ValueKey(likeClickTime),
+-                                  'x$likeClickTime',
+-                                  style: TextStyle(
+-                                    fontSize: 16,
+-                                    color: colorScheme.isDark
+-                                        ? colorScheme.primary
+-                                        : colorScheme.inversePrimary,
++                            Positioned(
++                              left: 30,
++                              top: -12,
++                              child: Obx(() {
++                                final likeClickTime =
++                                    _liveRoomController.likeClickTime.value;
++                                if (likeClickTime == 0) {
++                                  return const SizedBox.shrink();
++                                }
++                                return AnimatedSwitcher(
++                                  duration: const Duration(milliseconds: 160),
++                                  transitionBuilder: (child, animation) {
++                                    return ScaleTransition(
++                                      scale: animation,
++                                      child: child,
++                                    );
++                                  },
++                                  child: Text(
++                                    key: ValueKey(likeClickTime),
++                                    'x$likeClickTime',
++                                    style: TextStyle(
++                                      fontSize: 16,
++                                      color: colorScheme.isDark
++                                          ? colorScheme.primary
++                                          : colorScheme.inversePrimary,
++                                    ),
+                                   ),
+-                                ),
+-                              );
+-                            }),
+-                          ),
+-                        ],
+-                      ),
+-                    );
+-                  },
+-                ),
++                                );
++                              }),
++                            ),
++                          ],
++                        ),
++                      );
++                    },
++                  ),
+                 if (canSend)
+                   SizedBox(
+                     width: 34,
+diff --git a/lib/pages/local/feed.dart b/lib/pages/local/feed.dart
+index 8171ca1c4..2a136f7e3 100644
+--- a/lib/pages/local/feed.dart
++++ b/lib/pages/local/feed.dart
+@@ -24,6 +24,12 @@ class _LocalFeedTabState extends State<LocalFeedTab>
+   static const _batchDelay = Duration(milliseconds: 400);
+   static const _maxItems = 300;
+ 
++  /// Uploads per UP, kept for the session: opening the tab again or
++  /// (un)following someone only fetches the UPs not fetched recently, not
++  /// the whole list; pull to refresh fetches everyone.
++  static final _cache = <int, ({DateTime at, List<VListItemModel> items})>{};
++  static const _cacheTtl = Duration(minutes: 30);
++
+   List<VListItemModel> _items = const [];
+   bool _loading = false;
+   int _failed = 0;
+@@ -53,16 +59,26 @@ class _LocalFeedTabState extends State<LocalFeedTab>
+     super.dispose();
+   }
+ 
+-  Future<void> _load() async {
++  Future<void> _refresh() => _load(force: true);
++
++  Future<void> _load({bool force = false}) async {
+     final generation = ++_generation;
+-    final follows = LocalLibrary.followList();
+-    _mids = {for (final f in follows) f.mid};
++    final all = LocalLibrary.followList();
++    _mids = {for (final f in all) f.mid};
++    _cache.removeWhere((mid, _) => !_mids.contains(mid));
++    final now = DateTime.now();
++    final follows = [
++      for (final f in all)
++        if (force ||
++            _cache[f.mid] == null ||
++            now.difference(_cache[f.mid]!.at) > _cacheTtl)
++          f,
++    ];
+     setState(() {
+       _loading = true;
+-      _followCount = follows.length;
++      _followCount = all.length;
+       _failed = 0;
+     });
+-    final result = <VListItemModel>[];
+     var failed = 0;
+     String? firstError;
+     for (var i = 0; i < follows.length; i += _concurrency) {
+@@ -82,7 +98,7 @@ class _LocalFeedTabState extends State<LocalFeedTab>
+             for (final e in (response.item ?? const []).take(_perUp))
+               if (e.bvid != null) _toVideoItem(e, f.mid),
+           ];
+-          result.addAll(list);
++          _cache[f.mid] = (at: now, items: list);
+           if (list.isNotEmpty) {
+             LocalLibrary.updateFollowInfo(f.mid, name: list.first.owner.name);
+           }
+@@ -97,7 +113,9 @@ class _LocalFeedTabState extends State<LocalFeedTab>
+       }
+     }
+     if (generation != _generation || !mounted) return;
+-    result.sort((a, b) => (b.pubdate ?? 0).compareTo(a.pubdate ?? 0));
++    // a failed UP keeps its earlier uploads, if any
++    final result = [for (final f in all) ...?_cache[f.mid]?.items]
++      ..sort((a, b) => (b.pubdate ?? 0).compareTo(a.pubdate ?? 0));
+     setState(() {
+       _items = result.length > _maxItems
+           ? result.sublist(0, _maxItems)
+@@ -135,7 +153,7 @@ class _LocalFeedTabState extends State<LocalFeedTab>
+       );
+     }
+     return RefreshIndicator(
+-      onRefresh: _load,
++      onRefresh: _refresh,
+       child: CustomScrollView(
+         physics: const AlwaysScrollableScrollPhysics(),
+         slivers: [
+diff --git a/lib/pages/login/controller.dart b/lib/pages/login/controller.dart
+index 0cacb1424..881e15ae3 100644
+--- a/lib/pages/login/controller.dart
++++ b/lib/pages/login/controller.dart
+@@ -637,7 +637,7 @@ class LoginPageController extends GetxController
+     await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
+     // login mode was just turned on: activate the saved roles
+     await Accounts.refresh();
+-    MineController.anonymity.value = !Accounts.heartbeat.isLogin;
++    MineController.anonymity.value = false;
+     if (Accounts.main.isLogin) {
+       await LoginUtils.onLoginMain();
+       SmartDialog.showToast('登录成功');
+diff --git a/lib/pages/member/controller.dart b/lib/pages/member/controller.dart
+index 15d4f53b9..571ef3577 100644
+--- a/lib/pages/member/controller.dart
++++ b/lib/pages/member/controller.dart
+@@ -72,6 +72,15 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
+     queryData();
+   }
+ 
++  /// The space data is fetched anonymously (LoginPolicy), so its relation is
++  /// the guest's: read the account's own relation (incl. special/blacklist).
++  Future<void> _queryRelation() async {
++    final res = await UserHttp.userRelation(mid);
++    if (res case Success(:final response)) {
++      relation.value = response.special == 1 ? -10 : response.attribute ?? 0;
++    }
++  }
++
+   @override
+   bool customHandleResponse(bool isRefresh, Success<SpaceData> response) {
+     final data = response.response;
+@@ -109,6 +118,8 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
+     if (!account.isLogin) {
+       relation.value = LocalLibrary.isFollowed(mid) ? 2 : 0;
+       LocalLibrary.updateFollowInfo(mid, name: username, face: userAvatar);
++    } else if (mid != account.mid) {
++      _queryRelation();
+     }
+     tab2 = data.tab2;
+     live = data.live;
+diff --git a/lib/pages/mine/controller.dart b/lib/pages/mine/controller.dart
+index 65347f489..6764735a0 100644
+--- a/lib/pages/mine/controller.dart
++++ b/lib/pages/mine/controller.dart
+@@ -9,6 +9,7 @@ import 'package:PiliPlus/models_new/fav/fav_folder/data.dart';
+ import 'package:PiliPlus/pages/common/common_data_controller.dart';
+ import 'package:PiliPlus/services/account_service.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
++import 'package:PiliPlus/utils/accounts/account.dart';
+ import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
+ import 'package:PiliPlus/utils/login_utils.dart';
+@@ -39,8 +40,9 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
+       ThemeType.values[(themeType.value.index + 1) % ThemeType.values.length];
+ 
+   /// LibrePili: incognito is the default; it means login mode is off.
+-  static RxBool anonymity =
+-      (!LoginPolicy.loginMode || !Accounts.heartbeat.isLogin).obs;
++  /// (Independent of the heartbeat role: an anonymous heartbeat in login
++  /// mode is not incognito.)
++  static RxBool anonymity = (!LoginPolicy.loginMode).obs;
+ 
+   late final list = <({IconData icon, String title, VoidCallback onTap})>[
+     (
+@@ -122,7 +124,12 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
+     queryUserStatOwner();
+   }
+ 
+-  void _onLogoutMain() => Accounts.deleteAll({Accounts.main});
++  void _onLogoutMain() {
++    // "未登录" only proves the account is invalid if the request carried it:
++    // with login mode off the policy sent it anonymously, so keep the account
++    if (!LoginPolicy.loginMode || Accounts.main is! LoginAccount) return;
++    Accounts.deleteAll({Accounts.main});
++  }
+ 
+   Future<void> queryUserStatOwner() async {
+     final res = await UserHttp.userStatOwner();
+diff --git a/lib/pages/webview/view.dart b/lib/pages/webview/view.dart
+index 329a40021..86d59fa4e 100644
+--- a/lib/pages/webview/view.dart
++++ b/lib/pages/webview/view.dart
+@@ -7,6 +7,8 @@ import 'package:PiliPlus/http/browser_ua.dart';
+ import 'package:PiliPlus/main.dart' show webViewEnvironment;
+ import 'package:PiliPlus/models/common/enum_with_label.dart';
+ import 'package:PiliPlus/models/common/webview_menu_type.dart';
++import 'package:PiliPlus/utils/accounts.dart';
++import 'package:PiliPlus/utils/accounts/account.dart';
+ import 'package:PiliPlus/utils/app_scheme.dart';
+ import 'package:PiliPlus/utils/cache_manager.dart';
+ import 'package:PiliPlus/utils/extension/string_ext.dart';
+@@ -49,6 +51,9 @@ class WebviewPage extends StatefulWidget {
+   final int? oid;
+   final String? title;
+ 
++  static bool _isNoteUrl(String url) =>
++      url.startsWith('https://www.bilibili.com/h5/note-app');
++
+   static Future<dww.Webview?> openLinux({
+     required String url,
+     String? title,
+@@ -60,8 +65,13 @@ class WebviewPage extends StatefulWidget {
+   }) async {
+     if (!Platform.isLinux) return null;
+     final shouldInjectCookie = LinuxCookieManager.isBiliDomain(url);
++    // LibrePili: pages are anonymous; only taking notes needs the account
+     final cookieJs = shouldInjectCookie
+-        ? LinuxCookieManager.generateCookieInjectionJs()
++        ? LinuxCookieManager.generateCookieInjectionJs(
++            LinuxCookieManager.getCookies(
++              _isNoteUrl(url) ? null : AnonymousAccount(),
++            ),
++          )
+         : '';
+ 
+     final userScripts = <dww.UserScript>[
+@@ -215,11 +225,27 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
+       routeObserver.subscribe(this, Get.routing.route as GetPageRoute);
+     }
+ 
+-    if (Platform.isLinux) _initLinuxWebview();
++    if (Platform.isLinux) {
++      _initLinuxWebview();
++    } else if (WebviewPage._isNoteUrl(_url) && Accounts.main.isLogin) {
++      // taking notes is an account flow: the account's cookies go in before
++      // the page loads and are taken out again on close
++      _accountCookie = true;
++      _cookieReady = false;
++      Future.value(
++        LoginUtils.setWebCookie(Accounts.main),
++      ).whenComplete(() {
++        if (mounted) setState(() => _cookieReady = true);
++      });
++    }
+   }
+ 
++  bool _accountCookie = false;
++  bool _cookieReady = true;
++
+   @override
+   void dispose() {
++    if (_accountCookie) LoginUtils.setAnonymousWebCookie();
+     if (Platform.isAndroid) routeObserver.unsubscribe(this);
+     if (Platform.isLinux) _closeLinuxWebview();
+     _webViewController = null;
+@@ -431,7 +457,7 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
+               ),
+               actions: _isPop ? null : _actions,
+             ),
+-      body: _isPop
++      body: _isPop || !_cookieReady
+           ? null
+           : SafeArea(
+               child: InAppWebView(
+diff --git a/lib/plugin/pl_player/controller.dart b/lib/plugin/pl_player/controller.dart
+index 898cba78b..cba615705 100644
+--- a/lib/plugin/pl_player/controller.dart
++++ b/lib/plugin/pl_player/controller.dart
+@@ -1471,7 +1471,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
+     if (isLive ||
+         !enableHeart ||
+         progress == 0 ||
+-        (playerStatus.isPaused && !isManual)) {
++        (playerStatus.isPaused && !isManual) ||
++        // LibrePili: offline / local files are not reported to the account
++        isFileSource) {
+       return null;
+     }
+ 
+diff --git a/lib/services/download/download_extras.dart b/lib/services/download/download_extras.dart
+index efdf09ec2..ac1fefd93 100644
+--- a/lib/services/download/download_extras.dart
++++ b/lib/services/download/download_extras.dart
+@@ -35,18 +35,26 @@ abstract final class DownloadExtras {
+   static const infoName = 'librepili.json';
+ 
+   /// Writes the enabled extras; returns what was written (for self tests).
++  /// [cancelled] is polled between steps and requests: once it returns true
++  /// (the entry was deleted) nothing more is fetched or written.
+   static Future<Map<String, Object?>> export({
+     required BiliDownloadEntryInfo entry,
+     required String folder,
+     required String base,
++    bool Function()? cancelled,
+   }) async {
+     final written = <String, Object?>{};
++    void check() {
++      if (cancelled?.call() ?? false) throw const _Cancelled();
++    }
++
+     try {
+       await File(path.join(folder, infoName)).writeAsString(
+         const JsonEncoder.withIndent(' ').convert(entry.toJson()),
+       );
+     } catch (_) {}
+     Future<void> step(String name, Future<Object?> Function() body) async {
++      if (cancelled?.call() ?? false) return;
+       try {
+         written[name] = await body();
+       } catch (e) {
+@@ -86,11 +94,11 @@ abstract final class DownloadExtras {
+     }
+ 
+     if (Pref.dlSaveSubtitle) {
+-      await step('subtitles', () => _subtitles(entry, folder, base));
++      await step('subtitles', () => _subtitles(entry, folder, base, check));
+     }
+ 
+     if (Pref.dlSaveComments) {
+-      await step('comments', () => _comments(entry, folder, base));
++      await step('comments', () => _comments(entry, folder, base, check));
+     }
+     return written;
+   }
+@@ -101,6 +109,7 @@ abstract final class DownloadExtras {
+     BiliDownloadEntryInfo entry,
+     String folder,
+     String base,
++    void Function() check,
+   ) async {
+     final res = await VideoHttp.playInfo(
+       bvid: entry.bvid,
+@@ -129,6 +138,7 @@ abstract final class DownloadExtras {
+     }
+     final written = <String>[];
+     for (final s in subtitles) {
++      check();
+       final srt = await VideoHttp.getSubtitles(s.url, format: .srt);
+       if (srt == null) continue;
+       final name = '$base.${_safe(s.lan)}.srt';
+@@ -144,6 +154,7 @@ abstract final class DownloadExtras {
+     BiliDownloadEntryInfo entry,
+     String folder,
+     String base,
++    void Function() check,
+   ) async {
+     final maxRoots = Pref.dlCommentCount;
+     final maxReplies = Pref.dlReplyCount;
+@@ -152,6 +163,7 @@ abstract final class DownloadExtras {
+     final roots = <ReplyInfo>[];
+     Int64? cursorNext;
+     while (roots.length < maxRoots) {
++      check();
+       final res = await ReplyGrpc.mainList(
+         oid: oid,
+         mode: Mode.MAIN_LIST_HOT,
+@@ -173,10 +185,11 @@ abstract final class DownloadExtras {
+     final images = CommentImages(folder);
+     final items = <Map<String, Object?>>[];
+     for (final root in roots) {
++      check();
+       var replies = root.replies.toList();
+       final wanted = math.min(maxReplies, root.count.toInt());
+       if (replies.length < wanted) {
+-        replies = await _replies(oid, root.id.toInt(), wanted);
++        replies = await _replies(oid, root.id.toInt(), wanted, check);
+       }
+       items.add(
+         await replyToJson(root, images)
+@@ -197,17 +210,24 @@ abstract final class DownloadExtras {
+       'count': items.length,
+       'comments': items,
+     };
++    check();
+     await File(path.join(folder, '$base$commentsSuffix')).writeAsString(
+       const JsonEncoder.withIndent(' ').convert(json),
+     );
+     return '${items.length} comments, ${images.saved} images';
+   }
+ 
+-  static Future<List<ReplyInfo>> _replies(int oid, int root, int wanted) async {
++  static Future<List<ReplyInfo>> _replies(
++    int oid,
++    int root,
++    int wanted,
++    void Function() check,
++  ) async {
+     final out = <ReplyInfo>[];
+     String? offset;
+     while (out.length < wanted) {
+       await Future.delayed(const Duration(milliseconds: 200));
++      check();
+       final res = await ReplyGrpc.detailList(
+         oid: oid,
+         root: root,
+@@ -285,14 +305,18 @@ abstract final class DownloadExtras {
+     return b.toString();
+   }
+ 
+-  static final _xmlDanmaku = RegExp(r'<d p="([^"]*)">([\s\S]*?)</d>');
++  /// `<d ... p="..." ...>text</d>`; other tools may add attributes before
++  /// or after `p` and quote it with ' instead of ".
++  static final _xmlDanmaku = RegExp(
++    r'''<d\s[^>]*?\bp\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)</d>''',
++  );
+ 
+   /// Parses Bilibili XML danmaku (as written by [danmakuToXml] or saved by
+   /// other tools) back into elements for the player.
+   static List<DanmakuElem> xmlToDanmaku(String xml) {
+     final out = <DanmakuElem>[];
+     for (final m in _xmlDanmaku.allMatches(xml)) {
+-      final p = m.group(1)!.split(',');
++      final p = (m.group(1) ?? m.group(2)!).split(',');
+       if (p.length < 4) continue;
+       final seconds = double.tryParse(p[0]);
+       if (seconds == null) continue;
+@@ -307,19 +331,36 @@ abstract final class DownloadExtras {
+           midHash: p.length > 6 ? p[6] : null,
+           idStr: p.length > 7 ? p[7] : null,
+           weight: p.length > 8 ? int.tryParse(p[8]) : null,
+-          content: _xmlUnescape(m.group(2)!),
++          content: _xmlUnescape(m.group(3)!),
+         ),
+       );
+     }
+     return out;
+   }
+ 
+-  static String _xmlUnescape(String s) => s
+-      .replaceAll('&lt;', '<')
+-      .replaceAll('&gt;', '>')
+-      .replaceAll('&quot;', '"')
+-      .replaceAll('&apos;', "'")
+-      .replaceAll('&amp;', '&');
++  static final _xmlEntity = RegExp(r'&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-z]+);');
++
++  /// Named and numeric (`&#39;`, `&#x27;`) entities, in one pass so an
++  /// escaped `&amp;lt;` stays `&lt;`.
++  static String _xmlUnescape(String s) => s.replaceAllMapped(_xmlEntity, (m) {
++    final e = m[1]!;
++    if (e.startsWith('#')) {
++      final code = e.length > 1 && (e[1] == 'x' || e[1] == 'X')
++          ? int.tryParse(e.substring(2), radix: 16)
++          : int.tryParse(e.substring(1));
++      return code != null && code >= 0 && code <= 0x10FFFF
++          ? String.fromCharCode(code)
++          : m[0]!;
++    }
++    return switch (e) {
++      'lt' => '<',
++      'gt' => '>',
++      'quot' => '"',
++      'apos' => "'",
++      'amp' => '&',
++      _ => m[0]!,
++    };
++  });
+ 
+   static const _assW = 1920;
+   static const _assH = 1080;
+@@ -465,6 +506,13 @@ abstract final class DownloadExtras {
+   static String _safe(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|\s]'), '_');
+ }
+ 
++class _Cancelled implements Exception {
++  const _Cancelled();
++
++  @override
++  String toString() => 'cancelled';
++}
++
+ /// Pictures and emotes of saved comments, stored once per URL in
+ /// `comments_images/` next to the comments file.
+ class CommentImages {
+@@ -488,7 +536,9 @@ class CommentImages {
+       final name = '${md5.convert(utf8.encode(url))}$ext';
+       final file = File(path.join(folder, dirName, name));
+       if (!file.existsSync()) {
+-        await file.parent.create(recursive: true);
++        // not recursive: if the video folder was deleted meanwhile, fail
++        // instead of recreating it as an orphan
++        await file.parent.create();
+         final part = '${file.path}.part';
+         await Request.dio.download(url, part);
+         await File(part).rename(file.path);
+diff --git a/lib/services/download/download_manager.dart b/lib/services/download/download_manager.dart
+index 286a75800..462211453 100644
+--- a/lib/services/download/download_manager.dart
++++ b/lib/services/download/download_manager.dart
+@@ -41,17 +41,22 @@ class DownloadManager {
+       for (final u in backupUrls)
+         if (u != url) u,
+     ];
++    // only consecutive attempts that saved nothing count against the budget:
++    // a long transfer that keeps advancing between drops is not failing
++    var failures = 0;
+     for (var attempt = 0; ; attempt++) {
++      final before = _savedBytes;
+       final error = await _attempt(urls[attempt % urls.length]);
+       if (error == null) return; // completed
+-      if (!_canRetry || attempt + 1 >= _maxAttempts) {
++      failures = _savedBytes > before ? 1 : failures + 1;
++      if (!_canRetry || failures >= _maxAttempts) {
+         await _fail(error);
+         return;
+       }
+       // resume from what is on disk, on the next address; pause/delete
+       // cuts the wait short
+       await Future.any<void>([
+-        Future.delayed(Duration(seconds: attempt + 1)),
++        Future.delayed(Duration(seconds: failures)),
+         _cancelToken.whenCancel,
+       ]);
+       if (!_canRetry) {
+@@ -61,6 +66,11 @@ class DownloadManager {
+     }
+   }
+ 
++  int get _savedBytes {
++    final file = File(path);
++    return file.existsSync() ? file.lengthSync() : 0;
++  }
++
+   bool get _canRetry =>
+       _status == DownloadStatus.downloading && !_cancelToken.isCancelled;
+ 
+@@ -78,6 +88,32 @@ class DownloadManager {
+ 
+   static final _contentRangeReg = RegExp(r'bytes\s+(\d+)-\d+/(\d+|\*)');
+ 
++  /// Size of the stream at [url] from a one-byte range request, or null.
++  Future<int?> _probeTotal(String url) async {
++    try {
++      final res = await Request.http11Dio.get<ResponseBody>(
++        url.http2https,
++        options: Options(
++          headers: {'range': 'bytes=0-0'},
++          responseType: ResponseType.stream,
++        ),
++        cancelToken: _cancelToken,
++      );
++      try {
++        await res.data?.stream.listen(null).cancel();
++      } catch (_) {}
++      final range = res.headers.value(HttpHeaders.contentRangeHeader);
++      if (res.statusCode == 206 && range != null) {
++        return int.tryParse(_contentRangeReg.firstMatch(range)?[2] ?? '');
++      }
++      // range ignored: the body is the whole stream
++      if (res.statusCode == 200 && (res.data?.contentLength ?? -1) >= 0) {
++        return res.data!.contentLength;
++      }
++    } catch (_) {}
++    return null;
++  }
++
+   /// One transfer attempt. Returns null when the file is complete, else the
+   /// error.
+   Future<Object?> _attempt(String url) async {
+@@ -121,12 +157,18 @@ class DownloadManager {
+     if (response.statusCode == 416) {
+       await discard();
+       // nothing left to send: complete only if the file on disk is whole
+-      final total = int.tryParse(contentRange?.split('/').last ?? '');
++      var total = int.tryParse(contentRange?.split('/').last ?? '');
++      // no usable Content-Range: ask for the size instead of guessing
++      if (total == null && received > 0) total = await _probeTotal(url);
+       if (total != null && total == received) {
+         _status = DownloadStatus.completed;
+         onDone();
+         return null;
+       }
++      if (total == null) {
++        // size unknown: never throw away the saved bytes on a guess
++        return 'range not satisfiable, size unknown (have $received)';
++      }
+       // what is on disk does not match the stream: start over
+       await file.writeAsBytes(const []);
+       return 'range not satisfiable ($contentRange, have $received)';
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 6286954a6..b9b968152 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -287,7 +287,7 @@ class DownloadService extends GetxService {
+ 
+   Future<void> startDownload(BiliDownloadEntryInfo entry) {
+     // already finished downloading; the merge completes it
+-    if (entry.cid == _mergingCid) return Future.value();
++    if (_mergingCids.contains(entry.cid)) return Future.value();
+     return _lock.synchronized(() async {
+       await _downloadManager?.cancel(isDelete: false);
+       await _audioDownloadManager?.cancel(isDelete: false);
+@@ -551,12 +551,14 @@ class DownloadService extends GetxService {
+     _downloadManager = null;
+     _audioDownloadManager = null;
+     entry.downloadedBytes = entry.totalBytes;
+-    _mergingCid = entry.cid;
+-    _mergeDeleted = false;
++    final cid = entry.cid;
++    _mergingCids.add(cid);
++    _mergeDeletedCids.remove(cid);
+     _updateCurStatus(DownloadStatus.merging);
+     final (:output, :inputs) = await _mergeDownload(entry);
+-    _mergingCid = null;
+-    if (_mergeDeleted || !Directory(entry.entryDirPath).existsSync()) {
++    _mergingCids.remove(cid);
++    final deleted = _mergeDeletedCids.remove(cid);
++    if (deleted || !Directory(entry.entryDirPath).existsSync()) {
+       // deleted while merging (the merge may have kept files open, so the
+       // delete may not have removed everything)
+       await _deleteMerged(entry);
+@@ -573,7 +575,11 @@ class DownloadService extends GetxService {
+       for (final input in inputs) {
+         await File(input).tryDel();
+       }
+-      if (Platform.isAndroid) await _scanMedia(output);
++      if (Platform.isAndroid) {
++        for (final part in _exportedParts(output)) {
++          await _scanMedia(part);
++        }
++      }
+     }
+     waitDownloadQueue.remove(entry);
+     downloadList.insert(0, entry);
+@@ -585,22 +591,66 @@ class DownloadService extends GetxService {
+     }
+     // comments / subtitles etc. can take many requests: do not hold the
+     // queue for them
+-    if (output != null) {
+-      unawaited(
+-        DownloadExtras.export(
++    if (output != null) _queueExtras(entry, output);
++  }
++
++  /// Extras exports run one at a time (each can be hundreds of requests).
++  Future<void> _extrasQueue = Future.value();
++
++  /// Pending or running extras export per cid.
++  final _extrasJobs = <int, Future<void>>{};
++
++  /// cids whose export must stop (entry deleted).
++  final _extrasCancelled = <int>{};
++
++  /// cid whose export is running now.
++  int? _extrasRunningCid;
++
++  /// The extras export of [cid], if one is pending or running.
++  Future<void>? extrasDone(int cid) => _extrasJobs[cid];
++
++  void _queueExtras(BiliDownloadEntryInfo entry, String output) {
++    final cid = entry.cid;
++    _extrasCancelled.remove(cid);
++    final job = _extrasQueue = _extrasQueue.then((_) async {
++      if (_extrasCancelled.contains(cid)) return;
++      _extrasRunningCid = cid;
++      try {
++        await DownloadExtras.export(
+           entry: entry,
+           folder: path.dirname(output),
+           base: path.basenameWithoutExtension(output),
+-        ),
+-      );
+-    }
++          cancelled: () => _extrasCancelled.contains(cid),
++        );
++      } catch (e) {
++        if (kDebugMode) debugPrint('download extras: $e');
++      } finally {
++        _extrasRunningCid = null;
++      }
++    });
++    _extrasJobs[cid] = job;
++    job.whenComplete(() {
++      if (identical(_extrasJobs[cid], job)) {
++        _extrasJobs.remove(cid);
++        _extrasCancelled.remove(cid);
++      }
++    });
+   }
+ 
+-  /// cid of the entry being merged; pause/start requests for it are ignored.
+-  int? _mergingCid;
++  /// Stops the extras export of a deleted entry; a running one is awaited so
++  /// it cannot write into (or recreate) a folder that is being removed.
++  Future<void> _cancelExtras(int cid) async {
++    if (!_extrasJobs.containsKey(cid)) return;
++    _extrasCancelled.add(cid);
++    if (_extrasRunningCid == cid) await _extrasJobs[cid];
++  }
+ 
+-  /// Set when the entry being merged is deleted.
+-  bool _mergeDeleted = false;
++  /// cids of the entries being merged (a deleted entry's merge can overlap
++  /// the next one's); pause/start requests for them are ignored.
++  final _mergingCids = <int>{};
++
++  /// cids of entries deleted while they were being merged.
++  final _mergeDeletedCids = <int>{};
+ 
+   /// Turns the downloaded streams into one complete video file in the export
+   /// directory. Returns the file (null on failure) and the stream files the
+@@ -612,14 +662,35 @@ class DownloadService extends GetxService {
+     final videoDir = path.join(entry.entryDirPath, entry.typeTag);
+     final List<String> inputs;
+     if (entry.mediaType == 1) {
++      // the segment count of the play URL this download used; segments on
++      // disk beyond it are left over from an earlier attempt
++      int? count;
++      try {
++        final index = File(path.join(videoDir, _indexFile));
++        count = (jsonDecode(await index.readAsString())['segment_list'] as List)
++            .length;
++      } catch (_) {}
+       inputs = [
+         for (
+           var i = 0;
+-          File(path.join(videoDir, PathUtils.segmentNameType1(i))).existsSync();
++          (count == null || i < count) &&
++              File(
++                path.join(videoDir, PathUtils.segmentNameType1(i)),
++              ).existsSync();
+           i++
+         )
+           path.join(videoDir, PathUtils.segmentNameType1(i)),
+       ];
++      if (count != null) {
++        for (
++          var i = count;
++          File(path.join(videoDir, PathUtils.segmentNameType1(i))).existsSync();
++          i++
++        ) {
++          await File(path.join(videoDir, PathUtils.segmentNameType1(i)))
++              .tryDel();
++        }
++      }
+       if (inputs.isEmpty) {
+         inputs.add(path.join(videoDir, PathUtils.videoNameType1));
+       }
+@@ -648,9 +719,12 @@ class DownloadService extends GetxService {
+           await folder.tryDel();
+         }
+       }
++      entry.status = DownloadStatus.failMerge;
+       SmartDialog.showToast('合并音视频失败，已保留分离的音视频文件');
+       if (kDebugMode) debugPrint('merge download error: $e');
+       return (output: null, inputs: inputs);
++    } finally {
++      if (output != null) _mergeFolders.remove(path.dirname(output));
+     }
+   }
+ 
+@@ -663,8 +737,9 @@ class DownloadService extends GetxService {
+   static Future<String> _exportType1(List<String> inputs, String output) async {
+     final isFlv = Mp4Remuxer.isFlv(inputs.first);
+     if (!isFlv && inputs.length == 1) {
+-      await _moveFile(inputs.first, output);
+-      return output;
++      final kept = '${path.withoutExtension(output)}${_sniffExt(inputs.first)}';
++      await _moveFile(inputs.first, kept);
++      return kept;
+     }
+     if (isFlv || inputs.every(Mp4Remuxer.isMp4)) {
+       try {
+@@ -674,16 +749,56 @@ class DownloadService extends GetxService {
+               : Mp4Remuxer.joinMp4(inputs: inputs, output: output),
+         );
+         return output;
+-      } on UnsupportedError catch (e) {
++      } catch (e) {
++        // unsupported codecs, but also a corrupt / truncated segment: the
++        // data is still worth keeping as it is
++        await File(output).tryDel();
+         if (kDebugMode) debugPrint('segments kept as they are: $e');
+       }
+     }
+-    final ext = isFlv ? '.flv' : '.mp4';
+     final base = path.withoutExtension(output);
++    String? first;
+     for (var i = 0; i < inputs.length; i++) {
+-      await _moveFile(inputs[i], i == 0 ? '$base$ext' : '$base.${i + 1}$ext');
++      final ext = _sniffExt(inputs[i]);
++      final to = i == 0 ? '$base$ext' : '$base.${i + 1}$ext';
++      await _moveFile(inputs[i], to);
++      first ??= to;
++    }
++    if (inputs.length > 1) {
++      SmartDialog.showToast('分段无法合并，已按原格式分为${inputs.length}个文件保存');
+     }
+-    return '$base$ext';
++    return first!;
++  }
++
++  /// Extension for stream data kept as it is, from its content.
++  static String _sniffExt(String file) {
++    if (Mp4Remuxer.isFlv(file)) return '.flv';
++    if (Mp4Remuxer.isMp4(file)) return '.mp4';
++    try {
++      final raf = File(file).openSync();
++      try {
++        final head = raf.readSync(189);
++        // MPEG-TS: 188-byte packets starting with the 0x47 sync byte
++        if (head.length == 189 && head[0] == 0x47 && head[188] == 0x47) {
++          return '.ts';
++        }
++      } finally {
++        raf.closeSync();
++      }
++    } catch (_) {}
++    return '.bin';
++  }
++
++  /// [output] and, when segments were kept apart, its other parts
++  /// (`<base>.2.flv`, ...).
++  static List<String> _exportedParts(String output) {
++    final base = RegExp.escape(path.basenameWithoutExtension(output));
++    final part = RegExp('^$base\\.\\d+\\.\\w+\$');
++    return [
++      output,
++      for (final f in Directory(path.dirname(output)).listSync())
++        if (f is File && part.hasMatch(path.basename(f.path))) f.path,
++    ];
+   }
+ 
+   static const _mediaChannel = MethodChannel('librepili/media');
+@@ -694,7 +809,13 @@ class DownloadService extends GetxService {
+     try {
+       await _mediaChannel.invokeMethod<String>('scanFile', {
+         'path': path,
+-        'mimeType': path.endsWith('.flv') ? 'video/x-flv' : 'video/mp4',
++        'mimeType': path.endsWith('.flv')
++            ? 'video/x-flv'
++            : path.endsWith('.ts')
++            ? 'video/mp2t'
++            : path.endsWith('.bin')
++            ? 'application/octet-stream'
++            : 'video/mp4',
+       });
+     } catch (e) {
+       if (kDebugMode) debugPrint('media scan failed: $e');
+@@ -761,6 +882,9 @@ class DownloadService extends GetxService {
+ 
+   static final _illegalFileChars = RegExp(r'[\\/:*?"<>|\x00-\x1F]');
+ 
++  /// Export folders a merge is currently writing into.
++  static final _mergeFolders = <String>{};
++
+   static Future<String> _exportFilePath(BiliDownloadEntryInfo entry) async {
+     final dir = await _exportDir();
+     final parts = <String>[entry.title];
+@@ -787,12 +911,29 @@ class DownloadService extends GetxService {
+           ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
+     }
+     // one folder per video: the mp4 plus danmaku / subtitles / comments
++    // a folder holding only a half-written `.part` (app killed mid-merge) is
++    // left over from an earlier attempt: reuse it instead of orphaning it
++    // (not one another merge is writing into right now)
++    bool isLeftover(Directory d) =>
++        !_mergeFolders.contains(d.path) &&
++        d.listSync().every((e) => e is File && e.path.endsWith('.part'));
+     var base = name;
+-    for (var i = 2; Directory(path.join(dir, base)).existsSync(); i++) {
++    for (
++      var i = 2;
++      Directory(path.join(dir, base)).existsSync() &&
++          !isLeftover(Directory(path.join(dir, base)));
++      i++
++    ) {
+       base = '$name ($i)';
+     }
+     final folder = Directory(path.join(dir, base));
++    if (folder.existsSync()) {
++      for (final part in folder.listSync()) {
++        await File(part.path).tryDel();
++      }
++    }
+     await folder.create(recursive: true);
++    _mergeFolders.add(folder.path);
+     return path.join(folder.path, '$base.mp4');
+   }
+ 
+@@ -817,8 +958,8 @@ class DownloadService extends GetxService {
+     if (removeQueue) {
+       waitDownloadQueue.remove(entry);
+     }
+-    if (entry.cid == _mergingCid) {
+-      _mergeDeleted = true;
++    if (_mergingCids.contains(entry.cid)) {
++      _mergeDeletedCids.add(entry.cid);
+     }
+     if (curDownload.value?.cid == entry.cid) {
+       await cancelDownload(
+@@ -826,6 +967,7 @@ class DownloadService extends GetxService {
+         downloadNext: downloadNext,
+       );
+     }
++    await _cancelExtras(entry.cid);
+     if (deleteExported) await _deleteMerged(entry);
+     final downloadDir = Directory(entry.pageDirPath);
+     if (downloadDir.existsSync()) {
+@@ -848,10 +990,10 @@ class DownloadService extends GetxService {
+     bool refresh = true,
+     bool deleteExported = false,
+   }) async {
+-    if (deleteExported) {
+-      for (final entry in downloadList) {
+-        if (entry.pageDirPath == pageDirPath) await _deleteMerged(entry);
+-      }
++    for (final entry in downloadList.toList()) {
++      if (entry.pageDirPath != pageDirPath) continue;
++      await _cancelExtras(entry.cid);
++      if (deleteExported) await _deleteMerged(entry);
+     }
+     await Directory(pageDirPath).tryDel(recursive: true);
+     downloadList.removeWhere((e) => e.pageDirPath == pageDirPath);
+@@ -865,9 +1007,7 @@ class DownloadService extends GetxService {
+     bool downloadNext = true,
+   }) async {
+     // nothing to pause while merging; the merge completes the entry
+-    if (!isDelete &&
+-        _mergingCid != null &&
+-        curDownload.value?.cid == _mergingCid) {
++    if (!isDelete && _mergingCids.contains(curDownload.value?.cid)) {
+       return;
+     }
+     await _downloadManager?.cancel(isDelete: isDelete);
+diff --git a/lib/services/local_library.dart b/lib/services/local_library.dart
+index 695dd3beb..9e26119b5 100644
+--- a/lib/services/local_library.dart
++++ b/lib/services/local_library.dart
+@@ -36,7 +36,10 @@ abstract final class LocalLibrary {
+ 
+   /// Restores boxes from a backup made with [boxes]; boxes missing from
+   /// [map] (older backups) are left as they are.
++  /// Throws a [FormatException] before anything is cleared if a box in
++  /// [map] is malformed: these boxes are the only copy without an account.
+   static Future<void> importAll(Map<String, dynamic> map) async {
++    checkImport(map);
+     for (final box in boxes) {
+       if (map[box.name] case final Map data) {
+         await box.clear();
+@@ -46,6 +49,26 @@ abstract final class LocalLibrary {
+     await _ensureDefaultFolder();
+   }
+ 
++  /// Checks that every box in [map] parses the way the app reads it.
++  static void checkImport(Map<String, dynamic> map) {
++    final parsers = <String, Object Function(Map)>{
++      _follows.name: LocalFollow.fromJson,
++      _folders.name: LocalFavFolder.fromJson,
++      _items.name: LocalFavItem.fromJson,
++    };
++    for (final MapEntry(key: name, value: parse) in parsers.entries) {
++      final data = map[name];
++      if (data == null) continue;
++      try {
++        for (final value in (data as Map).values) {
++          parse(value as Map);
++        }
++      } catch (e) {
++        throw FormatException('本地关注/收藏数据无效 ($name): $e');
++      }
++    }
++  }
++
+   static Future<void> clear() async {
+     for (final box in boxes) {
+       await box.clear();
+diff --git a/lib/utils/accounts.dart b/lib/utils/accounts.dart
+index c595fd9bd..0d9249c6f 100644
+--- a/lib/utils/accounts.dart
++++ b/lib/utils/accounts.dart
+@@ -1,6 +1,5 @@
+ import 'package:PiliPlus/http/init.dart';
+ import 'package:PiliPlus/models/common/account_type.dart';
+-import 'package:PiliPlus/pages/mine/controller.dart';
+ import 'package:PiliPlus/utils/accounts/account.dart';
+ import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/login_utils.dart';
+@@ -111,9 +110,6 @@ abstract final class Accounts {
+             ? LoginUtils.onLoginMain()
+             : LoginUtils.onLogoutMain());
+         break;
+-      case AccountType.heartbeat:
+-        MineController.anonymity.value = !account.isLogin;
+-        break;
+       default:
+         break;
+     }
+diff --git a/lib/utils/accounts/login_policy.dart b/lib/utils/accounts/login_policy.dart
+index 2ab4a7937..71428a6b9 100644
+--- a/lib/utils/accounts/login_policy.dart
++++ b/lib/utils/accounts/login_policy.dart
+@@ -24,6 +24,10 @@ abstract final class LoginPolicy {
+     Api.userInfo, Api.userStatOwner, Api.getCoin, Api.coinLog, Api.loginLog,
+     Api.expLog, Api.moralLog, Api.loginDevices, Api.userRealName,
+     Api.myEmote, Api.spaceSetting,
++    // own profile (账号资料) page: read + app-API edits (access_key, no csrf)
++    '${HttpString.appBaseUrl}/x/v2/account/myinfo',
++    '/x/member/app/uname/update', '/x/member/app/sign/update',
++    '/x/member/app/sex/update', '/x/member/app/birthday/update',
+     // relation to the current user
+     Api.pgcLikeCoinFav,
+     Api.videoRelation, Api.seasonStatus, Api.relation, Api.relations,
+@@ -34,6 +38,8 @@ abstract final class LoginPolicy {
+     Api.favFolder, Api.userFavFolder, Api.favFolderInfo, Api.userSubFolder,
+     Api.favPgc, Api.favArticle, Api.favPugv, Api.favTopicList,
+     Api.favSeasonList, Api.seeYouLater, Api.historyList, Api.historyStatus,
++    // folder contents (private folders) and watch-later / fav "play all"
++    Api.favResourceList, Api.mediaList,
+     Api.searchHistory, Api.noteList, Api.archiveNote, Api.userNoteList,
+     // playback history reporting
+     Api.heartBeat, Api.historyReport, Api.roomEntryAction,
+@@ -41,6 +47,8 @@ abstract final class LoginPolicy {
+     // followed feed
+     Api.followUp, Api.dynUplist, Api.followDynamic, Api.getUnreadDynamic,
+     Api.liveFollow, Api.getLiveFavTag, Api.followeeVotes,
++    // saving the favourite live areas (app-API write, access_key only)
++    Api.setLiveFavTag,
+     // messages
+     Api.msgUnread, Api.msgFeedUnread, Api.msgFeedReply, Api.msgFeedAt,
+     Api.msgFeedLike, Api.msgLikeDetail, Api.msgSysNotify,
+diff --git a/lib/utils/app_scheme.dart b/lib/utils/app_scheme.dart
+index 6d81a04a2..b6bb48c3d 100644
+--- a/lib/utils/app_scheme.dart
++++ b/lib/utils/app_scheme.dart
+@@ -1,7 +1,7 @@
+ // ignore_for_file: constant_identifier_names
+ 
+ import 'dart:async' show StreamSubscription;
+-import 'dart:io' show FileSystemEntity, FileSystemEntityType;
++import 'dart:io' show FileSystemEntity, FileSystemEntityType, Platform;
+ 
+ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+ import 'package:PiliPlus/common/widgets/view_safe_area.dart';
+@@ -51,12 +51,37 @@ abstract final class PiliScheme {
+     listener = appLinks.stringLinkStream.listen((link) {
+       if (link.startsWith(_openFilePrefix)) {
+         _openFile(link.substring(_openFilePrefix.length));
++      } else if (_localFile(link) case final file?) {
++        // Linux delivers command-line arguments (file paths) as links; the
++        // file the app was launched with is already opened by main()
++        if (file == launchFile) {
++          launchFile = null;
++        } else {
++          _openFile(file);
++        }
+       } else if (Uri.tryParse(link) case final uri?) {
+         handler(uri);
+       }
+     });
+   }
+ 
++  /// The file / folder main() opens from the launch arguments.
++  static String? launchFile;
++
++  /// [link] as an existing local path (a plain path or a `file:` URI).
++  static String? _localFile(String link) {
++    String? file;
++    if (link.startsWith('file:')) {
++      file = Uri.tryParse(link)?.toFilePath();
++    } else if (!_prefixRegex.hasMatch(link)) {
++      file = link;
++    }
++    if (file == null || file == Platform.resolvedExecutable) return null;
++    return FileSystemEntity.typeSync(file) == FileSystemEntityType.notFound
++        ? null
++        : file;
++  }
++
+   /// Sent by windows/runner/main.cpp for "Open with" when an instance is
+   /// already running.
+   static const _openFilePrefix = 'librepili-open:';
+diff --git a/lib/utils/login_utils.dart b/lib/utils/login_utils.dart
+index 82ff2d51d..26432529e 100644
+--- a/lib/utils/login_utils.dart
++++ b/lib/utils/login_utils.dart
+@@ -42,11 +42,35 @@ abstract final class LoginUtils {
+     );
+   }
+ 
++  /// LibrePili: pages in the in-app WebView are anonymous. Removes the stored
++  /// accounts' cookies (e.g. installed by an older build) and installs the
++  /// anonymous jar; account cookies go in only for explicit account flows
++  /// (the "reset cookie" menu, taking notes).
++  static FutureOr setAnonymousWebCookie() async {
++    if (Platform.isLinux) return null;
++    final webManager = web.CookieManager.instance(
++      webViewEnvironment: webViewEnvironment,
++    );
++    await Future.wait([
++      for (final account in Accounts.account.values)
++        for (final cookie in account.cookieJar.toList())
++          webManager.deleteCookie(
++            url: web.WebUri(
++              '${Platform.isWindows ? 'https://' : ''}${cookie.domain}',
++            ),
++            name: cookie.name,
++            path: cookie.path ?? '/',
++            domain: cookie.domain,
++          ),
++    ]);
++    return setWebCookie(AnonymousAccount());
++  }
++
+   static Future<void> onLoginMain() async {
+     final account = Accounts.main;
+     final res = await UserHttp.userInfo();
+     if (res case Success(:final response)) {
+-      setWebCookie(account);
++      setAnonymousWebCookie();
+       RequestUtils.syncHistoryStatus();
+       if (response.isLogin == true) {
+         final accountService = Get.find<AccountService>()
+diff --git a/lib/utils/path_utils.dart b/lib/utils/path_utils.dart
+index 76af28f97..e43038493 100644
+--- a/lib/utils/path_utils.dart
++++ b/lib/utils/path_utils.dart
+@@ -23,14 +23,21 @@ String get defDownloadPath =>
+ /// shared by every app, so use a per-app subfolder: otherwise caches that
+ /// hold file locks (e.g. the image cache's Hive box) collide with the
+ /// original PiliPlus when both run at once.
++/// The self test gets its own subfolder, so it does not share the temp dir
++/// (and the image cache's locked Hive box) with a running normal instance.
+ Future<Directory> appTempDirectory() async {
+   final dir = await getTemporaryDirectory();
+   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+-    return dir;
++    if (!isSelfTestProfile) return dir;
++    return Directory(path.join(dir.path, 'selftest')).create(recursive: true);
+   }
+-  return Directory(path.join(dir.path, Constants.appName)).create(
+-    recursive: true,
+-  );
++  return Directory(
++    path.joinAll([
++      dir.path,
++      Constants.appName,
++      if (isSelfTestProfile) 'selftest',
++    ]),
++  ).create(recursive: true);
+ }
+ 
+ abstract final class PathUtils {
+diff --git a/lib/utils/self_test.dart b/lib/utils/self_test.dart
+index f46242774..d67346092 100644
+--- a/lib/utils/self_test.dart
++++ b/lib/utils/self_test.dart
+@@ -404,6 +404,11 @@ abstract final class SelfTest {
+       return {'pass': false, 'error': 'timeout', 'statuses': statuses};
+     }
+ 
++    // extras run after completion: let them finish so the folder report
++    // includes them (deleting below would cancel them anyway)
++    await service
++        .extrasDone(cid)
++        ?.timeout(const Duration(minutes: 5), onTimeout: () {});
+     final merged = done.mergedPath;
+     final mergedFile = merged == null ? null : File(merged);
+     final streamDir = path.join(done.entryDirPath, done.typeTag);
+diff --git a/lib/utils/storage.dart b/lib/utils/storage.dart
+index 90cfb8ff2..83351d8ca 100644
+--- a/lib/utils/storage.dart
++++ b/lib/utils/storage.dart
+@@ -11,6 +11,7 @@ import 'package:PiliPlus/utils/accounts/account_type_adapter.dart';
+ import 'package:PiliPlus/utils/accounts/cookie_jar_adapter.dart';
+ import 'package:PiliPlus/utils/path_utils.dart';
+ import 'package:PiliPlus/utils/set_int_adapter.dart';
++import 'package:PiliPlus/utils/storage_key.dart';
+ import 'package:PiliPlus/utils/storage_pref.dart';
+ import 'package:PiliPlus/utils/utils.dart';
+ import 'package:hive_ce/hive.dart';
+@@ -94,8 +95,16 @@ abstract final class GStorage {
+   static Future<List<void>> importAllJsonSettings(
+     Map<String, dynamic> map,
+   ) {
++    // login mode is a per-device opt-in: a backup must not switch it (the
++    // running account state is not re-applied after an import)
++    final loginMode = Pref.loginMode;
++    // validate the local library first, so a bad backup changes nothing
++    LocalLibrary.checkImport(map);
+     return Future.wait([
+-      setting.clear().then((_) => setting.putAll(map[setting.name])),
++      setting
++          .clear()
++          .then((_) => setting.putAll(map[setting.name]))
++          .then((_) => setting.put(SettingBoxKey.loginMode, loginMode)),
+       video.clear().then((_) => video.putAll(map[video.name])),
+       LocalLibrary.importAll(map),
+     ]);
+diff --git a/lib/utils/update.dart b/lib/utils/update.dart
+index 772963116..1bee19bab 100644
+--- a/lib/utils/update.dart
++++ b/lib/utils/update.dart
+@@ -96,10 +96,10 @@ abstract final class Update {
+                     style: TextStyle(color: colorScheme.outline),
+                   ),
+                 ),
+-                if (Platform.isWindows) ...[
+-                  downloadBtn('zip', ext: 'zip'),
+-                  downloadBtn('exe', ext: 'exe'),
+-                ] else if (Platform.isLinux) ...[
++                // Windows: only the portable zip is published (no installer)
++                if (Platform.isWindows)
++                  downloadBtn('zip', ext: 'zip')
++                else if (Platform.isLinux) ...[
+                   downloadBtn('rpm', ext: 'rpm'),
+                   downloadBtn('deb', ext: 'deb'),
+                   downloadBtn('targz', ext: 'tar.gz'),
+diff --git a/linux/runner/my_application.cc b/linux/runner/my_application.cc
+index 0a9dd76cc..b029a8faa 100644
+--- a/linux/runner/my_application.cc
++++ b/linux/runner/my_application.cc
+@@ -107,6 +107,18 @@ static gboolean my_application_local_command_line(GApplication *application,
+   // Strip out the first argument as it is the binary name.
+   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
+ 
++  // The self test runs as its own instance (separate data profile) instead
++  // of being forwarded to an already running app.
++  for (gchar **arg = *arguments + 1; *arg != nullptr; arg++) {
++    if (g_strcmp0(*arg, "--selftest") == 0) {
++      g_application_set_flags(
++          application,
++          static_cast<GApplicationFlags>(g_application_get_flags(application) |
++                                         G_APPLICATION_NON_UNIQUE));
++      break;
++    }
++  }
++
+   g_autoptr(GError) error = nullptr;
+   if (!g_application_register(application, nullptr, &error)) {
+     g_warning("Failed to register: %s", error->message);
+diff --git a/test/utils/download_extras_test.dart b/test/utils/download_extras_test.dart
+index 5832a3b4d..cb923bbad 100644
+--- a/test/utils/download_extras_test.dart
++++ b/test/utils/download_extras_test.dart
+@@ -70,6 +70,15 @@ void main() {
+       );
+       expect(back.map((e) => e.content), ['ok']);
+     });
++
++    test('other tools: extra attributes, single quotes, numeric entities', () {
++      final back = DownloadExtras.xmlToDanmaku(
++        '<i><d id="7" p=\'1.0,1,25,16777215\'>it&#39;s</d>'
++        '<d p="2.0,1,25,16777215" user="u">&#x4E2D;&amp;lt;</d></i>',
++      );
++      expect(back.map((e) => e.content), ["it's", '中&lt;']);
++      expect(back.map((e) => e.progress), [1000, 2000]);
++    });
+   });
+ 
+   group('danmakuToAss', () {
+diff --git a/test/utils/login_policy_test.dart b/test/utils/login_policy_test.dart
+index cc83676e1..ee0fd95c8 100644
+--- a/test/utils/login_policy_test.dart
++++ b/test/utils/login_policy_test.dart
+@@ -1,6 +1,7 @@
+ import 'package:PiliPlus/grpc/url.dart';
+ import 'package:PiliPlus/http/api.dart';
+ import 'package:PiliPlus/http/constants.dart';
++import 'package:PiliPlus/models/common/member/profile_type.dart';
+ import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:dio/dio.dart';
+ import 'package:flutter_test/flutter_test.dart';
+@@ -63,6 +64,12 @@ void main() {
+       Api.msgFeedReply,
+       Api.likeVideo,
+       Api.logout,
++      Api.favResourceList,
++      Api.mediaList,
++      Api.setLiveFavTag,
++      '${HttpString.appBaseUrl}/x/v2/account/myinfo',
++      for (final type in ProfileType.values)
++        '/x/member/app/${type.name}/update',
+       HttpString.appBaseUrl + GrpcUrl.sendMsg,
+       HttpString.appBaseUrl + GrpcUrl.sessionMain,
+       HttpString.appBaseUrl + GrpcUrl.audioPlayUrl,

@@ -28,6 +28,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/video_fit_type.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
+import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
@@ -802,6 +803,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     };
 
     String video = dataSource.videoSource;
+    // LibrePili (Android local player): libmpv cannot open content:// URIs,
+    // but reads a file descriptor (`fdclose://`: mpv closes it). A new one
+    // per open, since each open consumes it.
+    int? fd;
+    if (video.startsWith('content://')) {
+      fd = await LocalDocuments.openFd(video);
+      if (fd == null) {
+        SmartDialog.showToast('无法读取该视频文件，请重新选择');
+        // setDataSource turns this into the error state
+        throw StateError('cannot open $video');
+      }
+      video = 'fdclose://$fd';
+    }
     if (dataSource.audioSource case final audio? when (audio.isNotEmpty)) {
       if (onlyPlayAudio.value) {
         video = audio;
@@ -820,14 +834,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     assert(!isLive || seekTo == null);
-    await player.open(
-      Media(
-        video,
-        start: seekTo,
-        extras: extras.isEmpty ? null : extras,
-      ),
-      play: false,
-    );
+    try {
+      await player.open(
+        Media(
+          video,
+          start: seekTo,
+          extras: extras.isEmpty ? null : extras,
+        ),
+        play: false,
+      );
+    } catch (_) {
+      // mpv never took the descriptor: close it here
+      if (fd != null) await LocalDocuments.closeFd(fd);
+      rethrow;
+    }
   }
 
   Future<void>? refreshPlayer() {
@@ -1471,7 +1491,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (isLive ||
         !enableHeart ||
         progress == 0 ||
-        (playerStatus.isPaused && !isManual)) {
+        (playerStatus.isPaused && !isManual) ||
+        // LibrePili: offline / local files are not reported to the account
+        isFileSource) {
       return null;
     }
 

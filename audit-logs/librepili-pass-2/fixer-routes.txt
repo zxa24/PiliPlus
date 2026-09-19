@@ -1,0 +1,114 @@
+All three route picks are implemented. `dart analyze lib test` exits 0 with no errors or warnings (the same 36 info-level lints in untouched files), and `flutter test` passes 79/79. The Kotlin changes are not compiled or run here, so the Android channel still needs your CI build and the phone test.
+
+## R1 — Android local player reads through the system grant
+
+**What I verified about playback without copying:**
+- The media_kit fork in use sends `Media.uri` straight to mpv's `loadfile` (`real.dart:436-438`). The Dart side has no `content://` handling. The helper's Java `openFileDescriptorJava` exists, but nothing in Dart calls it.
+- I downloaded the libmpv jar the build pins (`default-arm64-v8a.jar`, 20260906; its SHA-256 matched the build script) and searched `libmpv.so`. It contains the `fd://` and `fdclose://` stream protocols ("Invalid FD", "Failed querying FD size"). It contains no `content://` handling. The probe files are deleted.
+- So the video plays as `fdclose://<fd>`, with the fd opened by Kotlin (`openFileDescriptor(uri, "r").detachFd()`), and mpv closes it itself. The player asks for a fresh fd on every open (`pl_player/controller.dart`), because each open uses one up.
+
+**What I verified about the file picker:** `android_file_picker` 2.0.0's `openFileStream` always copies the whole file into `cache/file_picker`, even with the SAF options. File mode therefore uses its own `ACTION_OPEN_DOCUMENT` instead.
+
+**What changed:**
+- **Kotlin** (`MainActivity.kt`, `librepili/media` channel): new methods `pickVideoFile`, `pickVideoFolder`, `listTree`, `copyDocuments` and `openFd`. Folder and file picks take a persistable read grant; it keeps at most 100 and releases the oldest. Listing and copying run off the UI thread.
+- **New `lib/services/local_documents.dart` (166 lines):**
+  - The channel wrapper.
+  - A pure `match()` that finds the folder's video (the largest one, as on desktop) and its side files: `librepili.json`, `cover.jpg`, `<base>.danmaku.xml` or `<base>.xml`, `<base>.*.srt`, `<base>.comments.json`, and `comments_images/` when comments exist.
+- **`LocalPlayer` on Android, folder mode:**
+  - Copies only the side files into `<cache>/local_documents/<md5(key)>/`. The existing loaders find them there unchanged, because they look next to `mergedPath` / `entryDirPath`.
+  - That cache is wiped on the next open, not when the player closes.
+- **`LocalPlayer` on Android, file mode:** plays the file by URI with no copy. It then shows a one-line hint that on Android, "打开视频文件夹" is what loads danmaku, subtitles and comments.
+- **Resume position:** keyed by `u` + md5 of provider + document id, which stays the same when the same file is picked again.
+- **Desktop and iOS:** unchanged. Folders the app itself created still play by path from the download list.
+- **Tests:** 4 in `test/utils/local_documents_test.dart` (72 lines).
+
+## R2 — multi-segment merges no longer fall back for fixable causes
+
+- **MP4 segments with different codec configurations:** each distinct `stsd` entry is kept, and each chunk's `stsc` index points at its own entry. A segment that returns to an earlier configuration reuses that entry. A different audio sample rate (media timescale) is also converted rather than refused.
+- **FLV configuration changes** (mid-stream or between segments): one sample entry per distinct configuration.
+- **HEVC in FLV:** I added it rather than rule it out.
+  - Download durl streams are, as far as I know, always H.264. But I can't prove from the code that a durl response will never carry HEVC.
+  - Both conventions are supported: the legacy codec id 12 (common with Chinese CDNs, including Bilibili live), and enhanced FLV with the `hvc1` FourCC (frame types SequenceStart / CodedFrames / CodedFramesX).
+  - HEVC entries carry no picture size (0×0); the decoder reads the size from the SPS.
+- **Damaged segments:**
+  - Before joining, each segment is checked: its size against the byte count in `index.json`, and its structure via a new `Mp4Remuxer.checkSegment` (a cut-off FLV tag, or MP4 samples past the end of the file).
+  - Bad or missing segments are downloaded again, at most 2 rounds.
+  - If data is still damaged after that, the merge fails with the streams kept, instead of saving separate parts.
+- **Still kept as separate parts** (`UnsupportedError`):
+  - FLV codecs other than H.264/HEVC video and AAC audio.
+  - Enhanced-FLV `av01` / `vp09` / multitrack packets.
+  - A codec change between segments, e.g. `avc1` → `hvc1`. FFmpeg's MP4 demuxer switches configurations but not codecs within one track.
+  - Segments whose set of tracks differs, e.g. one segment has no audio.
+  - A mix of FLV and MP4 segments.
+- **Tests:** 11 new ones in `flv_demux_test.dart`. The old "differing configuration is not joined" test was replaced by one expecting the join with two sample entries.
+
+## R3 — export folders vs internal folders
+
+- **The naming rule:** `DownloadService.exportFolderName` adds " (视频)" to any export name matching `^(s_)?\d+$`, compared case-insensitively because Windows folder names are case-insensitive. No internal folder can be named like the result. 3 tests in `export_folder_name_test.dart` (36 lines).
+- **The other direction:** internal page folders only ever hold entry folders.
+  - Before creating one, a same-named folder with files at its top level is moved aside to "<id> (视频)", and any download whose `mergedPath` pointed into it is updated.
+  - This only happens if the folder holds no downloads yet.
+- **Deletion:** a page folder that is also an export folder now loses only its download subfolders; the export files stay.
+
+## Diff summary
+
+The cumulative working-tree diff (pass 2, the refinement and these route picks) is 36 tracked files, +1587/−280.
+
+**This turn's changes:**
+
+| File | What |
+|---|---|
+| `MainActivity.kt` | +213: the new channel methods |
+| `local_player.dart` | Android routing through the grant |
+| `pl_player/controller.dart` | `content://` → `fdclose://` |
+| `data_source.dart` | New `uri` field on `FileSource` |
+| `bili_download_entry_info.dart` | Transient `playUri` / `playKey` |
+| `video/controller.dart` | Resume key and `uri` passed to the player |
+| `mp4_remux.dart`, `mp4_join.dart`, `flv_demux.dart` | Multi-entry `stsd`, HEVC, `checkSegment` |
+| `download_service.dart` | Segment repair, naming rule, folder guards |
+| `flv_demux_test.dart` | New and updated remux tests |
+
+**New files:**
+- `lib/services/local_documents.dart` (166 lines)
+- `test/utils/local_documents_test.dart` (72 lines)
+- `test/utils/export_folder_name_test.dart` (36 lines)
+
+The test files are gitignored and need force-adding.
+
+## Uncertainties
+
+- **R1:**
+  - Seeking through an fd depends on the content provider handing back a real, seekable file. ExternalStorageProvider and MediaProvider do; exotic providers (cloud drives) may not.
+  - If the fd can't be opened, a toast appears but the player still reports as initialised.
+  - The `video/*` filter may hide `.flv` / `.ts` files that a provider labels `application/octet-stream`.
+  - A large `comments_images/` folder is copied in full.
+- **R2:**
+  - Tests check the output structure, not real decoding. Playback of a configuration switch relies on FFmpeg's new-extradata handling.
+  - The re-download reuses the stored URLs, which can expire (roughly 2 hours). It is also cancelled if another download starts during the merge. Either way the merge then fails with the streams kept.
+  - I narrowed `_exportType1` back to catching only `UnsupportedError`, which undoes part of pass-2 F11: damaged data now fails the merge instead of splitting into parts. I believe that's what you asked for.
+- **R3:**
+  - The suffix text " (视频)" is my choice.
+  - A folder is moved aside only when the app creates a new download, and a user folder with files that happens to be named like an avid is moved too.
+- **Kotlin:** it relies on `startActivityForResult` / `onActivityResult` from `FlutterActivity` (via `AudioServiceActivity`), and I found no warnings-as-errors setting in the Android build.
+
+```
+TEST RESULTS:
+  runner: flutter test (+ dart analyze lib test)
+  command: source ".../scratchpad/tools/local_env.sh" && cd "$REPO" && dart analyze lib test && flutter test
+  exit_code: 0
+  total: 79
+  passed: 79
+  failed: 0
+  skipped: 0
+  duration_ms: ~63000 (analyze + test)
+
+INFRA REPAIRS (during auto-repair, empty if none):
+
+REAL FAILURES (audit-fix-caused regressions, empty if none):
+
+INFRA-PERSISTENT (failures that hit the 3-cycle repair cap, empty if none):
+
+OVERALL: PASS
+```
+
+The Gmail, Google Calendar and Google Drive connectors still need authorizing in claude.ai connector settings, and `agentbridge` still fails to connect. None of them were needed here.

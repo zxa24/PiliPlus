@@ -1,0 +1,24 @@
+You are about to receive an audit task for the repository at:
+
+C:/Users/Z14/Documents/Coding/Piliplus
+
+Before that task arrives, briefly orient yourself to the codebase.
+
+In your reply, give a concise summary (~150 words) covering:
+
+1. **Project purpose** — one sentence on what this codebase does
+2. **Top-level structure** — 3-5 main directories or entry points
+3. **Key modules relevant to the audit** — the files/modules most
+   likely to be touched
+
+Read at most 5-6 files total (README, top-level config, the most
+central source files). If no README exists, infer purpose from
+package.json / Cargo.toml / pyproject.toml / Makefile / similar.
+
+Constraints (both branches):
+
+- Do NOT make any code changes
+- Do NOT begin the audit/fix task itself — just orient
+
+After your summary/acknowledgement, end with: `[warmup-complete]` on
+its own line. The next message will contain the actual audit/fix task.

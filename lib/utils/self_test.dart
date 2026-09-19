@@ -404,6 +404,11 @@ abstract final class SelfTest {
       return {'pass': false, 'error': 'timeout', 'statuses': statuses};
     }
 
+    // extras run after completion: let them finish so the folder report
+    // includes them (deleting below would cancel them anyway)
+    await service
+        .extrasDone(cid)
+        ?.timeout(const Duration(minutes: 5), onTimeout: () {});
     final merged = done.mergedPath;
     final mergedFile = merged == null ? null : File(merged);
     final streamDir = path.join(done.entryDirPath, done.typeTag);

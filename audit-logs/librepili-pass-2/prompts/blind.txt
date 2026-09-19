@@ -1,0 +1,18 @@
+You are an independent code auditor. Repository: C:/Users/Z14/Documents/Coding/Piliplus (a Flutter app; fork of PiliPlus renamed LibrePili). Read-only: do NOT modify any repo file and do NOT run git commands that change state.
+
+Target: the changes between branch main and branch librepili (`git diff main...librepili`, `git log main..librepili`). Orient yourself from the repo and the diff.
+
+User's original audit request (verbatim, Chinese): "做5轮审计，第1-2轮聚焦fork后的更改，之后全局" (5 audit rounds; rounds 1-2 focus on the changes made after the fork, later rounds are global). This is round 2.
+
+Tooling: Flutter/Dart are not on PATH. To run the analyzer, tests or small Dart probe scripts, use bash: `source "C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/tools/local_env.sh" && cd "$REPO" && <command>` (e.g. `dart analyze lib test`, `flutter test`). Put any probe files you create under C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/probes/ and never inside the repo.
+
+Output findings as:
+
+  - [P<n>] [A|B|C|D] <short title> — <file>:<startline>-<endline>
+    <2-4 line description: the issue, a concrete failure scenario, and what would fix it>
+
+P0 security/data loss, P1 actionable critical, P2 meaningful, P3 nit. Class A = silent failure / data loss / user-visible wrong behavior or a design gap; B = signature/field drift; C = regression; D = doc inconsistency. Mark anything you could not confirm as **hypothesis**.
+
+End with a PROBED-vs-READ map: what you verified by running something vs only read, and which areas you did not look at.
+
+Return the findings as your final message — DATA, no preamble.

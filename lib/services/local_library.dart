@@ -36,7 +36,10 @@ abstract final class LocalLibrary {
 
   /// Restores boxes from a backup made with [boxes]; boxes missing from
   /// [map] (older backups) are left as they are.
+  /// Throws a [FormatException] before anything is cleared if a box in
+  /// [map] is malformed: these boxes are the only copy without an account.
   static Future<void> importAll(Map<String, dynamic> map) async {
+    checkImport(map);
     for (final box in boxes) {
       if (map[box.name] case final Map data) {
         await box.clear();
@@ -44,6 +47,26 @@ abstract final class LocalLibrary {
       }
     }
     await _ensureDefaultFolder();
+  }
+
+  /// Checks that every box in [map] parses the way the app reads it.
+  static void checkImport(Map<String, dynamic> map) {
+    final parsers = <String, Object Function(Map)>{
+      _follows.name: LocalFollow.fromJson,
+      _folders.name: LocalFavFolder.fromJson,
+      _items.name: LocalFavItem.fromJson,
+    };
+    for (final MapEntry(key: name, value: parse) in parsers.entries) {
+      final data = map[name];
+      if (data == null) continue;
+      try {
+        for (final value in (data as Map).values) {
+          parse(value as Map);
+        }
+      } catch (e) {
+        throw FormatException('本地关注/收藏数据无效 ($name): $e');
+      }
+    }
   }
 
   static Future<void> clear() async {

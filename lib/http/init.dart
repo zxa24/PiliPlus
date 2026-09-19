@@ -40,7 +40,7 @@ class Request {
     accountManager = AccountManager();
     dio.interceptors.add(accountManager);
     Accounts.refresh();
-    LoginUtils.setWebCookie();
+    LoginUtils.setAnonymousWebCookie();
 
     if (Accounts.main.isLogin) {
       final coin = Pref.userInfoCache?.money;

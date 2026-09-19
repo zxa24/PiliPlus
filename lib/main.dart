@@ -16,6 +16,7 @@ import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
+import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/calc_window_position.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
@@ -231,6 +232,7 @@ void main(List<String> args) async {
       case final target?
       when FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound) {
     // LibrePili: launched with a video file / folder ("Open with")
+    PiliScheme.launchFile = target;
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => LocalPlayer.open(target),
     );

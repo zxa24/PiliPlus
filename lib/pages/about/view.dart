@@ -24,6 +24,8 @@ import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/update.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -249,7 +251,7 @@ Commit Hash: ${BuildConfig.commitHash}''',
                 );
                 await Accounts.account.putAll(res);
                 await Accounts.refresh();
-                MineController.anonymity.value = !Accounts.heartbeat.isLogin;
+                MineController.anonymity.value = !Pref.loginMode;
                 if (Accounts.main.isLogin) {
                   await LoginUtils.onLoginMain();
                 }
@@ -281,10 +283,17 @@ Commit Hash: ${BuildConfig.commitHash}''',
                     DialogOption(
                       onPressed: () async {
                         Get.back();
+                        // login mode is not an exportable setting: keep it
+                        // (the running account state is not re-applied)
+                        final loginMode = Pref.loginMode;
                         await Future.wait([
                           GStorage.setting.clear(),
                           GStorage.video.clear(),
                         ]);
+                        await GStorage.setting.put(
+                          SettingBoxKey.loginMode,
+                          loginMode,
+                        );
                         SmartDialog.showToast('重置成功');
                       },
                       child: const Text('重置可导出的设置', style: style),

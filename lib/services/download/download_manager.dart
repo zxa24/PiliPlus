@@ -41,17 +41,22 @@ class DownloadManager {
       for (final u in backupUrls)
         if (u != url) u,
     ];
+    // only consecutive attempts that saved nothing count against the budget:
+    // a long transfer that keeps advancing between drops is not failing
+    var failures = 0;
     for (var attempt = 0; ; attempt++) {
+      final before = _savedBytes;
       final error = await _attempt(urls[attempt % urls.length]);
       if (error == null) return; // completed
-      if (!_canRetry || attempt + 1 >= _maxAttempts) {
+      failures = _savedBytes > before ? 1 : failures + 1;
+      if (!_canRetry || failures >= _maxAttempts) {
         await _fail(error);
         return;
       }
       // resume from what is on disk, on the next address; pause/delete
       // cuts the wait short
       await Future.any<void>([
-        Future.delayed(Duration(seconds: attempt + 1)),
+        Future.delayed(Duration(seconds: failures)),
         _cancelToken.whenCancel,
       ]);
       if (!_canRetry) {
@@ -59,6 +64,11 @@ class DownloadManager {
         return;
       }
     }
+  }
+
+  int get _savedBytes {
+    final file = File(path);
+    return file.existsSync() ? file.lengthSync() : 0;
   }
 
   bool get _canRetry =>
@@ -77,6 +87,32 @@ class DownloadManager {
   }
 
   static final _contentRangeReg = RegExp(r'bytes\s+(\d+)-\d+/(\d+|\*)');
+
+  /// Size of the stream at [url] from a one-byte range request, or null.
+  Future<int?> _probeTotal(String url) async {
+    try {
+      final res = await Request.http11Dio.get<ResponseBody>(
+        url.http2https,
+        options: Options(
+          headers: {'range': 'bytes=0-0'},
+          responseType: ResponseType.stream,
+        ),
+        cancelToken: _cancelToken,
+      );
+      try {
+        await res.data?.stream.listen(null).cancel();
+      } catch (_) {}
+      final range = res.headers.value(HttpHeaders.contentRangeHeader);
+      if (res.statusCode == 206 && range != null) {
+        return int.tryParse(_contentRangeReg.firstMatch(range)?[2] ?? '');
+      }
+      // range ignored: the body is the whole stream
+      if (res.statusCode == 200 && (res.data?.contentLength ?? -1) >= 0) {
+        return res.data!.contentLength;
+      }
+    } catch (_) {}
+    return null;
+  }
 
   /// One transfer attempt. Returns null when the file is complete, else the
   /// error.
@@ -121,11 +157,17 @@ class DownloadManager {
     if (response.statusCode == 416) {
       await discard();
       // nothing left to send: complete only if the file on disk is whole
-      final total = int.tryParse(contentRange?.split('/').last ?? '');
+      var total = int.tryParse(contentRange?.split('/').last ?? '');
+      // no usable Content-Range: ask for the size instead of guessing
+      if (total == null && received > 0) total = await _probeTotal(url);
       if (total != null && total == received) {
         _status = DownloadStatus.completed;
         onDone();
         return null;
+      }
+      if (total == null) {
+        // size unknown: never throw away the saved bytes on a guess
+        return 'range not satisfiable, size unknown (have $received)';
       }
       // what is on disk does not match the stream: start over
       await file.writeAsBytes(const []);

@@ -23,14 +23,21 @@ String get defDownloadPath =>
 /// shared by every app, so use a per-app subfolder: otherwise caches that
 /// hold file locks (e.g. the image cache's Hive box) collide with the
 /// original PiliPlus when both run at once.
+/// The self test gets its own subfolder, so it does not share the temp dir
+/// (and the image cache's locked Hive box) with a running normal instance.
 Future<Directory> appTempDirectory() async {
   final dir = await getTemporaryDirectory();
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    return dir;
+    if (!isSelfTestProfile) return dir;
+    return Directory(path.join(dir.path, 'selftest')).create(recursive: true);
   }
-  return Directory(path.join(dir.path, Constants.appName)).create(
-    recursive: true,
-  );
+  return Directory(
+    path.joinAll([
+      dir.path,
+      Constants.appName,
+      if (isSelfTestProfile) 'selftest',
+    ]),
+  ).create(recursive: true);
 }
 
 abstract final class PathUtils {

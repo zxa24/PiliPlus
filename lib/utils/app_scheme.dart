@@ -1,7 +1,7 @@
 // ignore_for_file: constant_identifier_names
 
 import 'dart:async' show StreamSubscription;
-import 'dart:io' show FileSystemEntity, FileSystemEntityType;
+import 'dart:io' show FileSystemEntity, FileSystemEntityType, Platform;
 
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_safe_area.dart';
@@ -51,10 +51,35 @@ abstract final class PiliScheme {
     listener = appLinks.stringLinkStream.listen((link) {
       if (link.startsWith(_openFilePrefix)) {
         _openFile(link.substring(_openFilePrefix.length));
+      } else if (_localFile(link) case final file?) {
+        // Linux delivers command-line arguments (file paths) as links; the
+        // file the app was launched with is already opened by main()
+        if (file == launchFile) {
+          launchFile = null;
+        } else {
+          _openFile(file);
+        }
       } else if (Uri.tryParse(link) case final uri?) {
         handler(uri);
       }
     });
+  }
+
+  /// The file / folder main() opens from the launch arguments.
+  static String? launchFile;
+
+  /// [link] as an existing local path (a plain path or a `file:` URI).
+  static String? _localFile(String link) {
+    String? file;
+    if (link.startsWith('file:')) {
+      file = Uri.tryParse(link)?.toFilePath();
+    } else if (!_prefixRegex.hasMatch(link)) {
+      file = link;
+    }
+    if (file == null || file == Platform.resolvedExecutable) return null;
+    return FileSystemEntity.typeSync(file) == FileSystemEntityType.notFound
+        ? null
+        : file;
   }
 
   /// Sent by windows/runner/main.cpp for "Open with" when an instance is

@@ -1,0 +1,16 @@
+diff --git a/assets/linux/com.zxa24.librepili.desktop b/assets/linux/com.zxa24.librepili.desktop
+index df48d7e94..f70fb7593 100644
+--- a/assets/linux/com.zxa24.librepili.desktop
++++ b/assets/linux/com.zxa24.librepili.desktop
+@@ -3,9 +3,9 @@ Type=Application
+ Name=LibrePili
+ Comment=A third-party Bilibili Client developed in Flutter
+ Comment[zh_CN]=使用 Flutter 开发的 BiliBili 第三方客户端
+-Exec=librepili %u
++Exec=librepili %U
+ Icon=librepili
+ Terminal=false
+ StartupWMClass=com.zxa24.librepili
+ Categories=Video;AudioVideo;Player;
+-MimeType=x-scheme-handler/bilibili;
++MimeType=x-scheme-handler/bilibili;video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-m4v;video/x-flv;video/x-msvideo;video/mp2t;video/x-ms-wmv;

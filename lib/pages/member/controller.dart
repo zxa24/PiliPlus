@@ -72,6 +72,15 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
     queryData();
   }
 
+  /// The space data is fetched anonymously (LoginPolicy), so its relation is
+  /// the guest's: read the account's own relation (incl. special/blacklist).
+  Future<void> _queryRelation() async {
+    final res = await UserHttp.userRelation(mid);
+    if (res case Success(:final response)) {
+      relation.value = response.special == 1 ? -10 : response.attribute ?? 0;
+    }
+  }
+
   @override
   bool customHandleResponse(bool isRefresh, Success<SpaceData> response) {
     final data = response.response;
@@ -109,6 +118,8 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
     if (!account.isLogin) {
       relation.value = LocalLibrary.isFollowed(mid) ? 2 : 0;
       LocalLibrary.updateFollowInfo(mid, name: username, face: userAvatar);
+    } else if (mid != account.mid) {
+      _queryRelation();
     }
     tab2 = data.tab2;
     live = data.live;

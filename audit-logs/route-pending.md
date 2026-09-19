@@ -27,7 +27,11 @@
       **Hypothesis**, based on file_picker's default Android behaviour. `FilePicker.pickFiles` returns a cache copy, so a multi-GB video gets copied. `_entryFor` then looks for `librepili.json`, danmaku, `.srt` and comments next to the copy, not the original. Fix: pick the folder (SAF) or use `withReadStream`/original URI, or at least document that "open folder" is the Android path.
 - routes: as stated in the bullet(s) above
 - deferred_at: 2026-09-19T14:35:12+00:00
-- resolved_at: 2026-09-19T14:47:23+00:00 — user picked probe first on the phone (user: 测试), then decide
+- resolved_at: 2026-09-19T14:47:23+00:00 — user picked probe first on the phone (user: 测试), then decide; 2026-09-19 user picked A (SAF-based reading, no copy, no new permission) after probe
+- probe (2026-09-19, OnePlus CPH2447 Android 16, build a5a244943, app has no storage permissions; test folder /sdcard/Download/LPTest owned by com.android.shell: lptest.mp4 47.84MB + lptest.danmaku.xml + lptest.zh-CN.srt):
+    - 打开视频文件 → system picker → plays, but NO danmaku and NO subtitle loaded (screens s9/s10). App cache: cleared to 0 byte, picked again → 48.87 MB (whole file copied into cache/file_picker).
+    - 打开视频文件夹 → Download root refused by system ("Can't use this folder"); LPTest selectable, "Allow access" granted → toast "没有找到可播放的视频文件" (path + listSync cannot see files through a SAF tree grant without storage permission).
+    - Not tested: folders the app itself created (Download/LibrePili/<title>/, owned by the app) — expected readable (hypothesis).
 
 ## pass1 D4 — old single-URL downloads renamed .mp4 regardless of format
 - tag: `pass1-D4`
@@ -66,4 +70,37 @@
 - routes: as stated in the bullet(s) above
 - deferred_at: 2026-09-19T14:35:12+00:00
 - resolved_at: 2026-09-19T14:47:23+00:00 — user picked A: rename iOS/macOS/Linux identifiers
+
+## pass2 D1 — home-feed 不感兴趣 in login mode
+- tag: `pass2-D1`
+- codex_bullet: |
+    - [P3] [A] Login mode: "不感兴趣" feedback on the recommend feed is sent anonymously — lib/http/video.dart:474-530; lib/common/widgets/video_popup_menu.dart:100-130
+      The UI checks that the recommend account has an `access_key`, but `feedDislike` / `feedDislikeCancel` are not account APIs (probed: `requiresAccount` is false), so the request carries no account and the feedback does nothing. Fix: either list them as account APIs or hide the menu item, since the feed is anonymous by design.
+- routes:
+    - add feedDislike/feedDislikeCancel to the account allowlist
+    - hide the menu item (feed is anonymous by design)
+- deferred_at: 2026-09-19T16:10:46+00:00
+- resolved_at: 2026-09-19T18:50:19+00:00 — user: in login mode the home recommend feed is no longer anonymous (binds to the recommend-role account), so 不感兴趣 works there; local 不感兴趣 (option C) recorded as TODO
+
+## pass2 D2 — in-app playback of multi-part fallback download plays only part 1
+- tag: `pass2-D2`
+- codex_bullet: |
+    - [P3] [A] Multi-segment durl downloads: when the join fails, in-app playback silently plays only segment 1 — lib/services/download/download_service.dart:663-705, 643-655; lib/plugin/pl_player/models/data_source.dart:34-44
+      `_exportType1` catches only `UnsupportedError`. Other errors propagate to the catch in `_mergeDownload`, e.g. the `FormatException('bad box …')` that `_Mp4Joiner._readProgressive` throws for a corrupt or truncated segment. The entry is then completed with `mergedPath == null`, and `FileSource` plays only `0.mp4`. The deliberate fallback (segments kept as `<base>.flv`, `<base>.2.flv`…) also sets `mergedPath` to the first file only, so in-app playback again stops after segment 1 with no notice. Fix: when segments stay separate, have the file source play all of them (e.g. an mpv playlist or concat), or at least tell the user playback is partial. `DownloadStatus.failMerge` (bili_download_entry_info.dart:426) is defined but never set; merge failure shows only as a toast.
+- routes:
+    - play all parts (mpv playlist / concat)
+    - tell the user playback is partial
+- deferred_at: 2026-09-19T16:10:46+00:00
+- resolved_at: 2026-09-19T17:29:56+00:00 — user: neither A nor B; make the merge itself not fail (solve the non-joinable cases)
+
+## pass2 D3 — desktop export folders share the root with internal <avid>/s_<id> folders
+- tag: `pass2-D3`
+- codex_bullet: |
+    - [P3] [A] Desktop: exported video folders share the download root with the internal `<avid>` / `s_<seasonId>` folders — lib/services/download/download_service.dart:736-800, 846-856, 263-280
+      On desktop, `_exportDir()` returns `downloadPath` itself. Export folders are named after the sanitised title, and internal page folders are named `<avid>` or `s_<id>`. Scenario: a video whose title is just a number, say "114514", exports to `<root>/114514/`. A later download of av114514 then creates `<root>/114514/c_<cid>` inside it. Deleting that later download calls `deletePage`, which recursively deletes `<root>/114514`, including the first video's exported mp4 that the user chose to keep. Fix: export into a dedicated subfolder, or refuse names that collide with the internal layout.
+- routes:
+    - export into a dedicated subfolder
+    - refuse/rename titles that collide with the internal layout
+- deferred_at: 2026-09-19T16:10:46+00:00
+- resolved_at: 2026-09-19T17:29:56+00:00 — user picked B (rename on collision)
 

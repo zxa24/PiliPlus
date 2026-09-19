@@ -250,14 +250,12 @@ class AccountManager extends Interceptor {
         _explicitAccountApis.contains(options.path)) {
       return explicit;
     }
-    var account = explicit ?? _findAccount(options.path);
     // LibrePili: no global login. Even in login mode the account is only
     // attached where it is required; everything else goes out anonymously.
-    if (account is LoginAccount &&
-        (!LoginPolicy.loginMode || !LoginPolicy.requiresAccount(options))) {
-      account = AnonymousAccount();
-    }
-    return options.extra['account'] = account;
+    return options.extra['account'] = LoginPolicy.bind(
+      explicit ?? _findAccount(options.path),
+      options,
+    );
   }
 
   static const _accessKeys = ['access_key', 'mobile_access_key'];

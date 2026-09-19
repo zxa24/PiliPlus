@@ -32,15 +32,19 @@ class FileSource extends DataSource {
     required bool hasDashAudio,
     required String typeTag,
     this.mergedPath,
+    // Android local player: a `content://` document, played as is
+    String? uri,
   }) : super(
          videoSource:
+             uri ??
              mergedPath ??
              path.join(
                dir,
                typeTag,
                isMp4 ? PathUtils.videoNameType1 : PathUtils.videoNameType2,
              ),
-         audioSource: mergedPath != null || isMp4 || !hasDashAudio
+         audioSource:
+             uri != null || mergedPath != null || isMp4 || !hasDashAudio
              ? null
              : path.join(dir, typeTag, PathUtils.audioNameType2),
        );

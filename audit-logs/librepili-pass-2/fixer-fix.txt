@@ -1,0 +1,123 @@
+All 21 findings are handled: 20 with code changes and Finding 19 with no change, because a probe showed the failure can't happen. `dart analyze lib test` reports 0 errors and 0 warnings; the 36 info-level lints are all in files I didn't touch. `flutter test` passes 62/62. No git mutations. I deleted my probe and scratch files, and left the files that were already in the scratchpad alone.
+
+## 1. What changed, per finding
+
+- **F1 (settings import/reset flips login mode):** Importing settings (`storage.dart`) and "重置可导出的设置" (`about/view.dart`) now keep this device's current `loginMode`. A backup therefore can't switch it on or off. `MineController._onLogoutMain` no longer deletes the account unless login mode is on and `Accounts.main` is a `LoginAccount`. An anonymized request that answers "账号未登录" can't delete stored credentials any more.
+- **F2 (missing account-only endpoints):** Added to `_accountApis`:
+  - `Api.favResourceList` and `Api.mediaList`
+  - `Api.setLiveFavTag`
+  - `${appBaseUrl}/x/v2/account/myinfo`
+  - `/x/member/app/{uname,sign,sex,birthday}/update`
+
+  Each one has a test in `login_policy_test.dart`. I used no generic access_key rule, and `feedDislike` is untouched.
+- **F3 (incognito badge follows the heartbeat role):** `anonymity` now comes only from `!loginMode`. I removed the three places that reset it from `heartbeat.isLogin`: `accounts.dart`, which also loses the now-unused `MineController` import, plus `login/controller.dart` and `about/view.dart`.
+- **F4 (UP space always shows "not followed"):** In login mode, the space page now fetches `UserHttp.userRelation(mid)` (on the allowlist) when the space isn't your own. The relation shows `-10` for special follows, and blacklist status comes through the attribute.
+- **F5 (live danmaku socket sends your uid):** The socket now always sends `uid: 0`, because its token is fetched anonymously.
+- **F6 (WebView gets the full login cookies):**
+  - New `LoginUtils.setAnonymousWebCookie()`. It deletes every stored account's cookies from the WebView and installs the anonymous jar. Startup (`init.dart`) and `onLoginMain` use it.
+  - The "重置cookie" menu still installs the account's cookies, because it's an explicit user action.
+  - Taking notes is treated as an account flow:
+    - Non-Linux: the account's cookies go in before the page loads (the body waits for them) and are removed again when the page closes.
+    - Linux: `openLinux` injects the account's cookies only for the note-app URL, and the anonymous jar everywhere else.
+- **F7 (extras request bursts and the deletion race):**
+  - Extras exports now run one at a time from a queue in `DownloadService`.
+  - `DownloadExtras.export` takes a `cancelled` check, polled between steps, comment pages, reply pages and subtitles.
+  - `deleteDownload` and `deletePage` cancel the export and wait for it if it's already running.
+  - `CommentImages` creates its folder non-recursively, so it can't recreate a deleted video folder.
+  - An export folder holding only `.part` files (left behind if the app was killed mid-merge) is reused instead of creating "name (2)". Folders a merge is writing into right now are excluded.
+  - Self-test waits for the extras (5-minute cap) before it reports `folderFiles`.
+  - The 200/10 comment defaults are unchanged.
+- **F8 (416 truncation, retry budget):**
+  - A 416 with no usable `Content-Range` now asks for the size with a 1-byte range request.
+  - If the size still can't be found, the attempt fails without truncating the file.
+  - Only consecutive attempts that save nothing count toward the 6-attempt budget, and the backoff follows that count.
+- **F9 (merge guard shared across merges):** `_mergingCid` / `_mergeDeleted` became per-entry sets: `_mergingCids` and `_mergeDeletedCids`.
+- **F10 (old-format merge picks segments from disk):** The segment count now comes from `index.json`'s `segment_list`. Higher-numbered leftover segments are deleted. If `index.json` can't be read, the old probing is the fallback.
+- **F11 (multi-segment fallback):**
+  - Any remux/join error, not only `UnsupportedError`, now falls back to keeping the segments.
+  - Each part's extension comes from its content (flv, mp4, ts, else `.bin`), including the single-file case.
+  - Android media-scans every part, not just the first.
+  - A toast says when segments are saved separately.
+  - Merge failure sets `DownloadStatus.failMerge`.
+  - In-app playback of the separate parts is untouched (deferred).
+- **F12 (live room, logged out):** The input bar now shows when you're logged out. It keeps the danmaku toggle and hides like and send.
+- **F13 (file paths as launch arguments):** The link stream now opens existing local paths and `file:` URIs as files instead of routing them. It skips the file `main()` already opened (`PiliScheme.launchFile`) and the app's own executable path.
+- **F14 (XML danmaku from other tools):**
+  - `<base>.xml` is used when `<base>.danmaku.xml` doesn't exist.
+  - The parser accepts other attributes, `p=` anywhere in the tag, and single quotes.
+  - Numeric entities are decoded in a single pass.
+  - Test added.
+- **F15 (local feed refetches everyone):** Uploads are cached per UP for the session (30 minutes). Opening the tab or following/unfollowing someone fetches only uncached or stale UPs. Pull-to-refresh still fetches everyone.
+- **F16 (self-test isolation):** The self-test uses its own temp subfolder on every platform. On Linux, `--selftest` sets `G_APPLICATION_NON_UNIQUE`, so it runs as its own instance instead of being forwarded.
+- **F17 (heartbeats for local playback):** `makeHeartBeat` returns early for any file source, which covers offline downloads and plain local files.
+- **F18 (favourites panel):** If the account folders fail to load, the local folders still show above the error. "完成" then saves only the local choice and closes.
+- **F19 (Windows long paths):** No change. A real Dart probe wrote, renamed and listed a 309-character path successfully, then cleaned up. `dart.exe` has no `longPathAware` manifest, so the machine's `LongPathsEnabled=1` setting didn't apply to the probe. dart:io adds the `\\?\` prefix itself, so the failure can't happen there.
+- **F20 (library import clears before checking):** New `LocalLibrary.checkImport`. It parses every entry with the same parsers the app uses, and throws before anything is cleared. It runs both inside `importAll` and before settings import touches any box.
+- **F21 (update dialog):** Removed the Windows "exe" button; only "zip" remains.
+
+## 2. `git diff`
+
+The full diff is 1,567 lines, too long to paste here. It's saved at `C:\Users\Z14\.claude\projects\C--Users-Z14-Documents-Coding-Piliplus\b3582635-083d-4d21-a877-4ec6aedfc636\tool-results\bw7pyal6w.txt`. It's identical to `git diff -- lib linux test` on the working tree now; please give that exact output to the re-review.
+
+Files touched:
+- `lib/http/init.dart`
+- `lib/main.dart`
+- `lib/pages/{about/view, danmaku/controller, fav_panel/view, live_room/controller, live_room/view, local/feed, login/controller, member/controller, mine/controller, webview/view}.dart`
+- `lib/plugin/pl_player/controller.dart`
+- `lib/services/download/{download_extras, download_manager, download_service}.dart`
+- `lib/services/local_library.dart`
+- `lib/utils/{accounts, accounts/login_policy, app_scheme, login_utils, path_utils, self_test, storage, update}.dart`
+- `linux/runner/my_application.cc`
+- `test/utils/{download_extras_test, login_policy_test}.dart`
+
+`audit-logs/route-pending.md` shows as modified, but that edit isn't mine.
+
+## 3. Uncertainties
+
+- **F1:**
+  - I chose to keep the current login mode rather than re-apply accounts after import. As a result, a backup's `loginMode` is never restored.
+  - `hideInteraction` from an import only takes effect on screens built afterwards.
+- **F2:**
+  - `favResourceList` and `mediaList` now carry the account in login mode for every folder, including other users' public folders. The alternative in the finding was matching your own folder ids.
+  - The server error codes are unverified; nothing was sent to the network.
+- **F4:** "被关注" (`isFollowed`) still comes from the anonymous space data.
+- **F6:**
+  - The note flow is my reading of "explicit account flow". If the note page is closed abnormally, its cookies stay until the next start or login.
+  - After "重置cookie", the account's cookies remain in the WebView until the next start or login.
+  - Linux has no step to delete old cookies, because `setAnonymousWebCookie` returns early on Linux.
+- **F7:** A cancelled export can still finish the one request or image download it's in the middle of before it stops.
+- **F8:** On a CDN that answers the 1-byte probe without a size, a finished segment now fails after 6 attempts with its bytes kept, where before it was truncated and downloaded again.
+- **F11:**
+  - Content that's neither flv, mp4 nor ts is now saved as `.bin`, which galleries won't play.
+  - `failMerge` is set only in memory; entry status isn't saved to disk.
+- **F13:**
+  - What package:gtk actually delivers is unverified. I can't run Linux here.
+  - The `.desktop` file (`%u`, no video MIME types) is unchanged.
+- **F14:** A `data-p=` attribute would also match, which is harmless.
+- **F16:** `my_application.cc` is not compiled or tested here (no Linux toolchain).
+- **F17:** I turned off heartbeats for all offline playback, not just `cid == 0`. Watching downloads in login mode no longer syncs history.
+- **F18:** I also changed "完成" to skip the account request when the account folders failed to load. The finding didn't explicitly ask for that.
+
+```
+TEST RESULTS:
+  runner: flutter test (+ dart analyze lib test)
+  command: source ".../scratchpad/tools/local_env.sh" && cd "$REPO" && dart analyze lib test && flutter test
+  exit_code: 0
+  total: 62
+  passed: 62
+  failed: 0
+  skipped: 0
+  duration_ms: ~22000 (flutter test; dart analyze ~250000)
+
+INFRA REPAIRS (during auto-repair, empty if none):
+
+REAL FAILURES (audit-fix-caused regressions, empty if none):
+
+INFRA-PERSISTENT (failures that hit the 3-cycle repair cap, empty if none):
+
+OVERALL: PASS
+```
+
+One analyze run caught a compile error in my own code: collection-if isn't allowed in `path.join` arguments in `path_utils.dart`. I fixed it with `path.joinAll`, and the run above is clean.
+
+The claude.ai Gmail, Google Calendar and Google Drive connectors still need authorizing in claude.ai connector settings, and the `agentbridge` MCP server failed to connect. None of them were needed here.

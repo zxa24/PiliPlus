@@ -1,6 +1,8 @@
 import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/constants.dart';
+import 'package:PiliPlus/models/common/member/profile_type.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,9 +28,9 @@ void main() {
       Api.searchDefault,
       Api.hotSearchList,
       Api.searchTrending,
-      Api.recommendListApp,
-      Api.recommendListWeb,
       Api.hotList,
+      Api.liveList,
+      Api.getRankApi,
       Api.relatedList,
       Api.videoIntro,
       Api.replyList,
@@ -63,6 +65,12 @@ void main() {
       Api.msgFeedReply,
       Api.likeVideo,
       Api.logout,
+      Api.favResourceList,
+      Api.mediaList,
+      Api.setLiveFavTag,
+      '${HttpString.appBaseUrl}/x/v2/account/myinfo',
+      for (final type in ProfileType.values)
+        '/x/member/app/${type.name}/update',
       HttpString.appBaseUrl + GrpcUrl.sendMsg,
       HttpString.appBaseUrl + GrpcUrl.sessionMain,
       HttpString.appBaseUrl + GrpcUrl.audioPlayUrl,
@@ -104,6 +112,53 @@ void main() {
         ),
         true,
       );
+    });
+  });
+
+  group('LoginPolicy.bind — home 推荐 feed follows the recommend role', () {
+    final account = LoginAccount(
+      BiliCookieJar.fromJson({'DedeUserID': '123', 'bili_jct': 'csrf'}),
+      'access-key',
+      'refresh-token',
+    );
+    final recommend = [
+      Api.recommendListApp,
+      Api.recommendListWeb,
+      Api.feedDislike,
+      Api.feedDislikeCancel,
+    ];
+
+    for (final path in recommend) {
+      test('login mode + recommend role account -> account: $path', () {
+        expect(
+          LoginPolicy.bind(account, _req(path), loginMode: true),
+          same(account),
+        );
+      });
+
+      test('login mode + anonymous recommend role -> anonymous: $path', () {
+        expect(
+          LoginPolicy.bind(AnonymousAccount(), _req(path), loginMode: true),
+          isA<AnonymousAccount>(),
+        );
+      });
+
+      test('incognito -> anonymous: $path', () {
+        expect(
+          LoginPolicy.bind(account, _req(path), loginMode: false),
+          isA<AnonymousAccount>(),
+        );
+      });
+    }
+
+    test('other home tabs stay anonymous in login mode', () {
+      for (final path in [Api.hotList, Api.liveList, Api.getRankApi]) {
+        expect(
+          LoginPolicy.bind(account, _req(path), loginMode: true),
+          isA<AnonymousAccount>(),
+          reason: path,
+        );
+      }
     });
   });
 }

@@ -355,9 +355,64 @@ void main() {
       expect(second, greaterThan(first));
     });
 
-    test('differing codec configuration is not joined', () async {
+    test('differing codec configuration: one sample entry each', () async {
       final s1 = await mp4Segment('c1', 1);
       final s2 = await mp4Segment('c2', 2, sps: _sps(120, 68, cropBottom: 4));
+      final s3 = await mp4Segment('c3', 3); // back to the first config
+      final output = '${dir.path}/multi.mp4';
+      await Mp4Remuxer.joinMp4(inputs: [s1, s2, s3], output: output);
+
+      final v = Mp4Remuxer.debugMp4JoinTracks([output])[0];
+      expect(v['sizes'], hasLength(9));
+      // stsc: segment 2's chunks use entry 2, segment 3 reuses entry 1
+      final desc = v['descIndexes']! as List<int>;
+      expect(desc.toSet(), {1, 2});
+      expect(desc.first, 1);
+      expect(desc.last, 1);
+      expect(desc.where((d) => d == 2), isNotEmpty);
+      final stsd = v['stsd']! as Uint8List;
+      expect(_u32(stsd, 12), 2); // entry count
+      // both SPS are present (320x240 and 1920x1088)
+      expect(_contains(stsd, _sps(20, 15)), isTrue);
+      expect(_contains(stsd, _sps(120, 68, cropBottom: 4)), isTrue);
+    });
+
+    test('differing audio sample rate: rescaled, second entry', () async {
+      final s1 = await mp4Segment('r1', 1);
+      final flv = _Flv()
+        ..avcHeader(_avcC(_sps(20, 15)))
+        ..tag(8, 0, [0xAF, 0, ..._asc48k])
+        ..video(0, _nal(100, 2), key: true)
+        ..audio(0, List.filled(30, 2))
+        ..audio(23, List.filled(31, 2))
+        ..video(40, _nal(50, 2))
+        ..video(80, _nal(60, 2));
+      final s2 = '${dir.path}/r2.mp4';
+      await Mp4Remuxer.remuxFlv(
+        inputs: [write('r2.flv', flv.bytes)],
+        output: s2,
+      );
+      final output = '${dir.path}/rates.mp4';
+      await Mp4Remuxer.joinMp4(inputs: [s1, s2], output: output);
+      final a = Mp4Remuxer.debugMp4JoinTracks([output])[1];
+      expect(a['timescale'], 44100);
+      expect(_u32(a['stsd']! as Uint8List, 12), 2);
+      expect(a['descIndexes'], contains(2));
+      expect(a['sizes'], [30, 31, 32, 30, 31]);
+      // 23 ms at 48 kHz converted to the 44.1 kHz timescale
+      expect((a['durations']! as List<int>)[3], 1014);
+    });
+
+    test('a different codec is still not joined', () async {
+      final s1 = await mp4Segment('k1', 1);
+      final hevc = _Flv()
+        ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcC])
+        ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)]);
+      final s2 = '${dir.path}/k2.mp4';
+      await Mp4Remuxer.remuxFlv(
+        inputs: [write('k2.flv', hevc.bytes)],
+        output: s2,
+      );
       expect(
         () => Mp4Remuxer.joinMp4(
           inputs: [s1, s2],
@@ -367,4 +422,224 @@ void main() {
       );
     });
   });
+
+  group('codec configuration changes in FLV', () {
+    test('mid-stream SPS change becomes a second sample entry', () {
+      final flv = _Flv()
+        ..avcHeader(_avcC(_sps(20, 15)))
+        ..video(0, _nal(10, 1), key: true)
+        ..video(40, _nal(10, 1))
+        ..avcHeader(_avcC(_sps(120, 68, cropBottom: 4)))
+        ..video(80, _nal(10, 2), key: true)
+        ..avcHeader(_avcC(_sps(20, 15))) // back: reuses entry 1
+        ..video(120, _nal(10, 3), key: true);
+      final v = Mp4Remuxer.debugFlvTracks([write('mid.flv', flv.bytes)]).single;
+      expect(v['sampleEntries'], 2);
+      expect(v['descIndexes'], [1, 1, 2, 1]);
+      final stsd = v['stsd']! as Uint8List;
+      expect(_u32(stsd, 12), 2);
+      // the track header keeps the first configuration's size
+      final tail = v['tkhdTail']! as Uint8List;
+      expect(_u32(tail, tail.length - 8) >> 16, 320);
+    });
+
+    test('segments with different AAC configs: two entries', () {
+      final s1 = _Flv()
+        ..aacHeader()
+        ..audio(0, List.filled(10, 1))
+        ..audio(23, List.filled(10, 1));
+      final s2 = _Flv()
+        ..tag(8, 0, [0xAF, 0, ..._asc48k])
+        ..audio(0, List.filled(10, 2))
+        ..audio(21, List.filled(10, 2));
+      final a = Mp4Remuxer.debugFlvTracks([
+        write('a1.flv', s1.bytes),
+        write('a2.flv', s2.bytes),
+      ]).single;
+      expect(a['sampleEntries'], 2);
+      expect(a['descIndexes'], [1, 1, 2, 2]);
+      expect(a['timescale'], 44100);
+    });
+
+    test('remuxFlv writes both entries and the stsc indexes', () async {
+      final flv = _Flv()
+        ..avcHeader(_avcC(_sps(20, 15)))
+        ..video(0, _nal(10, 1), key: true)
+        ..avcHeader(_avcC(_sps(40, 30)))
+        ..video(40, _nal(10, 2), key: true);
+      final output = '${dir.path}/two.mp4';
+      await Mp4Remuxer.remuxFlv(
+        inputs: [write('two.flv', flv.bytes)],
+        output: output,
+      );
+      // read back by the MP4 joiner: the stsc sample description indexes
+      final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
+      expect(v['sampleEntries'], 1); // single file: stsd kept verbatim
+      expect(v['descIndexes'], [1, 2]);
+      expect(_u32(v['stsd']! as Uint8List, 12), 2);
+    });
+  });
+
+  group('HEVC in FLV', () {
+    test('legacy codec id 12', () {
+      final flv = _Flv()
+        ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcC])
+        ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)])
+        ..tag(9, 40, [0x2C, 1, 0, 0, 40, ..._nal(20, 2)]);
+      final v = Mp4Remuxer.debugFlvTracks([write('h12.flv', flv.bytes)]).single;
+      expect(v['type'], 'hvc1');
+      expect(v['sizes'], [15, 25]);
+      expect(v['ctos'], [0, 40]);
+      expect(v['syncs'], [true, false]);
+      expect(_contains(v['stsd']! as Uint8List, 'hvcC'.codeUnits), isTrue);
+      expect(_contains(v['stsd']! as Uint8List, _hvcC), isTrue);
+    });
+
+    test('enhanced FLV (hvc1 FourCC): CodedFrames and CodedFramesX', () {
+      final fourcc = 'hvc1'.codeUnits;
+      final flv = _Flv()
+        ..tag(9, 0, [0x90, ...fourcc, ..._hvcC]) // key, SequenceStart
+        ..tag(9, 0, [0x91, ...fourcc, 0, 0, 80, ..._nal(10, 1)])
+        ..tag(9, 40, [0xA3, ...fourcc, ..._nal(20, 2)]) // inter, X
+        ..tag(9, 80, [0xA2, ...fourcc]); // SequenceEnd
+      final v = Mp4Remuxer.debugFlvTracks([write('eh.flv', flv.bytes)]).single;
+      expect(v['type'], 'hvc1');
+      expect(v['sizes'], [15, 25]);
+      expect(v['ctos'], [80, 0]);
+      expect(v['syncs'], [true, false]);
+    });
+
+    test('enhanced FLV with an unmapped codec (av01) is unsupported', () {
+      final flv = _Flv()..tag(9, 0, [0x90, ...'av01'.codeUnits, 1, 2, 3]);
+      expect(
+        () => Mp4Remuxer.debugFlvTracks([write('av1.flv', flv.bytes)]),
+        throwsUnsupportedError,
+      );
+    });
+  });
+
+  group('checkSegment (damaged downloads)', () {
+    test('complete FLV is fine, a cut-off tag is not', () {
+      final bytes = basicFlv();
+      expect(Mp4Remuxer.checkSegment(write('ok.flv', bytes)), isTrue);
+      final cut = Uint8List.sublistView(bytes, 0, bytes.length - 20);
+      expect(Mp4Remuxer.checkSegment(write('cut.flv', cut)), isFalse);
+    });
+
+    test('MP4 whose samples run past the end is not fine', () async {
+      final input = write('m.flv', basicFlv());
+      final output = '${dir.path}/m.mp4';
+      await Mp4Remuxer.remuxFlv(inputs: [input], output: output);
+      expect(Mp4Remuxer.checkSegment(output), isTrue);
+      final bytes = File(output).readAsBytesSync();
+      final cut = write(
+        'mcut.mp4',
+        Uint8List.sublistView(bytes, 0, bytes.length - 40),
+      );
+      expect(Mp4Remuxer.checkSegment(cut), isFalse);
+    });
+
+    test('FLV cut inside a tag header is not fine', () {
+      final bytes = basicFlv();
+      // whole file plus the first 6 bytes of another tag header
+      final cut = Uint8List.fromList([...bytes, 9, 0, 0, 10, 0, 0]);
+      expect(Mp4Remuxer.checkSegment(write('hdr.flv', cut)), isFalse);
+    });
+
+    test('MP4 ending in a cut 64-bit box header is not fine', () async {
+      final input = write('b.flv', basicFlv());
+      final output = '${dir.path}/b.mp4';
+      await Mp4Remuxer.remuxFlv(inputs: [input], output: output);
+      final bytes = File(output).readAsBytesSync();
+      // size == 1 (64-bit size follows), but only 4 of its 8 bytes arrived
+      final cut = write(
+        'bcut.mp4',
+        Uint8List.fromList([...bytes, 0, 0, 0, 1, ...'free'.codeUnits, 0, 0]),
+      );
+      expect(Mp4Remuxer.checkSegment(cut), isFalse);
+    });
+  });
+
+  group('HEVC parameter sets', () {
+    test('picture size comes from the SPS in the hvcC', () {
+      final flv = _Flv()
+        ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcCWith(_spsHevc320)])
+        ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)]);
+      final v = Mp4Remuxer.debugFlvTracks([write('hs.flv', flv.bytes)]).single;
+      final tail = v['tkhdTail']! as Uint8List;
+      expect(_u32(tail, tail.length - 8) >> 16, 320);
+      expect(_u32(tail, tail.length - 4) >> 16, 240);
+    });
+
+    test('a configuration switch carries its parameter sets in-band', () async {
+      List<int> seg(int level, int fill) =>
+          (_Flv()
+                ..tag(9, 0, [
+                  0x1C,
+                  0,
+                  0,
+                  0,
+                  0,
+                  ..._hvcCWith(_spsHevc320, level: level),
+                ])
+                ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, fill)])
+                ..tag(9, 40, [0x2C, 1, 0, 0, 0, ..._nal(10, fill)]))
+              .bytes;
+      final output = '${dir.path}/switch.mp4';
+      await Mp4Remuxer.remuxFlv(
+        inputs: [
+          write('h1.flv', Uint8List.fromList(seg(0x3c, 1))),
+          write('h2.flv', Uint8List.fromList(seg(0x5d, 2))),
+        ],
+        output: output,
+      );
+      final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
+      // hev1: parameter sets may also be in-band
+      expect(v['type'], 'hev1');
+      expect(v['descIndexes'], [1, 1, 2, 2]);
+      // the first sample after the switch grew by one length-prefixed SPS
+      final inband = [0, 0, 0, _spsHevc320.length, ..._spsHevc320];
+      expect(v['sizes'], [15, 15, 15 + inband.length, 15]);
+      final mp4 = File(output).readAsBytesSync();
+      final at = _indexOf(mp4, [...inband, ..._nal(10, 2)]);
+      expect(at, isNot(-1));
+    });
+
+    test('a single configuration stays hvc1 with nothing in-band', () async {
+      final flv = _Flv()
+        ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcCWith(_spsHevc320)])
+        ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)]);
+      final output = '${dir.path}/one.mp4';
+      await Mp4Remuxer.remuxFlv(
+        inputs: [write('one.flv', flv.bytes)],
+        output: output,
+      );
+      final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
+      expect(v['type'], 'hvc1');
+      expect(v['sizes'], [15]);
+    });
+  });
 }
+
+// AAC LC, 48000 Hz, stereo
+const _asc48k = [0x11, 0x90];
+
+/// A real x265 SPS (320x240, Main profile).
+const _spsHevc320 = [
+  0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, //
+  0x03, 0x00, 0x00, 0x03, 0x00, 0x3c, 0xa0, 0x0a, 0x08, 0x0f, 0x16, 0x59,
+  0x59, 0xa4, 0x93, 0x2b, 0xc0, 0x5a, 0x02, 0x00, 0x00, 0x03, 0x00, 0x02,
+  0x00, 0x00, 0x03, 0x00, 0x32, 0x10,
+];
+
+/// An HEVCDecoderConfigurationRecord holding [sps] (4-byte NAL lengths);
+/// [level] varies the record so two configurations differ.
+List<int> _hvcCWith(List<int> sps, {int level = 0x3c}) => [
+  1, 1, 0x60, 0, 0, 0, 0x90, 0, 0, 0, 0, 0, level, 0xf0, 0x00, 0xfc, //
+  0xfd, 0xf8, 0xf8, 0x00, 0x00, 0x0f, // lengthSizeMinusOne = 3
+  1, // one array: SPS
+  0xa1, 0, 1, sps.length >> 8, sps.length & 0xFF, ...sps,
+];
+
+/// An HEVCDecoderConfigurationRecord stand-in (the demuxer copies it as is).
+const _hvcC = [1, 1, 0x60, 0, 0, 0, 0x90, 0, 0, 0, 0, 0, 0x5D, 0xF0];

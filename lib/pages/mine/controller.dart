@@ -9,6 +9,7 @@ import 'package:PiliPlus/models_new/fav/fav_folder/data.dart';
 import 'package:PiliPlus/pages/common/common_data_controller.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
@@ -39,8 +40,9 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
       ThemeType.values[(themeType.value.index + 1) % ThemeType.values.length];
 
   /// LibrePili: incognito is the default; it means login mode is off.
-  static RxBool anonymity =
-      (!LoginPolicy.loginMode || !Accounts.heartbeat.isLogin).obs;
+  /// (Independent of the heartbeat role: an anonymous heartbeat in login
+  /// mode is not incognito.)
+  static RxBool anonymity = (!LoginPolicy.loginMode).obs;
 
   late final list = <({IconData icon, String title, VoidCallback onTap})>[
     (
@@ -122,7 +124,12 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
     queryUserStatOwner();
   }
 
-  void _onLogoutMain() => Accounts.deleteAll({Accounts.main});
+  void _onLogoutMain() {
+    // "未登录" only proves the account is invalid if the request carried it:
+    // with login mode off the policy sent it anonymously, so keep the account
+    if (!LoginPolicy.loginMode || Accounts.main is! LoginAccount) return;
+    Accounts.deleteAll({Accounts.main});
+  }
 
   Future<void> queryUserStatOwner() async {
     final res = await UserHttp.userStatOwner();

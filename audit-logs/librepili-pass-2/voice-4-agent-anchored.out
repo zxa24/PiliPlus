@@ -1,0 +1,65 @@
+## Claim table
+
+- **F1: access_key scrub (live×8, liveFeedback, spaceShop, "any other call site")**: PARTLY. `account_mgr.dart:48-53` and `263-283` remove `access_key`/`mobile_access_key` and re-sign whenever the request is not bound to a `LoginAccount`. I listed every call site that adds the key (`live.dart:202,275,331,362,398,429,465,772`; `member.dart:811`; `video.dart:1030/1035`; `user.dart:516`; `login.dart:521`; `member_profile/view.dart:353`). All of them are now scrubbed when the request goes out anonymously. That also strips the key from two app-API writes the policy never allowlisted, so those writes now fail (new defect 1).
+- **F2: gRPC path strips appBaseUrl, test uses real paths plus dynRed**: CONFIRMED. `login_policy.dart:81-88`. `grpc_req.dart:61` sends `HttpString.appBaseUrl + url`. The test diff adds `appBaseUrl + GrpcUrl.dynRed`.
+- **F3: csrf counts as a write only on non-GET**: CONFIRMED. `login_policy.dart:93-99`. My scan of every `Request().get` that carries csrf found only 4 not on the allowlist: `dynamicDetail`, `upowerRank`, `replyReplyList`, `archiveNoteList`. These are exactly the reads the finding named.
+- **F4: explicit account kept for logout/activateBuvid/qrcodeConfirm**: CONFIRMED. `account_mgr.dart:238-253`. `LoginHttp.logout` (`login.dart:494-501`) passes `extra.account` with the full `Api.logout` path, so it matches. `qrcodeConfirm` has no call site.
+- **F5: savedMode(), set() clears the role on every stored account, setAccount refresh/anonymity/onLoginMain**: CONFIRMED. `accounts.dart:78-100`; `login/controller.dart:633-647,656-657,766`.
+- **F6: nav bar rebuilt on account change, Local tab added once, empty-list fallback**: CONFIRMED (read only; not run). `main/controller.dart:229-297,413-414`; `main/view.dart` listens to `navBarEpoch`.
+- **F7: `_fail` deletes only an empty file**: PARTLY. `download_manager.dart:67-77` is as claimed. But the 416 path truncates saved bytes to zero (`:131`), and a later `_fail` then deletes the file (new defect 2).
+- **F8: 206/Content-Range/200-rewrite/416 total check/early-EOF retry**: CONFIRMED. `download_manager.dart:111-151,179-182`.
+- **F9: backoff cancellable, no request after cancel**: CONFIRMED. `download_manager.dart:53-60`.
+- **F10: completion saved before inputs are deleted; extras unawaited; start/pause ignored while merging; delete-while-merging handled**: PARTLY. `download_service.dart:290,551-597,820-822,867-872` match the claim. The merge state is one shared field, not per entry (new defect 4), and the unawaited extras race with deletion (new defect 3).
+- **F11: local library boxes in export/import/compact/close/clear, default folder recreated**: CONFIRMED. `storage.dart:82-151`; `local_library.dart:24-55`. The stored data is JSON-safe (`folders` is stored as a list, `local_library.dart:315-320`).
+- **F12: index −1 falls back to `[entry]`**: CONFIRMED. `video/introduction/local/controller.dart:68-80`.
+- **F13: progress key `'f'+md5(path)`, finished-check skipped when duration is unknown**: CONFIRMED. `video/controller.dart:336-345,367-374`. Save order is safe: `playIndex` calls `onReset` → `cacheLocalProgress` before it changes `entry` or `cid`.
+- **F14: `ValueKey(path)` and null guard**: CONFIRMED in code (`video/view.dart:1840-1845`). Whether the panel actually rebuilds after `playIndex` is not verified: `localCommentsPath` is a plain field.
+- **F15: quick-fav toggles only the default folder**: CONFIRMED. `common_intro_controller.dart:229-241`.
+- **F16: public favourite count left unchanged**: CONFIRMED. `common_intro_controller.dart:218-219`.
+- **F17: Windows "Open with" forwards `librepili-open:<path>`**: CONFIRMED (read). `windows/runner/main.cpp:14-79`; `app_scheme.dart:49-72`. The app_links 7.2.1 source uses `APPLINK_MSG_ID = WM_USER+2`. Its sender-trust check reads `wparam`, which is the target window, so the message is accepted.
+- **F18: folder-name dialog owns its controller**: CONFIRMED. `local/fav_sheet.dart` `_FolderNameDialog`.
+- **F19: XML ctime uses tryParse**: CONFIRMED. `download_extras.dart:305`.
+- **F20: name cut by code points, limit 80**: CONFIRMED. `download_service.dart:780-784`. ZWJ emoji sequences can still be split, but no lone surrogates are produced.
+- **R1: delete dialog, export deletion opt-in, "every delete entry point"**: CONFIRMED. I listed every `deleteDownload`/`deletePage` caller: `download/view.dart:186,239-253`; `download/controller.dart:78-96`; `detail/view.dart:163-176,198-216`; `detail/widgets/item.dart:74-79`; `search/controller.dart:49,60-73`. Downloading-queue callers (`downloading/view.dart:82,116`) and self-test are the documented exceptions.
+- **R2: isolated self-test profile**: CONFIRMED. `main.dart:56-60,94-108`; `storage.dart:29` puts Hive under `appSupportDirPath`; `download_service.dart:739` skips the Android public export.
+- **R3: all durl segments, FLV remux, MP4 join, fallback extensions, MIME type**: CONFIRMED (code only; tests not re-run by me, see map). `http/download.dart:151-163`; `download_service.dart:456-478,612-625,663-688,695-698`.
+- **R4: comment images/emotes saved, avatar placeholder, no network in panel**: CONFIRMED. `download_extras.dart:230-258,470-500`; `local_reply_panel.dart:139-144,187-245`.
+- **R5: hide-interaction gate app-wide**: CONFIRMED. The 3 writers (`reply_new/view.dart:387`, `send_danmaku/view.dart:433`, `live_room/send_danmaku/view.dart:187`) are reached only through `ReplyController.onReply`, `VideoReplyReplyController.onReply`, `showShootDanmakuSheet` and `LiveRoomController.onSendDanmaku`. All four are gated (`reply_controller.dart:135`, `reply_reply/controller.dart:159`, `video/controller.dart:642`, `live_room/controller.dart:740`).
+- **R6: Linux/macOS/iOS identifiers and CI artifacts**: CONFIRMED. `linux/CMakeLists.txt:7-10`, `my_application.cc:48,67,71`, `AppInfo.xcconfig`, ios `pbxproj:390-391,519-520,542-543`, the schemes, `Info.plist`, `.desktop`, `DEBIAN/*`, and the workflows. The Homepage points to `zxa24/PiliPlus`, which is the origin repo.
+- **R7: analyzer clean**: CONFIRMED. I ran `dart analyze lib test`: exit 0, 36 infos.
+- **refine2 R3: MP4 join**: CONFIRMED (read). `mp4_join.dart:12-60`. Segments that don't match throw `UnsupportedError`, and `_exportType1` catches it. Malformed input throws `FormatException`, which is not caught there and turns into a merge failure (inputs are kept).
+- **refine2 R4: images folder created**: CONFIRMED. `download_extras.dart:491`.
+- **refine2 R6: iOS PRODUCT_NAME and Payload path**: CONFIRMED. `pbxproj` ×3; `ios.yml:40-43`.
+
+## New defects
+
+- [P2] [C] Login mode: profile edit and live-tag write now fail — `lib/utils/accounts/account_manager/account_mgr.dart:48-53, 263-283`; `lib/utils/accounts/login_policy.dart:19-54`; `lib/pages/member_profile/view.dart:343-372`; `lib/http/live.dart:393-416`
+  `/x/member/app/*/update` (nickname, signature, birthday, gender) and `Api.setLiveFavTag` are POST writes with no csrf that authenticate only through `access_key` in the body. Neither is on `_accountApis`, so they are bound anonymously. Before this commit the leaked `access_key` still authenticated them. Now the scrub removes it (probe: `Map.cast` removal mutates the underlying `Map<String,String>` body). With login mode on, editing your own profile or saving live tags returns a not-logged-in error. Fix: add `Api.setLiveFavTag` and the member-app update paths to `_accountApis`, or treat any non-GET that carries `access_key` as account-required.
+
+- [P3] [A] A 416 without Content-Range truncates the saved file, and a later failure deletes it — `lib/services/download/download_manager.dart:121-133, 67-77`
+  On resume of a file that is already complete, a CDN that answers 416 without a parseable `bytes */N` makes the code empty the file, even though all its bytes were saved. Multi-segment Type1 resume depends on exactly this 416 path for every finished segment. If the next attempts then fail (network down), `_fail` deletes the now-empty file. That contradicts the claim that saved bytes are never thrown away. Fix: on 416 with an unknown total, keep the file and use the size from `index.json`, or re-probe; never truncate a non-empty file there.
+
+- [P3] [A] Unawaited extras export races with deletion and recreates the exported folder — `lib/services/download/download_service.dart:586-596`; `lib/services/download/download_extras.dart:480-500`
+  Deleting a just-completed entry with "同时删除导出的视频文件" removes the export folder while `DownloadExtras.export` is still running. `CommentImages.save` then calls `file.parent.create(recursive: true)`, which recreates `<export>/comments_images`, and `_comments` writes `<base>.comments.json` into it. The result is an orphan folder in public `Download/LibrePili` that is not linked to any entry. The same race hits the self-test cleanup (`self_test.dart:449-455`), and its `folderFiles` report (`:429-434`) no longer includes the extras. Fix: keep the extras future per entry and cancel or await it in `deleteDownload`.
+
+- [P3] [A] Merge guard is one shared field, so overlapping merges clobber each other — `lib/services/download/download_service.dart:546-566, 599-603`
+  Scenario: entry A is deleted during its merge, so entry B starts. B is small, finishes and begins merging (`_mergingCid = B`, `_mergeDeleted = false`) before A's remux returns. A's return then sets `_mergingCid = null`, so B loses its pause/start guard (the U28 double-download returns). A's deletion flag has also been reset, so in the Windows locked-file case this fix targeted, A is re-added to `downloadList`. Fix: per-entry state (a set of merging cids and a set of cids deleted while merging), or capture the flag in a local closure.
+
+- [P3] [A] Type1 merge takes segments from what is on disk, not from the segment list — `lib/services/download/download_service.dart:612-625` — **hypothesis**
+  The inputs are `0.mp4, 1.mp4, …` for as long as each file exists, ignoring the segment count in `index.json`. If an earlier attempt left more segments than the current play URL has (a different segment layout after re-fetching), the stale files are joined or remuxed onto the end. Fix: build the inputs from the segment count in `index.json`.
+
+- [P3] [A] Fallback multi-part export: only the first part is media-scanned, unknown formats get `.mp4` — `lib/services/download/download_service.dart:578-579, 682-688`
+  When remux or join is not possible, parts `<base>.2.ext…` are moved into the export folder, but `_scanMedia(output)` indexes only the first. Android galleries and players then miss the other parts. Content that is neither FLV nor MP4 is still named `.mp4`. Fix: scan every moved part, and choose the extension from a content sniff.
+
+## PROBED vs READ
+
+- **PROBED:**
+  - `dart analyze lib test`: exit 0, 36 infos.
+  - Pure-Dart probe (`scratchpad/probes/cast_probe.dart`): scrubbing through `Map.cast` removes `access_key` from a `Map<String,String>` form body and re-signs it. This confirms the mechanism behind defect 1.
+  - Python scan of every `Request().get` with csrf against the allowlist (for F3).
+  - Grep enumeration of `access_key` call sites, delete entry points, and write-API entry points.
+- **NOT PROBED:**
+  - `flutter test` did not run. The first run crashed with a `build/unit_test_assets` copy collision. The second hung on the Flutter lock held by a leftover `flutter attach` process (PID 81616, started 2026-09-18) that is not mine, and I did not kill it. The FLV and MP4-join tests and the `login_policy` tests were therefore not re-run by me.
+  - Nothing was built or run in the app, so all UI, nav-bar controller swapping and offline-panel rebuild behaviour is read only.
+- **READ only:** everything else, including `download_manager`, `download_service`, `account_mgr`, `login_policy`, `accounts`, the login controller, the main controller and view, `local_library`, `storage`, `main.dart`, `self_test`, `app_scheme`, `main.cpp` together with the app_links 7.2.1 Windows source, `mp4_join.dart`, `local_reply_panel`, the delete dialog and its callers, and the platform id files and workflows.
+- **Not examined:** the `flv_demux.dart` internals (533 lines), the `mp4_remux.dart` writer changes beyond the co64 selection, the Linux/macOS/iOS builds (no toolchains here), Android (the D3 picker probe is still pending), and the global code outside the pass-1 diff.

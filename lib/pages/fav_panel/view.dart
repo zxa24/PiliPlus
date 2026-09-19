@@ -1,3 +1,4 @@
+import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/fav/fav_folder/list.dart';
@@ -171,6 +172,16 @@ class _FavPanelState extends State<FavPanel> {
           },
         );
       case Error(:final errMsg):
+        // the device-only folders do not depend on the account query
+        if (_hasLocal) {
+          return CustomScrollView(
+            controller: widget.scrollController,
+            slivers: [
+              SliverList.list(children: _localSection),
+              HttpError(errMsg: errMsg, onReload: _queryVideoInFolder),
+            ],
+          );
+        }
         return scrollErrorWidget(
           errMsg: errMsg,
           controller: widget.scrollController,
@@ -246,6 +257,11 @@ class _FavPanelState extends State<FavPanel> {
                 onPressed: () async {
                   feedBack();
                   await _saveLocal();
+                  // account folders failed to load: only the local choice
+                  if (loadingState is Error) {
+                    Get.back();
+                    return;
+                  }
                   widget.ctr.actionFavVideo();
                 },
                 style: const ButtonStyle(visualDensity: .compact),

@@ -1,6 +1,5 @@
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
-import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
@@ -110,9 +109,6 @@ abstract final class Accounts {
         await (account.isLogin
             ? LoginUtils.onLoginMain()
             : LoginUtils.onLogoutMain());
-        break;
-      case AccountType.heartbeat:
-        MineController.anonymity.value = !account.isLogin;
         break;
       default:
         break;

@@ -51,8 +51,11 @@ abstract final class Mp4Remuxer {
   }
 
   /// Joins FLV segments (in timeline order) into one progressive MP4.
-  /// Supports H.264 video and AAC audio; anything else throws
-  /// [UnsupportedError] so the caller can keep the original file.
+  /// Supports H.264 / HEVC video (legacy codec id 7 / 12 and enhanced FLV
+  /// `avc1` / `hvc1`) and AAC audio, also when the codec configuration
+  /// changes mid-stream or between segments (one sample entry per
+  /// configuration). Anything else throws [UnsupportedError] so the caller
+  /// can keep the original file.
   static Future<void> remuxFlv({
     required List<String> inputs,
     required String output,
@@ -63,8 +66,9 @@ abstract final class Mp4Remuxer {
   }
 
   /// Joins progressive MP4 segments (in timeline order) into one MP4.
-  /// Throws [UnsupportedError] when the segments' tracks or codec
-  /// configurations differ, so the caller can keep them separate.
+  /// Differing codec configurations of the same codec become several sample
+  /// entries; throws [UnsupportedError] only when the segments' tracks or
+  /// codecs differ, so the caller can keep them separate.
   static Future<void> joinMp4({
     required List<String> inputs,
     required String output,
@@ -72,6 +76,36 @@ abstract final class Mp4Remuxer {
   }) async {
     if (inputs.isEmpty) throw ArgumentError('no input');
     await _write(_Mp4Joiner.join(inputs), output, onProgress);
+  }
+
+  /// Whether a downloaded durl segment reads cleanly (FLV: every tag
+  /// complete; MP4: sample tables inside the file). False means the data is
+  /// damaged (e.g. a truncated transfer) and the segment should be
+  /// downloaded again; formats it cannot check count as fine.
+  static bool checkSegment(String path) {
+    try {
+      if (isFlv(path)) {
+        _FlvDemuxer.demux([path], strict: true);
+        return true;
+      }
+      if (isMp4(path)) {
+        final length = File(path).lengthSync();
+        for (final t in _Mp4Joiner._readProgressive(path)) {
+          for (final c in t.chunks) {
+            if (c.sourceOffset + c.length > length) return false;
+          }
+        }
+      }
+      return true;
+    } on FormatException {
+      return false;
+    } on RangeError {
+      // e.g. a box header cut off before its 64-bit size
+      return false;
+    } on UnsupportedError {
+      // readable, just not joinable: not a download problem
+      return true;
+    }
   }
 
   /// The tracks an FLV demux produces; for tests only.
@@ -91,7 +125,9 @@ abstract final class Mp4Remuxer {
         'durations': t.durations,
         'ctos': t.ctos,
         'syncs': t.syncs,
-        'stsd': t.stsd,
+        'stsd': t.stsdBox,
+        'sampleEntries': t.sampleEntries?.length ?? 1,
+        'descIndexes': [for (final c in t.chunks) c.descIndex],
         'tkhdTail': t.tkhdTail,
         'edits': [
           for (final e in t.edits) [e.segmentDuration, e.mediaTime],
@@ -104,6 +140,9 @@ abstract final class Mp4Remuxer {
     String output,
     void Function(int copied, int total)? onProgress,
   ) async {
+    for (final t in tracks) {
+      t._inlineParameterSets();
+    }
     final chunks = [for (final t in tracks) ...t.chunks]
       ..sort((a, b) {
         final c = a.startSeconds.compareTo(b.startSeconds);
@@ -151,6 +190,11 @@ abstract final class Mp4Remuxer {
         ).open();
         await src.setPosition(c.sourceOffset);
         var remaining = c.length;
+        if (c.prefix case final prefix?) {
+          await out.writeFrom(prefix);
+          remaining -= prefix.length;
+          copied += prefix.length;
+        }
         while (remaining > 0) {
           final n = await src.readInto(
             buffer,
@@ -259,6 +303,13 @@ class _Chunk {
   int length = 0;
   int sampleCount = 0;
   int outputOffset = 0;
+
+  /// 1-based index of the sample entry (in `stsd`) its samples use.
+  int descIndex = 1;
+
+  /// Bytes written before the source bytes (counted in [length] and in the
+  /// first sample's size): in-band parameter sets at a configuration switch.
+  Uint8List? prefix;
   double get startSeconds => startDts / track.timescale;
 }
 
@@ -284,6 +335,46 @@ class _Track {
   late Uint8List mediaHeader; // vmhd / smhd / nmhd
   late Uint8List dinf;
   late Uint8List stsd;
+
+  /// Set when the track carries several codec configurations (segments /
+  /// a stream whose configuration changes): `stsd` is then built from these
+  /// sample entries and each chunk points at its own with
+  /// [_Chunk.descIndex].
+  List<Uint8List>? sampleEntries;
+
+  /// The `stsd` box written to the output.
+  Uint8List get stsdBox =>
+      sampleEntries == null ? stsd : _stsdOf(sampleEntries!);
+
+  bool _inlined = false;
+
+  /// HEVC with several configurations: the switch to another sample entry
+  /// is only signalled through the container, which FFmpeg's
+  /// `hevc_mp4toannexb` (the MediaCodec path) ignores, so the new frames
+  /// would be decoded with the first VPS/SPS/PPS. The first sample after
+  /// each switch therefore also carries its configuration's parameter sets
+  /// in-band, and the entries become `hev1` (parameter sets may be in-band).
+  void _inlineParameterSets() {
+    final entries = sampleEntries;
+    if (_inlined || entries == null || entries.length < 2) return;
+    if (sampleEntryType != 'hvc1' && sampleEntryType != 'hev1') return;
+    _inlined = true;
+    for (final e in entries) {
+      e.setAll(4, 'hev1'.codeUnits);
+    }
+    sampleEntryType = 'hev1';
+    for (var i = 1; i < chunks.length; i++) {
+      final c = chunks[i];
+      if (c.descIndex == chunks[i - 1].descIndex) continue;
+      final prefix = _hevcParameterSets(entries[c.descIndex - 1]);
+      if (prefix == null || prefix.isEmpty) continue;
+      c
+        ..prefix = prefix
+        ..length += prefix.length;
+      sizes[c.firstSample] += prefix.length;
+    }
+  }
+
   final edits = <_EditEntry>[];
 
   // trex defaults
@@ -621,7 +712,7 @@ class _Track {
     final stbl = _box(
       'stbl',
       _concat([
-        stsd,
+        stsdBox,
         _stts(),
         ?_ctts(),
         ?_stss(),
@@ -707,19 +798,22 @@ class _Track {
   }
 
   Uint8List _stsc() {
-    final entries = <(int, int)>[];
+    final entries = <(int, int, int)>[];
     for (var i = 0; i < chunks.length; i++) {
       final n = chunks[i].sampleCount;
-      if (entries.isEmpty || entries.last.$2 != n) entries.add((i + 1, n));
+      final desc = chunks[i].descIndex;
+      if (entries.isEmpty || entries.last.$2 != n || entries.last.$3 != desc) {
+        entries.add((i + 1, n, desc));
+      }
     }
     final w = _W()
       ..u32(0)
       ..u32(entries.length);
-    for (final (firstChunk, perChunk) in entries) {
+    for (final (firstChunk, perChunk, desc) in entries) {
       w
         ..u32(firstChunk)
         ..u32(perChunk)
-        ..u32(1);
+        ..u32(desc);
     }
     return _box('stsc', w.bytes);
   }
@@ -737,6 +831,85 @@ class _Track {
 
 int _scale(int value, int from, int to) =>
     from == to ? value : (value * to + from ~/ 2) ~/ from;
+
+/// An `stsd` box holding [entries] (complete sample entry boxes).
+Uint8List _stsdOf(List<Uint8List> entries) => _box(
+  'stsd',
+  _concat([
+    (_W()
+          ..u32(0)
+          ..u32(entries.length))
+        .bytes,
+    ...entries,
+  ]),
+);
+
+/// The sample entry boxes of an `stsd` box.
+List<Uint8List> _sampleEntriesOf(Uint8List stsd) {
+  // box header (8), version/flags (4), entry count (4)
+  final body = _R(Uint8List.sublistView(stsd, 16));
+  return [
+    for (final (type, entry) in body.boxes())
+      _box(type, Uint8List.fromList(entry)),
+  ];
+}
+
+/// The `hvcC` body inside an HEVC visual sample entry, or null.
+Uint8List? _hvcCOf(Uint8List entry) {
+  // box header (8) + VisualSampleEntry fields (78), then child boxes
+  if (entry.length <= 86) return null;
+  try {
+    for (final (type, body) in _R(Uint8List.sublistView(entry, 86)).boxes()) {
+      if (type == 'hvcC') return body;
+    }
+  } on FormatException {
+    return null;
+  }
+  return null;
+}
+
+/// The parameter-set NAL units (VPS / SPS / PPS / SEI arrays) of an HEVC
+/// sample entry's `hvcC`, each prefixed with its length the way samples
+/// are (lengthSizeMinusOne + 1 bytes).
+Uint8List? _hevcParameterSets(Uint8List entry) {
+  final c = _hvcCOf(entry);
+  if (c == null || c.length < 23) return null;
+  final lengthSize = (c[21] & 3) + 1;
+  final w = BytesBuilder();
+  var p = 23;
+  for (var a = 0; a < c[22] && p + 3 <= c.length; a++) {
+    final n = (c[p + 1] << 8) | c[p + 2];
+    p += 3;
+    for (var i = 0; i < n && p + 2 <= c.length; i++) {
+      final len = (c[p] << 8) | c[p + 1];
+      p += 2;
+      if (p + len > c.length) return null;
+      for (var b = lengthSize - 1; b >= 0; b--) {
+        w.addByte((len >> (8 * b)) & 0xFF);
+      }
+      w.add(Uint8List.sublistView(c, p, p + len));
+      p += len;
+    }
+  }
+  return w.toBytes();
+}
+
+bool _sameBytes(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// 1-based index of [entry] in [entries], appending it when new.
+int _entryIndex(List<Uint8List> entries, Uint8List entry) {
+  for (var i = 0; i < entries.length; i++) {
+    if (_sameBytes(entries[i], entry)) return i + 1;
+  }
+  entries.add(entry);
+  return entries.length;
+}
 
 Uint8List _box(String type, Uint8List body) {
   final size = body.length + 8;

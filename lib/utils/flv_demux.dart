@@ -6,15 +6,20 @@ part of 'mp4_remux.dart';
 /// FLV AVC payloads are already length-prefixed NAL units and AAC payloads
 /// raw frames, which is exactly what MP4 samples hold, so sample bytes are
 /// never decoded: every sample becomes a chunk pointing into its FLV file and
-/// is copied byte-for-byte. Only H.264 video and AAC audio are supported;
-/// anything else throws [UnsupportedError].
+/// is copied byte-for-byte. H.264 / HEVC video (legacy codec id 7 / 12, or
+/// enhanced FLV with the `avc1` / `hvc1` FourCC) and AAC audio are
+/// supported; a codec configuration that changes mid-stream or between
+/// segments becomes another sample entry. Anything else throws
+/// [UnsupportedError].
 abstract final class _FlvDemuxer {
   /// A segment starting more than this before the end of what came earlier
   /// restarted its clock and is placed after it; a continuing segment starts
   /// within about a frame of that end.
   static const _restartToleranceMs = 100;
 
-  static List<_Track> demux(List<String> inputs) {
+  /// [strict]: a tag cut off by the end of the file throws
+  /// [FormatException] (a damaged download) instead of being dropped.
+  static List<_Track> demux(List<String> inputs, {bool strict = false}) {
     final video = _FlvTrackBuilder(isVideo: true);
     final audio = _FlvTrackBuilder(isVideo: false);
     for (final input in inputs) {
@@ -35,7 +40,10 @@ abstract final class _FlvDemuxer {
           final ts = ((h[7] << 24) | (h[4] << 16) | (h[5] << 8) | h[6])
               .toSigned(32);
           final dataPos = pos + 11;
-          if (dataPos + dataSize > r.length) break; // truncated last tag
+          if (dataPos + dataSize > r.length) {
+            if (strict) throw FormatException('truncated FLV tag in $input');
+            break; // truncated last tag
+          }
           pos = dataPos + dataSize + 4; // + PreviousTagSize
           final kind = type & 0x1F;
           if ((kind != 8 && kind != 9) || dataSize == 0) continue;
@@ -51,6 +59,11 @@ abstract final class _FlvDemuxer {
           } else {
             audio.addAudioTag(input, dataPos, dataSize, head, time, r);
           }
+        }
+        // a whole file ends exactly after the last PreviousTagSize; less
+        // (a cut tag header or size field) means the transfer stopped early
+        if (strict && pos != r.length) {
+          throw FormatException('FLV cut off at $pos of ${r.length}: $input');
         }
       } finally {
         raf.closeSync();
@@ -75,10 +88,16 @@ class _FlvTrackBuilder {
 
   final bool isVideo;
 
-  /// AVCDecoderConfigurationRecord / AudioSpecificConfig.
-  Uint8List? config;
+  /// Video: 'avc1' or 'hvc1' (sample entry type); one codec per track.
+  String? codec;
+
+  /// AVCDecoderConfigurationRecord / HEVCDecoderConfigurationRecord /
+  /// AudioSpecificConfig, each distinct one seen; [_current] is in use.
+  final configs = <Uint8List>[];
+  int _current = -1;
 
   // per sample, in decode order
+  final configIndex = <int>[];
   final times = <int>[]; // ms
   final ctsMs = <int>[];
   final keys = <bool>[];
@@ -103,11 +122,39 @@ class _FlvTrackBuilder {
     int time,
     _FileReader r,
   ) {
-    final codec = head[0] & 0x0F;
-    // bit 7: enhanced FLV (HEVC / AV1 ...)
-    if (head[0] & 0x80 != 0 || codec != 7) {
-      throw UnsupportedError('FLV video codec $codec (only H.264)');
+    // bit 7: enhanced FLV (E-RTMP): frame type, packet type, FourCC
+    if (head[0] & 0x80 != 0) {
+      if (dataSize <= 5) return;
+      final fourcc = String.fromCharCodes(head, 1, 5);
+      _setCodec(switch (fourcc) {
+        'avc1' || 'hvc1' => fourcc,
+        _ => throw UnsupportedError('FLV video codec $fourcc'),
+      });
+      final key = (head[0] >> 4) & 0x07 == 1;
+      switch (head[0] & 0x0F) {
+        case 0: // SequenceStart: decoder configuration record
+          _setConfig(r.read(dataPos + 5, dataSize - 5));
+        case 1: // CodedFrames: composition time, then NAL units
+          if (dataSize <= 8) return;
+          final c = r.read(dataPos + 5, 3);
+          final cts = ((c[0] << 16) | (c[1] << 8) | c[2]).toSigned(24);
+          _add(path, dataPos + 8, dataSize - 8, time, cts, key);
+        case 3: // CodedFramesX: NAL units, composition time 0
+          _add(path, dataPos + 5, dataSize - 5, time, 0, key);
+        case 2 || 4 || 7: // SequenceEnd / Metadata / ModEx: nothing to keep
+          break;
+        default: // multitrack / MPEG-2 TS config: no MP4 mapping here
+          throw UnsupportedError('enhanced FLV packet type ${head[0] & 0x0F}');
+      }
+      return;
     }
+    // legacy: codec id 7 = H.264, 12 = HEVC (the CDN convention in China)
+    final codecId = head[0] & 0x0F;
+    _setCodec(switch (codecId) {
+      7 => 'avc1',
+      12 => 'hvc1',
+      _ => throw UnsupportedError('FLV video codec $codecId'),
+    });
     if (dataSize <= 5) return;
     switch (head[1]) {
       case 0: // sequence header
@@ -115,6 +162,14 @@ class _FlvTrackBuilder {
       case 1: // NAL units
         final cts = ((head[2] << 16) | (head[3] << 8) | head[4]).toSigned(24);
         _add(path, dataPos + 5, dataSize - 5, time, cts, head[0] >> 4 == 1);
+    }
+  }
+
+  void _setCodec(String c) {
+    codec ??= c;
+    // one track holds one codec (players switch configuration, not codec)
+    if (codec != c) {
+      throw UnsupportedError('FLV video codec changes ($codec -> $c)');
     }
   }
 
@@ -139,25 +194,24 @@ class _FlvTrackBuilder {
     }
   }
 
+  /// Repeated at segment starts (same bytes: nothing changes); a different
+  /// configuration (resolution / profile / sample rate change) becomes a
+  /// new sample entry for the samples that follow.
   void _setConfig(Uint8List c) {
-    final old = config;
-    if (old == null) {
-      config = Uint8List.fromList(c);
-      return;
+    for (var i = 0; i < configs.length; i++) {
+      if (_sameBytes(configs[i], c)) {
+        _current = i;
+        return;
+      }
     }
-    var same = old.length == c.length;
-    for (var i = 0; same && i < c.length; i++) {
-      same = old[i] == c[i];
-    }
-    // repeated at segment starts; a real change would need a second stsd
-    if (!same) {
-      throw UnsupportedError('codec configuration changes mid-stream');
-    }
+    configs.add(Uint8List.fromList(c));
+    _current = configs.length - 1;
   }
 
   void _add(String path, int offset, int size, int time, int cts, bool key) {
-    if (config == null) return; // undecodable before the sequence header
+    if (_current < 0) return; // undecodable before the sequence header
     if (times.isNotEmpty && time <= times.last) time = times.last + 1;
+    configIndex.add(_current);
     times.add(time);
     ctsMs.add(cts);
     keys.add(key);
@@ -169,8 +223,8 @@ class _FlvTrackBuilder {
   /// [baseMs]: earliest start of all tracks; a later start becomes an empty
   /// edit so audio and video stay in sync.
   _Track? build(int baseMs) {
-    final config = this.config;
-    if (config == null || sizes.isEmpty) return null;
+    if (configs.isEmpty || sizes.isEmpty) return null;
+    final config = configs.first;
     final t = _Track(paths.first)
       ..sourceMovieTimescale = 1000
       ..tkhdFlags = 0
@@ -187,12 +241,11 @@ class _FlvTrackBuilder {
               .bytes,
         ),
       );
-    final Uint8List entry;
     if (isVideo) {
-      final (width, height) = _avcDimensions(config);
+      final (width, height) = _videoDimensions(config);
       t
         ..timescale = 1000
-        ..sampleEntryType = 'avc1'
+        ..sampleEntryType = codec!
         ..hdlr = _hdlr('vide', 'VideoHandler')
         ..mediaHeader = _box(
           'vmhd',
@@ -202,54 +255,18 @@ class _FlvTrackBuilder {
               .bytes,
         )
         ..tkhdTail = _tkhdTail(0, width, height);
-      entry = _box(
-        'avc1',
-        (_W()
-              ..zeros(6)
-              ..u16(1) // data reference index
-              ..zeros(16)
-              ..u16(width)
-              ..u16(height)
-              ..u32(0x00480000) // 72 dpi
-              ..u32(0x00480000)
-              ..u32(0)
-              ..u16(1) // frame count
-              ..zeros(32) // compressor name
-              ..u16(0x18) // depth
-              ..u16(0xFFFF)
-              ..bytes_(_box('avcC', config)))
-            .bytes,
-      );
     } else {
-      final (rate, channels) = _aacFormat(config);
+      final (rate, _) = _aacFormat(config);
       t
         ..timescale = rate
         ..sampleEntryType = 'mp4a'
         ..hdlr = _hdlr('soun', 'SoundHandler')
         ..mediaHeader = _box('smhd', (_W()..zeros(8)).bytes)
         ..tkhdTail = _tkhdTail(0x0100, 0, 0);
-      entry = _box(
-        'mp4a',
-        (_W()
-              ..zeros(6)
-              ..u16(1) // data reference index
-              ..zeros(8)
-              ..u16(channels)
-              ..u16(16) // sample size
-              ..zeros(4)
-              ..u32(rate <= 0xFFFF ? rate << 16 : 0)
-              ..bytes_(_esds(config)))
-            .bytes,
-      );
     }
-    t.stsd = _box(
-      'stsd',
-      (_W()
-            ..u32(0)
-            ..u32(1)
-            ..bytes_(entry))
-          .bytes,
-    );
+    final entries = [for (final c in configs) _sampleEntry(c)];
+    t.stsd = _stsdOf(entries);
+    if (entries.length > 1) t.sampleEntries = entries;
 
     final ts = t.timescale;
     final first = times.first;
@@ -268,7 +285,8 @@ class _FlvTrackBuilder {
         ..chunks.add(
           _Chunk(t, offsets[i], i, dts[i], paths[i])
             ..length = sizes[i]
-            ..sampleCount = 1,
+            ..sampleCount = 1
+            ..descIndex = configIndex[i] + 1,
         );
     }
     if (first > baseMs) {
@@ -277,6 +295,140 @@ class _FlvTrackBuilder {
         ..add(_EditEntry(0, 0, 0x10000));
     }
     return t;
+  }
+
+  /// The sample entry for one codec configuration of this track.
+  Uint8List _sampleEntry(Uint8List config) {
+    if (isVideo) {
+      final (width, height) = _videoDimensions(config);
+      final hevc = codec == 'hvc1';
+      return _box(
+        codec!,
+        (_W()
+              ..zeros(6)
+              ..u16(1) // data reference index
+              ..zeros(16)
+              ..u16(width)
+              ..u16(height)
+              ..u32(0x00480000) // 72 dpi
+              ..u32(0x00480000)
+              ..u32(0)
+              ..u16(1) // frame count
+              ..zeros(32) // compressor name
+              ..u16(0x18) // depth
+              ..u16(0xFFFF)
+              ..bytes_(_box(hevc ? 'hvcC' : 'avcC', config)))
+            .bytes,
+      );
+    }
+    final (rate, channels) = _aacFormat(config);
+    return _box(
+      'mp4a',
+      (_W()
+            ..zeros(6)
+            ..u16(1) // data reference index
+            ..zeros(8)
+            ..u16(channels)
+            ..u16(16) // sample size
+            ..zeros(4)
+            ..u32(rate <= 0xFFFF ? rate << 16 : 0)
+            ..bytes_(_esds(config)))
+          .bytes,
+    );
+  }
+
+  /// Picture size for the sample entry and track header; (0, 0) when it
+  /// cannot be read.
+  (int, int) _videoDimensions(Uint8List config) =>
+      codec == 'hvc1' ? _hevcDimensions(config) : _avcDimensions(config);
+
+  /// Conformance-window size from the first SPS of an HEVC configuration
+  /// record (H.265 7.3.2.2.1); (0, 0) if it cannot be read.
+  static (int, int) _hevcDimensions(Uint8List hvcC) {
+    try {
+      var p = 23;
+      for (var a = 0; a < hvcC[22]; a++) {
+        final type = hvcC[p] & 0x3F;
+        final n = (hvcC[p + 1] << 8) | hvcC[p + 2];
+        p += 3;
+        for (var i = 0; i < n; i++) {
+          final len = (hvcC[p] << 8) | hvcC[p + 1];
+          if (type == 33) {
+            return _hevcSpsDimensions(
+              Uint8List.sublistView(hvcC, p + 2, p + 2 + len),
+            );
+          }
+          p += 2 + len;
+        }
+      }
+    } catch (_) {}
+    return (0, 0);
+  }
+
+  static (int, int) _hevcSpsDimensions(Uint8List nal) {
+    // skip sps_video_parameter_set_id (4 bits)
+    final b = _BitReader(_rbsp(nal, 2))..bits(4);
+    final maxSubLayersMinus1 = b.bits(3);
+    b
+      ..bit() // temporal_id_nesting
+      ..bits(32) // general profile space / tier / idc + 24 compat bits
+      ..bits(8) // rest of the compatibility flags
+      ..bits(32) // source / constraint flags ...
+      ..bits(16) // ... (48 bits in all)
+      ..bits(8); // general_level_idc
+    final profilePresent = <bool>[];
+    final levelPresent = <bool>[];
+    for (var i = 0; i < maxSubLayersMinus1; i++) {
+      profilePresent.add(b.bit() == 1);
+      levelPresent.add(b.bit() == 1);
+    }
+    if (maxSubLayersMinus1 > 0) {
+      for (var i = maxSubLayersMinus1; i < 8; i++) {
+        b.bits(2);
+      }
+    }
+    for (var i = 0; i < maxSubLayersMinus1; i++) {
+      if (profilePresent[i]) {
+        b
+          ..bits(32)
+          ..bits(32)
+          ..bits(24); // 88 bits
+      }
+      if (levelPresent[i]) b.bits(8);
+    }
+    b.ue(); // sps_seq_parameter_set_id
+    final chroma = b.ue();
+    final separate = chroma == 3 && b.bit() == 1;
+    var width = b.ue();
+    var height = b.ue();
+    if (b.bit() == 1) {
+      final left = b.ue();
+      final right = b.ue();
+      final top = b.ue();
+      final bottom = b.ue();
+      final subW = !separate && (chroma == 1 || chroma == 2) ? 2 : 1;
+      final subH = !separate && chroma == 1 ? 2 : 1;
+      width -= subW * (left + right);
+      height -= subH * (top + bottom);
+    }
+    return (width, height);
+  }
+
+  /// RBSP of a NAL unit: without its [headerBytes] and the emulation
+  /// prevention bytes (00 00 03).
+  static Uint8List _rbsp(Uint8List nal, int headerBytes) {
+    final rbsp = <int>[];
+    var zeros = 0;
+    for (var i = headerBytes; i < nal.length; i++) {
+      final v = nal[i];
+      if (zeros >= 2 && v == 3) {
+        zeros = 0;
+        continue;
+      }
+      zeros = v == 0 ? zeros + 1 : 0;
+      rbsp.add(v);
+    }
+    return Uint8List.fromList(rbsp);
   }
 
   static Uint8List _tkhdTail(int volume, int width, int height) {

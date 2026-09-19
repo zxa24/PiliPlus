@@ -35,18 +35,26 @@ abstract final class DownloadExtras {
   static const infoName = 'librepili.json';
 
   /// Writes the enabled extras; returns what was written (for self tests).
+  /// [cancelled] is polled between steps and requests: once it returns true
+  /// (the entry was deleted) nothing more is fetched or written.
   static Future<Map<String, Object?>> export({
     required BiliDownloadEntryInfo entry,
     required String folder,
     required String base,
+    bool Function()? cancelled,
   }) async {
     final written = <String, Object?>{};
+    void check() {
+      if (cancelled?.call() ?? false) throw const _Cancelled();
+    }
+
     try {
       await File(path.join(folder, infoName)).writeAsString(
         const JsonEncoder.withIndent(' ').convert(entry.toJson()),
       );
     } catch (_) {}
     Future<void> step(String name, Future<Object?> Function() body) async {
+      if (cancelled?.call() ?? false) return;
       try {
         written[name] = await body();
       } catch (e) {
@@ -86,11 +94,11 @@ abstract final class DownloadExtras {
     }
 
     if (Pref.dlSaveSubtitle) {
-      await step('subtitles', () => _subtitles(entry, folder, base));
+      await step('subtitles', () => _subtitles(entry, folder, base, check));
     }
 
     if (Pref.dlSaveComments) {
-      await step('comments', () => _comments(entry, folder, base));
+      await step('comments', () => _comments(entry, folder, base, check));
     }
     return written;
   }
@@ -101,6 +109,7 @@ abstract final class DownloadExtras {
     BiliDownloadEntryInfo entry,
     String folder,
     String base,
+    void Function() check,
   ) async {
     final res = await VideoHttp.playInfo(
       bvid: entry.bvid,
@@ -129,6 +138,7 @@ abstract final class DownloadExtras {
     }
     final written = <String>[];
     for (final s in subtitles) {
+      check();
       final srt = await VideoHttp.getSubtitles(s.url, format: .srt);
       if (srt == null) continue;
       final name = '$base.${_safe(s.lan)}.srt';
@@ -144,6 +154,7 @@ abstract final class DownloadExtras {
     BiliDownloadEntryInfo entry,
     String folder,
     String base,
+    void Function() check,
   ) async {
     final maxRoots = Pref.dlCommentCount;
     final maxReplies = Pref.dlReplyCount;
@@ -152,6 +163,7 @@ abstract final class DownloadExtras {
     final roots = <ReplyInfo>[];
     Int64? cursorNext;
     while (roots.length < maxRoots) {
+      check();
       final res = await ReplyGrpc.mainList(
         oid: oid,
         mode: Mode.MAIN_LIST_HOT,
@@ -173,10 +185,11 @@ abstract final class DownloadExtras {
     final images = CommentImages(folder);
     final items = <Map<String, Object?>>[];
     for (final root in roots) {
+      check();
       var replies = root.replies.toList();
       final wanted = math.min(maxReplies, root.count.toInt());
       if (replies.length < wanted) {
-        replies = await _replies(oid, root.id.toInt(), wanted);
+        replies = await _replies(oid, root.id.toInt(), wanted, check);
       }
       items.add(
         await replyToJson(root, images)
@@ -197,17 +210,24 @@ abstract final class DownloadExtras {
       'count': items.length,
       'comments': items,
     };
+    check();
     await File(path.join(folder, '$base$commentsSuffix')).writeAsString(
       const JsonEncoder.withIndent(' ').convert(json),
     );
     return '${items.length} comments, ${images.saved} images';
   }
 
-  static Future<List<ReplyInfo>> _replies(int oid, int root, int wanted) async {
+  static Future<List<ReplyInfo>> _replies(
+    int oid,
+    int root,
+    int wanted,
+    void Function() check,
+  ) async {
     final out = <ReplyInfo>[];
     String? offset;
     while (out.length < wanted) {
       await Future.delayed(const Duration(milliseconds: 200));
+      check();
       final res = await ReplyGrpc.detailList(
         oid: oid,
         root: root,
@@ -285,14 +305,18 @@ abstract final class DownloadExtras {
     return b.toString();
   }
 
-  static final _xmlDanmaku = RegExp(r'<d p="([^"]*)">([\s\S]*?)</d>');
+  /// `<d ... p="..." ...>text</d>`; other tools may add attributes before
+  /// or after `p` and quote it with ' instead of ".
+  static final _xmlDanmaku = RegExp(
+    r'''<d\s[^>]*?\bp\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)</d>''',
+  );
 
   /// Parses Bilibili XML danmaku (as written by [danmakuToXml] or saved by
   /// other tools) back into elements for the player.
   static List<DanmakuElem> xmlToDanmaku(String xml) {
     final out = <DanmakuElem>[];
     for (final m in _xmlDanmaku.allMatches(xml)) {
-      final p = m.group(1)!.split(',');
+      final p = (m.group(1) ?? m.group(2)!).split(',');
       if (p.length < 4) continue;
       final seconds = double.tryParse(p[0]);
       if (seconds == null) continue;
@@ -307,19 +331,36 @@ abstract final class DownloadExtras {
           midHash: p.length > 6 ? p[6] : null,
           idStr: p.length > 7 ? p[7] : null,
           weight: p.length > 8 ? int.tryParse(p[8]) : null,
-          content: _xmlUnescape(m.group(2)!),
+          content: _xmlUnescape(m.group(3)!),
         ),
       );
     }
     return out;
   }
 
-  static String _xmlUnescape(String s) => s
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&apos;', "'")
-      .replaceAll('&amp;', '&');
+  static final _xmlEntity = RegExp(r'&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-z]+);');
+
+  /// Named and numeric (`&#39;`, `&#x27;`) entities, in one pass so an
+  /// escaped `&amp;lt;` stays `&lt;`.
+  static String _xmlUnescape(String s) => s.replaceAllMapped(_xmlEntity, (m) {
+    final e = m[1]!;
+    if (e.startsWith('#')) {
+      final code = e.length > 1 && (e[1] == 'x' || e[1] == 'X')
+          ? int.tryParse(e.substring(2), radix: 16)
+          : int.tryParse(e.substring(1));
+      return code != null && code >= 0 && code <= 0x10FFFF
+          ? String.fromCharCode(code)
+          : m[0]!;
+    }
+    return switch (e) {
+      'lt' => '<',
+      'gt' => '>',
+      'quot' => '"',
+      'apos' => "'",
+      'amp' => '&',
+      _ => m[0]!,
+    };
+  });
 
   static const _assW = 1920;
   static const _assH = 1080;
@@ -465,6 +506,13 @@ abstract final class DownloadExtras {
   static String _safe(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|\s]'), '_');
 }
 
+class _Cancelled implements Exception {
+  const _Cancelled();
+
+  @override
+  String toString() => 'cancelled';
+}
+
 /// Pictures and emotes of saved comments, stored once per URL in
 /// `comments_images/` next to the comments file.
 class CommentImages {
@@ -488,7 +536,9 @@ class CommentImages {
       final name = '${md5.convert(utf8.encode(url))}$ext';
       final file = File(path.join(folder, dirName, name));
       if (!file.existsSync()) {
-        await file.parent.create(recursive: true);
+        // not recursive: if the video folder was deleted meanwhile, fail
+        // instead of recreating it as an orphan
+        await file.parent.create();
         final part = '${file.path}.part';
         await Request.dio.download(url, part);
         await File(part).rename(file.path);

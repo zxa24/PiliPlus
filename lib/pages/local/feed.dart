@@ -24,6 +24,12 @@ class _LocalFeedTabState extends State<LocalFeedTab>
   static const _batchDelay = Duration(milliseconds: 400);
   static const _maxItems = 300;
 
+  /// Uploads per UP, kept for the session: opening the tab again or
+  /// (un)following someone only fetches the UPs not fetched recently, not
+  /// the whole list; pull to refresh fetches everyone.
+  static final _cache = <int, ({DateTime at, List<VListItemModel> items})>{};
+  static const _cacheTtl = Duration(minutes: 30);
+
   List<VListItemModel> _items = const [];
   bool _loading = false;
   int _failed = 0;
@@ -53,16 +59,26 @@ class _LocalFeedTabState extends State<LocalFeedTab>
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _refresh() => _load(force: true);
+
+  Future<void> _load({bool force = false}) async {
     final generation = ++_generation;
-    final follows = LocalLibrary.followList();
-    _mids = {for (final f in follows) f.mid};
+    final all = LocalLibrary.followList();
+    _mids = {for (final f in all) f.mid};
+    _cache.removeWhere((mid, _) => !_mids.contains(mid));
+    final now = DateTime.now();
+    final follows = [
+      for (final f in all)
+        if (force ||
+            _cache[f.mid] == null ||
+            now.difference(_cache[f.mid]!.at) > _cacheTtl)
+          f,
+    ];
     setState(() {
       _loading = true;
-      _followCount = follows.length;
+      _followCount = all.length;
       _failed = 0;
     });
-    final result = <VListItemModel>[];
     var failed = 0;
     String? firstError;
     for (var i = 0; i < follows.length; i += _concurrency) {
@@ -82,7 +98,7 @@ class _LocalFeedTabState extends State<LocalFeedTab>
             for (final e in (response.item ?? const []).take(_perUp))
               if (e.bvid != null) _toVideoItem(e, f.mid),
           ];
-          result.addAll(list);
+          _cache[f.mid] = (at: now, items: list);
           if (list.isNotEmpty) {
             LocalLibrary.updateFollowInfo(f.mid, name: list.first.owner.name);
           }
@@ -97,7 +113,9 @@ class _LocalFeedTabState extends State<LocalFeedTab>
       }
     }
     if (generation != _generation || !mounted) return;
-    result.sort((a, b) => (b.pubdate ?? 0).compareTo(a.pubdate ?? 0));
+    // a failed UP keeps its earlier uploads, if any
+    final result = [for (final f in all) ...?_cache[f.mid]?.items]
+      ..sort((a, b) => (b.pubdate ?? 0).compareTo(a.pubdate ?? 0));
     setState(() {
       _items = result.length > _maxItems
           ? result.sublist(0, _maxItems)
@@ -135,7 +153,7 @@ class _LocalFeedTabState extends State<LocalFeedTab>
       );
     }
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: _refresh,
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [

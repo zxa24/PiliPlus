@@ -11,6 +11,7 @@ import 'package:PiliPlus/utils/accounts/account_type_adapter.dart';
 import 'package:PiliPlus/utils/accounts/cookie_jar_adapter.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/set_int_adapter.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:hive_ce/hive.dart';
@@ -94,8 +95,16 @@ abstract final class GStorage {
   static Future<List<void>> importAllJsonSettings(
     Map<String, dynamic> map,
   ) {
+    // login mode is a per-device opt-in: a backup must not switch it (the
+    // running account state is not re-applied after an import)
+    final loginMode = Pref.loginMode;
+    // validate the local library first, so a bad backup changes nothing
+    LocalLibrary.checkImport(map);
     return Future.wait([
-      setting.clear().then((_) => setting.putAll(map[setting.name])),
+      setting
+          .clear()
+          .then((_) => setting.putAll(map[setting.name]))
+          .then((_) => setting.put(SettingBoxKey.loginMode, loginMode)),
       video.clear().then((_) => video.putAll(map[video.name])),
       LocalLibrary.importAll(map),
     ]);

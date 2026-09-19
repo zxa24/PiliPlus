@@ -54,6 +54,7 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
@@ -337,6 +338,11 @@ class VideoDetailController extends GetxController
   /// (hashed: Hive keys are ASCII, at most 255 chars).
   String get _progressKey {
     if (cid.value == 0) {
+      // Android documents: the cache folder path is not stable, the
+      // document is
+      if (entry.playKey ?? entry.playUri case final doc?) {
+        return 'u${md5.convert(utf8.encode(doc))}';
+      }
       if (entry.mergedPath case final file?) {
         return 'f${md5.convert(utf8.encode(file))}';
       }
@@ -764,6 +770,7 @@ class VideoDetailController extends GetxController
               isMp4: entry.mediaType == 1,
               hasDashAudio: entry.hasDashAudio,
               mergedPath: entry.mergedPath,
+              uri: entry.playUri,
             )
           : NetworkSource(
               videoSource: videoUrl!,
@@ -1309,6 +1316,7 @@ class VideoDetailController extends GetxController
     cid.close();
     if (isFileSource) {
       cacheLocalProgress();
+      LocalPlayer.release(entry);
     }
     introScrollCtr?.dispose();
     introScrollCtr = null;

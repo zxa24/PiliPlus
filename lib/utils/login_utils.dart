@@ -42,11 +42,35 @@ abstract final class LoginUtils {
     );
   }
 
+  /// LibrePili: pages in the in-app WebView are anonymous. Removes the stored
+  /// accounts' cookies (e.g. installed by an older build) and installs the
+  /// anonymous jar; account cookies go in only for explicit account flows
+  /// (the "reset cookie" menu, taking notes).
+  static FutureOr setAnonymousWebCookie() async {
+    if (Platform.isLinux) return null;
+    final webManager = web.CookieManager.instance(
+      webViewEnvironment: webViewEnvironment,
+    );
+    await Future.wait([
+      for (final account in Accounts.account.values)
+        for (final cookie in account.cookieJar.toList())
+          webManager.deleteCookie(
+            url: web.WebUri(
+              '${Platform.isWindows ? 'https://' : ''}${cookie.domain}',
+            ),
+            name: cookie.name,
+            path: cookie.path ?? '/',
+            domain: cookie.domain,
+          ),
+    ]);
+    return setWebCookie(AnonymousAccount());
+  }
+
   static Future<void> onLoginMain() async {
     final account = Accounts.main;
     final res = await UserHttp.userInfo();
     if (res case Success(:final response)) {
-      setWebCookie(account);
+      setAnonymousWebCookie();
       RequestUtils.syncHistoryStatus();
       if (response.isLogin == true) {
         final accountService = Get.find<AccountService>()

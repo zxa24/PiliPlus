@@ -7,6 +7,8 @@ import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/main.dart' show webViewEnvironment;
 import 'package:PiliPlus/models/common/enum_with_label.dart';
 import 'package:PiliPlus/models/common/webview_menu_type.dart';
+import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
@@ -49,6 +51,9 @@ class WebviewPage extends StatefulWidget {
   final int? oid;
   final String? title;
 
+  static bool _isNoteUrl(String url) =>
+      url.startsWith('https://www.bilibili.com/h5/note-app');
+
   static Future<dww.Webview?> openLinux({
     required String url,
     String? title,
@@ -60,8 +65,13 @@ class WebviewPage extends StatefulWidget {
   }) async {
     if (!Platform.isLinux) return null;
     final shouldInjectCookie = LinuxCookieManager.isBiliDomain(url);
+    // LibrePili: pages are anonymous; only taking notes needs the account
     final cookieJs = shouldInjectCookie
-        ? LinuxCookieManager.generateCookieInjectionJs()
+        ? LinuxCookieManager.generateCookieInjectionJs(
+            LinuxCookieManager.getCookies(
+              _isNoteUrl(url) ? null : AnonymousAccount(),
+            ),
+          )
         : '';
 
     final userScripts = <dww.UserScript>[
@@ -215,11 +225,27 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
       routeObserver.subscribe(this, Get.routing.route as GetPageRoute);
     }
 
-    if (Platform.isLinux) _initLinuxWebview();
+    if (Platform.isLinux) {
+      _initLinuxWebview();
+    } else if (WebviewPage._isNoteUrl(_url) && Accounts.main.isLogin) {
+      // taking notes is an account flow: the account's cookies go in before
+      // the page loads and are taken out again on close
+      _accountCookie = true;
+      _cookieReady = false;
+      Future.value(
+        LoginUtils.setWebCookie(Accounts.main),
+      ).whenComplete(() {
+        if (mounted) setState(() => _cookieReady = true);
+      });
+    }
   }
+
+  bool _accountCookie = false;
+  bool _cookieReady = true;
 
   @override
   void dispose() {
+    if (_accountCookie) LoginUtils.setAnonymousWebCookie();
     if (Platform.isAndroid) routeObserver.unsubscribe(this);
     if (Platform.isLinux) _closeLinuxWebview();
     _webViewController = null;
@@ -431,7 +457,7 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
               ),
               actions: _isPop ? null : _actions,
             ),
-      body: _isPop
+      body: _isPop || !_cookieReady
           ? null
           : SafeArea(
               child: InAppWebView(

@@ -1,0 +1,1272 @@
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/pages/video/controller.dart lib/pages/video/controller.dart
+--- audit-logs/librepili-pass-2/snap2/lib/pages/video/controller.dart	2026-09-19 14:02:14.884076400 -0400
++++ lib/pages/video/controller.dart	2026-09-19 14:08:44.682006700 -0400
+@@ -54,6 +54,7 @@
+ import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
+ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+ import 'package:PiliPlus/services/download/download_service.dart';
++import 'package:PiliPlus/services/local_player.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
+ import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:PiliPlus/utils/connectivity_utils.dart';
+@@ -1315,6 +1316,7 @@
+     cid.close();
+     if (isFileSource) {
+       cacheLocalProgress();
++      LocalPlayer.release(entry);
+     }
+     introScrollCtr?.dispose();
+     introScrollCtr = null;
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/plugin/pl_player/controller.dart lib/plugin/pl_player/controller.dart
+--- audit-logs/librepili-pass-2/snap2/lib/plugin/pl_player/controller.dart	2026-09-19 14:02:12.685315400 -0400
++++ lib/plugin/pl_player/controller.dart	2026-09-19 14:08:15.453347900 -0400
+@@ -806,11 +806,13 @@
+     // LibrePili (Android local player): libmpv cannot open content:// URIs,
+     // but reads a file descriptor (`fdclose://`: mpv closes it). A new one
+     // per open, since each open consumes it.
++    int? fd;
+     if (video.startsWith('content://')) {
+-      final fd = await LocalDocuments.openFd(video);
++      fd = await LocalDocuments.openFd(video);
+       if (fd == null) {
+         SmartDialog.showToast('无法读取该视频文件，请重新选择');
+-        return;
++        // setDataSource turns this into the error state
++        throw StateError('cannot open $video');
+       }
+       video = 'fdclose://$fd';
+     }
+@@ -832,14 +834,20 @@
+     }
+ 
+     assert(!isLive || seekTo == null);
+-    await player.open(
+-      Media(
+-        video,
+-        start: seekTo,
+-        extras: extras.isEmpty ? null : extras,
+-      ),
+-      play: false,
+-    );
++    try {
++      await player.open(
++        Media(
++          video,
++          start: seekTo,
++          extras: extras.isEmpty ? null : extras,
++        ),
++        play: false,
++      );
++    } catch (_) {
++      // mpv never took the descriptor: close it here
++      if (fd != null) await LocalDocuments.closeFd(fd);
++      rethrow;
++    }
+   }
+ 
+   Future<void>? refreshPlayer() {
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/services/download/download_service.dart lib/services/download/download_service.dart
+--- audit-logs/librepili-pass-2/snap2/lib/services/download/download_service.dart	2026-09-19 14:02:12.823530200 -0400
++++ lib/services/download/download_service.dart	2026-09-19 14:10:42.116468100 -0400
+@@ -1,6 +1,7 @@
+ import 'dart:async';
+ import 'dart:convert' show jsonDecode, jsonEncode;
+-import 'dart:io' show Directory, File, FileSystemException, Platform;
++import 'dart:io'
++    show Directory, File, FileSystemEntity, FileSystemException, Platform;
+ import 'dart:isolate' show Isolate;
+ 
+ import 'package:PiliPlus/common/constants.dart';
+@@ -288,17 +289,24 @@
+         aside = '${exportFolderName(dirName)} ($i)';
+       }
+       final moved = path.join(root, aside);
+-      await page.rename(moved);
+-      // the download that exported it still points at the old place
+-      for (final e in downloadList) {
+-        if (e.mergedPath case final merged?
+-            when path.isWithin(page.path, merged)) {
+-          e.mergedPath = path.join(
+-            moved,
+-            path.relative(merged, from: page.path),
+-          );
+-          await _updateBiliDownloadEntryJson(e);
++      try {
++        await page.rename(moved);
++        // the download that exported it still points at the old place
++        for (final e in downloadList) {
++          if (e.mergedPath case final merged?
++              when path.isWithin(page.path, merged)) {
++            e.mergedPath = path.join(
++              moved,
++              path.relative(merged, from: page.path),
++            );
++            await _updateBiliDownloadEntryJson(e);
++          }
+         }
++      } on FileSystemException catch (e) {
++        // e.g. Windows: a file in it is open (the export is playing). The
++        // download goes inside it then; the deletion guards on both sides
++        // keep the export's files and the download apart.
++        if (kDebugMode) debugPrint('cannot move export aside: $e');
+       }
+     }
+     final pageDir = Directory(path.join(root, dirName, pageDirName));
+@@ -586,7 +594,7 @@
+     _mergingCids.add(cid);
+     _mergeDeletedCids.remove(cid);
+     _updateCurStatus(DownloadStatus.merging);
+-    final (:output, :inputs) = await _mergeDownload(entry);
++    final (:output, :inputs, :damaged) = await _mergeDownload(entry);
+     _mergingCids.remove(cid);
+     final deleted = _mergeDeletedCids.remove(cid);
+     if (deleted || !Directory(entry.entryDirPath).existsSync()) {
+@@ -598,6 +606,16 @@
+       if (curDownload.value == null) nextDownload();
+       return;
+     }
++    if (damaged) {
++      // segments still damaged / missing: not complete. Stays in the queue
++      // as failed (like a failed transfer, the queue waits for the user);
++      // starting it again fetches a fresh play URL and merges again.
++      if (curDownload.value?.cid == cid) {
++        _updateCurStatus(DownloadStatus.failMerge);
++      }
++      await _updateBiliDownloadEntryJson(entry);
++      return;
++    }
+     // record completion before removing the stream files, so a crash here
+     // cannot turn the entry back into an incomplete one
+     entry.isCompleted = true;
+@@ -686,8 +704,10 @@
+   /// Turns the downloaded streams into one complete video file in the export
+   /// directory. Returns the file (null on failure) and the stream files the
+   /// caller removes once completion is saved. On failure the stream files
+-  /// are kept, so the entry still plays in-app as before.
+-  Future<({String? output, List<String> inputs})> _mergeDownload(
++  /// are kept, so the entry still plays in-app as before. [damaged]: durl
++  /// segments are damaged / missing even after re-downloading, so the
++  /// entry must not be treated as complete.
++  Future<({String? output, List<String> inputs, bool damaged})> _mergeDownload(
+     BiliDownloadEntryInfo entry,
+   ) async {
+     final videoDir = path.join(entry.entryDirPath, entry.typeTag);
+@@ -747,13 +767,15 @@
+       if (entry.mediaType == 1) {
+         // a damaged segment is a download problem, not a reason to keep the
+         // parts apart: fetch it again (bounded) before joining
+-        if (segments != null) await _repairSegments(inputs, segments);
++        if (segments != null) {
++          await _repairSegments(entry.cid, inputs, segments);
++        }
+         output = await _exportType1(inputs, output);
+       } else {
+         await _remuxInBackground(inputs, output);
+       }
+       entry.mergedPath = output;
+-      return (output: output, inputs: inputs);
++      return (output: output, inputs: inputs, damaged: false);
+     } catch (e) {
+       if (output != null) {
+         await File(output).tryDel();
+@@ -762,10 +784,13 @@
+           await folder.tryDel();
+         }
+       }
++      final damaged = entry.mediaType == 1 && e is FormatException;
+       entry.status = DownloadStatus.failMerge;
+-      SmartDialog.showToast('合并音视频失败，已保留分离的音视频文件');
++      SmartDialog.showToast(
++        damaged ? '视频分段已损坏且重新下载失败，可稍后重新开始该下载' : '合并音视频失败，已保留分离的音视频文件',
++      );
+       if (kDebugMode) debugPrint('merge download error: $e');
+-      return (output: null, inputs: inputs);
++      return (output: null, inputs: inputs, damaged: damaged);
+     } finally {
+       if (output != null) _mergeFolders.remove(path.dirname(output));
+     }
+@@ -778,18 +803,23 @@
+   /// missing ones again, up to [_maxSegmentRepairs] rounds; throws
+   /// [FormatException] if segments are still damaged after that.
+   Future<void> _repairSegments(
++    int cid,
+     List<String> inputs,
+     List<Type1Segment> segments,
+   ) async {
+     for (var round = 0; ; round++) {
+       final bad = <int>[];
++      final short = <int>{};
+       for (var i = 0; i < inputs.length && i < segments.length; i++) {
+         final file = File(inputs[i]);
+         final expected = segments[i].bytes;
+         final input = inputs[i];
+         if (!file.existsSync() ||
+-            (expected > 0 && file.lengthSync() < expected) ||
+-            !await Isolate.run(() => Mp4Remuxer.checkSegment(input))) {
++            (expected > 0 && file.lengthSync() < expected)) {
++          // missing, or the transfer stopped early: resume what is there
++          bad.add(i);
++          short.add(i);
++        } else if (!await Isolate.run(() => Mp4Remuxer.checkSegment(input))) {
+           bad.add(i);
+         }
+       }
+@@ -799,31 +829,55 @@
+       }
+       if (kDebugMode) debugPrint('re-downloading damaged segments $bad');
+       for (final i in bad) {
+-        await _redownloadSegment(segments[i], inputs[i]);
++        await _redownloadSegment(
++          cid,
++          segments[i],
++          inputs[i],
++          resume: short.contains(i),
++        );
+       }
+     }
+   }
+ 
+-  /// Downloads [segment] into [file] from scratch. Registered as the
+-  /// current manager, so deleting the entry cancels it.
+-  Future<void> _redownloadSegment(Type1Segment segment, String file) async {
+-    await File(file).tryDel();
++  /// Segment re-downloads in flight, by cid. Kept apart from the queue's
++  /// [_downloadManager]: the merge runs outside [_lock], so the queue may
++  /// start another entry meanwhile and must neither cancel nor replace it.
++  /// Deleting the entry cancels it.
++  final _repairManagers = <int, DownloadManager>{};
++
++  /// Fetches [segment] again. [resume]: the file is only short, so the
++  /// transfer continues in place (bytes are only appended). Otherwise a
++  /// fresh copy goes to `<file>.redl` and replaces [file] only once it is
++  /// complete: a failed re-download never loses the bytes that were there.
++  Future<void> _redownloadSegment(
++    int cid,
++    Type1Segment segment,
++    String file, {
++    required bool resume,
++  }) async {
++    final target = resume ? file : '$file.redl';
++    if (!resume) await File(target).tryDel();
+     final done = Completer<Object?>();
+     final manager = DownloadManager(
+       url: segment.url,
+       backupUrls: segment.backupUrls,
+-      path: file,
++      path: target,
+       onReceiveProgress: null,
+       onDone: ([error]) {
+         if (!done.isCompleted) done.complete(error);
+       },
+     );
+-    _downloadManager = manager;
++    _repairManagers[cid] = manager;
+     try {
+       final error = await done.future;
+       if (error != null) throw FormatException('segment re-download: $error');
++      if (!resume) {
++        await File(file).tryDel();
++        await File(target).rename(file);
++      }
+     } finally {
+-      if (identical(_downloadManager, manager)) _downloadManager = null;
++      if (identical(_repairManagers[cid], manager)) _repairManagers.remove(cid);
++      if (!resume) await File(target).tryDel();
+     }
+   }
+ 
+@@ -945,7 +999,21 @@
+   Future<void> _deleteMerged(BiliDownloadEntryInfo entry) async {
+     if (entry.mergedPath case final merged?) {
+       if (_isOwnFolder(merged)) {
+-        await Directory(path.dirname(merged)).tryDel(recursive: true);
++        final folder = Directory(path.dirname(merged));
++        final contents = folder.existsSync()
++            ? folder.listSync()
++            : const <FileSystemEntity>[];
++        bool isDownload(FileSystemEntity e) =>
++            e is Directory && File(path.join(e.path, _entryFile)).existsSync();
++        if (contents.any(isDownload)) {
++          // also a page folder holding downloads (made before exports
++          // avoided internal names): remove only the export's own files
++          for (final e in contents) {
++            if (!isDownload(e)) await e.tryDel(recursive: true);
++          }
++        } else {
++          await folder.tryDel(recursive: true);
++        }
+       } else {
+         await File(merged).tryDel();
+       }
+@@ -1001,8 +1069,18 @@
+   /// Internal page folders hold only entry folders; a folder with files at
+   /// its top level is an export (or the user's own) that happens to carry
+   /// the page folder's name.
+-  static bool _isForeignFolder(Directory dir) =>
+-      dir.listSync().any((e) => e is File);
++  static bool _isForeignFolder(Directory dir) => dir.listSync().any(
++    (e) => e is File && !_isOsClutter(path.basename(e.path)),
++  );
++
++  /// Files the OS / file managers drop into folders on their own.
++  static bool _isOsClutter(String name) {
++    final lower = name.toLowerCase();
++    return name.startsWith('.') || // .DS_Store, ._*, .nomedia ...
++        lower == 'desktop.ini' ||
++        lower == 'thumbs.db' ||
++        lower == 'ehthumbs.db';
++  }
+ 
+   static Future<String> _exportFilePath(BiliDownloadEntryInfo entry) async {
+     final dir = await _exportDir();
+@@ -1047,13 +1125,20 @@
+       base = '$name ($i)';
+     }
+     final folder = Directory(path.join(dir, base));
+-    if (folder.existsSync()) {
+-      for (final part in folder.listSync()) {
+-        await File(part.path).tryDel();
++    // claimed before the first await, so an overlapping merge with the same
++    // name cannot pick (and write into) the same folder
++    _mergeFolders.add(folder.path);
++    try {
++      if (folder.existsSync()) {
++        for (final part in folder.listSync()) {
++          await File(part.path).tryDel();
++        }
+       }
++      await folder.create(recursive: true);
++    } catch (_) {
++      _mergeFolders.remove(folder.path);
++      rethrow;
+     }
+-    await folder.create(recursive: true);
+-    _mergeFolders.add(folder.path);
+     return path.join(folder.path, '$base.mp4');
+   }
+ 
+@@ -1081,6 +1166,7 @@
+     if (_mergingCids.contains(entry.cid)) {
+       _mergeDeletedCids.add(entry.cid);
+     }
++    await _repairManagers[entry.cid]?.cancel(isDelete: true);
+     if (curDownload.value?.cid == entry.cid) {
+       await cancelDownload(
+         isDelete: true,
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/services/local_documents.dart lib/services/local_documents.dart
+--- audit-logs/librepili-pass-2/snap2/lib/services/local_documents.dart	2026-09-19 14:02:12.830595600 -0400
++++ lib/services/local_documents.dart	2026-09-19 14:08:28.078546300 -0400
+@@ -12,6 +12,7 @@
+     this.isDir = false,
+     this.docId,
+     this.key,
++    this.mime,
+   });
+ 
+   final String name;
+@@ -28,13 +29,24 @@
+   final String? key;
+ 
+   factory LocalDocument.fromMap(Map map) => LocalDocument(
+-    name: map['name'] as String? ?? '',
++    name: safeName(map['name'] as String? ?? ''),
+     uri: map['uri'] as String,
+     size: (map['size'] as num?)?.toInt() ?? 0,
+     isDir: map['isDir'] as bool? ?? false,
+     docId: map['docId'] as String?,
+     key: map['key'] as String?,
++    mime: map['mime'] as String?,
+   );
++
++  /// MIME type reported by the provider (picked files only).
++  final String? mime;
++
++  /// A provider's display name as a single path segment: names are joined
++  /// into cache paths, so separators and `.` / `..` must not survive.
++  static String safeName(String name) {
++    final s = name.replaceAll(RegExp(r'[/\\\x00]'), '_');
++    return s.isEmpty || s == '.' || s == '..' ? '_' : s;
++  }
+ }
+ 
+ /// The video of a folder and the side files that belong to it.
+@@ -120,6 +132,15 @@
+     }
+   }
+ 
++  /// Closes a descriptor from [openFd] that the player did not take.
++  static Future<void> closeFd(int fd) async {
++    try {
++      await _channel.invokeMethod<void>('closeFd', {'fd': fd});
++    } catch (e) {
++      if (kDebugMode) debugPrint('close fd: $e');
++    }
++  }
++
+   static List<LocalDocument> _docs(Object? list) => [
+     for (final e in (list as List?) ?? const [])
+       if (e is Map) LocalDocument.fromMap(e),
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/services/local_player.dart lib/services/local_player.dart
+--- audit-logs/librepili-pass-2/snap2/lib/services/local_player.dart	2026-09-19 14:02:12.815562600 -0400
++++ lib/services/local_player.dart	2026-09-19 14:09:09.583142900 -0400
+@@ -9,6 +9,7 @@
+ import 'package:PiliPlus/utils/path_utils.dart';
+ import 'package:crypto/crypto.dart' show md5;
+ import 'package:file_picker/file_picker.dart';
++import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+ import 'package:path/path.dart' as path;
+ 
+@@ -69,6 +70,12 @@
+       return;
+     }
+     if (doc == null) return;
++    // the picker also offers untyped files (MKV / FLV some providers do not
++    // label as video)
++    if (!isVideo(doc.name) && !(doc.mime?.startsWith('video/') ?? false)) {
++      SmartDialog.showToast('不是可播放的视频文件');
++      return;
++    }
+     final mirror = await _mirrorDir(doc.key ?? doc.uri);
+     final entry = _plainEntry(
+       path.basenameWithoutExtension(doc.name),
+@@ -96,16 +103,21 @@
+     final video = match.video;
+     final mirror = await _mirrorDir(video.key ?? video.uri);
+     final images = match.imagesDir;
++    var imageFiles = const <LocalDocument>[];
++    if (images?.docId case final docId?) {
++      try {
++        imageFiles = await LocalDocuments.list(tree.treeUri, docId);
++      } catch (e) {
++        // comments still load, just without their pictures
++        if (kDebugMode) debugPrint('list comment images: $e');
++      }
++    }
+     await LocalDocuments.copy([
+       for (final f in match.sideFiles)
+         (uri: f.uri, path: path.join(mirror, f.name)),
+-      if (images?.docId case final docId?)
+-        for (final f in await LocalDocuments.list(tree.treeUri, docId))
+-          if (!f.isDir)
+-            (
+-              uri: f.uri,
+-              path: path.join(mirror, CommentImages.dirName, f.name),
+-            ),
++      for (final f in imageFiles)
++        if (!f.isDir)
++          (uri: f.uri, path: path.join(mirror, CommentImages.dirName, f.name)),
+     ]);
+     await _openDocument(
+       _entryFor(
+@@ -130,25 +142,47 @@
+       ..isCompleted = true
+       ..entryDirPath = mirror
+       ..pageDirPath = path.dirname(mirror);
++    _mirrorsInUse.update(mirror, (n) => n + 1, ifAbsent: () => 1);
+     return _toVideoPage(entry);
+   }
+ 
+-  /// Cache folder for one document's side files. Earlier ones are removed
+-  /// here (on the next open), so the cache holds one video's small files.
++  /// Cache folders shown by a video page that is still open (count per
++  /// folder): kept until that page closes ([release]).
++  static final _mirrorsInUse = <String, int>{};
++
++  /// Cache folder for one document's side files. Folders no open page
++  /// shows are removed here (on the next open); this one is refilled.
+   static Future<String> _mirrorDir(String key) async {
+     final root = Directory(path.join(tmpDirPath, 'local_documents'));
+-    if (root.existsSync()) {
+-      try {
+-        await root.delete(recursive: true);
+-      } catch (_) {}
+-    }
+     final dir = Directory(
+       path.join(root.path, md5.convert(utf8.encode(key)).toString()),
+     );
++    if (root.existsSync()) {
++      for (final e in root.listSync()) {
++        if (_mirrorsInUse.containsKey(e.path)) continue;
++        try {
++          await e.delete(recursive: true);
++        } catch (_) {}
++      }
++    }
+     await dir.create(recursive: true);
+     return dir.path;
+   }
+ 
++  /// The video page showing [entry] closed: its side-file cache folder
++  /// goes once no other open page shows it.
++  static void release(BiliDownloadEntryInfo entry) {
++    if (entry.playUri == null) return;
++    final dir = entry.entryDirPath;
++    final n = (_mirrorsInUse[dir] ?? 1) - 1;
++    if (n > 0) {
++      _mirrorsInUse[dir] = n;
++      return;
++    }
++    _mirrorsInUse.remove(dir);
++    Directory(dir).delete(recursive: true).catchError((_) => Directory(dir));
++  }
++
+   /// Opens a video file or a folder containing one. Returns false (and
+   /// shows a toast) when nothing playable is found.
+   static Future<bool> open(String target, {String? heroTag}) async {
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/utils/accounts/account_manager/account_mgr.dart lib/utils/accounts/account_manager/account_mgr.dart
+--- audit-logs/librepili-pass-2/snap2/lib/utils/accounts/account_manager/account_mgr.dart	2026-09-19 14:02:12.850180900 -0400
++++ lib/utils/accounts/account_manager/account_mgr.dart	2026-09-19 14:51:54.029858200 -0400
+@@ -250,14 +250,12 @@
+         _explicitAccountApis.contains(options.path)) {
+       return explicit;
+     }
+-    var account = explicit ?? _findAccount(options.path);
+     // LibrePili: no global login. Even in login mode the account is only
+     // attached where it is required; everything else goes out anonymously.
+-    if (account is LoginAccount &&
+-        (!LoginPolicy.loginMode || !LoginPolicy.requiresAccount(options))) {
+-      account = AnonymousAccount();
+-    }
+-    return options.extra['account'] = account;
++    return options.extra['account'] = LoginPolicy.bind(
++      explicit ?? _findAccount(options.path),
++      options,
++    );
+   }
+ 
+   static const _accessKeys = ['access_key', 'mobile_access_key'];
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/utils/accounts/login_policy.dart lib/utils/accounts/login_policy.dart
+--- audit-logs/librepili-pass-2/snap2/lib/utils/accounts/login_policy.dart	2026-09-19 14:02:12.856135800 -0400
++++ lib/utils/accounts/login_policy.dart	2026-09-19 14:51:51.985101500 -0400
+@@ -2,14 +2,18 @@
+ import 'package:PiliPlus/http/api.dart';
+ import 'package:PiliPlus/http/constants.dart';
+ import 'package:PiliPlus/utils/accounts.dart';
++import 'package:PiliPlus/utils/accounts/account.dart';
+ import 'package:PiliPlus/utils/storage_pref.dart';
+ import 'package:dio/dio.dart';
+ 
+ /// LibrePili privacy model: incognito by default, login is opt-in, and even
+ /// in login mode the account is attached only to requests that need it.
+ ///
+-/// Everything else (recommend, search, video info, comments, spaces...) is
+-/// sent anonymously so it cannot be tied to the account.
++/// In login mode the home "推荐" feed (and its "不感兴趣" feedback) uses the
++/// account assigned to the recommend role, so the feed is personalised; with
++/// that role left anonymous it stays anonymous. Everything else (search,
++/// other home tabs, video info, comments, spaces...) is sent anonymously so
++/// it cannot be tied to the account. Incognito: everything is anonymous.
+ abstract final class LoginPolicy {
+   /// Opt-in switch. Off: every account role is anonymous (stored accounts
+   /// stay dormant). On: see [requiresAccount].
+@@ -61,6 +65,16 @@
+     Api.qrcodeConfirm, Api.logout, Api.activateBuvidApi,
+   };
+ 
++  /// The home "推荐" feed and its dislike feedback (user decision: not
++  /// anonymous in login mode). Bound to the recommend role's account (see
++  /// ApiType), which may itself be anonymous.
++  static const Set<String> _recommendApis = {
++    Api.recommendListApp,
++    Api.recommendListWeb,
++    Api.feedDislike,
++    Api.feedDislikeCancel,
++  };
++
+   static const Set<String> _grpcAccountApis = {
+     GrpcUrl.dynRed,
+     GrpcUrl.audioPlayUrl,
+@@ -79,6 +93,22 @@
+   /// off. Existing comments and danmaku are displayed either way.
+   static bool get canInteract => Accounts.main.isLogin && !Pref.hideInteraction;
+ 
++  /// The account [options] goes out with: [account] is the one its role
++  /// resolved to (see ApiType), kept only when login mode is on and the
++  /// request needs it; otherwise anonymous. [loginMode] defaults to the
++  /// setting (tests pass it).
++  static Account bind(
++    Account account,
++    RequestOptions options, {
++    bool? loginMode,
++  }) {
++    if (account is LoginAccount &&
++        (!(loginMode ?? LoginPolicy.loginMode) || !requiresAccount(options))) {
++      return AnonymousAccount();
++    }
++    return account;
++  }
++
+   /// Whether [options] may carry the logged-in account. False means it is
+   /// sent anonymously even in login mode.
+   static bool requiresAccount(RequestOptions options) {
+@@ -88,6 +118,7 @@
+         ? path.substring(HttpString.appBaseUrl.length)
+         : path;
+     if (_accountApis.contains(path) ||
++        _recommendApis.contains(path) ||
+         _grpcAccountApis.contains(grpcPath) ||
+         _grpcAccountPrefixes.any(grpcPath.startsWith)) {
+       return true;
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/utils/flv_demux.dart lib/utils/flv_demux.dart
+--- audit-logs/librepili-pass-2/snap2/lib/utils/flv_demux.dart	2026-09-19 14:02:12.962714700 -0400
++++ lib/utils/flv_demux.dart	2026-09-19 14:58:06.546904800 -0400
+@@ -60,6 +60,11 @@
+             audio.addAudioTag(input, dataPos, dataSize, head, time, r);
+           }
+         }
++        // a whole file ends exactly after the last PreviousTagSize; less
++        // (a cut tag header or size field) means the transfer stopped early
++        if (strict && pos != r.length) {
++          throw FormatException('FLV cut off at $pos of ${r.length}: $input');
++        }
+       } finally {
+         raf.closeSync();
+       }
+@@ -332,10 +337,99 @@
+     );
+   }
+ 
+-  /// Picture size for the sample entry; (0, 0) when not read (HEVC: the
+-  /// decoder takes it from the SPS in the hvcC).
++  /// Picture size for the sample entry and track header; (0, 0) when it
++  /// cannot be read.
+   (int, int) _videoDimensions(Uint8List config) =>
+-      codec == 'hvc1' ? (0, 0) : _avcDimensions(config);
++      codec == 'hvc1' ? _hevcDimensions(config) : _avcDimensions(config);
++
++  /// Conformance-window size from the first SPS of an HEVC configuration
++  /// record (H.265 7.3.2.2.1); (0, 0) if it cannot be read.
++  static (int, int) _hevcDimensions(Uint8List hvcC) {
++    try {
++      var p = 23;
++      for (var a = 0; a < hvcC[22]; a++) {
++        final type = hvcC[p] & 0x3F;
++        final n = (hvcC[p + 1] << 8) | hvcC[p + 2];
++        p += 3;
++        for (var i = 0; i < n; i++) {
++          final len = (hvcC[p] << 8) | hvcC[p + 1];
++          if (type == 33) {
++            return _hevcSpsDimensions(
++              Uint8List.sublistView(hvcC, p + 2, p + 2 + len),
++            );
++          }
++          p += 2 + len;
++        }
++      }
++    } catch (_) {}
++    return (0, 0);
++  }
++
++  static (int, int) _hevcSpsDimensions(Uint8List nal) {
++    // skip sps_video_parameter_set_id (4 bits)
++    final b = _BitReader(_rbsp(nal, 2))..bits(4);
++    final maxSubLayersMinus1 = b.bits(3);
++    b
++      ..bit() // temporal_id_nesting
++      ..bits(32) // general profile space / tier / idc + 24 compat bits
++      ..bits(8) // rest of the compatibility flags
++      ..bits(32) // source / constraint flags ...
++      ..bits(16) // ... (48 bits in all)
++      ..bits(8); // general_level_idc
++    final profilePresent = <bool>[];
++    final levelPresent = <bool>[];
++    for (var i = 0; i < maxSubLayersMinus1; i++) {
++      profilePresent.add(b.bit() == 1);
++      levelPresent.add(b.bit() == 1);
++    }
++    if (maxSubLayersMinus1 > 0) {
++      for (var i = maxSubLayersMinus1; i < 8; i++) {
++        b.bits(2);
++      }
++    }
++    for (var i = 0; i < maxSubLayersMinus1; i++) {
++      if (profilePresent[i]) {
++        b
++          ..bits(32)
++          ..bits(32)
++          ..bits(24); // 88 bits
++      }
++      if (levelPresent[i]) b.bits(8);
++    }
++    b.ue(); // sps_seq_parameter_set_id
++    final chroma = b.ue();
++    final separate = chroma == 3 && b.bit() == 1;
++    var width = b.ue();
++    var height = b.ue();
++    if (b.bit() == 1) {
++      final left = b.ue();
++      final right = b.ue();
++      final top = b.ue();
++      final bottom = b.ue();
++      final subW = !separate && (chroma == 1 || chroma == 2) ? 2 : 1;
++      final subH = !separate && chroma == 1 ? 2 : 1;
++      width -= subW * (left + right);
++      height -= subH * (top + bottom);
++    }
++    return (width, height);
++  }
++
++  /// RBSP of a NAL unit: without its [headerBytes] and the emulation
++  /// prevention bytes (00 00 03).
++  static Uint8List _rbsp(Uint8List nal, int headerBytes) {
++    final rbsp = <int>[];
++    var zeros = 0;
++    for (var i = headerBytes; i < nal.length; i++) {
++      final v = nal[i];
++      if (zeros >= 2 && v == 3) {
++        zeros = 0;
++        continue;
++      }
++      zeros = v == 0 ? zeros + 1 : 0;
++      rbsp.add(v);
++    }
++    return Uint8List.fromList(rbsp);
++  }
+ 
+   static Uint8List _tkhdTail(int volume, int width, int height) {
+     final w = _W()
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/lib/utils/mp4_remux.dart lib/utils/mp4_remux.dart
+--- audit-logs/librepili-pass-2/snap2/lib/utils/mp4_remux.dart	2026-09-19 14:02:12.968726700 -0400
++++ lib/utils/mp4_remux.dart	2026-09-19 14:10:42.461126900 -0400
+@@ -99,6 +99,9 @@
+       return true;
+     } on FormatException {
+       return false;
++    } on RangeError {
++      // e.g. a box header cut off before its 64-bit size
++      return false;
+     } on UnsupportedError {
+       // readable, just not joinable: not a download problem
+       return true;
+@@ -137,6 +140,9 @@
+     String output,
+     void Function(int copied, int total)? onProgress,
+   ) async {
++    for (final t in tracks) {
++      t._inlineParameterSets();
++    }
+     final chunks = [for (final t in tracks) ...t.chunks]
+       ..sort((a, b) {
+         final c = a.startSeconds.compareTo(b.startSeconds);
+@@ -184,6 +190,11 @@
+         ).open();
+         await src.setPosition(c.sourceOffset);
+         var remaining = c.length;
++        if (c.prefix case final prefix?) {
++          await out.writeFrom(prefix);
++          remaining -= prefix.length;
++          copied += prefix.length;
++        }
+         while (remaining > 0) {
+           final n = await src.readInto(
+             buffer,
+@@ -295,6 +306,10 @@
+ 
+   /// 1-based index of the sample entry (in `stsd`) its samples use.
+   int descIndex = 1;
++
++  /// Bytes written before the source bytes (counted in [length] and in the
++  /// first sample's size): in-band parameter sets at a configuration switch.
++  Uint8List? prefix;
+   double get startSeconds => startDts / track.timescale;
+ }
+ 
+@@ -330,6 +345,36 @@
+   /// The `stsd` box written to the output.
+   Uint8List get stsdBox =>
+       sampleEntries == null ? stsd : _stsdOf(sampleEntries!);
++
++  bool _inlined = false;
++
++  /// HEVC with several configurations: the switch to another sample entry
++  /// is only signalled through the container, which FFmpeg's
++  /// `hevc_mp4toannexb` (the MediaCodec path) ignores, so the new frames
++  /// would be decoded with the first VPS/SPS/PPS. The first sample after
++  /// each switch therefore also carries its configuration's parameter sets
++  /// in-band, and the entries become `hev1` (parameter sets may be in-band).
++  void _inlineParameterSets() {
++    final entries = sampleEntries;
++    if (_inlined || entries == null || entries.length < 2) return;
++    if (sampleEntryType != 'hvc1' && sampleEntryType != 'hev1') return;
++    _inlined = true;
++    for (final e in entries) {
++      e.setAll(4, 'hev1'.codeUnits);
++    }
++    sampleEntryType = 'hev1';
++    for (var i = 1; i < chunks.length; i++) {
++      final c = chunks[i];
++      if (c.descIndex == chunks[i - 1].descIndex) continue;
++      final prefix = _hevcParameterSets(entries[c.descIndex - 1]);
++      if (prefix == null || prefix.isEmpty) continue;
++      c
++        ..prefix = prefix
++        ..length += prefix.length;
++      sizes[c.firstSample] += prefix.length;
++    }
++  }
++
+   final edits = <_EditEntry>[];
+ 
+   // trex defaults
+@@ -809,6 +854,46 @@
+   ];
+ }
+ 
++/// The `hvcC` body inside an HEVC visual sample entry, or null.
++Uint8List? _hvcCOf(Uint8List entry) {
++  // box header (8) + VisualSampleEntry fields (78), then child boxes
++  if (entry.length <= 86) return null;
++  try {
++    for (final (type, body) in _R(Uint8List.sublistView(entry, 86)).boxes()) {
++      if (type == 'hvcC') return body;
++    }
++  } on FormatException {
++    return null;
++  }
++  return null;
++}
++
++/// The parameter-set NAL units (VPS / SPS / PPS / SEI arrays) of an HEVC
++/// sample entry's `hvcC`, each prefixed with its length the way samples
++/// are (lengthSizeMinusOne + 1 bytes).
++Uint8List? _hevcParameterSets(Uint8List entry) {
++  final c = _hvcCOf(entry);
++  if (c == null || c.length < 23) return null;
++  final lengthSize = (c[21] & 3) + 1;
++  final w = BytesBuilder();
++  var p = 23;
++  for (var a = 0; a < c[22] && p + 3 <= c.length; a++) {
++    final n = (c[p + 1] << 8) | c[p + 2];
++    p += 3;
++    for (var i = 0; i < n && p + 2 <= c.length; i++) {
++      final len = (c[p] << 8) | c[p + 1];
++      p += 2;
++      if (p + len > c.length) return null;
++      for (var b = lengthSize - 1; b >= 0; b--) {
++        w.addByte((len >> (8 * b)) & 0xFF);
++      }
++      w.add(Uint8List.sublistView(c, p, p + len));
++      p += len;
++    }
++  }
++  return w.toBytes();
++}
++
+ bool _sameBytes(Uint8List a, Uint8List b) {
+   if (a.length != b.length) return false;
+   for (var i = 0; i < a.length; i++) {
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/test/utils/flv_demux_test.dart test/utils/flv_demux_test.dart
+--- audit-logs/librepili-pass-2/snap2/test/utils/flv_demux_test.dart	2026-09-19 14:02:15.532228000 -0400
++++ test/utils/flv_demux_test.dart	2026-09-19 14:10:42.633328100 -0400
+@@ -538,11 +538,108 @@
+       );
+       expect(Mp4Remuxer.checkSegment(cut), isFalse);
+     });
++
++    test('FLV cut inside a tag header is not fine', () {
++      final bytes = basicFlv();
++      // whole file plus the first 6 bytes of another tag header
++      final cut = Uint8List.fromList([...bytes, 9, 0, 0, 10, 0, 0]);
++      expect(Mp4Remuxer.checkSegment(write('hdr.flv', cut)), isFalse);
++    });
++
++    test('MP4 ending in a cut 64-bit box header is not fine', () async {
++      final input = write('b.flv', basicFlv());
++      final output = '${dir.path}/b.mp4';
++      await Mp4Remuxer.remuxFlv(inputs: [input], output: output);
++      final bytes = File(output).readAsBytesSync();
++      // size == 1 (64-bit size follows), but only 4 of its 8 bytes arrived
++      final cut = write(
++        'bcut.mp4',
++        Uint8List.fromList([...bytes, 0, 0, 0, 1, ...'free'.codeUnits, 0, 0]),
++      );
++      expect(Mp4Remuxer.checkSegment(cut), isFalse);
++    });
++  });
++
++  group('HEVC parameter sets', () {
++    test('picture size comes from the SPS in the hvcC', () {
++      final flv = _Flv()
++        ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcCWith(_spsHevc320)])
++        ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)]);
++      final v = Mp4Remuxer.debugFlvTracks([write('hs.flv', flv.bytes)]).single;
++      final tail = v['tkhdTail']! as Uint8List;
++      expect(_u32(tail, tail.length - 8) >> 16, 320);
++      expect(_u32(tail, tail.length - 4) >> 16, 240);
++    });
++
++    test('a configuration switch carries its parameter sets in-band', () async {
++      List<int> seg(int level, int fill) =>
++          (_Flv()
++                ..tag(9, 0, [
++                  0x1C,
++                  0,
++                  0,
++                  0,
++                  0,
++                  ..._hvcCWith(_spsHevc320, level: level),
++                ])
++                ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, fill)])
++                ..tag(9, 40, [0x2C, 1, 0, 0, 0, ..._nal(10, fill)]))
++              .bytes;
++      final output = '${dir.path}/switch.mp4';
++      await Mp4Remuxer.remuxFlv(
++        inputs: [
++          write('h1.flv', Uint8List.fromList(seg(0x3c, 1))),
++          write('h2.flv', Uint8List.fromList(seg(0x5d, 2))),
++        ],
++        output: output,
++      );
++      final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
++      // hev1: parameter sets may also be in-band
++      expect(v['type'], 'hev1');
++      expect(v['descIndexes'], [1, 1, 2, 2]);
++      // the first sample after the switch grew by one length-prefixed SPS
++      final inband = [0, 0, 0, _spsHevc320.length, ..._spsHevc320];
++      expect(v['sizes'], [15, 15, 15 + inband.length, 15]);
++      final mp4 = File(output).readAsBytesSync();
++      final at = _indexOf(mp4, [...inband, ..._nal(10, 2)]);
++      expect(at, isNot(-1));
++    });
++
++    test('a single configuration stays hvc1 with nothing in-band', () async {
++      final flv = _Flv()
++        ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcCWith(_spsHevc320)])
++        ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)]);
++      final output = '${dir.path}/one.mp4';
++      await Mp4Remuxer.remuxFlv(
++        inputs: [write('one.flv', flv.bytes)],
++        output: output,
++      );
++      final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
++      expect(v['type'], 'hvc1');
++      expect(v['sizes'], [15]);
++    });
+   });
+ }
+ 
+ // AAC LC, 48000 Hz, stereo
+ const _asc48k = [0x11, 0x90];
+ 
++/// A real x265 SPS (320x240, Main profile).
++const _spsHevc320 = [
++  0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, //
++  0x03, 0x00, 0x00, 0x03, 0x00, 0x3c, 0xa0, 0x0a, 0x08, 0x0f, 0x16, 0x59,
++  0x59, 0xa4, 0x93, 0x2b, 0xc0, 0x5a, 0x02, 0x00, 0x00, 0x03, 0x00, 0x02,
++  0x00, 0x00, 0x03, 0x00, 0x32, 0x10,
++];
++
++/// An HEVCDecoderConfigurationRecord holding [sps] (4-byte NAL lengths);
++/// [level] varies the record so two configurations differ.
++List<int> _hvcCWith(List<int> sps, {int level = 0x3c}) => [
++  1, 1, 0x60, 0, 0, 0, 0x90, 0, 0, 0, 0, 0, level, 0xf0, 0x00, 0xfc, //
++  0xfd, 0xf8, 0xf8, 0x00, 0x00, 0x0f, // lengthSizeMinusOne = 3
++  1, // one array: SPS
++  0xa1, 0, 1, sps.length >> 8, sps.length & 0xFF, ...sps,
++];
++
+ /// An HEVCDecoderConfigurationRecord stand-in (the demuxer copies it as is).
+ const _hvcC = [1, 1, 0x60, 0, 0, 0, 0x90, 0, 0, 0, 0, 0, 0x5D, 0xF0];
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/test/utils/local_documents_test.dart test/utils/local_documents_test.dart
+--- audit-logs/librepili-pass-2/snap2/test/utils/local_documents_test.dart	2026-09-19 14:02:15.528904000 -0400
++++ test/utils/local_documents_test.dart	2026-09-19 14:51:08.161287400 -0400
+@@ -64,6 +64,18 @@
+       expect(m.sideFiles.map((e) => e.name), ['movie.zh.srt']);
+     });
+ 
++    test('provider names cannot escape the cache folder', () {
++      expect(LocalDocument.safeName('a/b.mp4'), 'a_b.mp4');
++      expect(LocalDocument.safeName(r'..\x.srt'), '.._x.srt');
++      expect(LocalDocument.safeName('..'), '_');
++      expect(LocalDocument.safeName('.'), '_');
++      expect(LocalDocument.safeName(''), '_');
++      expect(
++        LocalDocument.fromMap({'name': '../evil', 'uri': 'content://x'}).name,
++        '.._evil',
++      );
++    });
++
+     test('no video, or only a folder named like one', () {
+       expect(_match([_f('a.txt'), _d('b.mp4')]), isNull);
+       expect(_match(const []), isNull);
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/test/utils/login_policy_test.dart test/utils/login_policy_test.dart
+--- audit-logs/librepili-pass-2/snap2/test/utils/login_policy_test.dart	2026-09-19 14:02:15.533819300 -0400
++++ test/utils/login_policy_test.dart	2026-09-19 14:52:27.217571800 -0400
+@@ -2,6 +2,7 @@
+ import 'package:PiliPlus/http/api.dart';
+ import 'package:PiliPlus/http/constants.dart';
+ import 'package:PiliPlus/models/common/member/profile_type.dart';
++import 'package:PiliPlus/utils/accounts/account.dart';
+ import 'package:PiliPlus/utils/accounts/login_policy.dart';
+ import 'package:dio/dio.dart';
+ import 'package:flutter_test/flutter_test.dart';
+@@ -27,9 +28,9 @@
+       Api.searchDefault,
+       Api.hotSearchList,
+       Api.searchTrending,
+-      Api.recommendListApp,
+-      Api.recommendListWeb,
+       Api.hotList,
++      Api.liveList,
++      Api.getRankApi,
+       Api.relatedList,
+       Api.videoIntro,
+       Api.replyList,
+@@ -113,4 +114,51 @@
+       );
+     });
+   });
++
++  group('LoginPolicy.bind — home 推荐 feed follows the recommend role', () {
++    final account = LoginAccount(
++      BiliCookieJar.fromJson({'DedeUserID': '123', 'bili_jct': 'csrf'}),
++      'access-key',
++      'refresh-token',
++    );
++    final recommend = [
++      Api.recommendListApp,
++      Api.recommendListWeb,
++      Api.feedDislike,
++      Api.feedDislikeCancel,
++    ];
++
++    for (final path in recommend) {
++      test('login mode + recommend role account -> account: $path', () {
++        expect(
++          LoginPolicy.bind(account, _req(path), loginMode: true),
++          same(account),
++        );
++      });
++
++      test('login mode + anonymous recommend role -> anonymous: $path', () {
++        expect(
++          LoginPolicy.bind(AnonymousAccount(), _req(path), loginMode: true),
++          isA<AnonymousAccount>(),
++        );
++      });
++
++      test('incognito -> anonymous: $path', () {
++        expect(
++          LoginPolicy.bind(account, _req(path), loginMode: false),
++          isA<AnonymousAccount>(),
++        );
++      });
++    }
++
++    test('other home tabs stay anonymous in login mode', () {
++      for (final path in [Api.hotList, Api.liveList, Api.getRankApi]) {
++        expect(
++          LoginPolicy.bind(account, _req(path), loginMode: true),
++          isA<AnonymousAccount>(),
++          reason: path,
++        );
++      }
++    });
++  });
+ }
+diff -ruN --strip-trailing-cr audit-logs/librepili-pass-2/snap2/android/app/src/main/kotlin/com/example/piliplus/MainActivity.kt android/app/src/main/kotlin/com/example/piliplus/MainActivity.kt
+--- audit-logs/librepili-pass-2/snap2/android/app/src/main/kotlin/com/example/piliplus/MainActivity.kt	2026-09-19 14:02:15.564369800 -0400
++++ android/app/src/main/kotlin/com/example/piliplus/MainActivity.kt	2026-09-19 14:09:49.046184200 -0400
+@@ -6,6 +6,9 @@
+ import android.net.Uri
+ import android.os.Build
+ import android.os.Bundle
++import android.os.Handler
++import android.os.Looper
++import android.os.ParcelFileDescriptor
+ import android.provider.DocumentsContract
+ import android.provider.OpenableColumns
+ import android.view.WindowManager.LayoutParams
+@@ -13,6 +16,7 @@
+ import io.flutter.embedding.engine.FlutterEngine
+ import io.flutter.plugin.common.MethodChannel
+ import java.io.File
++import java.util.concurrent.ExecutorService
+ import java.util.concurrent.Executors
+ 
+ class MainActivity : AudioServiceActivity() {
+@@ -39,9 +43,20 @@
+                     // system picker (Storage Access Framework). No storage
+                     // permission, and the video is never copied.
+                     "pickVideoFile" -> pick(result, REQUEST_PICK_FILE) {
++                        // some providers label MKV / FLV as untyped: offer those
++                        // too, Dart rejects what is not a video
+                         Intent(Intent.ACTION_OPEN_DOCUMENT)
+                             .addCategory(Intent.CATEGORY_OPENABLE)
+-                            .setType("video/*")
++                            .setType("*/*")
++                            .putExtra(
++                                Intent.EXTRA_MIME_TYPES,
++                                arrayOf(
++                                    "video/*",
++                                    "video/x-matroska",
++                                    "video/x-flv",
++                                    "application/octet-stream",
++                                ),
++                            )
+                     }
+                     "pickVideoFolder" -> pick(result, REQUEST_PICK_FOLDER) {
+                         Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+@@ -74,14 +89,24 @@
+                             }
+                         }
+                     }
++                    "closeFd" -> {
++                        val fd = call.argument<Int>("fd")
++                        if (fd == null) {
++                            result.error("ARG", "fd is required", null)
++                        } else {
++                            // a descriptor from openFd the player did not take
++                            try {
++                                ParcelFileDescriptor.adoptFd(fd).close()
++                            } catch (_: Exception) {
++                            }
++                            result.success(null)
++                        }
++                    }
+                     else -> result.notImplemented()
+                 }
+             }
+     }
+ 
+-    private var pendingPick: MethodChannel.Result? = null
+-    private val io = Executors.newSingleThreadExecutor()
+-
+     private fun pick(result: MethodChannel.Result, requestCode: Int, intent: () -> Intent) {
+         if (pendingPick != null) {
+             result.error("BUSY", "a picker is already open", null)
+@@ -90,10 +115,7 @@
+         pendingPick = result
+         try {
+             startActivityForResult(
+-                intent().addFlags(
+-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+-                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+-                ),
++                intent().addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                 requestCode,
+             )
+         } catch (e: Exception) {
+@@ -103,12 +125,12 @@
+     }
+ 
+     private fun background(result: MethodChannel.Result, work: () -> Any?) {
+-        io.execute {
++        io().execute {
+             try {
+                 val value = work()
+-                runOnUiThread { result.success(value) }
++                mainHandler.post { result.success(value) }
+             } catch (e: Exception) {
+-                runOnUiThread { result.error("IO", e.message, null) }
++                mainHandler.post { result.error("IO", e.message, null) }
+             }
+         }
+     }
+@@ -125,7 +147,8 @@
+             result.success(null)
+             return
+         }
+-        keepGrant(uri)
++        // the grant is not persisted: nothing reopens a document later (the
++        // URI is not saved), and the session grant covers playing it now
+         background(result) {
+             if (requestCode == REQUEST_PICK_FOLDER) {
+                 mapOf("uri" to uri.toString(), "children" to listChildren(uri, null))
+@@ -135,29 +158,6 @@
+         }
+     }
+ 
+-    /** Keeps read access across restarts (resume / reopen), within the system limit. */
+-    private fun keepGrant(uri: Uri) {
+-        try {
+-            val kept = contentResolver.persistedUriPermissions
+-            if (kept.size >= MAX_KEPT_GRANTS) {
+-                kept.sortedBy { it.persistedTime }
+-                    .take(kept.size - MAX_KEPT_GRANTS + 1)
+-                    .forEach {
+-                        contentResolver.releasePersistableUriPermission(
+-                            it.uri,
+-                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+-                        )
+-                    }
+-            }
+-            contentResolver.takePersistableUriPermission(
+-                uri,
+-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+-            )
+-        } catch (_: SecurityException) {
+-            // not persistable: still readable for this session
+-        }
+-    }
+-
+     /** Stable identity of a document (the same file picked again). */
+     private fun keyOf(uri: Uri): String = try {
+         "${uri.authority}/${DocumentsContract.getDocumentId(uri)}"
+@@ -185,6 +185,7 @@
+             "uri" to uri.toString(),
+             "size" to size,
+             "key" to keyOf(uri),
++            "mime" to contentResolver.getType(uri),
+         )
+     }
+ 
+@@ -228,15 +229,21 @@
+         for (item in items) {
+             val from = item["uri"] ?: continue
+             val to = item["path"] ?: continue
++            // written beside and renamed once complete: a copy that fails
++            // part-way never leaves a truncated danmaku / comments file
++            val file = File(to)
++            val part = File("$to.part")
+             try {
+-                val file = File(to)
+                 file.parentFile?.mkdirs()
+                 contentResolver.openInputStream(Uri.parse(from))?.use { input ->
+-                    file.outputStream().use { input.copyTo(it) }
+-                    copied++
++                    part.outputStream().use { input.copyTo(it) }
++                    file.delete()
++                    if (part.renameTo(file)) copied++
+                 }
+             } catch (_: Exception) {
+                 // best-effort: a missing side file only loses that extra
++            } finally {
++                part.delete()
+             }
+         }
+         return copied
+@@ -245,7 +252,17 @@
+     companion object {
+         private const val REQUEST_PICK_FILE = 0x4c50
+         private const val REQUEST_PICK_FOLDER = 0x4c51
+-        private const val MAX_KEPT_GRANTS = 100
++
++        // The FlutterEngine is cached across activity instances (audio
++        // service): a picker result may arrive in a recreated activity, so
++        // the pending call and the I/O thread live here, not per instance.
++        private var pendingPick: MethodChannel.Result? = null
++        private var executor: ExecutorService? = null
++        private val mainHandler = Handler(Looper.getMainLooper())
++
++        private fun io(): ExecutorService =
++            executor?.takeIf { !it.isShutdown }
++                ?: Executors.newSingleThreadExecutor().also { executor = it }
+     }
+ 
+     override fun onConfigurationChanged(newConfig: Configuration) {
+@@ -265,6 +282,13 @@
+ 
+     override fun onDestroy() {
+         stopService(Intent(this, com.ryanheise.audioservice.AudioService::class.java))
++        if (isFinishing) {
++            // gone for good (not recreated): no picker result will come
++            pendingPick?.success(null)
++            pendingPick = null
++            executor?.shutdown()
++            executor = null
++        }
+         super.onDestroy()
+     }
+ 

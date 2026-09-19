@@ -548,7 +548,9 @@ class LiveRoomController extends GetxController {
         LiveMessageStream(
             streamToken: info.token,
             roomId: roomId,
-            uid: Accounts.heartbeat.mid,
+            // the token is fetched anonymously (not on the LoginPolicy
+            // list): pairing it with the account uid would tie them together
+            uid: 0,
             servers: info.hostList
                 .map((host) => 'wss://${host.host}:${host.wssPort}/sub')
                 .toList(),

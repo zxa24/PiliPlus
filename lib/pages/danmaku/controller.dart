@@ -11,6 +11,7 @@ import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/danmaku_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:collection/collection.dart' show IterableExtension;
 import 'package:path/path.dart' as path;
 
 class PlDanmakuController {
@@ -124,14 +125,16 @@ class PlDanmakuController {
       if (!file.existsSync()) {
         // LibrePili: videos opened from a folder carry XML danmaku
         if (source.mergedPath case final merged?) {
-          final xml = File(
-            path.join(
-              path.dirname(merged),
-              '${path.basenameWithoutExtension(merged)}'
-              '${DownloadExtras.xmlSuffix}',
-            ),
+          // ours (`base.danmaku.xml`), else the common `base.xml`
+          final base = path.join(
+            path.dirname(merged),
+            path.basenameWithoutExtension(merged),
           );
-          if (xml.existsSync()) {
+          final xml = [
+            File('$base${DownloadExtras.xmlSuffix}'),
+            File('$base.xml'),
+          ].firstWhereOrNull((f) => f.existsSync());
+          if (xml != null) {
             handleDanmaku(
               DownloadExtras.xmlToDanmaku(await xml.readAsString()),
             );

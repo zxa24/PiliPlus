@@ -5,9 +5,11 @@ part of 'mp4_remux.dart';
 /// writer. Samples are read from each segment's sample tables (stts, ctts,
 /// stss, stsc, stsz/stz2, stco/co64) and copied byte-for-byte.
 ///
-/// Every segment must carry the same tracks with identical codec
-/// configuration (stsd); otherwise [UnsupportedError] is thrown and the
-/// caller keeps the segments as separate files.
+/// Every segment must carry the same tracks (same kind and codec); a codec
+/// configuration (stsd) that differs between segments is kept as an extra
+/// sample entry, which chunks of that segment point at, and a differing
+/// media timescale is converted. Only different tracks or codecs throw
+/// [UnsupportedError], and the caller keeps the segments as separate files.
 abstract final class _Mp4Joiner {
   static List<_Track> join(List<String> inputs) {
     final tracks = _readProgressive(inputs.first);
@@ -20,9 +22,18 @@ abstract final class _Mp4Joiner {
         throw UnsupportedError('segments have different tracks: $input');
       }
       for (var i = 0; i < tracks.length; i++) {
-        if (!_sameConfig(tracks[i], segment[i])) {
-          throw UnsupportedError('codec configuration differs: $input');
+        final t = tracks[i];
+        final s = segment[i];
+        if (!_sameBytes(_handlerType(t), _handlerType(s))) {
+          throw UnsupportedError('segments have different tracks: $input');
         }
+        if (s.sampleEntryType != t.sampleEntryType) {
+          throw UnsupportedError(
+            'codec changes between segments '
+            '(${t.sampleEntryType} -> ${s.sampleEntryType}): $input',
+          );
+        }
+        if (s.timescale != t.timescale) _rescale(s, t.timescale);
       }
       // start where the longest track ended, so the tracks stay in sync
       final start = tracks
@@ -31,6 +42,11 @@ abstract final class _Mp4Joiner {
       for (var i = 0; i < tracks.length; i++) {
         final t = tracks[i];
         final s = segment[i];
+        // this segment's sample entries, as indexes into the joined stsd
+        final entries = t.sampleEntries ??= _sampleEntriesOf(t.stsd);
+        final descIndex = [
+          for (final e in _sampleEntriesOf(s.stsd)) _entryIndex(entries, e),
+        ];
         final gap = (start * t.timescale).round() - t.mediaDuration;
         if (gap > 0) t.durations.last += gap;
         final firstSample = t.sizes.length;
@@ -45,7 +61,10 @@ abstract final class _Mp4Joiner {
                 c.sourcePath,
               )
               ..length = c.length
-              ..sampleCount = c.sampleCount,
+              ..sampleCount = c.sampleCount
+              ..descIndex = c.descIndex <= descIndex.length
+                  ? descIndex[c.descIndex - 1]
+                  : descIndex.first,
           );
         }
         t
@@ -55,19 +74,47 @@ abstract final class _Mp4Joiner {
           ..syncs.addAll(s.syncs);
       }
     }
+    // a single configuration throughout: keep the stsd as it was
+    for (final t in tracks) {
+      if (t.sampleEntries?.length == 1) t.sampleEntries = null;
+    }
     return tracks;
   }
 
-  static bool _sameConfig(_Track a, _Track b) {
-    if (a.sampleEntryType != b.sampleEntryType ||
-        a.timescale != b.timescale ||
-        a.stsd.length != b.stsd.length) {
-      return false;
+  /// handler_type of the track's `hdlr` (vide / soun ...).
+  static Uint8List _handlerType(_Track t) =>
+      Uint8List.sublistView(t.hdlr, 16, 20);
+
+  /// Converts [s]'s decode times to [timescale], rounding the running time
+  /// (not each duration) so the segment does not drift.
+  static void _rescale(_Track s, int timescale) {
+    final from = s.timescale;
+    var src = 0;
+    var dst = 0;
+    final starts = <int>[];
+    for (var i = 0; i < s.durations.length; i++) {
+      starts.add(dst);
+      src += s.durations[i];
+      final end = _scale(src, from, timescale);
+      s.durations[i] = end - dst;
+      s.ctos[i] = _scale(s.ctos[i], from, timescale);
+      dst = end;
     }
-    for (var i = 0; i < a.stsd.length; i++) {
-      if (a.stsd[i] != b.stsd[i]) return false;
+    for (var i = 0; i < s.chunks.length; i++) {
+      final c = s.chunks[i];
+      s.chunks[i] =
+          _Chunk(
+              s,
+              c.sourceOffset,
+              c.firstSample,
+              starts[c.firstSample],
+              c.sourcePath,
+            )
+            ..length = c.length
+            ..sampleCount = c.sampleCount
+            ..descIndex = c.descIndex;
     }
-    return true;
+    s.timescale = timescale;
   }
 
   /// The first segment's edit list is kept (encoder delay, a late start),
@@ -254,13 +301,13 @@ abstract final class _Mp4Joiner {
         offsets.add(b.u64());
       }
     }
-    final stsc = <(int, int)>[]; // (first chunk, 0-based; samples per chunk)
+    // (first chunk, 0-based; samples per chunk; sample description index)
+    final stsc = <(int, int, int)>[];
     if (stbl['stsc'] case final body?) {
       final b = _R(body)..skip(4);
       final entries = b.u32();
       for (var i = 0; i < entries; i++) {
-        stsc.add((b.u32() - 1, b.u32()));
-        b.skip(4); // sample description index
+        stsc.add((b.u32() - 1, b.u32(), max(1, b.u32())));
       }
     }
     if (offsets.isEmpty || stsc.isEmpty) {
@@ -274,7 +321,8 @@ abstract final class _Mp4Joiner {
       while (entry + 1 < stsc.length && stsc[entry + 1].$1 <= c) {
         entry++;
       }
-      final chunk = _Chunk(t, offsets[c], sample, dts);
+      final chunk = _Chunk(t, offsets[c], sample, dts)
+        ..descIndex = stsc[entry].$3;
       for (var j = 0; j < stsc[entry].$2 && sample < n; j++) {
         chunk
           ..length += sizes[sample]

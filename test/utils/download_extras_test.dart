@@ -70,6 +70,15 @@ void main() {
       );
       expect(back.map((e) => e.content), ['ok']);
     });
+
+    test('other tools: extra attributes, single quotes, numeric entities', () {
+      final back = DownloadExtras.xmlToDanmaku(
+        '<i><d id="7" p=\'1.0,1,25,16777215\'>it&#39;s</d>'
+        '<d p="2.0,1,25,16777215" user="u">&#x4E2D;&amp;lt;</d></i>',
+      );
+      expect(back.map((e) => e.content), ["it's", '中&lt;']);
+      expect(back.map((e) => e.progress), [1000, 2000]);
+    });
   });
 
   group('danmakuToAss', () {

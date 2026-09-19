@@ -1,0 +1,51 @@
+The Linux desktop entry now accepts files: `Exec=librepili %U` instead of `%u`. It also advertises nine video MIME types, one for each extension in `LocalPlayer.videoExtensions`: mp4, mkv, webm, mov, m4v, flv, avi, ts and wmv. The `bilibili` scheme handler is unchanged. This is not tested on Linux.
+
+I checked everything that installs or references the file, and none of it needed changing:
+- **deb:** `linux_x64.yml:63` copies the file as is, and `DEBIAN/postinst` / `postrm` already run `update-desktop-database`, so the new MIME types get registered.
+- **rpm:** lines 105 and 138 install the file unchanged, and the `%post` / `%postun` steps (144, 148) also run `update-desktop-database`.
+- **AppImage:** lines 190–191 copy the file. The two `sed` lines at 207–208 replace text with itself, so they have no effect on `%U`.
+
+One behaviour to know about: file managers usually pass a `file://` URI rather than a plain path. `main()` doesn't recognise a URI at launch, so the file is opened by the link-stream handler I added last round, which converts `file:` URIs to paths. It still opens once either way. With several files selected, only the first is opened.
+
+```diff
+diff --git a/assets/linux/com.zxa24.librepili.desktop b/assets/linux/com.zxa24.librepili.desktop
+index df48d7e94..f70fb7593 100644
+--- a/assets/linux/com.zxa24.librepili.desktop
++++ b/assets/linux/com.zxa24.librepili.desktop
+@@ -3,9 +3,9 @@ Type=Application
+ Name=LibrePili
+ Comment=A third-party Bilibili Client developed in Flutter
+ Comment[zh_CN]=使用 Flutter 开发的 BiliBili 第三方客户端
+-Exec=librepili %u
++Exec=librepili %U
+ Icon=librepili
+ Terminal=false
+ StartupWMClass=com.zxa24.librepili
+ Categories=Video;AudioVideo;Player;
+-MimeType=x-scheme-handler/bilibili;
++MimeType=x-scheme-handler/bilibili;video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-m4v;video/x-flv;video/x-msvideo;video/mp2t;video/x-ms-wmv;
+```
+
+`dart analyze lib test` still shows 0 errors and 0 warnings (36 info-level lints, all pre-existing).
+
+```
+TEST RESULTS:
+  runner: flutter test (+ dart analyze lib test)
+  command: source ".../scratchpad/tools/local_env.sh" && cd "$REPO" && dart analyze lib test && flutter test
+  exit_code: 0
+  total: 62
+  passed: 62
+  failed: 0
+  skipped: 0
+  duration_ms: ~41000 (analyze + test)
+
+INFRA REPAIRS (during auto-repair, empty if none):
+
+REAL FAILURES (audit-fix-caused regressions, empty if none):
+
+INFRA-PERSISTENT (failures that hit the 3-cycle repair cap, empty if none):
+
+OVERALL: PASS
+```
+
+The Gmail, Google Calendar and Google Drive connectors still need authorizing in claude.ai connector settings, and the `agentbridge` server still fails to connect. Neither was needed here.

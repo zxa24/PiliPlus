@@ -637,7 +637,7 @@ class LoginPageController extends GetxController
     await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
     // login mode was just turned on: activate the saved roles
     await Accounts.refresh();
-    MineController.anonymity.value = !Accounts.heartbeat.isLogin;
+    MineController.anonymity.value = false;
     if (Accounts.main.isLogin) {
       await LoginUtils.onLoginMain();
       SmartDialog.showToast('登录成功');

@@ -1,0 +1,26 @@
+You are an independent code auditor with an ANCHORED brief. Repository: C:/Users/Z14/Documents/Coding/Piliplus (a Flutter app; fork of PiliPlus renamed LibrePili). Read-only: do NOT modify any repo file and do NOT run git commands that change state.
+
+The previous audit round ended with commit a5a244943 ("fix(audit): pass 1 ..."). Its fixer claimed specific fixes. The claims are in these files (read them):
+- C:/Users/Z14/Documents/Coding/Piliplus/audit-logs/librepili-pass-1/findings.md (the original findings U1-U44)
+- C:/Users/Z14/Documents/Coding/Piliplus/audit-logs/librepili-pass-1/fixer-fix.txt (section 1 = claims for Findings 1-20)
+- C:/Users/Z14/Documents/Coding/Piliplus/audit-logs/librepili-pass-1/fixer-routes.txt (section 1 = claims R1-R7)
+- C:/Users/Z14/Documents/Coding/Piliplus/audit-logs/librepili-pass-1/fixer-refine2.txt (follow-up claims for R3, R4, R6)
+
+For EACH claim, CONFIRM or REFUTE it against the code at HEAD (`git show a5a244943`, and the files as they are now). Check completeness: a claim like "every call site" or "every entry point" must be checked by enumerating the call sites yourself. Then report defects the change itself introduced.
+
+User's original audit request (verbatim, Chinese): "做5轮审计，第1-2轮聚焦fork后的更改，之后全局" (5 audit rounds; rounds 1-2 focus on the changes made after the fork, later rounds are global). This is round 2.
+
+Tooling: Flutter/Dart are not on PATH. To run the analyzer, tests or small Dart probe scripts, use bash: `source "C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/tools/local_env.sh" && cd "$REPO" && <command>` (e.g. `dart analyze lib test`, `flutter test`). Put any probe files you create under C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/probes/ and never inside the repo.
+
+Output: first a claim table (`<claim id> — CONFIRMED | REFUTED | PARTLY — one-line evidence with file:line`), then new defects in this format:
+
+Output findings as:
+
+  - [P<n>] [A|B|C|D] <short title> — <file>:<startline>-<endline>
+    <2-4 line description: the issue, a concrete failure scenario, and what would fix it>
+
+P0 security/data loss, P1 actionable critical, P2 meaningful, P3 nit. Class A = silent failure / data loss / user-visible wrong behavior or a design gap; B = signature/field drift; C = regression; D = doc inconsistency. Mark anything you could not confirm as **hypothesis**.
+
+End with a PROBED-vs-READ map: what you verified by running something vs only read, and which areas you did not look at.
+
+Return the findings as your final message — DATA, no preamble.

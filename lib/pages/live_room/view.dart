@@ -769,9 +769,9 @@ class _LiveRoomPageState extends State<LiveRoomPage>
   }
 
   Widget get _buildInputWidget {
-    // LibrePili: sending danmaku / liking needs login
-    if (!_liveRoomController.isLogin) return const SizedBox.shrink();
-    // "hide interaction": keep the danmaku toggle and like, drop sending
+    // LibrePili: sending danmaku / liking needs login; logged out (or with
+    // "hide interaction") the bar keeps the danmaku toggle and drops sending
+    final isLogin = _liveRoomController.isLogin;
     final canSend = LoginPolicy.canInteract;
     final child = Container(
       padding: .only(top: 5, left: 10, right: 10, bottom: padding.bottom),
@@ -831,74 +831,75 @@ class _LiveRoomPageState extends State<LiveRoomPage>
                       ? const Text('发送弹幕', style: TextStyle(color: baseWhite))
                       : const SizedBox.shrink(),
                 ),
-                Builder(
-                  builder: (context) {
-                    final isLogin = kDebugMode || _liveRoomController.isLogin;
-                    final colorScheme = ColorScheme.of(context);
-                    return Material(
-                      type: MaterialType.transparency,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          InkWell(
-                            overlayColor: _overlayColor(colorScheme),
-                            customBorder: const CircleBorder(),
-                            onTap: isLogin
-                                ? null
-                                : _liveRoomController.toastNotLogin,
-                            onTapDown: isLogin
-                                ? _liveRoomController.onLikeTapDown
-                                : null,
-                            onTapUp: isLogin
-                                ? _liveRoomController.onLikeTapUp
-                                : null,
-                            onTapCancel: isLogin
-                                ? _liveRoomController.onLikeTapUp
-                                : null,
-                            child: const SizedBox.square(
-                              dimension: 34,
-                              child: Icon(
-                                size: 22,
-                                color: baseWhite,
-                                Icons.thumb_up_off_alt,
+                if (isLogin)
+                  Builder(
+                    builder: (context) {
+                      final isLogin = kDebugMode || _liveRoomController.isLogin;
+                      final colorScheme = ColorScheme.of(context);
+                      return Material(
+                        type: MaterialType.transparency,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            InkWell(
+                              overlayColor: _overlayColor(colorScheme),
+                              customBorder: const CircleBorder(),
+                              onTap: isLogin
+                                  ? null
+                                  : _liveRoomController.toastNotLogin,
+                              onTapDown: isLogin
+                                  ? _liveRoomController.onLikeTapDown
+                                  : null,
+                              onTapUp: isLogin
+                                  ? _liveRoomController.onLikeTapUp
+                                  : null,
+                              onTapCancel: isLogin
+                                  ? _liveRoomController.onLikeTapUp
+                                  : null,
+                              child: const SizedBox.square(
+                                dimension: 34,
+                                child: Icon(
+                                  size: 22,
+                                  color: baseWhite,
+                                  Icons.thumb_up_off_alt,
+                                ),
                               ),
                             ),
-                          ),
-                          Positioned(
-                            left: 30,
-                            top: -12,
-                            child: Obx(() {
-                              final likeClickTime =
-                                  _liveRoomController.likeClickTime.value;
-                              if (likeClickTime == 0) {
-                                return const SizedBox.shrink();
-                              }
-                              return AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 160),
-                                transitionBuilder: (child, animation) {
-                                  return ScaleTransition(
-                                    scale: animation,
-                                    child: child,
-                                  );
-                                },
-                                child: Text(
-                                  key: ValueKey(likeClickTime),
-                                  'x$likeClickTime',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: colorScheme.isDark
-                                        ? colorScheme.primary
-                                        : colorScheme.inversePrimary,
+                            Positioned(
+                              left: 30,
+                              top: -12,
+                              child: Obx(() {
+                                final likeClickTime =
+                                    _liveRoomController.likeClickTime.value;
+                                if (likeClickTime == 0) {
+                                  return const SizedBox.shrink();
+                                }
+                                return AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 160),
+                                  transitionBuilder: (child, animation) {
+                                    return ScaleTransition(
+                                      scale: animation,
+                                      child: child,
+                                    );
+                                  },
+                                  child: Text(
+                                    key: ValueKey(likeClickTime),
+                                    'x$likeClickTime',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: colorScheme.isDark
+                                          ? colorScheme.primary
+                                          : colorScheme.inversePrimary,
+                                    ),
                                   ),
-                                ),
-                              );
-                            }),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                                );
+                              }),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 if (canSend)
                   SizedBox(
                     width: 34,
