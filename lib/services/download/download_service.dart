@@ -15,6 +15,7 @@ import 'package:PiliPlus/models_new/pgc/pgc_info_model/result.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/episode.dart' as ugc;
 import 'package:PiliPlus/models_new/video/video_detail/page.dart';
+import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/danmaku_utils.dart';
@@ -561,8 +562,19 @@ class DownloadService extends GetxService {
       }
       entry.mergedPath = output;
       if (Platform.isAndroid) await _scanMedia(output);
+      await DownloadExtras.export(
+        entry: entry,
+        folder: path.dirname(output),
+        base: path.basenameWithoutExtension(output),
+      );
     } catch (e) {
-      if (output != null) await File(output).tryDel();
+      if (output != null) {
+        await File(output).tryDel();
+        final folder = Directory(path.dirname(output));
+        if (_isOwnFolder(output) && folder.listSync().isEmpty) {
+          await folder.tryDel();
+        }
+      }
       SmartDialog.showToast('合并音视频失败，已保留分离的音视频文件');
       if (kDebugMode) debugPrint('merge download error: $e');
     }
@@ -594,9 +606,18 @@ class DownloadService extends GetxService {
     }
   }
 
+  /// Whether [file] lives in its own per-video folder (named like the file),
+  /// as opposed to the older flat layout.
+  static bool _isOwnFolder(String file) =>
+      path.basename(path.dirname(file)) == path.basenameWithoutExtension(file);
+
   Future<void> _deleteMerged(BiliDownloadEntryInfo entry) async {
     if (entry.mergedPath case final merged?) {
-      await File(merged).tryDel();
+      if (_isOwnFolder(merged)) {
+        await Directory(path.dirname(merged)).tryDel(recursive: true);
+      } else {
+        await File(merged).tryDel();
+      }
     }
   }
 
@@ -651,11 +672,14 @@ class DownloadService extends GetxService {
       name +=
           ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
     }
-    var file = path.join(dir, '$name.mp4');
-    for (var i = 2; File(file).existsSync(); i++) {
-      file = path.join(dir, '$name ($i).mp4');
+    // one folder per video: the mp4 plus danmaku / subtitles / comments
+    var base = name;
+    for (var i = 2; Directory(path.join(dir, base)).existsSync(); i++) {
+      base = '$name ($i)';
     }
-    return file;
+    final folder = Directory(path.join(dir, base));
+    await folder.create(recursive: true);
+    return path.join(folder.path, '$base.mp4');
   }
 
   void nextDownload() {

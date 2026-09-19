@@ -302,6 +302,12 @@ abstract final class SelfTest {
       'streamLeftovers': leftovers,
       'entryJsonMergedPath': savedMergedPath,
       'entryDir': done.entryDirPath,
+      // per-video folder contents (video + danmaku / subtitles / comments)
+      if (merged != null)
+        'folderFiles': {
+          for (final f in Directory(path.dirname(merged)).listSync())
+            if (f is File) path.basename(f.path): f.lengthSync(),
+        },
     };
     result['pass'] =
         merged != null &&

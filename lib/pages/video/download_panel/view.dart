@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/stat/stat.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
+import 'package:PiliPlus/models/common/setting_type.dart';
 import 'package:PiliPlus/models/common/stat_type.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_info_model/episode.dart' as pgc;
@@ -13,6 +14,7 @@ import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/episode.dart' as ugc;
 import 'package:PiliPlus/models_new/video/video_detail/page.dart';
 import 'package:PiliPlus/pages/download/view.dart';
+import 'package:PiliPlus/pages/setting/common_setting.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/page.dart';
@@ -570,6 +572,24 @@ class _DownloadPanelState extends State<DownloadPanel> {
             text: '查看缓存',
             onTap: () => Navigator.of(context).push(
               GetPageRoute(page: () => const DownloadPage()),
+            ),
+          ),
+          SizedBox(
+            height: 20,
+            child: VerticalDivider(
+              width: 1,
+              color: dividerColor,
+            ),
+          ),
+          // LibrePili: what to save besides the video
+          _buildBottomBtn(
+            text: '设置',
+            onTap: () => Navigator.of(context).push(
+              GetPageRoute(
+                page: () => const CommonSetting(
+                  settingType: SettingType.downloadSetting,
+                ),
+              ),
             ),
           ),
         ],

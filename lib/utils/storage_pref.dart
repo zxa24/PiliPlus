@@ -383,6 +383,22 @@ abstract final class Pref {
   static bool get showVideoReply =>
       _setting.get(SettingBoxKey.showVideoReply, defaultValue: true);
 
+  // LibrePili: what a download folder contains besides the video
+  static bool get dlSaveDanmakuXml =>
+      _setting.get(SettingBoxKey.dlSaveDanmakuXml, defaultValue: true);
+  static bool get dlSaveDanmakuAss =>
+      _setting.get(SettingBoxKey.dlSaveDanmakuAss, defaultValue: true);
+  static bool get dlSaveSubtitle =>
+      _setting.get(SettingBoxKey.dlSaveSubtitle, defaultValue: true);
+  static bool get dlSaveComments =>
+      _setting.get(SettingBoxKey.dlSaveComments, defaultValue: true);
+  static bool get dlSaveCover =>
+      _setting.get(SettingBoxKey.dlSaveCover, defaultValue: true);
+  static int get dlCommentCount =>
+      _setting.get(SettingBoxKey.dlCommentCount, defaultValue: 200);
+  static int get dlReplyCount =>
+      _setting.get(SettingBoxKey.dlReplyCount, defaultValue: 10);
+
   /// Opt-in login mode (LibrePili). Off: all requests are anonymous and
   /// stored accounts stay dormant.
   static bool get loginMode =>
