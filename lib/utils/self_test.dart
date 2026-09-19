@@ -13,9 +13,12 @@ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/member/search_archive/data.dart';
 import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
+import 'package:PiliPlus/pages/danmaku/controller.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:collection/collection.dart';
@@ -83,10 +86,20 @@ abstract final class SelfTest {
     if (args.contains('--local')) {
       await scenario('localLibrary', _localLibrary);
     }
+    if (_arg(args, '--open-local') case final target?) {
+      final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
+      await scenario(
+        'openLocal',
+        () => _openLocal(target, hold, play: args.contains('--play')),
+      );
+    }
     if (args.contains('--open-offline')) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
       final tab = int.tryParse(_arg(args, '--tab') ?? '');
-      await scenario('openOffline', () => _openOffline(hold, tab: tab));
+      await scenario(
+        'openOffline',
+        () => _openOffline(hold, tab: tab, play: args.contains('--play')),
+      );
     }
     if (_arg(args, '--download') case final bvid?) {
       final qn = int.tryParse(_arg(args, '--qn') ?? '') ?? 80;
@@ -107,10 +120,42 @@ abstract final class SelfTest {
 
   // ------------------------------------------------------------ scenarios
 
+  /// Opens a video file / folder with the local player, optionally starts
+  /// playback, and reports position, duration and loaded danmaku.
+  static Future<Map<String, dynamic>> _openLocal(
+    String target,
+    int hold, {
+    required bool play,
+  }) async {
+    const heroTag = 'selftest_local';
+    PlDanmakuController.lastLoadedCount = -1;
+    unawaited(LocalPlayer.open(target, heroTag: heroTag));
+    await Future.delayed(const Duration(seconds: 6));
+    final player = PlPlayerController.getInstance();
+    if (play) {
+      // same steps as tapping play on the page (handlePlay)
+      final ctr = Get.find<VideoDetailController>(tag: heroTag)
+        ..autoPlay = true;
+      await ctr.playerInit(autoplay: true);
+    }
+    await Future.delayed(Duration(seconds: hold));
+    final pos = player.positionInMilliseconds;
+    return {
+      'pass': !play || pos > 0,
+      'positionMs': pos,
+      'durationMs': player.durationInMilliseconds,
+      'danmakuLoaded': PlDanmakuController.lastLoadedCount,
+    };
+  }
+
   /// Opens the newest completed download (merged file present) in the
   /// offline player and keeps it on screen for [hold] seconds, so a caller
   /// can screenshot it. Reports which folder extras it should pick up.
-  static Future<Map<String, dynamic>> _openOffline(int hold, {int? tab}) async {
+  static Future<Map<String, dynamic>> _openOffline(
+    int hold, {
+    int? tab,
+    bool play = false,
+  }) async {
     const heroTag = 'selftest_offline';
     final service = Get.find<DownloadService>();
     await service.waitForInitialization;
@@ -147,6 +192,13 @@ abstract final class SelfTest {
         },
       ),
     );
+    PlDanmakuController.lastLoadedCount = -1;
+    if (play) {
+      await Future.delayed(const Duration(seconds: 5));
+      final ctr = Get.find<VideoDetailController>(tag: heroTag)
+        ..autoPlay = true;
+      await ctr.playerInit(autoplay: true);
+    }
     String? tabs;
     if (tab != null) {
       await Future.delayed(const Duration(seconds: 5));
@@ -155,11 +207,17 @@ abstract final class SelfTest {
       if (tab < ctr.tabCtr.length) ctr.tabCtr.animateTo(tab);
     }
     await Future.delayed(Duration(seconds: hold));
+    final player = PlPlayerController.getInstance();
     return {
       'pass': true,
       'title': entry.showTitle,
       'extras': extras,
       'tabs': ?tabs,
+      if (play) ...{
+        'positionMs': player.positionInMilliseconds,
+        'durationMs': player.durationInMilliseconds,
+        'danmakuLoaded': PlDanmakuController.lastLoadedCount,
+      },
     };
   }
 

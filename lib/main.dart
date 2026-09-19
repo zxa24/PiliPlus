@@ -13,6 +13,7 @@ import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/router/app_pages.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -216,6 +217,13 @@ void main(List<String> args) async {
 
   if (SelfTest.isRequested(args)) {
     SelfTest.schedule(args);
+  } else if (args.where((a) => !a.startsWith('-')).firstOrNull
+      case final target?
+      when FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound) {
+    // LibrePili: launched with a video file / folder ("Open with")
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => LocalPlayer.open(target),
+    );
   }
 }
 

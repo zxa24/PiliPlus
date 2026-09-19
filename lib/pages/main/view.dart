@@ -13,6 +13,7 @@ import 'package:PiliPlus/pages/home/view.dart';
 import 'package:PiliPlus/pages/main/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
@@ -22,6 +23,7 @@ import 'package:PiliPlus/utils/mobile_observer.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -544,7 +546,14 @@ class _MainAppState extends PopScopeState<MainApp>
       );
     }
 
-    return child;
+    // LibrePili: drop a video file or a downloaded video folder to play it
+    return DropTarget(
+      onDragDone: (details) {
+        final first = details.files.firstOrNull;
+        if (first != null) LocalPlayer.open(first.path);
+      },
+      child: child,
+    );
   }
 
   Widget _buildIcon({required NavigationBarType type, bool selected = false}) {

@@ -175,6 +175,7 @@ dependencies:
       url: https://github.com/bggRGjQaUbCoE/window_manager.git
       path: packages/window_manager
       ref: main
+  desktop_drop: ^0.8.4
 
 dependency_overrides:
   flutter_inappwebview_android:

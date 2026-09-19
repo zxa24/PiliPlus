@@ -6,6 +6,7 @@ import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/danmaku_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -58,7 +59,11 @@ class PlDanmakuController {
     }
   }
 
+  /// Diagnostics (self test): size of the last danmaku batch handed over.
+  static int lastLoadedCount = 0;
+
   void handleDanmaku(List<DanmakuElem> elems) {
+    lastLoadedCount = elems.length;
     if (elems.isEmpty) return;
     final uniques = HashMap<String, DanmakuElem>();
 
@@ -114,13 +119,26 @@ class PlDanmakuController {
   @pragma('vm:notify-debugger-on-exception')
   Future<void> _initFileDm() async {
     try {
-      final file = File(
-        path.join(
-          (_plPlayerController.dataSource as FileSource).dir,
-          PathUtils.danmakuName,
-        ),
-      );
-      if (!file.existsSync()) return;
+      final source = _plPlayerController.dataSource as FileSource;
+      final file = File(path.join(source.dir, PathUtils.danmakuName));
+      if (!file.existsSync()) {
+        // LibrePili: videos opened from a folder carry XML danmaku
+        if (source.mergedPath case final merged?) {
+          final xml = File(
+            path.join(
+              path.dirname(merged),
+              '${path.basenameWithoutExtension(merged)}'
+              '${DownloadExtras.xmlSuffix}',
+            ),
+          );
+          if (xml.existsSync()) {
+            handleDanmaku(
+              DownloadExtras.xmlToDanmaku(await xml.readAsString()),
+            );
+          }
+        }
+        return;
+      }
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) return;
       final elem = DmSegMobileReply.fromBuffer(bytes).elems;

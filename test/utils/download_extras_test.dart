@@ -44,6 +44,34 @@ void main() {
     });
   });
 
+  group('xmlToDanmaku', () {
+    test('round-trips danmakuToXml', () {
+      final src = [
+        _dm(1500, 'a<b>&"c"', color: 0xFF0000, mode: 5, size: 18),
+        _dm(62000, '第二条'),
+      ];
+      final back = DownloadExtras.xmlToDanmaku(
+        DownloadExtras.danmakuToXml(src, cid: 1),
+      );
+      expect(back, hasLength(2));
+      expect(back[0].progress, 1500);
+      expect(back[0].mode, 5);
+      expect(back[0].fontsize, 18);
+      expect(back[0].color, 0xFF0000);
+      expect(back[0].content, 'a<b>&"c"');
+      expect(back[1].content, '第二条');
+      expect(back[1].progress, 62000);
+    });
+
+    test('ignores malformed entries', () {
+      final back = DownloadExtras.xmlToDanmaku(
+        '<i><d p="x,1,25,1">bad</d><d p="1.0">short</d>'
+        '<d p="2.5,1,25,16777215">ok</d></i>',
+      );
+      expect(back.map((e) => e.content), ['ok']);
+    });
+  });
+
   group('danmakuToAss', () {
     test('scroll line: time, move tag, color and escaping', () {
       final ass = DownloadExtras.danmakuToAss([

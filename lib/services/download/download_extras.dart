@@ -27,6 +27,10 @@ abstract final class DownloadExtras {
   static const commentsSuffix = '.comments.json';
   static const coverName = 'cover.jpg';
 
+  /// The download record, so a folder opened later (local player / drag and
+  /// drop) restores title, ids and quality.
+  static const infoName = 'librepili.json';
+
   /// Writes the enabled extras; returns what was written (for self tests).
   static Future<Map<String, Object?>> export({
     required BiliDownloadEntryInfo entry,
@@ -34,6 +38,11 @@ abstract final class DownloadExtras {
     required String base,
   }) async {
     final written = <String, Object?>{};
+    try {
+      await File(path.join(folder, infoName)).writeAsString(
+        const JsonEncoder.withIndent(' ').convert(entry.toJson()),
+      );
+    } catch (_) {}
     Future<void> step(String name, Future<Object?> Function() body) async {
       try {
         written[name] = await body();
@@ -248,6 +257,44 @@ abstract final class DownloadExtras {
     b.write('</i>\n');
     return b.toString();
   }
+
+  static final _xmlDanmaku = RegExp(r'<d p="([^"]*)">([\s\S]*?)</d>');
+
+  /// Parses Bilibili XML danmaku (as written by [danmakuToXml] or saved by
+  /// other tools) back into elements for the player.
+  static List<DanmakuElem> xmlToDanmaku(String xml) {
+    final out = <DanmakuElem>[];
+    for (final m in _xmlDanmaku.allMatches(xml)) {
+      final p = m.group(1)!.split(',');
+      if (p.length < 4) continue;
+      final seconds = double.tryParse(p[0]);
+      if (seconds == null) continue;
+      out.add(
+        DanmakuElem(
+          progress: (seconds * 1000).round(),
+          mode: int.tryParse(p[1]) ?? 1,
+          fontsize: int.tryParse(p[2]) ?? 25,
+          color: int.tryParse(p[3]) ?? 0xFFFFFF,
+          ctime: p.length > 4
+              ? Int64.parseInt(p[4].isEmpty ? '0' : p[4])
+              : null,
+          pool: p.length > 5 ? int.tryParse(p[5]) : null,
+          midHash: p.length > 6 ? p[6] : null,
+          idStr: p.length > 7 ? p[7] : null,
+          weight: p.length > 8 ? int.tryParse(p[8]) : null,
+          content: _xmlUnescape(m.group(2)!),
+        ),
+      );
+    }
+    return out;
+  }
+
+  static String _xmlUnescape(String s) => s
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&apos;', "'")
+      .replaceAll('&amp;', '&');
 
   static const _assW = 1920;
   static const _assH = 1080;
