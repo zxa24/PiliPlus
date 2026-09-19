@@ -524,6 +524,14 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
               text: !isLoading ? NumUtils.numFormat(stat!.favorite) : null,
             ),
           ),
+          // LibrePili: download next to favorite / share
+          ActionItem(
+            icon: const Icon(FontAwesomeIcons.download),
+            onTap: () => videoDetailCtr.onDownload(context),
+            selectStatus: false,
+            semanticsLabel: '下载',
+            text: '下载',
+          ),
           if (introController.isLogin)
             Obx(
               () => ActionItem(
