@@ -32,19 +32,37 @@ class DynamicDetailController extends CommonDynController with ReloadMixin {
         commentIdStr.isNotEmpty) {
       _init(commentIdStr, commentType);
     } else {
-      DynamicsHttp.dynamicDetail(id: dynItem.idStr).then((res) {
-        if (res case Success(:final response)) {
-          _init(response.basic!.commentIdStr!, response.basic!.commentType!);
-        } else {
-          res.toast();
-        }
-      });
+      _queryDetail();
     }
+  }
+
+  // the comment ids are only known after this request: without them the
+  // list cannot load, so a failure becomes an error state that can retry
+  bool _hasIds = false;
+
+  void _queryDetail() {
+    DynamicsHttp.dynamicDetail(id: dynItem.idStr).then((res) {
+      if (res case Success(:final response)) {
+        final commentIdStr = response.basic?.commentIdStr;
+        final commentType = response.basic?.commentType;
+        if (commentIdStr != null &&
+            commentIdStr.isNotEmpty &&
+            commentType != null &&
+            commentType != 0) {
+          _init(commentIdStr, commentType);
+        } else {
+          loadingState.value = const Error('该动态没有评论区');
+        }
+      } else {
+        loadingState.value = res as Error;
+      }
+    });
   }
 
   void _init(String commentIdStr, int commentType) {
     oid = int.parse(commentIdStr);
     replyType = commentType;
+    _hasIds = true;
     queryData();
   }
 
@@ -79,6 +97,11 @@ class DynamicDetailController extends CommonDynController with ReloadMixin {
 
   @override
   Future<void> onReload() {
+    if (!_hasIds) {
+      loadingState.value = LoadingState.loading();
+      _queryDetail();
+      return Future.value();
+    }
     reload = true;
     return super.onReload();
   }

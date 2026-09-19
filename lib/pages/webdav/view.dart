@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
 import 'package:PiliPlus/pages/webdav/webdav.dart';
@@ -100,7 +101,16 @@ class _WebDavSettingPageState extends State<WebDavSettingPage> {
                         borderRadius: Style.mdRadius,
                       ),
                     ),
-                    onPressed: WebDav().backup,
+                    onPressed: () async {
+                      final includeCredentials = await showConfirmDialog(
+                        context: context,
+                        title: const Text('备份中包含凭据？'),
+                        content: const Text(
+                          'WebDAV 用户名/密码、空降助手用户 ID。点「取消」则不包含（推荐）',
+                        ),
+                      );
+                      WebDav().backup(includeCredentials: includeCredentials);
+                    },
                     child: const Text('备份设置'),
                   ),
                 ),
@@ -112,11 +122,42 @@ class _WebDavSettingPageState extends State<WebDavSettingPage> {
                         borderRadius: Style.mdRadius,
                       ),
                     ),
-                    onPressed: WebDav().restore,
+                    onPressed: () async {
+                      final confirmed = await showConfirmDialog(
+                        context: context,
+                        title: const Text('恢复设置'),
+                        content: const Text(
+                          '将用 WebDAV 上的备份替换本机的全部设置、本地关注和本地收藏。'
+                          '恢复前的数据会自动保存，可用「恢复到导入前」撤回',
+                        ),
+                      );
+                      if (!confirmed || !context.mounted) return;
+                      WebDav().restore(
+                        askCredentials: () => showConfirmDialog(
+                          context: context,
+                          title: const Text('使用备份中的凭据？'),
+                          content: const Text(
+                            '备份含有 WebDAV 用户名/密码或空降助手用户 ID。点「取消」保留本机的',
+                          ),
+                        ),
+                      );
+                    },
                     child: const Text('恢复设置'),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () async {
+                final confirmed = await showConfirmDialog(
+                  context: context,
+                  title: const Text('恢复到导入前'),
+                  content: const Text('撤回最近一次恢复/导入，回到那之前的设置、本地关注和本地收藏'),
+                );
+                if (confirmed) WebDav().restoreSnapshot();
+              },
+              child: const Text('恢复到导入前'),
             ),
           ],
         ),

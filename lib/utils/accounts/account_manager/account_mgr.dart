@@ -47,8 +47,8 @@ class AccountManager extends Interceptor {
 
     final account = _bindRequestAccount(options);
 
-    // call sites may have put the account's access_key in the params before
-    // the policy anonymized the request: scrub it (and re-sign) so the
+    // call sites may have put the account's access_key / csrf in the params
+    // before the policy anonymized the request: scrub them (and re-sign) so the
     // anonymous request cannot be tied to the account
     if (account is! LoginAccount) _scrubAccessKey(options);
 
@@ -184,7 +184,12 @@ class AccountManager extends Interceptor {
         (url.contains('skipSegments') && err.requestOptions.method == 'GET')) {
       // skip
     } else {
-      dioError(err).then((res) => SmartDialog.showToast(res + url));
+      // no query: it may hold access_key / csrf / sign
+      final uri = err.requestOptions.uri;
+      final shown = uri.hasScheme
+          ? '${uri.scheme}://${uri.authority}${uri.path}'
+          : uri.path;
+      dioError(err).then((res) => SmartDialog.showToast(res + shown));
     }
   }
 
@@ -220,8 +225,17 @@ class AccountManager extends Interceptor {
     await account.onChange();
   }
 
+  static bool _isBlockServer(String path) {
+    // match the host: a raw prefix match would skip every request when the
+    // saved address is empty or too short
+    final host = Uri.tryParse(blockServer)?.host;
+    return host != null &&
+        host.isNotEmpty &&
+        Uri.tryParse(path)?.host.toLowerCase() == host.toLowerCase();
+  }
+
   static bool _skipCookie(String path) {
-    return path.startsWith(blockServer) ||
+    return _isBlockServer(path) ||
         path.contains('hdslb.com') ||
         path.contains('biliimg.com');
   }
@@ -258,7 +272,15 @@ class AccountManager extends Interceptor {
     );
   }
 
-  static const _accessKeys = ['access_key', 'mobile_access_key'];
+  /// account secrets a call site may have put in the params: the app token
+  /// and the web csrf (the account's bili_jct)
+  static const _accessKeys = [
+    'access_key',
+    'mobile_access_key',
+    'csrf',
+    'csrf_token',
+    'biliCSRF',
+  ];
 
   static void _scrubAccessKey(RequestOptions options) {
     void scrub(Map<String, dynamic> params) {
@@ -277,6 +299,8 @@ class AccountManager extends Interceptor {
     scrub(options.queryParameters);
     if (options.data case final Map data) {
       scrub(data.cast<String, dynamic>());
+    } else if (options.data case final FormData data) {
+      data.fields.removeWhere((e) => _accessKeys.contains(e.key));
     }
   }
 

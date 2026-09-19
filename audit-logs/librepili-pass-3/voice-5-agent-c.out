@@ -1,0 +1,129 @@
+- [P1] [A] WebDAV "恢复设置" replaces all settings and the local follows/favorites in one tap, with no confirmation and no merge — lib/pages/webdav/view.dart:108-117 (lib/pages/webdav/webdav.dart:102-119, lib/utils/storage.dart:95-110)
+  `onPressed: WebDav().restore` runs `setting.clear()`+`putAll`, `video.clear()` and `LocalLibrary.importAll`, which clears and replaces the local-library boxes. Without an account those boxes are the only copy of follows/favorites. Mis-tapping it next to "备份设置", or restoring an older backup, silently loses everything added since that backup. Fix: add a confirm dialog that names what gets replaced, and either merge the library boxes by key or snapshot the current state first.
+
+- [P1] [A] Closing the blacklist page cuts the local blacklist filter down to the rows that were loaded — lib/pages/blacklist/view.dart:27-35
+  On `dispose`, `GlobalData().blackMids` and `Pref.blackMids` are overwritten with `response.map(mid)` from the loaded pages only (the API returns 50 per page, lib/http/black.dart:10). With more than 50 blocked users, opening the page and backing out drops the rest from the local filter, so their content comes back in the feeds. Fix: only overwrite when `isEnd`; otherwise apply just the removals made on this page.
+
+- [P1] [A] A refresh during a load-more is dropped but still resets paging, which duplicates items — lib/pages/common/common_list_controller.dart:22-24,59-63
+  `onRefresh` sets `page=1` and `isEnd=false`, then `queryData` returns at once because `isLoading` is true. The load-more still in flight then appends page N and does `page++` (giving 2), so the next load-more fetches page 2 again. The result is duplicate rows, and the refresh appears to do nothing. The same early return drops a second refresh (a quick filter or UP switch), so results can belong to the previous selection. This base class is shared by most list pages. Fix: use a request-generation counter to drop stale responses, and reset `page`/`isEnd` only when the request actually starts.
+
+- [P2] [A] WebDAV backup deletes the remote file before writing the new one — lib/pages/webdav/webdav.dart:90-99
+  `client.remove(path)` runs first, then `client.write`. If the write fails (timeout, quota, dropped connection), the only remote backup is gone and the user sees only "备份失败". Fix: write to a temp name and rename it over the old file, or let `write` overwrite.
+
+- [P2] [A] A malformed import wipes all settings — lib/utils/storage.dart:95-110
+  `LocalLibrary.checkImport` validates only the library boxes. `setting.clear().then(putAll(map['setting']))` throws on `putAll(null)` after the clear has already run, so the chained `loginMode` restore is skipped too. The `video` box behaves the same way. Scenario: pasting a partial or unrelated JSON into About › import, or restoring a truncated WebDAV file. Fix: check `map[setting.name] is Map` and `map[video.name] is Map` before clearing anything.
+
+- [P2] [A] Card ⋮ menu offers "进入/退出无痕模式", which now flips the persistent login mode in one tap with no confirmation — lib/common/widgets/video_popup_menu.dart:308-314
+  In upstream this was a session-only toggle. The fork's `MineController.onChangeAnonymity` (lib/pages/mine/controller.dart:157-172) writes `SettingBoxKey.loginMode`, calls `Accounts.refresh()` and `onLoginMain()`. Any user with a saved account can therefore leave incognito from any video card's menu, where it sits next to 拉黑/不感兴趣. Fix: remove the item from the card menu, or confirm before leaving incognito.
+
+- [P2] [A] "拉黑" is shown in incognito, and it also doubles as the local-folder "remove" — lib/common/widgets/video_popup_menu.dart:264-306
+  Unlike 稍后再看 at :58, it is not gated on `Accounts.main.isLogin`. In incognito (the default) it sends `relationMod act=5` anonymously with an empty csrf, and the user gets a server-error toast. Fix: wrap it in `if (Accounts.main.isLogin)`.
+
+- [P2] [A] 稍后再看 in the long-press cover dialog is not gated on login — lib/common/widgets/image/image_save.dart:64-73
+  It is shown whenever an aid or bvid exists, on roughly 30 card types. In incognito it sends `UserHttp.toViewLater` anonymously with an empty csrf and toasts the error. This is inconsistent with VideoPopupMenu:58. Fix: add `Accounts.main.isLogin &&` to the condition.
+
+- [P2] [A] 不感兴趣 checks the recommend account, but the web branch acts through the main account — lib/common/widgets/video_popup_menu.dart:103-109,205-260
+  The guard checks `Accounts.get(.recommend).accessKey`. For items that are not `RcmdVideoItemAppModel` (search, hot, rank…), the action is `VideoHttp.dislikeVideo`, which is bound to the main account. If the two roles are different accounts, the user gets a misleading "请退出账号后重新登录" or "账号未登录". Fix: in the web branch, check `Accounts.main`, or hide the item.
+
+- [P2] [A] Removing a video from a local favorite folder is only possible through Bilibili 不感兴趣 / 拉黑 — lib/pages/local/favs.dart:244-250
+  `onRemove: LocalLibrary.removeFromFolder(...)` is passed to `VideoCardH`. VideoPopupMenu only calls `onRemove` after a successful dislike or blacklist (video_popup_menu.dart:139,228,295). In incognito, removing an item is impossible. In login mode, removing one blacklists the UP on the account (or records 不感兴趣). Fix: add a dedicated "移出收藏夹" entry, and hide the account-only actions on this page.
+
+- [P2] [A] "重置cookie" in the WebView menu leaves the account cookies in the shared WebView store for the rest of the session — lib/pages/webview/view.dart:386-399
+  `LoginUtils.setWebCookie()` installs the `Accounts.main` cookies. Unlike the account-cookie path at :228-249, `_accountCookie` is not set, so `dispose` never restores the anonymous jar. Every later in-app page (articles, links, live) then loads signed in until the next launch or the next `onLoginMain`. This is a new path, not covered by the pass-2 U7/U23 fix. Fix: set `_accountCookie = true` on this path as well.
+
+- [P2] [A] Quick favorite failure toasts "Instance of 'Success<…>'", and an empty folder list leaves the loading dialog stuck — lib/pages/common/common_intro_controller.dart:275-292
+  In the failure branch, `res.toast()` is called on the folder-query `Success`. `Success` does not override `toString` (lib/http/loading_state.dart:34-51), so the toast shows the class name instead of the error. The bug is upstream: in 94e413ac0 it is the `res.toast()` at line 247. Separately, `favFolderId` → `list.first` inside `.then` throws when the folder list is empty, and the loading dialog is never dismissed. Fix: use `result.toast()` and guard the empty list.
+
+- [P2] [A] Login SMS risk-verification "发送验证码" crashes after a failed pre-captcha — lib/pages/login/controller.dart:313-320
+  The failure branch shows a toast but has no `return`, so `preCaptureRes['data']['gee_gt']` is read on null and throws. Fix: add `return;` after the toast.
+
+- [P2] [A] Article "liked" state comes from the total like count — lib/pages/article/controller.dart:148-151
+  `status: response.stats?.like == 1` shows the article as liked whenever exactly one person has liked it. The next tap then sends the opposite action and adjusts the count the wrong way (:203-214). Fix: use the user's own like flag from the response.
+
+- [P2] [A] Follow group tabs keep a stale `_tag`, so a later delete can dispose a controller that another tab is using — lib/pages/follow/child/child_view.dart:62-73
+  When a controller for `newTag` already exists, `_followController` is switched but `_tag` is not updated. A later `Get.delete(tag: _tag)` or dispose then targets the old tag's controller (and its ScrollController), which another tab may still be using. Fix: set `_tag = newTag` in both branches.
+
+- [P2] [A] Rows are removed by a list index captured before the network call — lib/pages/blacklist/controller.dart:34-48; lib/pages/dynamics_tab/controller.dart:55-65; lib/pages/fav_detail/controller.dart:35-49; lib/pages/later/controller.dart:49-83
+  `removeAt(index)` runs after the await. A refresh or another delete landing in between removes the wrong row or throws a RangeError. Blacklist was re-read by me; the other three were re-read by the sub-auditor. The same pattern is **hypothesis** (sweep only, not re-read) in fan, fav/{topic,article,cheese,pgc}, history_search, live_dm_block and danmaku_block. Fix: remove by identity or id.
+
+- [P2] [A] Dynamic detail comments stay on the skeleton forever when the detail request fails — lib/pages/dynamics_detail/controller.dart:34-41
+  On failure it only toasts, so `oid`/`replyType` are never set and nothing can retry. On success, `basic!.commentIdStr!` is force-unwrapped. Fix: set an Error loading state, null-check the fields, and let reload retry the detail request.
+
+- [P2] [C] "移除粉丝" can never appear in login mode — lib/pages/member/controller.dart:91 (lib/pages/member/view.dart:363)
+  `isFollowed` is read from the space response, which is fetched anonymously (`Api.space` is not in `_accountApis`). The pass-2 `_queryRelation` fix restores only the account's own relation to this UP, not whether this UP follows the account. Fix: fetch the reverse relation with an account-bound call.
+
+- [P2] [A] A stale SponsorBlock response can apply the previous video's segments — lib/pages/sponsor_block/block_mixin.dart:61-77,118-200
+  `querySponsorBlock` resets and then awaits with no bvid/cid token, and its caller (video/controller.dart:910-912) does not await it. On a quick episode switch or auto-next, the old response lands after the new reset, causing wrong auto-skips and a wrong progress-bar overlay. Fix: compare the current cid before applying the response.
+
+- [P2] [A] Folder sort can be opened while the folder is shown in a non-mtime order or reversed — lib/pages/fav_detail/controller.dart:216-226
+  The sort requests use neighbours from the displayed order, so the real folder order gets scrambled. Fix: only allow sorting when `order == mtime && !pageDesc`.
+
+- [P2] [A] **hypothesis** (sub-auditor sweep, not re-read by me): "search all folders" applies the default folder's `mediaId` to results from other folders (fav/view.dart:235-249). Audio playlist loadNext/loadPrev can load a page twice (audio/controller.dart:246-266,754-776). Editing a danmaku block rule deletes before adding, so a failed add loses the rule (danmaku_block/view.dart:199-211).
+
+- [P2] [A] **hypothesis** "从剪贴板导入" checks `context.mounted` on the dialog it has just closed — lib/common/widgets/dialog/export_import.dart:246-256
+  `Get.back()` runs before `importFromClipBoard(context)`, and `context` here is the dialog builder's context. If the clipboard read outlasts the close animation, the import silently does nothing. Whether this happens depends on timing. Fix: capture the outer context before popping.
+
+- [P2] [A] CI release APKs are signed with a throwaway debug key when the signing secret is missing — .github/workflows/build.yml:85-94; android/app/build.gradle.kts:46-66
+  If `SIGN_KEYSTORE_BASE64` is unset, the key step silently does nothing and `signingConfig = config ?: signingConfigs["debug"]` uses the runner's debug key. The release is still published. Each release is signed differently, so updating fails and users must uninstall, which deletes local follows, favorites and history. Fix: fail the job for a tagged release when the secret is empty.
+
+- [P3] [A] Download multi-select keeps its count after a list reload but loses the ticks — lib/pages/download/controller.dart:37-72
+  A finished download triggers `_loadList`, which rebuilds the items with `checked=false` but leaves `rxCount` and `enableMultiSelect` unchanged. The user sees N selected with nothing ticked, and 删除 confirms but deletes nothing. Fix: carry `checked` over by pageId, or reset the selection state.
+
+- [P3] [A] Hiding `ActionPanel` in incognito also removes the read-only comment entry and the counts — lib/pages/dynamics/widgets/dynamic_panel.dart:111-112
+  Fix: hide only the repost and like buttons.
+
+- [P3] [A] Local quick-unfavorite toasts "已取消本地收藏" while the item is still in other local folders — lib/pages/common/common_intro_controller.dart:227-240
+
+- [P3] [A] The download settings can't be found in settings search — lib/pages/settings_search/view.dart:31-38
+  `_settings` spreads extra/privacy/recommend/video/play/style but not the fork's `downloadSettings`. Fix: add `...downloadSettings`.
+
+- [P3] [A] my_reply switches on `oid` where it should switch on reply type — lib/pages/my_reply/view.dart:131-142
+  `switch (oid) { 1 => av2bv(oid) … }` only matches when oid == 1, so video comments pass the raw aid to the anti-fraud helper. This is upstream code. Fix: `switch (replyInfo.type.toInt())`.
+
+- [P3] [D] The "了解账号模式" dialog lists `ApiType.apiTypeSet` as account-bound, but `LoginPolicy.bind` sends most of those anonymously — lib/pages/setting/models/privacy_settings.dart:22-65
+
+- [P3] [A] Destructive actions run without confirmation: 删除已看记录 (lib/pages/history/controller.dart:99-108) and a local unfollow on a single tap in incognito (lib/pages/member/controller.dart:244-258).
+
+- [P3] [A] Watch later: `toViewDel` failures show no toast, and `updateCount` only lowers the current tab's count — lib/pages/later/controller.dart:39-43,71-76
+
+- [P3] [A] **hypothesis** `pubdate!` force-unwrap on search result cards — lib/common/widgets/video_card/video_card_h.dart:143
+  `SearchVideoItemModel` may leave `pubdate` null, and the callee already accepts null. Fix: drop the `!`.
+
+- [P3] [A] The cover dialog's `_ImageDecoration` leaves `imageHeight` out of `==` and `hashCode`, so its hit-test uses a stale height after a desktop window resize — lib/common/widgets/image/image_save.dart:137-155
+
+- [P3] [A] On Windows, `--selftest` exits 0 without running when LibrePili is already running — windows/runner/main.cpp:81-83
+  `SendAppLinkToInstance()` returns true even with no link to send. Fix: skip both `Send*ToInstance` calls when `--selftest` is on the command line.
+
+- [P3] [A] On Linux, relative file paths forwarded to the running instance are resolved against that instance's working directory — linux/runner/my_application.cc:103-133
+  They then fall through to the "未知路径" toast. Fix: `g_canonicalize_filename` the arguments before forwarding.
+
+- [P3] [D] Debug build is still labelled "PiliPlus debug" — android/app/src/debug/res/values/string.xml:2
+  Fix: `LibrePili debug`.
+
+- [P3] [A] Privacy and supply-chain hygiene — android/app/src/main/AndroidManifest.xml:252,270-272; .github/workflows/*.yml
+  - `READ_MEDIA_*` and `WRITE_SETTINGS` are declared but never requested from Dart. **hypothesis:** a plugin may need them.
+  - Every job gets `permissions: write-all`.
+  - Third-party actions are pinned by tag, not by SHA.
+  - `appimagetool` comes from the moving `continuous` tag with no checksum check.
+
+- [P3] [A] **hypothesis** (sweep only, not re-read):
+  - The like button crashes when `like.status` is null (dynamics/widgets/action_panel.dart:127).
+  - dynamics_topic "load folded" can remove a real item on a double tap (controller.dart:137-147).
+  - `onUnfold` un-hides by position rather than id (dynamics_tab/controller.dart:81-92).
+  - fav_create calls `setState` in `.then` without a mounted check (view.dart:51-65).
+  - Unchecking every home tab crashes the next launch (home/controller.dart:30,67-80).
+  - The scheduled-post "6 minutes ahead" check only compares within the same hour (dynamics_create/view.dart:524-536).
+  - `cookie_info` is read without a null check (login/controller.dart:99-103,490-494).
+  - 清除失效内容 runs without confirmation (fav_detail/view.dart:292-295).
+
+PROBED vs READ
+- PROBED: `dart analyze lib/pages lib/common` gave 0 errors and 0 warnings in scope (36 infos: deprecations and cascades, mostly in the vendored `common/widgets/flutter/**`). No Dart probe files were written.
+- READ and re-verified by me at the cited lines: video_popup_menu (menu items and gates), image_save:60-76, mine/controller:150-175, webdav view and webdav.dart, storage.dart:88-115, webview/view:380-402, settings_search:28-40, my_reply:128-144, blacklist view and controller, http/black.dart, common_list_controller, login/controller:305-325, article/controller:137-215, common_intro_controller:275-292 (plus the upstream 94e413ac0 version), loading_state.dart, follow/child/child_view:58-76, debug string.xml, build.gradle.kts:40-70, build.yml:80-96, windows main.cpp:75-90.
+- READ by sub-auditors only (not re-verified by me):
+  - Native: MainActivity.kt method channels (they match the Dart callers), manifest, rebrand IDs across all platforms (consistent), the linux/windows runners, all 5 workflows.
+  - lib/common: about 29 widget files.
+  - Pages: local/*, fav_panel, download/*, dynamics*, fav*, follow*, later, history, live*, login, article, audio controller, main, main_reply, member, mine, pgc_review, setting (models; every pref key checked by script against its reader and default), sponsor_block/block_mixin, search*, whisper (grep only).
+- NOT LOOKED AT, or grep only:
+  - The vendored `lib/common/widgets/flutter/**`, `common/skeleton`, and the small layout helpers.
+  - Pages, grep for login gating only: member_* sub-pages (except member itself), msg_feed_top, pgc, pgc_index, popular_*, rank, rcmd, search_trending, space_setting, subscription*, whisper*, match_info.
+  - ios/macos native beyond the diffs and bundle IDs.

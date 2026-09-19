@@ -185,7 +185,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   }
 
   void positionListener(Duration position) {
-    videoDetailController.playedTime = position;
+    videoDetailController
+      ..playedTime = position
+      ..onLocalPosition(position);
   }
 
   @override
@@ -198,6 +200,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         ctr.showDanmaku = true;
       }
     } else if (state == .paused) {
+      if (videoDetailController.isFileSource) {
+        videoDetailController.cacheLocalProgress();
+      }
       introController.cancelTimer();
       ctr.showDanmaku = false;
     }
@@ -1396,7 +1401,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                   ),
                 ),
               ),
-            if (!Pref.hideInteraction && Accounts.main.isLogin)
+            if (!Pref.hideInteraction &&
+                Accounts.main.isLogin &&
+                !videoDetailController.isFileSource)
               SizedBox(
                 height: 32,
                 child: TextButton(

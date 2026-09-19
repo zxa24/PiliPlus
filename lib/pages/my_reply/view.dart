@@ -133,7 +133,8 @@ class _MyReplyState extends State<MyReply> with DynMixin {
     ReplyUtils.onCheckReply(
       replyInfo: replyInfo,
       biliSendCommAntifraud: Pref.biliSendCommAntifraud,
-      sourceId: switch (oid) {
+      sourceId: switch (replyInfo.type.toInt()) {
+        // 1: video comments are identified by bvid
         1 => IdUtils.av2bv(oid),
         _ => oid.toString(),
       },

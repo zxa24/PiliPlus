@@ -52,14 +52,15 @@ class DanmakuBlockController extends GetxController
     final res = await DanmakuFilterHttp.danmakuFilterDel(ids: id);
     SmartDialog.dismiss();
     if (res.isSuccess) {
-      rules[tabIndex].removeAt(itemIndex);
+      // by id: the list may have changed while the request ran
+      rules[tabIndex].removeWhere((e) => e.id == id);
       SmartDialog.showToast('删除成功');
     } else {
       res.toast();
     }
   }
 
-  Future<void> danmakuFilterAdd({
+  Future<bool> danmakuFilterAdd({
     required String filter,
     required int type,
   }) async {
@@ -75,8 +76,9 @@ class DanmakuBlockController extends GetxController
     if (res case Success(:final response)) {
       rules[type].add(response);
       SmartDialog.showToast('添加成功');
-    } else {
-      res.toast();
+      return true;
     }
+    res.toast();
+    return false;
   }
 }

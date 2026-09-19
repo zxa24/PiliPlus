@@ -290,7 +290,11 @@ class _FavDetailPageState extends State<FavDetailPage> with GridMixin {
                 ),
               if (isOwner) ...<PopupMenuEntry>[
                 PopupMenuItem(
-                  onTap: _favDetailController.cleanFav,
+                  onTap: () => showConfirmDialog(
+                    context: context,
+                    title: const Text('确定清除该收藏夹的失效内容?'),
+                    onConfirm: _favDetailController.cleanFav,
+                  ),
                   child: const Text('清除失效内容'),
                 ),
                 if (!BiliUtils.isDefaultFav(folderInfo.attr)) ...[

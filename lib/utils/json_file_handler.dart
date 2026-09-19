@@ -12,7 +12,9 @@ class JsonFileHandler extends ReportHandler {
   final bool printLogs;
   final bool handleWhenRejected;
 
-  static Future<RandomAccessFile> _future = LoggerUtils.getLogsPath()
+  static Future<RandomAccessFile> _future = _open();
+
+  static Future<RandomAccessFile> _open() => LoggerUtils.getLogsPath()
       .then((file) => file.open(mode: FileMode.writeOnlyAppend))
       .then((raf) => raf.writeFrom(const []))
       .then(_flush);
@@ -55,7 +57,10 @@ class JsonFileHandler extends ReportHandler {
   static Future<RandomAccessFile> add(
     Future<RandomAccessFile> Function(RandomAccessFile) onValue,
   ) {
-    return _future = _future.then(onValue).then(_flush);
+    final next = _future.then(onValue).then(_flush);
+    // one failed write must not fail every later one: reopen the file
+    _future = next.catchError((Object _) => _open());
+    return next;
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:dio/dio.dart';
 import 'package:http2/http2.dart';
 
@@ -20,10 +21,28 @@ class RetryInterceptor extends Interceptor {
         if (status != null && 300 <= status && status < 400) {
           var redirectUrl = err.response!.headers.value('location');
           if (redirectUrl != null) {
+            final oldUri = options.uri;
             var uri = Uri.parse(redirectUrl);
             if (!uri.hasScheme) {
-              uri = options.uri.resolveUri(uri);
+              uri = oldUri.resolveUri(uri);
               redirectUrl = uri.toString();
+            }
+            if (uri.scheme != oldUri.scheme ||
+                uri.host != oldUri.host ||
+                uri.port != oldUri.port) {
+              // another origin gets neither the account's cookies nor its
+              // headers, nor the old query (access_key...): the location
+              // carries its own
+              options
+                ..queryParameters = {}
+                ..headers.remove('cookie')
+                ..headers.remove('authorization')
+                ..headers.remove('x-bili-mid')
+                ..headers.remove('x-bili-aurora-eid')
+                ..extra['account'] = const NoAccount();
+              // 307/308 (and a POST this interceptor follows itself) keep
+              // the body: take the account's secrets out of it too
+              _scrubBody(options);
             }
             (options..path = redirectUrl).maxRedirects--;
             if (status == 303) {
@@ -54,7 +73,11 @@ class RetryInterceptor extends Interceptor {
         case DioExceptionType.connectionTimeout:
         case DioExceptionType.sendTimeout:
         case DioExceptionType.unknown:
-          if ((err.requestOptions.extra['_rt'] ??= 0) < _count &&
+          // only idempotent reads are re-sent: a POST (like, coin, comment,
+          // follow...) may already have been applied by the server
+          final method = err.requestOptions.method.toUpperCase();
+          if ((method == 'GET' || method == 'HEAD') &&
+              (err.requestOptions.extra['_rt'] ??= 0) < _count &&
               err.error
                   is! TransportConnectionException // 网络中断, 此时请求可能已经被服务器所接收
                   ) {
@@ -74,6 +97,28 @@ class RetryInterceptor extends Interceptor {
         default:
           return handler.next(err);
       }
+    }
+  }
+
+  /// Account secrets a body may carry (see AccountManager) and the
+  /// signatures computed over them: worthless at another origin, and the
+  /// account's to keep.
+  static const _bodySecrets = [
+    'access_key',
+    'mobile_access_key',
+    'csrf',
+    'csrf_token',
+    'biliCSRF',
+    'sign',
+    'w_rid',
+  ];
+
+  static void _scrubBody(RequestOptions options) {
+    switch (options.data) {
+      case final Map data:
+        data.removeWhere((key, _) => _bodySecrets.contains(key));
+      case final FormData data:
+        data.fields.removeWhere((e) => _bodySecrets.contains(e.key));
     }
   }
 

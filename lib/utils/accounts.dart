@@ -39,7 +39,8 @@ abstract final class Accounts {
     }
     // LibrePili: stored accounts stay dormant unless login mode is on
     if (LoginPolicy.loginMode) {
-      for (final a in account.values) {
+      // expired accounts are not used for requests
+      for (final a in account.values.where((a) => !a.expired)) {
         for (final t in a.type) {
           accountMode[t.index] = a;
         }
@@ -53,6 +54,7 @@ abstract final class Accounts {
   }
 
   static Future<void> clear() async {
+    await LoginUtils.clearWebCookies();
     await account.clear();
     for (int i = 0; i < AccountType.values.length; i++) {
       accountMode[i] = AnonymousAccount();
@@ -69,6 +71,24 @@ abstract final class Accounts {
       }
     }
     await Future.wait(accounts.map((i) => i.delete()));
+    if (isLoginMain && !Accounts.main.isLogin) {
+      await LoginUtils.onLogoutMain();
+    }
+  }
+
+  /// The server said "not logged in" for [accounts]: they are not deleted
+  /// (the user re-logs in or removes them in the account list), only
+  /// marked expired (persisted) and no longer used for requests.
+  static Future<void> markExpired(Set<LoginAccount> accounts) async {
+    final isLoginMain = Accounts.main.isLogin;
+    for (int i = 0; i < AccountType.values.length; i++) {
+      if (accounts.contains(accountMode[i])) {
+        accountMode[i] = AnonymousAccount();
+      }
+    }
+    await Future.wait([
+      for (final a in accounts) ?(a..expired = true).onChange(),
+    ]);
     if (isLoginMain && !Accounts.main.isLogin) {
       await LoginUtils.onLogoutMain();
     }
@@ -98,8 +118,10 @@ abstract final class Accounts {
     accountMode[key.index] = account..type.add(key);
     changed.add(account);
     await Future.wait([for (final a in changed) ?a.onChange()]);
-    if (!LoginPolicy.loginMode) {
+    if (!LoginPolicy.loginMode ||
+        (account is LoginAccount && account.expired)) {
       // role is saved on the account but stays dormant until login mode
+      // (or, for an expired account, until it is logged in again)
       accountMode[key.index] = AnonymousAccount();
       return;
     }

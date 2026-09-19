@@ -2,6 +2,8 @@ package com.example.piliplus
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ProviderInfo
 import android.database.Cursor
 import android.database.MatrixCursor
@@ -118,7 +120,9 @@ class BiliDocumentsProvider : DocumentsProvider() {
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
-        return documentId.startsWith(parentDocumentId)
+        // path-segment prefix only; `..` is rejected by retrieveFile
+        return documentId == parentDocumentId ||
+                documentId.startsWith(parentDocumentId.appendChild(""))
     }
 
     override fun createDocument(
@@ -127,7 +131,7 @@ class BiliDocumentsProvider : DocumentsProvider() {
         displayName: String
     ): String {
         val dir = retrieveFile(parentDocumentId, true)
-        if (dir != null) {
+        if (dir != null && displayName.isValidName) {
             var file = File(dir, displayName)
             var i = 2
             while (file.exists())
@@ -170,7 +174,7 @@ class BiliDocumentsProvider : DocumentsProvider() {
 
     override fun renameDocument(documentId: String, displayName: String): String {
         val file = retrieveFile(documentId, true)
-        if (file == null || file.parentFile.let {
+        if (file == null || !displayName.isValidName || file.parentFile.let {
                 it == null || !file.renameTo(File(it, displayName))
             }) throw FileNotFoundException("Failed to rename document $documentId with name $displayName")
         return documentId.substringBeforeLast('/').appendChild(displayName)
@@ -185,8 +189,17 @@ class BiliDocumentsProvider : DocumentsProvider() {
         val superResult = super.call(method, arg, extras)
         if (superResult != null || !method.startsWith("mt:") || extras == null)
             return superResult
-        val documentId = extras.parcelable<Uri>("uri")?.let {
-            DocumentsContract.getDocumentId(it)
+        // call() is not covered by the provider permission: require the
+        // caller to hold a write grant for the uri (and the uri's tree)
+        val documentId = extras.parcelable<Uri>("uri")?.takeIf {
+            context!!.checkCallingOrSelfUriPermission(
+                it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            ) == PackageManager.PERMISSION_GRANTED
+        }?.let {
+            val id = DocumentsContract.getDocumentId(it)
+            if (DocumentsContract.isTreeUri(it) &&
+                !isChildDocument(DocumentsContract.getTreeDocumentId(it), id)
+            ) null else id
         } ?: return Bundle().apply {
             putBoolean("result", false)
             putString("message", "not found documentId")
@@ -242,15 +255,27 @@ class BiliDocumentsProvider : DocumentsProvider() {
         if (path.isEmpty()) return null
         val rootDirLabel = path.substringBefore('/')
         val childPath = path.substringAfter('/', missingDelimiterValue = "")
-        val file = if (rootDirLabel.equals(LABEL_DATA_DIR, true) && dataDir != null) {
-            File(dataDir, childPath)
+        if (childPath.isNotEmpty() && childPath.split('/').any { !it.isValidName })
+            throw FileNotFoundException("$documentId not found")
+        val root = if (rootDirLabel.equals(LABEL_DATA_DIR, true) && dataDir != null) {
+            dataDir!!
         } else if (rootDirLabel.equals(LABEL_DE_DATA_DIR, true) && deDataDir != null) {
-            File(deDataDir, childPath)
+            deDataDir!!
         } else if (rootDirLabel.equals(LABEL_EX_DATA_DIR, true) && exDataDir != null) {
-            File(exDataDir, childPath)
+            exDataDir!!
         } else if (rootDirLabel.equals(LABEL_OBB_DIR, true) && obbDir != null) {
-            File(obbDir, childPath)
+            obbDir!!
         } else throw FileNotFoundException("$documentId not found")
+        val file = File(root, childPath)
+        // the resolved file (symlinks included) must stay inside its root
+        try {
+            val rootPath = root.canonicalPath
+            val filePath = file.canonicalPath
+            if (filePath != rootPath && !filePath.startsWith(rootPath + File.separator))
+                throw FileNotFoundException("$documentId not found")
+        } catch (_: java.io.IOException) {
+            throw FileNotFoundException("$documentId not found")
+        }
         if (check) try {
             Os.lstat(file.path)
         } catch (_: Exception) {
@@ -335,6 +360,11 @@ class BiliDocumentsProvider : DocumentsProvider() {
 
         private fun String.appendChild(name: String) =
             if (endsWith("/")) "$this$name" else "$this/$name"
+
+        /// a single path segment: no separator, not `.` / `..`
+        private val String.isValidName: Boolean
+            get() = isNotEmpty() && this != "." && this != ".." &&
+                    !contains('/') && !contains('\u0000')
 
         private val File.mimeType: String
             get() = if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR

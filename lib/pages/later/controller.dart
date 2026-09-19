@@ -39,6 +39,8 @@ mixin BaseLaterController
         if (res.isSuccess) {
           updateCount?.call(removeList.length);
           afterDelete(removeList);
+        } else {
+          res.toast();
         }
         SmartDialog.dismiss();
       },
@@ -69,10 +71,13 @@ mixin BaseLaterController
               Get.back();
               final res = await UserHttp.toViewDel(aids: aid.toString());
               if (res.isSuccess) {
+                // by id: the list may have changed while the request ran
                 loadingState
-                  ..value.data!.removeAt(index)
+                  ..value.dataOrNull?.removeWhere((e) => e.aid == aid)
                   ..refresh();
                 updateCount?.call(1);
+              } else {
+                res.toast();
               }
             },
             child: const Text('确认移除'),
@@ -186,8 +191,17 @@ class LaterController extends MultiSelectController<LaterData, LaterItemModel>
   }
 
   @override
-  ValueChanged<int>? get updateCount =>
-      (count) => baseCtr.counts[laterViewType.index] -= count;
+  ValueChanged<int>? get updateCount => (count) {
+    baseCtr.counts[laterViewType.index] -= count;
+    // the item is gone from every tab that showed it
+    for (final type in LaterViewType.values) {
+      if (type != laterViewType && baseCtr.counts[type.index] > 0) {
+        try {
+          Get.find<LaterController>(tag: type.type.toString()).onReload();
+        } catch (_) {}
+      }
+    }
+  };
 
   @override
   Future<void> onReload() {

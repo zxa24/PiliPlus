@@ -31,10 +31,16 @@ class PlDanmakuController {
   final Map<int, List<DanmakuElem>> _dmSegMap = HashMap();
   // 已请求的段落标记
   late final Set<int> _requestedSeg = HashSet();
+  // failed segments: retry count and earliest retry time (backoff, so a
+  // failing segment is not re-requested on every 100 ms tick)
+  late final Map<int, int> _failCount = HashMap();
+  late final Map<int, int> _retryAfter = HashMap();
 
   void dispose() {
     _dmSegMap.clear();
     _requestedSeg.clear();
+    _failCount.clear();
+    _retryAfter.clear();
   }
 
   Future<void> queryDanmaku(int segmentIndex) async {
@@ -42,6 +48,10 @@ class PlDanmakuController {
       return;
     }
     if (_requestedSeg.contains(segmentIndex)) {
+      return;
+    }
+    if (_retryAfter[segmentIndex] case final retryAfter?
+        when DateTime.now().millisecondsSinceEpoch < retryAfter) {
       return;
     }
     _requestedSeg.add(segmentIndex);
@@ -54,9 +64,17 @@ class PlDanmakuController {
       if (response.state == 1) {
         _plPlayerController.dmState.add(_cid);
       }
+      _failCount.remove(segmentIndex);
+      _retryAfter.remove(segmentIndex);
       handleDanmaku(response.elems);
     } else {
       _requestedSeg.remove(segmentIndex);
+      final count = (_failCount[segmentIndex] ?? 0) + 1;
+      _failCount[segmentIndex] = count;
+      // 5s, 10s, 20s ... capped at 2 min
+      _retryAfter[segmentIndex] =
+          DateTime.now().millisecondsSinceEpoch +
+          (5000 << (count - 1).clamp(0, 5)).clamp(5000, 120000);
     }
   }
 

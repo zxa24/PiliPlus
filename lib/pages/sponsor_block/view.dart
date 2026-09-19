@@ -345,8 +345,16 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
                 ),
                 TextButton(
                   onPressed: () {
+                    final text = _textController.text.trim();
+                    final uri = Uri.tryParse(text);
+                    if (uri == null ||
+                        !(uri.isScheme('http') || uri.isScheme('https')) ||
+                        uri.host.isEmpty) {
+                      SmartDialog.showToast('请输入有效的 http(s) 地址');
+                      return;
+                    }
                     Get.back();
-                    _blockServer = _textController.text;
+                    _blockServer = text;
                     setting.put(SettingBoxKey.blockServer, _blockServer);
                     AccountManager.blockServer = _blockServer;
                     _checkServerStatus();

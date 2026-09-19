@@ -157,11 +157,8 @@ abstract final class ImageUtils {
     final List<(File, String)> result;
     try {
       try {
-        result = await Future.wait(
-          futures,
-          eagerError: true,
-          cleanUp: (successValue) => successValue.$1.tryDel(),
-        );
+        // the files belong to the image cache: never delete them here
+        result = await Future.wait(futures, eagerError: true);
       } catch (e) {
         SmartDialog.showToast('保存失败');
         return false;
@@ -186,7 +183,8 @@ abstract final class ImageUtils {
         }
         await Future.wait([
           for (final (src, name) in result)
-            src.moveOrCopy(path.join(dst, name)),
+            // copy: moving would leave the cache entry without its file
+            src.copy(path.join(dst, name)),
         ]);
       }
       SmartDialog.showToast(' 已保存 ');

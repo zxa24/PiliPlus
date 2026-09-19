@@ -1,0 +1,470 @@
+
+You are the fixer session for audit pass 3 (iter 1).
+Independent code reviewers (OpenAI Codex CLI and four Claude auditors) produced the findings below in a GLOBAL audit of the codebase. Another fixer session already handled security/network/storage/platform findings in this pass; those edits are in the working tree - keep them.
+Your job: apply the smallest changes that address them. Codex will
+re-review your work after you return.
+
+# Repo
+
+C:/Users/Z14/Documents/Coding/Piliplus
+
+# Findings to address (numbered, in codex's original order)
+
+### Finding 1: low-weight danmaku drops the rest of its bucket
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] A low-weight danmaku stops the rest of its 100 ms bucket from showing — lib/pages/danmaku/view.dart:115-118
+  Inside `for (DanmakuElem e in currentDanmakuList)`, the check `if (e.weight < danmakuWeight) return;` leaves the whole position listener, so every element after the first low-weight one in that bucket is dropped. With the 屏蔽等级 (danmaku weight) set above 0, high-weight danmaku are silently lost. It gets worse for XML danmaku without the 9th field: `weight` is 0 there (download_extras.dart:333), so one such element blanks its bucket. Probed: the same loop shape with weights [1,9,9] added nothing. Fix: use `continue`.
+
+### Finding 2: tapping a live danmaku with a time string throws
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Tapping a live danmaku that contains a time string throws in build — lib/plugin/pl_player/view/view.dart:136-137, 2269, 2245-2255
+  `_buildDmAction` calls `_getValidOffset(item.content.text)` before it checks the extra type. That reads `videoDetailController`, which is `late final … = widget.videoDetailController!`, and the live room passes null. With enableTapDm on (default true on mobile), tapping a live danmaku such as "今晚8:30见" throws a `_TypeError` inside the overlay build. Probed: the regex matches "8:30", and the late null-check throws `_TypeError`. Fix: only compute `seekOffset` in the `VideoDanmaku()` branch, or check `widget.videoDetailController != null`.
+
+### Finding 3: failed danmaku segments re-requested every 100 ms
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Failed danmaku segments are re-requested every 100 ms — lib/pages/danmaku/controller.dart:43-61, 100-108
+  `queryDanmaku` removes the segment from `_requestedSeg` on any error. `getCurrentDanmaku` runs on every 100 ms bucket while playing and asks again whenever the segment is missing. Offline, or on a server/risk-control error, this sends about 10 gRPC `dmSegMobile` requests per second for as long as playback continues, which can itself trigger rate limiting. Fix: keep the segment marked as failed and retry with backoff (or retry only on seek or segment change).
+
+### Finding 4: offline/local player exposes account actions (send danmaku, danmaku like/recall/report, W/T shortcuts)
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] The offline/local player shows 发弹幕 and sends danmaku to Bilibili — lib/pages/video/view.dart:1399-1414; lib/pages/video/widgets/header_control.dart:1861-1875; lib/pages/video/controller.dart:646-684
+  Neither send button checks `isFileSource`: the tab-bar one is gated only on `!Pref.hideInteraction && Accounts.main.isLogin`, and the header one sits outside the `if (!isFileSource)` block. The Enter shortcut (player_focus.dart:236-241) reaches the same code. In an offline download this posts a danmaku to the real cid with the account. For plain local files (cid 0, bvid '') the request just fails. Fix: hide the buttons and short-circuit `showShootDanmakuSheet` when `isFileSource`.
+
+- [P3] [A] Danmaku actions on offline/local videos send like, recall and report requests — lib/plugin/pl_player/view/view.dart:2300-2368
+  The tap overlay for `VideoDanmaku` is the same for file sources. Like, recall and report call `HeaderControl.likeDanmaku`, `deleteDanmaku` and `reportDanmaku` with `plPlayerController.cid!`. That is the real cid for downloads and 0 for local files, and XML danmaku ids are usually 0 (only `idStr` is set). Fix: show only copy and seek when `isFileSource`.
+
+- [P3] [A] Keyboard shortcuts on the local player: W throws, T sends a watch-later write — lib/pages/video/widgets/player_focus.dart:250-263; lib/pages/video/introduction/local/controller.dart:18
+  `PlayerFocus` wraps file-source pages too. When logged in, W → `actionCoinVideo` reads `copyright`, which LocalIntroController defines as `throw UnimplementedError()`. T/V → `viewLater()` sends `toViewLater(bvid)` from the offline player: a real write for downloads, a failing request for local files (bvid ''). Fix: skip the account-action keys when `isFileSource`.
+
+### Finding 5: fullscreen toggle resets danmaku speed at non-1x
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Toggling fullscreen resets danmaku speed while playback is sped up — lib/pages/danmaku/view.dart:68-77
+  `didUpdateWidget` calls `DanmakuOptions.get(notFullscreen: …)` without `speed:`, so `duration` goes back to the 1x value. For example, at 2x the danmaku move too slowly after entering fullscreen. The next `setPlaybackSpeed` then scales that wrong base (pl_player/controller.dart:1130-1141), so the error compounds: going back to 1x gives twice the normal duration. Fix: pass `speed: playerController.playbackSpeed`.
+
+### Finding 6: super-resolution state shared across video pages
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Super-resolution state follows the shared player across video pages — lib/plugin/pl_player/controller.dart:687-689, 791-793
+  `isAnim` and `superResolutionType` are `late final` on the singleton `PlPlayerController`, which nested video pages share through `getInstance` (it only increments the count). The shader is applied only when the player is created. Open an anime (pgcType 1/4) with SR on, then open a related UGC video: it plays with Anime4K shaders and shows the SR button. In the reverse order, SR is unavailable for the anime. Runtime not probed; confirmed by reading the code. Fix: recompute per `setDataSource` and re-apply or clear the shader.
+
+### Finding 7: pause never sends a heartbeat (online playback only; offline heartbeats stay off by user decision)
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Pause never sends a heartbeat — lib/plugin/pl_player/controller.dart:937-955, 1491-1496
+  In the `stream.playing` listener, the pause branch sets `playerStatus = .paused` before calling `makeHeartBeat(seconds, type: .status)`. `makeHeartBeat` returns early when `playerStatus.isPaused && !isManual`, so `.status` only fires on resume. The saved watch position can lag by up to about 5 s whenever the user pauses. Fix: pass `isManual: true` for status beats, or send the beat before changing the status.
+
+### Finding 8: live error handler reopens stream many times
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Live error handler can reopen the stream many times at once — lib/plugin/pl_player/controller.dart:1019-1025
+  For live, each matching error event (`tcp: ffurl_read returned …`, `Failed to open https://…`) schedules its own `Future.delayed(3s, refreshPlayer)`, with no throttle, unlike the VOD path. A burst of error lines queues several overlapping `ctr.open(...)` calls. Fix: reuse the `EasyThrottle`/debounce used on the VOD branch.
+
+### Finding 9: mute key out of sync with volume
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Mute key (M) gets out of sync with the volume keys and mobile volume — lib/pages/video/widgets/player_focus.dart:195-204
+  M sets mpv volume to 0 but leaves `volume.value` alone, and keeps a separate `isMuted`. On desktop, pressing ↑/↓ unmutes through `setVolume` while `isMuted` stays true, so the next M shows "取消静音" instead of muting. On mobile, unmuting sets mpv volume to `volume.value*100`, which is the system volume fraction, not `Pref.playerVolume`. Fix: route mute through `setVolume` and clear `isMuted` whenever the volume changes.
+
+### Finding 10: local playback progress only saved on close
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Local playback progress is only saved when the page closes or the item changes — lib/pages/video/controller.dart:353-359, 1314-1320, 1333-1336
+  `cacheLocalProgress` runs only from `onClose` and `onReset`. If the process is killed (Android swipe-away, crash), the resume point for that session is lost. Network videos are covered by 5 s heartbeats. Fix: also save progress periodically or on pause (e.g. from `positionListener`, throttled).
+
+### Finding 11: self-test raises player count
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Self-test raises the player count and never lowers it — lib/utils/self_test.dart:137, 213
+  `PlPlayerController.getInstance()` is called only to read state. It increments `_playerCount` and sets `isLive=false`, so after a self-test run the instance is never fully disposed (wakelock, listeners, mpv stay alive). Fix: use `PlPlayerController.instance`.
+
+### Finding 12: nested player pages remove global volume listener (hypothesis - verify first)
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] **hypothesis** Nested player pages remove the global volume listener — lib/plugin/pl_player/view/view.dart:275-278, 385-387
+  `FlutterVolumeController.addListener` and `removeListener` are process-global. When a nested video page's player widget is disposed, the listener is removed while the page below still shows a player, so hardware volume changes stop updating `volume` and the indicator there. Not probed.
+
+### Finding 13: closing blacklist page truncates the local blacklist
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P1] [A] Closing the blacklist page cuts the local blacklist filter down to the rows that were loaded — lib/pages/blacklist/view.dart:27-35
+  On `dispose`, `GlobalData().blackMids` and `Pref.blackMids` are overwritten with `response.map(mid)` from the loaded pages only (the API returns 50 per page, lib/http/black.dart:10). With more than 50 blocked users, opening the page and backing out drops the rest from the local filter, so their content comes back in the feeds. Fix: only overwrite when `isEnd`; otherwise apply just the removals made on this page.
+
+### Finding 14: refresh during load-more resets paging and duplicates items
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P1] [A] A refresh during a load-more is dropped but still resets paging, which duplicates items — lib/pages/common/common_list_controller.dart:22-24,59-63
+  `onRefresh` sets `page=1` and `isEnd=false`, then `queryData` returns at once because `isLoading` is true. The load-more still in flight then appends page N and does `page++` (giving 2), so the next load-more fetches page 2 again. The result is duplicate rows, and the refresh appears to do nothing. The same early return drops a second refresh (a quick filter or UP switch), so results can belong to the previous selection. This base class is shared by most list pages. Fix: use a request-generation counter to drop stale responses, and reset `page`/`isEnd` only when the request actually starts.
+
+### Finding 15: blacklist / watch-later shown in incognito
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] "拉黑" is shown in incognito, and it also doubles as the local-folder "remove" — lib/common/widgets/video_popup_menu.dart:264-306
+  Unlike 稍后再看 at :58, it is not gated on `Accounts.main.isLogin`. In incognito (the default) it sends `relationMod act=5` anonymously with an empty csrf, and the user gets a server-error toast. Fix: wrap it in `if (Accounts.main.isLogin)`.
+
+- [P2] [A] 稍后再看 in the long-press cover dialog is not gated on login — lib/common/widgets/image/image_save.dart:64-73
+  It is shown whenever an aid or bvid exists, on roughly 30 card types. In incognito it sends `UserHttp.toViewLater` anonymously with an empty csrf and toasts the error. This is inconsistent with VideoPopupMenu:58. Fix: add `Accounts.main.isLogin &&` to the condition.
+
+### Finding 16: dislike web branch checks the wrong account
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] 不感兴趣 checks the recommend account, but the web branch acts through the main account — lib/common/widgets/video_popup_menu.dart:103-109,205-260
+  The guard checks `Accounts.get(.recommend).accessKey`. For items that are not `RcmdVideoItemAppModel` (search, hot, rank…), the action is `VideoHttp.dislikeVideo`, which is bound to the main account. If the two roles are different accounts, the user gets a misleading "请退出账号后重新登录" or "账号未登录". Fix: in the web branch, check `Accounts.main`, or hide the item.
+
+### Finding 17: no way to remove an item from a local favorite folder; misleading quick-unfavorite toast
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Removing a video from a local favorite folder is only possible through Bilibili 不感兴趣 / 拉黑 — lib/pages/local/favs.dart:244-250
+  `onRemove: LocalLibrary.removeFromFolder(...)` is passed to `VideoCardH`. VideoPopupMenu only calls `onRemove` after a successful dislike or blacklist (video_popup_menu.dart:139,228,295). In incognito, removing an item is impossible. In login mode, removing one blacklists the UP on the account (or records 不感兴趣). Fix: add a dedicated "移出收藏夹" entry, and hide the account-only actions on this page.
+
+- [P3] [A] Local quick-unfavorite toasts "已取消本地收藏" while the item is still in other local folders — lib/pages/common/common_intro_controller.dart:227-240
+
+### Finding 18: quick favorite failure toast shows class name; empty folder list hangs loading
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Quick favorite failure toasts "Instance of 'Success<…>'", and an empty folder list leaves the loading dialog stuck — lib/pages/common/common_intro_controller.dart:275-292
+  In the failure branch, `res.toast()` is called on the folder-query `Success`. `Success` does not override `toString` (lib/http/loading_state.dart:34-51), so the toast shows the class name instead of the error. The bug is upstream: in 94e413ac0 it is the `res.toast()` at line 247. Separately, `favFolderId` → `list.first` inside `.then` throws when the folder list is empty, and the loading dialog is never dismissed. Fix: use `result.toast()` and guard the empty list.
+
+### Finding 19: article liked state from total like count
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Article "liked" state comes from the total like count — lib/pages/article/controller.dart:148-151
+  `status: response.stats?.like == 1` shows the article as liked whenever exactly one person has liked it. The next tap then sends the opposite action and adjusts the count the wrong way (:203-214). Fix: use the user's own like flag from the response.
+
+### Finding 20: follow group tabs stale _tag
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Follow group tabs keep a stale `_tag`, so a later delete can dispose a controller that another tab is using — lib/pages/follow/child/child_view.dart:62-73
+  When a controller for `newTag` already exists, `_followController` is switched but `_tag` is not updated. A later `Get.delete(tag: _tag)` or dispose then targets the old tag's controller (and its ScrollController), which another tab may still be using. Fix: set `_tag = newTag` in both branches.
+
+### Finding 21: rows removed by index captured before network call
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Rows are removed by a list index captured before the network call — lib/pages/blacklist/controller.dart:34-48; lib/pages/dynamics_tab/controller.dart:55-65; lib/pages/fav_detail/controller.dart:35-49; lib/pages/later/controller.dart:49-83
+  `removeAt(index)` runs after the await. A refresh or another delete landing in between removes the wrong row or throws a RangeError. Blacklist was re-read by me; the other three were re-read by the sub-auditor. The same pattern is **hypothesis** (sweep only, not re-read) in fan, fav/{topic,article,cheese,pgc}, history_search, live_dm_block and danmaku_block. Fix: remove by identity or id.
+
+### Finding 22: dynamic detail comments stuck on skeleton when detail fails
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Dynamic detail comments stay on the skeleton forever when the detail request fails — lib/pages/dynamics_detail/controller.dart:34-41
+  On failure it only toasts, so `oid`/`replyType` are never set and nothing can retry. On success, `basic!.commentIdStr!` is force-unwrapped. Fix: set an Error loading state, null-check the fields, and let reload retry the detail request.
+
+### Finding 23: remove-fan never appears in login mode
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [C] "移除粉丝" can never appear in login mode — lib/pages/member/controller.dart:91 (lib/pages/member/view.dart:363)
+  `isFollowed` is read from the space response, which is fetched anonymously (`Api.space` is not in `_accountApis`). The pass-2 `_queryRelation` fix restores only the account's own relation to this UP, not whether this UP follows the account. Fix: fetch the reverse relation with an account-bound call.
+
+### Finding 24: stale SponsorBlock response applies previous video's segments
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] A stale SponsorBlock response can apply the previous video's segments — lib/pages/sponsor_block/block_mixin.dart:61-77,118-200
+  `querySponsorBlock` resets and then awaits with no bvid/cid token, and its caller (video/controller.dart:910-912) does not await it. On a quick episode switch or auto-next, the old response lands after the new reset, causing wrong auto-skips and a wrong progress-bar overlay. Fix: compare the current cid before applying the response.
+
+### Finding 25: folder sort allowed in non-mtime or reversed order
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] Folder sort can be opened while the folder is shown in a non-mtime order or reversed — lib/pages/fav_detail/controller.dart:216-226
+  The sort requests use neighbours from the displayed order, so the real folder order gets scrambled. Fix: only allow sorting when `order == mtime && !pageDesc`.
+
+### Finding 26: hypotheses from the sub-auditor sweep - verify each first, fix only confirmed
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P2] [A] **hypothesis** (sub-auditor sweep, not re-read by me): "search all folders" applies the default folder's `mediaId` to results from other folders (fav/view.dart:235-249). Audio playlist loadNext/loadPrev can load a page twice (audio/controller.dart:246-266,754-776). Editing a danmaku block rule deletes before adding, so a failed add loses the rule (danmaku_block/view.dart:199-211).
+
+- [P2] [A] **hypothesis** "从剪贴板导入" checks `context.mounted` on the dialog it has just closed — lib/common/widgets/dialog/export_import.dart:246-256
+  `Get.back()` runs before `importFromClipBoard(context)`, and `context` here is the dialog builder's context. If the clipboard read outlasts the close animation, the import silently does nothing. Whether this happens depends on timing. Fix: capture the outer context before popping.
+
+- [P3] [A] **hypothesis** (sweep only, not re-read):
+  - The like button crashes when `like.status` is null (dynamics/widgets/action_panel.dart:127).
+  - dynamics_topic "load folded" can remove a real item on a double tap (controller.dart:137-147).
+  - `onUnfold` un-hides by position rather than id (dynamics_tab/controller.dart:81-92).
+  - fav_create calls `setState` in `.then` without a mounted check (view.dart:51-65).
+  - Unchecking every home tab crashes the next launch (home/controller.dart:30,67-80).
+  - The scheduled-post "6 minutes ahead" check only compares within the same hour (dynamics_create/view.dart:524-536).
+  - `cookie_info` is read without a null check (login/controller.dart:99-103,490-494).
+  - 清除失效内容 runs without confirmation (fav_detail/view.dart:292-295).
+
+### Finding 27: download multi-select count vs ticks after reload
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Download multi-select keeps its count after a list reload but loses the ticks — lib/pages/download/controller.dart:37-72
+  A finished download triggers `_loadList`, which rebuilds the items with `checked=false` but leaves `rxCount` and `enableMultiSelect` unchanged. The user sees N selected with nothing ticked, and 删除 confirms but deletes nothing. Fix: carry `checked` over by pageId, or reset the selection state.
+
+### Finding 28: hiding ActionPanel in incognito removes read-only comment entry and counts
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Hiding `ActionPanel` in incognito also removes the read-only comment entry and the counts — lib/pages/dynamics/widgets/dynamic_panel.dart:111-112
+  Fix: hide only the repost and like buttons.
+
+### Finding 29: download settings missing from settings search
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] The download settings can't be found in settings search — lib/pages/settings_search/view.dart:31-38
+  `_settings` spreads extra/privacy/recommend/video/play/style but not the fork's `downloadSettings`. Fix: add `...downloadSettings`.
+
+### Finding 30: my_reply switches on oid instead of reply type
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] my_reply switches on `oid` where it should switch on reply type — lib/pages/my_reply/view.dart:131-142
+  `switch (oid) { 1 => av2bv(oid) … }` only matches when oid == 1, so video comments pass the raw aid to the anti-fraud helper. This is upstream code. Fix: `switch (replyInfo.type.toInt())`.
+
+### Finding 31: account-mode dialog lists APIs that are now anonymous
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [D] The "了解账号模式" dialog lists `ApiType.apiTypeSet` as account-bound, but `LoginPolicy.bind` sends most of those anonymously — lib/pages/setting/models/privacy_settings.dart:22-65
+
+### Finding 32: destructive actions without confirmation
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Destructive actions run without confirmation: 删除已看记录 (lib/pages/history/controller.dart:99-108) and a local unfollow on a single tap in incognito (lib/pages/member/controller.dart:244-258).
+
+### Finding 33: watch later delete failure silent; count update only current tab
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] Watch later: `toViewDel` failures show no toast, and `updateCount` only lowers the current tab's count — lib/pages/later/controller.dart:39-43,71-76
+
+### Finding 34: pubdate force-unwrap; _ImageDecoration equality
+(reported by independent auditors; duplicates merged - satisfy all of them)
+
+- [P3] [A] **hypothesis** `pubdate!` force-unwrap on search result cards — lib/common/widgets/video_card/video_card_h.dart:143
+  `SearchVideoItemModel` may leave `pubdate` null, and the callee already accepts null. Fix: drop the `!`.
+
+- [P3] [A] The cover dialog's `_ImageDecoration` leaves `imageHeight` out of `==` and `hashCode`, so its hit-test uses a stale height after a desktop window resize — lib/common/widgets/image/image_save.dart:137-155
+
+
+
+# Project-specific notes (from the orchestrator)
+
+- Flutter/Dart are NOT on PATH. Run every flutter/dart command in bash as: `source "C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/tools/local_env.sh" && cd "$REPO" && <command>`. Use it for `dart format` on files you touch.
+- The machine is SHORT ON MEMORY (a previous fixer was killed by the OS). Never run whole-disk searches (`find /` etc.); search only inside the repo or known package paths (W:/pub-cache/hosted/pub.dev/ after sourcing the env). Run the full test suite once at the end, not repeatedly.
+- Probe scripts go under C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/probes/ only, and are deleted afterwards.
+- Edit Dart with the Edit tool; do NOT rewrite Dart via Python/sed string literals (escape corruption has happened three times in this repo).
+- Product rules: LibrePili is privacy-first. Incognito is default; login mode is opt-in; the account is attached only where LoginPolicy requires it (in login mode the home recommend feed and its dislike actions bind to the recommend-role account). History heartbeats stay OFF for all offline/local playback (user decision). Login-only interactive controls are hidden when not logged in; comments and danmaku still DISPLAY normally.
+- Findings marked hypothesis: verify first; if the failure cannot happen, make no change and say so.
+- Much of this is upstream-inherited code; fixing upstream bugs is in scope (user decision). Keep fixes minimal and in local style.
+- Tests may be added for logic you change (test/ is gitignored; that is expected).
+- DO NOT touch (deferred for the user's decision): account deletion on a not-logged-in response / refresh_token; the default-on update check; the card-menu incognito toggle item; biliSendCommAntifraud target verification; RetryInterceptor retry-method policy; WebDAV restore merge-vs-snapshot semantics; macOS download-path bookmarks; the comment anti-fraud check's account binding; settings-export secret handling.
+
+# How to work
+
+Process the findings one at a time in the order listed. For each finding:
+
+1. Print `=== Finding N: <short title> ===` to your output as a marker
+2. Open the file at the finding's `<file>:<lines>` and read ~30 lines
+   of surrounding context
+3. If the fix depends on a library (vendored or imported), grep that
+   library briefly to confirm API behaviour before relying on it. Don't
+   read the whole library — just the relevant function
+4. Make the minimal change. Don't refactor surrounding code, don't add
+   tests, don't introduce new abstractions, don't fix neighbouring
+   issues even if you see them
+5. Print `--- Finding N: done ---` when that finding's edit is complete
+
+**Order matters when findings cluster in the same file**: process them
+in the codex-stated order (don't reorder), but if a later finding's
+line numbers shift due to an earlier edit, locate that finding's code
+by its **description** (what codex said is wrong), not by the original
+line number.
+
+# Constraints
+
+- **Match existing style** — variable declarations, comment style,
+  indentation. Look at neighbouring code, not abstract style guides
+- **No new dependencies**
+- **Single file per finding** unless the finding explicitly names
+  multiple
+- **NO git MUTATIONS at ANY phase — edit, self-test, AND auto-repair.**
+  Specifically: no `git stash`, `checkout`, `reset`, `commit`, `rm`,
+  `clean`, `restore`, or branch ops — *ever*, including while diagnosing a
+  test failure. Diagnosis uses read-only `git show` / `git diff` / `git log`
+  only. (A fixer once ran a `git stash` round-trip mid-diagnosis and
+  re-applied an unrelated old stash → 22 files of merge-conflict cruft that
+  blocked all commits.) You modify only the working-tree FILES the findings
+  name; the orchestrator owns all git/commit operations.
+- **Do NOT run tests during the per-finding edit phase** — that comes in
+  the dedicated self-test step below; per-finding edits should only modify
+  the working tree
+- **Do NOT call the Agent tool** (it's excluded from your allowedTools
+  anyway, but don't try). You're the only fixer in this pass
+
+# Self-review before self-test (mandatory)
+
+After applying ALL finding fixes but **before** running tests, do one
+quick self-review pass. For each finding ask yourself two questions:
+
+1. **Does my fix cover every case the finding's title and description
+   imply, or only the literal example?** Codex often spots a bug class
+   but cites one concrete instance. A literal-only fix scores
+   `[PARTIAL]` on re-review and forces another round trip. Re-read the
+   finding's description and enumerate cases mentally; if your edit
+   only handles 1 of N, extend it in this same turn.
+
+2. **Did my fix accidentally over-tighten behaviour the finding didn't
+   ask for?** If the finding said "guard X with check Y" and you also
+   changed unrelated behaviour Z, codex will flag `[OVER-ENG]`. Trim
+   back to the minimum that addresses the finding's literal concern.
+
+Spend at most ~30 seconds per finding on this. If both answers are
+"clean", move on to self-test. If either flags a gap, refine in place
+before testing — do not return to the orchestrator with a known-partial
+fix. The orchestrator will not give you a second chance for free; iter
+2 costs ~5 min and adds tokens. Iter 1 self-review pays for itself.
+
+# Self-test after fixing (mandatory)
+
+After applying ALL the finding fixes (but before producing your final
+report), **run the project's tests yourself** to verify the fix didn't
+break anything. Your self-test report is a **first-pass / advisory
+signal**, NOT the commit gate — the orchestrator independently re-runs
+the tests itself before commit, and THAT re-run is the authoritative
+gate. Report honestly: a wrong self-test PASS is caught by the
+orchestrator's re-run, so there's nothing to gain by overstating.
+
+## Detect the test runner
+
+First check the test-policy passed in by the orchestrator
+(`source "C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/tools/local_env.sh" && cd "$REPO" && dart analyze lib test && flutter test`):
+
+- **`skip`** — do NOT run tests. Skip both detection and execution.
+  Emit the TEST RESULTS block with `runner: none-detected`,
+  `command: (none)`, all counts zero, and
+  `OVERALL: NO-RUNNER` with reason "test-policy=skip" noted in the
+  reply prose. Then proceed to "What to report back".
+- **`<command>`** (any non-empty string other than `auto-detect` or
+  `skip`) — skip detection. Use that exact command as the runner.
+  Still apply the auto-repair loop below if it fails for INFRA
+  reasons.
+- **`auto-detect`** (or empty / unset) — fall through to the
+  detection order below.
+
+Search in this order (first hit wins):
+
+1. `package.json` with `scripts.test` → `npm test` (or `pnpm test` /
+   `yarn test` if a lockfile of that flavour is present)
+2. a repo-local test entry script such as `tests/run_nonhost_checks.js` →
+   `node <that script>`
+3. `pytest.ini` / `pyproject.toml [tool.pytest]` / `tox.ini` with
+   `[testenv]` → `pytest -q` (or `python -m pytest -q`)
+4. `Cargo.toml` → `cargo test --no-fail-fast`
+5. `Makefile` with a `test:` target → `make test`
+6. `go.mod` → `go test ./...`
+7. Plain `tests/test_*.js` ad-hoc Node scripts → run each via `node`
+   one at a time, report each exit code
+8. Nothing detected → emit `TEST RUNNER: none-detected` in the report
+   block
+
+If multiple runners apply (e.g. both npm test AND ad-hoc node tests),
+run all of them and aggregate results.
+
+## Auto-repair test infrastructure (no-ask)
+
+If running the detected test command fails because **the test infra
+itself is broken** (not because the audit broke a behaviour), repair
+the infra automatically and re-run. Do NOT ask. Surface the repairs
+done in the `INFRA REPAIRS` line of the final report block.
+
+INFRA-level patterns (auto-repair without asking):
+
+- **Missing dependencies**: `npm install --ignore-scripts` /
+  `pip install --only-binary=:all: -r requirements.txt` /
+  `cargo fetch` / Playwright browser binaries (`npx playwright install`)
+  missing → run the install. If install itself fails, surface that.
+  These flags block the script-execution path that
+  `dangerously-skip-permissions` + Bash would otherwise expose: npm's
+  `--ignore-scripts` skips lifecycle hooks; pip's `--only-binary=:all:`
+  refuses to build from source distributions, eliminating the
+  `setup.py` execution path; cargo `fetch` doesn't run scripts;
+  `npx playwright install` is a single-binary download. If a project's
+  test deps require source builds (e.g. compiled extensions without
+  prebuilt wheels) or a project genuinely needs lifecycle scripts to
+  test, the install will fail — surface that to the user as a
+  route-choice rather than silently relaxing the constraint.
+- **Broken paths in test scripts**: hardcoded paths to legacy
+  directories (e.g. `tests/translator_app/app.js` when `app.js`
+  moved to root) → fix the path references in the test scripts.
+- **Stale test config**: `playwright.config.js`, `pytest.ini`,
+  `package.json scripts.lint` pointing at non-existent files →
+  update the config.
+- **Missing test helper imports**: helpers moved/renamed since tests
+  were written → align imports.
+- **Test selectors too loose for new UI**: Playwright spec uses
+  `label.btn.primary` and a recent commit added a 2nd matching
+  element → tighten the selector (`:has-text(...)` or `#id`).
+- **Permission issues on test artifact dirs**: tests can't write to
+  `tests/screenshots/` etc. → `mkdir -p` and re-run.
+
+REAL behavioural failures (do NOT auto-repair, just report):
+
+- Assertion failures: `expect(x).toBe(y)` failed with x !== y
+- Behaviour deltas: feature flag now off, UI element absent, output
+  format different from expected
+- Anything where the test code itself is correct and ran successfully,
+  but the assertion conclusion was negative
+
+Auto-repair loop limit: up to 3 cycles per test runner. If a runner's
+tests still fail with INFRA errors after 3 repair attempts, stop
+repairing it and report the remaining failures as `INFRA-PERSISTENT`.
+
+# What to report back
+
+Return ALL of, in this order:
+
+1. **Per-finding summary** — for each finding, 1-2 sentences on what
+   you changed
+2. **`git diff` output** — run `git diff` (no path arg) and include
+   the full cumulative diff for the audit's fixes (NOT the test infra
+   repairs, which go in the TEST RESULTS block instead). Codex's
+   re-review will see this exact diff so it must be accurate
+3. **Uncertainty list** — for each finding, anything you weren't sure
+   about (API behaviour, semantic edge cases, whether your fix
+   tightens behaviour beyond the finding's literal ask)
+4. **TEST RESULTS block** — exactly this format so the orchestrator
+   can parse it deterministically:
+
+```
+TEST RESULTS:
+  runner: <npm test | pytest | cargo test | node tests/X.js | none-detected>
+  command: <exact command line invoked>
+  exit_code: <0 | non-zero>
+  total: <N>
+  passed: <N>
+  failed: <N>
+  skipped: <N>
+  duration_ms: <approx>
+
+INFRA REPAIRS (during auto-repair, empty if none):
+  - <file>: <one-line description of what was changed>
+  - <file>: ...
+
+REAL FAILURES (audit-fix-caused regressions, empty if none):
+  - <spec name + line>: <one-line failure summary>
+  - <spec name + line>: ...
+
+INFRA-PERSISTENT (failures that hit the 3-cycle repair cap, empty if none):
+  - <runner / file>: <reason still failing>
+
+OVERALL: <PASS | INFRA-ONLY-FAIL | INFRA-PERSISTENT | REAL-FAIL | NO-RUNNER>
+```
+
+`OVERALL` semantics:
+- `PASS`: all tests pass (or skipped) and no failures of any kind
+- `INFRA-ONLY-FAIL`: some tests failed for INFRA reasons but
+  auto-repair fixed them and a subsequent re-run passed; audit fix
+  is not regressed
+- `INFRA-PERSISTENT`: some tests failed with infra errors that
+  survived the 3-cycle auto-repair cap; the runner exists but
+  couldn't be made to run reliably. Orchestrator treats this as
+  STOP (unverified state — more concerning than NO-RUNNER because
+  the test infra exists but can't be trusted)
+- `REAL-FAIL`: at least one entry in REAL FAILURES — audit fix
+  probably broke behaviour; orchestrator should STOP
+- `NO-RUNNER`: no test runner detected; can't verify automatically
+
+# Additional user decision to implement in this batch
+
+pass3-D3 — the video card ⋮ menu (lib/common/widgets/video_popup_menu.dart:308-314) offers "进入/退出无痕模式", which flips the persistent login mode. User decision: "未登录情况下不显示需要登录才能用的" — do not show controls that only make sense with an account when there is none. Show this item only when at least one usable (non-expired) stored account exists; with no account it is hidden. Apply the same rule to any other card-menu/long-press items that only work with an account (several are already listed as findings in this batch). Note: batch A introduced a persisted `expired` flag on LoginAccount (Accounts.markExpired); expired accounts do not count as usable.

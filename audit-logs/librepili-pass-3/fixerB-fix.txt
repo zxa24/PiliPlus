@@ -1,0 +1,44 @@
+The diff is fully printed above (in batches). Final report below.
+
+## 3. Uncertainty list
+
+- **F2/F4 (danmaku overlay)** — the overlay width formula assumes 3 items for live and non-file video danmaku (unchanged) and 1 for file sources. I did not run the UI, so the triangle offset for the narrow file-source overlay is only reasoned about, not seen.
+- **F3** — backoff is time-based (no timer), so a failed segment retries on the first position tick after the window. Also applies to explicit `queryDanmaku` calls on seek, which now respect the backoff.
+- **F6** — the shader is re-applied only when anime-ness *changes*; within one anime season the user's SR choice is kept. `Pref.superResolutionType` is re-read on the transition, so a change made on the previous anime page is picked up.
+- **F7** — `isManual: true` bypasses only the paused check; `isFileSource` still blocks all offline heartbeats, per the product rule.
+- **F9** — mute is an mpv-level mute. On mobile, unmute restores `Pref.playerVolume`, not the pre-mute mpv volume, since mpv is normally at that setting there. Hardware volume keys now clear the mute.
+- **F12** — I verified the plugin's single-static-listener behaviour in source, and the pop ordering (lower page rebuilds before the upper page is disposed) is reasoned from `didPopNext` setting `videoState`, not observed at runtime.
+- **F14** — this changes a base class used by most list pages: a refresh is no longer dropped while a load-more is in flight, so it now issues a request where it previously returned silently. Stale responses are dropped, including their `customHandleResponse` side effects (cursors). I checked the seven subclasses that touch `isLoading`; they guard their own entry points and are unaffected.
+- **F19** — I added a `like` field parsed as `int?` from `/x/article/viewinfo`. If the API ever returns a bool there, the cast throws. Note also that `Api.articleInfo` is *not* in `_accountApis`, so in incognito (and currently in login mode too) this flag will read 0; the fix removes the false positive but cannot show a true "liked" state until that endpoint is account-bound — that is a policy decision I did not make.
+- **F23** — **the biggest uncertainty.** `/x/space/acc/relation` (`be_relation`) is not verifiable offline, and this repo comments the WBI variant as 失效. If the endpoint is dead, `hasFollowedMe` returns null and 移除粉丝 stays hidden — the same as today, no regression. I also added it to `_accountApis`, which is required for the call to carry the account.
+- **F26 (fav "search all folders")** — I disabled the owner-only actions and the play-all context for `type == 1` rather than trying to resolve each result's real folder. That removes a real misuse of the wrong `mediaId`, but it also removes cancel-fav/copy/move from that specific search screen; if you'd rather keep them, the proper fix needs per-item folder data.
+- **F28** — the repost and like *counts* disappear with their buttons when not logged in; only the comment entry and its count remain. Keeping those two counts visible read-only would need new non-interactive labels, which looked like more than the finding asked for.
+- **F33** — the other watch-later tab is refreshed with a network `onReload` per delete (the pattern already used by 清空). It is correct but does cost a request.
+- **Shared files**: `lib/pages/login/controller.dart`, `lib/utils/accounts/login_policy.dart`, `lib/plugin/pl_player/controller.dart`, `lib/pages/video/controller.dart`, `lib/utils/self_test.dart` and `lib/common/widgets/dialog/export_import.dart` also contain the other fixer's pass-3 edits; the diffs above include both. In `export_import.dart` only the `dialogContext` rename is mine (the `beforeExport` parameter is theirs).
+
+## 4. TEST RESULTS
+
+```
+TEST RESULTS:
+  runner: flutter test
+  command: dart analyze lib test && flutter test
+  exit_code: 0
+  total: 102
+  passed: 102
+  failed: 0
+  skipped: 0
+  duration_ms: 2400
+
+INFRA REPAIRS (during auto-repair, empty if none):
+  (none)
+
+REAL FAILURES (audit-fix-caused regressions, empty if none):
+  (none)
+
+INFRA-PERSISTENT (failures that hit the 3-cycle repair cap, empty if none):
+  (none)
+
+OVERALL: PASS
+```
+
+`dart analyze lib test` reports 36 issues, all `info` level and all pre-existing in files I did not touch (vendored Flutter widget copies under `lib/common/widgets/flutter/` plus one in `vote_decoration.dart`). No errors or warnings. Every file I edited was run through `dart format`. I made no git mutations, and I left no temporary files behind.

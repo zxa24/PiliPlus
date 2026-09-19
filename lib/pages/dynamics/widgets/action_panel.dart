@@ -1,5 +1,6 @@
 import 'package:PiliPlus/models/dynamics/result.dart';
 import 'package:PiliPlus/pages/dynamics_repost/view.dart';
+import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/request_utils.dart';
@@ -27,44 +28,47 @@ class ActionPanel extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 15),
       foregroundColor: outline,
     );
+    // LibrePili: repost / like need an account, the counts do not
+    final isLogin = Accounts.main.isLogin;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        Expanded(
-          child: Builder(
-            builder: (context) {
-              return TextButton.icon(
-                onPressed: () => showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  useSafeArea: true,
-                  builder: (_) => RepostPanel(
-                    item: item,
-                    onSuccess: () {
-                      int count = forward.count ?? 0;
-                      forward.count = count + 1;
-                      if (context.mounted) {
-                        (context as Element?)?.markNeedsBuild();
-                      }
-                    },
+        if (isLogin)
+          Expanded(
+            child: Builder(
+              builder: (context) {
+                return TextButton.icon(
+                  onPressed: () => showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    useSafeArea: true,
+                    builder: (_) => RepostPanel(
+                      item: item,
+                      onSuccess: () {
+                        int count = forward.count ?? 0;
+                        forward.count = count + 1;
+                        if (context.mounted) {
+                          (context as Element?)?.markNeedsBuild();
+                        }
+                      },
+                    ),
                   ),
-                ),
-                icon: Icon(
-                  FontAwesomeIcons.shareFromSquare,
-                  size: 16,
-                  color: outline,
-                  semanticLabel: "转发",
-                ),
-                style: btnStyle,
-                label: Text(
-                  forward.count != null
-                      ? NumUtils.numFormat(forward.count)
-                      : '转发',
-                ),
-              );
-            },
+                  icon: Icon(
+                    FontAwesomeIcons.shareFromSquare,
+                    size: 16,
+                    color: outline,
+                    semanticLabel: "转发",
+                  ),
+                  style: btnStyle,
+                  label: Text(
+                    forward.count != null
+                        ? NumUtils.numFormat(forward.count)
+                        : '转发',
+                  ),
+                );
+              },
+            ),
           ),
-        ),
         Expanded(
           child: TextButton.icon(
             onPressed: () => PageUtils.pushDynDetail(
@@ -84,53 +88,58 @@ class ActionPanel extends StatelessWidget {
             ),
           ),
         ),
-        Expanded(
-          child: Builder(
-            builder: (context) {
-              final IconData icon;
-              final Color color;
-              final String label;
-              if (like.status ?? false) {
-                icon = FontAwesomeIcons.solidThumbsUp;
-                color = primary;
-                label = '已赞';
-              } else {
-                icon = FontAwesomeIcons.thumbsUp;
-                color = outline;
-                label = '点赞';
-              }
-              final likeIcon = Icon(
-                icon,
-                size: 16,
-                color: color,
-                semanticLabel: label,
-              );
-              return TextButton.icon(
-                onPressed: () => RequestUtils.onLikeDynamic(
-                  item,
-                  likeIcon.color == primary,
-                  () {
-                    if (context.mounted) {
-                      (context as Element?)?.markNeedsBuild();
-                    }
-                  },
-                ),
-                icon: likeIcon,
-                style: btnStyle,
-                label: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 400),
-                  transitionBuilder: (child, animation) =>
-                      ScaleTransition(scale: animation, child: child),
-                  child: Text(
-                    like.count != null ? NumUtils.numFormat(like.count) : '点赞',
-                    key: ValueKey<int?>(like.count),
-                    style: TextStyle(color: like.status! ? primary : outline),
+        if (isLogin)
+          Expanded(
+            child: Builder(
+              builder: (context) {
+                final IconData icon;
+                final Color color;
+                final String label;
+                if (like.status ?? false) {
+                  icon = FontAwesomeIcons.solidThumbsUp;
+                  color = primary;
+                  label = '已赞';
+                } else {
+                  icon = FontAwesomeIcons.thumbsUp;
+                  color = outline;
+                  label = '点赞';
+                }
+                final likeIcon = Icon(
+                  icon,
+                  size: 16,
+                  color: color,
+                  semanticLabel: label,
+                );
+                return TextButton.icon(
+                  onPressed: () => RequestUtils.onLikeDynamic(
+                    item,
+                    likeIcon.color == primary,
+                    () {
+                      if (context.mounted) {
+                        (context as Element?)?.markNeedsBuild();
+                      }
+                    },
                   ),
-                ),
-              );
-            },
+                  icon: likeIcon,
+                  style: btnStyle,
+                  label: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 400),
+                    transitionBuilder: (child, animation) =>
+                        ScaleTransition(scale: animation, child: child),
+                    child: Text(
+                      like.count != null
+                          ? NumUtils.numFormat(like.count)
+                          : '点赞',
+                      key: ValueKey<int?>(like.count),
+                      style: TextStyle(
+                        color: (like.status ?? false) ? primary : outline,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
-        ),
       ],
     );
   }

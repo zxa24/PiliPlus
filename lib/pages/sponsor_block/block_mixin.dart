@@ -64,7 +64,12 @@ mixin BlockMixin on GetxController {
   }) async {
     resetBlock();
 
+    // the video may be switched while this runs: only the segments of the
+    // video asked for last are applied
+    final token = '$bvid:$cid';
+    _blockToken = token;
     final result = await SponsorBlock.getSkipSegments(bvid: bvid, cid: cid);
+    if (_blockToken != token) return;
     switch (result) {
       case Success<List<SegmentItemModel>>(:final response):
         handleSBData(response);
@@ -470,7 +475,10 @@ mixin BlockMixin on GetxController {
     }
   }
 
+  String? _blockToken;
+
   void resetBlock() {
+    _blockToken = null;
     cancelBlockListener();
     _lastBlockPos = null;
     videoLabel?.value = '';

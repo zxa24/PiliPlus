@@ -46,8 +46,17 @@ List<SettingsModel> get privacySettings => [
 ];
 
 Widget _getAccountDetail(BuildContext context) {
-  final children = <Widget>[];
   final theme = TextTheme.of(context);
+  final children = <Widget>[
+    // the list below is only the role mapping: LoginPolicy decides per
+    // request whether the account is attached at all
+    Text(
+      '下面是各账号模式负责的 API。实际请求另由隐私策略决定：默认无痕，'
+      '即使开启账号模式，也只有需要账号的请求（个人数据、写操作、播放地址、'
+      '首页推荐）会带上账号，其余仍匿名发送。',
+      style: theme.bodySmall,
+    ),
+  ];
   for (final i in AccountType.values) {
     final url = ApiType.apiTypeSet[i];
     if (url == null) continue;

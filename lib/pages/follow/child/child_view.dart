@@ -50,8 +50,8 @@ class _FollowChildPageState extends State<FollowChildPage>
     _initController();
   }
 
-  void _initController() {
-    _tag = _newTag;
+  void _initController([String? tag]) {
+    _tag = tag ?? _newTag;
     _followController = Get.put(
       FollowChildController(widget.controller, widget.mid, widget.tagid),
       tag: _tag,
@@ -64,10 +64,11 @@ class _FollowChildPageState extends State<FollowChildPage>
     if (oldWidget.tagid != widget.tagid) {
       final newTag = _newTag;
       if (Get.isRegistered<FollowChildController>(tag: newTag)) {
+        _tag = newTag;
         _followController = Get.find<FollowChildController>(tag: newTag);
       } else {
         Get.delete<FollowChildController>(tag: _tag);
-        _initController();
+        _initController(newTag);
       }
     }
   }

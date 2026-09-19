@@ -78,6 +78,12 @@ abstract final class CacheManager {
           if (file is Directory && path.equals(file.path, manager.cacheDir)) {
             continue;
           }
+          // side files of local videos that may still be open (LocalPlayer
+          // removes the unused ones itself)
+          if (file is Directory &&
+              path.basename(file.path) == 'local_documents') {
+            continue;
+          }
           await file.delete(recursive: true);
         }
       }

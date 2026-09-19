@@ -147,7 +147,7 @@ class ArticleController extends CommonDynController {
         forward: DynamicStat(count: response.stats?.share),
         like: DynamicStat(
           count: response.stats?.like,
-          status: response.stats?.like == 1,
+          status: response.like == 1,
         ),
         favorite: DynamicStat(
           count: response.stats?.favorite,

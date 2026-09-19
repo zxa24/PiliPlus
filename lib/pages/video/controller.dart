@@ -350,6 +350,20 @@ class VideoDetailController extends GetxController
     return cid.value.toString();
   }
 
+  int _lastLocalSaveSec = 0;
+
+  /// While playing: save the local resume point every 5 s, so it survives
+  /// the process being killed.
+  void onLocalPosition(Duration position) {
+    if (!isFileSource || !plPlayerController.playerStatus.isPlaying) return;
+    final sec = position.inSeconds;
+    // 0: not yet at the resume point of a newly opened item
+    if (sec > 0 && (sec - _lastLocalSaveSec).abs() >= 5) {
+      _lastLocalSaveSec = sec;
+      cacheLocalProgress();
+    }
+  }
+
   void cacheLocalProgress() {
     if (plPlayerController.playerStatus.isCompleted) {
       watchProgress.put(_progressKey, entry.totalTimeMilli);
@@ -645,7 +659,7 @@ class VideoDetailController extends GetxController
   /// 发送弹幕
   Future<void> showShootDanmakuSheet() async {
     // also reached from the keyboard shortcut
-    if (!LoginPolicy.canInteract) return;
+    if (!LoginPolicy.canInteract || isFileSource) return;
     if (plPlayerController.dmState.contains(cid.value)) {
       SmartDialog.showToast('UP主已关闭弹幕');
       return;
@@ -1335,6 +1349,7 @@ class VideoDetailController extends GetxController
       cacheLocalProgress();
     }
 
+    _lastLocalSaveSec = 0;
     playedTime = null;
     defaultST = null;
     videoUrl = null;

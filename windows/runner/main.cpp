@@ -78,7 +78,11 @@ static bool SendFileToInstance() {
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
-  if (SendFileToInstance() || SendAppLinkToInstance()) {
+  // The self test runs as its own instance (separate data profile) instead
+  // of being forwarded to an already running app.
+  const bool self_test =
+      std::wstring(command_line).find(L"--selftest") != std::wstring::npos;
+  if (!self_test && (SendFileToInstance() || SendAppLinkToInstance())) {
     return EXIT_SUCCESS;
   }
 

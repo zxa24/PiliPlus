@@ -9,6 +9,7 @@ import 'package:PiliPlus/models_new/reply2reply/data.dart';
 import 'package:PiliPlus/models_new/reply_interaction/data.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 
@@ -63,6 +64,9 @@ abstract final class ReplyHttp {
     required int pageNum,
     required int type,
     bool isCheck = false,
+    // the comment check: explicitly as the main account (login mode only),
+    // to compare with the anonymous request
+    bool asAccount = false,
   }) async {
     final res = await Request().get(
       Api.replyReplyList,
@@ -74,7 +78,16 @@ abstract final class ReplyHttp {
         'sort': 1,
         if (isLogin) 'csrf': Accounts.main.csrf,
       },
-      options: !isLogin ? options : null,
+      options: !isLogin
+          ? options
+          : asAccount
+          ? Options(
+              extra: {
+                'account': Accounts.main,
+                LoginPolicy.explicitAccount: true,
+              },
+            )
+          : null,
     );
     if (res.data['code'] == 0) {
       ReplyReplyData replyData = ReplyReplyData.fromJson(res.data['data']);

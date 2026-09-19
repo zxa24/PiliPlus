@@ -5,6 +5,7 @@ import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models_new/blacklist/data.dart';
 import 'package:PiliPlus/models_new/blacklist/list.dart';
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -39,8 +40,10 @@ class BlackListController
       onConfirm: () async {
         final result = await VideoHttp.relationMod(mid: mid, act: 6, reSrc: 11);
         if (result.isSuccess) {
+          Pref.removeBlackMid(mid);
+          // by id: the list may have changed while the request ran
           loadingState
-            ..value.data!.removeAt(index)
+            ..value.dataOrNull?.removeWhere((e) => e.mid == mid)
             ..refresh();
           total.value -= 1;
           SmartDialog.showToast('移除成功');

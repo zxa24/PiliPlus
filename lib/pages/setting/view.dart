@@ -245,7 +245,8 @@ class _SettingPageState extends State<SettingPage> {
         title: '选择要登出的账号uid',
         initValues: const Iterable.empty(),
         values: {
-          for (final i in Accounts.account.values) i: i.mid.toString(),
+          for (final i in Accounts.account.values)
+            i: i.expired ? '${i.mid}（已失效）' : i.mid.toString(),
         },
       ),
     );

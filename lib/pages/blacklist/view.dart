@@ -26,7 +26,13 @@ class _BlackListPageState extends State<BlackListPage> {
 
   @override
   void dispose() {
-    if (_blackListController.loadingState.value case Success(:final response)) {
+    // only a fully loaded list replaces the local filter (50 per page);
+    // removals made here are applied as they happen (see onRemove)
+    if (_blackListController.loadingState.value
+        case Success(
+          :final response,
+        )
+        when _blackListController.isEnd) {
       final blackMids = response?.map((e) => e.mid!).toSet() ?? {};
       GlobalData().blackMids = blackMids;
       Pref.blackMids = blackMids;

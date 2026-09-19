@@ -198,17 +198,18 @@ class _DanmakuBlockPageState extends State<DanmakuBlockPage> {
             onPressed: () async {
               if (filter != initFilter) {
                 Get.back();
-                if (itemId != null) {
+                // add first: a failed add would otherwise lose the rule
+                final added = await _controller.danmakuFilterAdd(
+                  filter: filter,
+                  type: type.index,
+                );
+                if (added && itemId != null) {
                   await _controller.danmakuFilterDel(
                     type.index,
                     itemIndex!,
                     itemId,
                   );
                 }
-                await _controller.danmakuFilterAdd(
-                  filter: filter,
-                  type: type.index,
-                );
               } else {
                 SmartDialog.showToast(
                   '输入内容${filter.isEmpty ? "不能为空" : "与上次相同"}',

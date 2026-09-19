@@ -134,7 +134,8 @@ abstract final class SelfTest {
     PlDanmakuController.lastLoadedCount = -1;
     unawaited(LocalPlayer.open(target, heroTag: heroTag));
     await Future.delayed(const Duration(seconds: 6));
-    final player = PlPlayerController.getInstance();
+    // read only: getInstance() would raise the player count
+    final player = PlPlayerController.instance;
     if (play) {
       // same steps as tapping play on the page (handlePlay)
       final ctr = Get.find<VideoDetailController>(tag: heroTag)
@@ -142,11 +143,11 @@ abstract final class SelfTest {
       await ctr.playerInit(autoplay: true);
     }
     await Future.delayed(Duration(seconds: hold));
-    final pos = player.positionInMilliseconds;
+    final pos = player?.positionInMilliseconds ?? 0;
     return {
       'pass': !play || pos > 0,
       'positionMs': pos,
-      'durationMs': player.durationInMilliseconds,
+      'durationMs': player?.durationInMilliseconds,
       'danmakuLoaded': PlDanmakuController.lastLoadedCount,
     };
   }
@@ -210,7 +211,8 @@ abstract final class SelfTest {
       if (tab < ctr.tabCtr.length) ctr.tabCtr.animateTo(tab);
     }
     await Future.delayed(Duration(seconds: hold));
-    final player = PlPlayerController.getInstance();
+    // read only: getInstance() would raise the player count
+    final player = PlPlayerController.instance;
     final detail = Get.find<VideoDetailController>(tag: heroTag);
     return {
       'pass': true,
@@ -220,8 +222,8 @@ abstract final class SelfTest {
       'extras': extras,
       'tabs': ?tabs,
       if (play) ...{
-        'positionMs': player.positionInMilliseconds,
-        'durationMs': player.durationInMilliseconds,
+        'positionMs': player?.positionInMilliseconds,
+        'durationMs': player?.durationInMilliseconds,
         'danmakuLoaded': PlDanmakuController.lastLoadedCount,
       },
     };

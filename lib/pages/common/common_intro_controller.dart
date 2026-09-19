@@ -237,7 +237,13 @@ mixin FavMixin on TripleMixin {
       }
       await LocalLibrary.setFolders(key, data, folders);
       _onLocalFavChanged(folders.isNotEmpty);
-      SmartDialog.showToast(add ? '已加入本地收藏' : '已取消本地收藏');
+      SmartDialog.showToast(
+        add
+            ? '已加入本地收藏'
+            : folders.isEmpty
+            ? '已取消本地收藏'
+            : '已移出默认收藏夹（仍在其他本地收藏夹中）',
+      );
       return;
     }
     if (!enableQuickFav && isLongPress) return;
@@ -275,6 +281,13 @@ mixin FavMixin on TripleMixin {
       queryVideoInFolder().then((res) async {
         if (res.isSuccess) {
           final hasFav = this.hasFav.value;
+          if (!hasFav &&
+              quickFavId == null &&
+              (favFolderData.value.list?.isEmpty ?? true)) {
+            SmartDialog.dismiss();
+            SmartDialog.showToast('没有可用的收藏夹');
+            return;
+          }
           final result = hasFav
               ? await FavHttp.unfavAll(rid: rid, type: type)
               : await FavHttp.favVideo(
@@ -287,7 +300,7 @@ mixin FavMixin on TripleMixin {
             this.hasFav.toggle();
             SmartDialog.showToast('${hasFav ? '取消' : ''}收藏成功');
           } else {
-            res.toast();
+            result.toast();
           }
         } else {
           SmartDialog.dismiss();

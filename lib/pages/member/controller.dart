@@ -79,6 +79,10 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
     if (res case Success(:final response)) {
       relation.value = response.special == 1 ? -10 : response.attribute ?? 0;
     }
+    // 被关注: also not in the anonymous space data
+    if (await UserHttp.hasFollowedMe(mid) case final followed?) {
+      isFollowed = followed ? 1 : 0;
+    }
   }
 
   @override

@@ -1,0 +1,18 @@
+You are an independent code auditor. Repository: C:/Users/Z14/Documents/Coding/Piliplus (Flutter app LibrePili — a privacy-first fork of the PiliPlus Bilibili client; branch librepili). Read-only: do NOT modify repo files and do NOT run state-changing git commands.
+
+User's original audit request (verbatim, Chinese): "做5轮审计，第1-2轮聚焦fork后的更改，之后全局" (5 audit rounds; rounds 1-2 focus on the changes made after the fork, later rounds are global). This is round 3 — a GLOBAL audit of the whole codebase (upstream PiliPlus code included; problems in upstream code are in scope and will be fixed).
+
+Scope for you (other auditors cover the rest): networking, data and storage — lib/http/, lib/grpc/, lib/utils/ (incl. accounts/, storage, request/cache helpers), lib/services/, lib/models/, lib/models_new/, lib/router/, lib/main.dart. Cross-reference other folders only to confirm call sites.
+
+Tooling: Flutter/Dart are not on PATH. To run the analyzer, tests or small Dart probes use bash: `source "C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/tools/local_env.sh" && cd "$REPO" && <command>`. Probe files go under C:/Users/Z14/AppData/Local/Temp/claude/C--Users-Z14-Documents-Coding-Piliplus/47d2c9d0-a621-4a5a-97db-829f49cb33a6/scratchpad/probes/ only (delete them afterwards). The machine is short on memory: do NOT run whole-disk searches (`find /`, recursive scans outside the repo); search inside the repo or known package paths (pub cache: W:/pub-cache/hosted/pub.dev/ after sourcing the env script).
+
+Output findings as:
+
+  - [P<n>] [A|B|C|D] <short title> — <file>:<startline>-<endline>
+    <2-4 line description: the issue, a concrete failure scenario, and what would fix it>
+
+P0 security/data loss, P1 actionable critical, P2 meaningful, P3 nit. Class A = silent failure / data loss / user-visible wrong behavior or a design gap; B = signature/field drift; C = regression; D = doc inconsistency. Mark anything you could not confirm as **hypothesis**.
+
+End with a PROBED-vs-READ map: what you verified by running something vs only read, and which areas you did not look at.
+
+Return the findings as your final message — DATA, no preamble.

@@ -18,13 +18,13 @@ class LoginAccountAdapter extends TypeAdapter<LoginAccount> {
       fields[1] as String?,
       fields[2] as String?,
       (fields[3] as List?)?.cast<AccountType>().toSet(),
-    );
+    )..expired = fields[4] as bool? ?? false;
   }
 
   @override
   void write(BinaryWriter writer, LoginAccount obj) {
     writer
-      ..writeByte(4)
+      ..writeByte(5)
       ..writeByte(0)
       ..write(obj.cookieJar)
       ..writeByte(1)
@@ -32,7 +32,9 @@ class LoginAccountAdapter extends TypeAdapter<LoginAccount> {
       ..writeByte(2)
       ..write(obj.refresh)
       ..writeByte(3)
-      ..write(obj.type.toList());
+      ..write(obj.type.toList())
+      ..writeByte(4)
+      ..write(obj.expired);
   }
 
   @override

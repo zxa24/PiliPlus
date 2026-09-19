@@ -270,6 +270,22 @@ abstract final class UserHttp {
     }
   }
 
+  /// Whether [mid] follows the account (the space data is anonymous, so its
+  /// own `isFollowed` is the guest's). Null when it cannot be told.
+  static Future<bool?> hasFollowedMe(int mid) async {
+    final res = await Request().get(
+      Api.mutualRelation,
+      queryParameters: {'mid': mid},
+    );
+    if (res.data is Map && res.data['code'] == 0) {
+      final attribute = res.data['data']?['be_relation']?['attribute'];
+      if (attribute is int) {
+        return attribute == 2 || attribute == 6;
+      }
+    }
+    return null;
+  }
+
   static Future<LoadingState<RelationData>> userRelation(int mid) async {
     final res = await Request().get(
       Api.relation,

@@ -95,11 +95,13 @@ class LoginPageController extends GetxController
           _isReq = false;
           if (value['status']) {
             t.cancel();
+            final data = value['data'];
+            if (data == null || data['cookie_info'] == null) {
+              statusQRCode.value = '登录异常，接口未返回身份信息，可能是因为账号风控';
+              return;
+            }
             statusQRCode.value = '扫码成功';
-            await setAccount(
-              value['data'],
-              value['data']['cookie_info']['cookies'],
-            );
+            await setAccount(data, data['cookie_info']['cookies']);
             Get.back();
           } else if (value['code'] == 86038) {
             t.cancel();
@@ -176,10 +178,18 @@ class LoginPageController extends GetxController
           await LoginAccount(
             BiliCookieJar.fromJson(
               Map.fromEntries(
-                cookieTextController.text.split(';').map((item) {
-                  final list = item.split('=');
-                  return MapEntry(list.first, list.skip(1).join());
-                }),
+                cookieTextController.text
+                    .split(';')
+                    .map((item) => item.trim())
+                    .where((item) => item.contains('='))
+                    .map((item) {
+                      final list = item.split('=');
+                      return MapEntry(
+                        list.first.trim(),
+                        list.skip(1).join('=').trim(),
+                      );
+                    })
+                    .where((e) => e.key.isNotEmpty),
               ),
             ),
             null,
@@ -316,6 +326,7 @@ class LoginPageController extends GetxController
                       "获取验证码失败，请尝试其它登录方式\n"
                       "(${preCaptureRes['code']}) ${preCaptureRes['msg']} ${preCaptureRes['data']}",
                     );
+                    return;
                   }
                   String geeGt = preCaptureRes['data']['gee_gt'];
                   String geeChallenge = preCaptureRes['data']['gee_challenge'];
@@ -488,8 +499,14 @@ class LoginPageController extends GetxController
       key: key,
     );
     if (res['status']) {
-      SmartDialog.showToast('登录成功');
       final data = res['data'];
+      if (data['token_info'] == null || data['cookie_info'] == null) {
+        SmartDialog.showToast(
+          '登录异常，接口未返回身份信息，可能是因为账号风控，请尝试其它登录方式。\n${res["msg"]}，\n $data',
+        );
+        return;
+      }
+      SmartDialog.showToast('登录成功');
       await setAccount(data['token_info'], data['cookie_info']['cookies']);
       Get.back();
     } else {
@@ -659,7 +676,11 @@ class LoginPageController extends GetxController
     final options = {
       AnonymousAccount(): '0',
       ...Accounts.account.toMap().map(
-        (k, v) => MapEntry(v, k as String),
+        (k, v) => MapEntry(
+          v,
+          // not used for requests until logged in again (or removed)
+          v.expired ? '$k（已失效，请重新登录或删除）' : k as String,
+        ),
       ),
     };
     bool quickSelect = selectAccount.every((e) => e == selectAccount.first);

@@ -58,6 +58,12 @@ class LoginAccount extends Account {
   @override
   bool activated = false;
 
+  /// The server answered "not logged in" for a request that carried this
+  /// account. It is kept (the user may re-login or remove it) but not used
+  /// for requests; see [Accounts.markExpired].
+  @HiveField(4)
+  bool expired = false;
+
   @override
   late final int mid = int.parse(_midStr);
 
@@ -97,6 +103,7 @@ class LoginAccount extends Account {
     'accessKey': accessKey,
     'refresh': refresh,
     'type': type.map((i) => i.index).toList(),
+    if (expired) 'expired': true,
   };
 
   late final String _midStr = cookieJar
@@ -120,7 +127,7 @@ class LoginAccount extends Account {
     json['accessKey'],
     json['refresh'],
     (json['type'] as Iterable?)?.map((i) => AccountType.values[i]).toSet(),
-  );
+  )..expired = json['expired'] == true;
 
   @override
   int get hashCode => mid.hashCode;

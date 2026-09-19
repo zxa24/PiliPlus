@@ -55,8 +55,9 @@ class DynamicsTabController
   Future<void> onRemove(int index, dynamic dynamicId) async {
     final res = await MsgHttp.removeDynamic(dynIdStr: dynamicId);
     if (res.isSuccess) {
+      // by id: the list may have changed while the request ran
       loadingState
-        ..value.data!.removeAt(index)
+        ..value.dataOrNull?.removeWhere((e) => e.idStr == dynamicId)
         ..refresh();
       SmartDialog.showToast('删除成功');
     } else {
@@ -82,9 +83,11 @@ class DynamicsTabController
     try {
       final list = loadingState.value.data!;
       final ids = item.modules.moduleFold!.ids!;
-      final flag = index + ids.length + 1;
-      for (int i = index + 1; i < flag; i++) {
-        list[i].visible = true;
+      // by id, not by position: the list may have changed since the build
+      for (final e in list) {
+        if (ids.contains('${e.idStr}')) {
+          e.visible = true;
+        }
       }
       item.modules.moduleFold = null;
       loadingState.refresh();

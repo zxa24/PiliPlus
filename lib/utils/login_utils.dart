@@ -66,6 +66,20 @@ abstract final class LoginUtils {
     return setWebCookie(AnonymousAccount());
   }
 
+  /// Removes every cookie from the in-app WebView store (used when all data
+  /// is reset, so a deleted account's session does not survive there).
+  static Future<void> clearWebCookies() async {
+    try {
+      if (Platform.isLinux) {
+        await LinuxCookieManager.deleteAllCookies();
+      } else {
+        await web.CookieManager.instance(
+          webViewEnvironment: webViewEnvironment,
+        ).deleteAllCookies();
+      }
+    } catch (_) {}
+  }
+
   static Future<void> onLoginMain() async {
     final account = Accounts.main;
     final res = await UserHttp.userInfo();
@@ -91,9 +105,10 @@ abstract final class LoginUtils {
       // 获取用户信息失败
       final errMsg = res.toString();
       if (errMsg == '账号未登录') {
-        await Accounts.deleteAll({account});
+        // kept (marked expired), so one bad answer cannot delete it
+        if (account is LoginAccount) await Accounts.markExpired({account});
         SmartDialog.showNotify(
-          msg: '登录失败，请检查cookie是否正确，$errMsg',
+          msg: '账号登录已失效（$errMsg），可在「账号切换」中重新登录或删除',
           notifyType: .warning,
         );
       } else {

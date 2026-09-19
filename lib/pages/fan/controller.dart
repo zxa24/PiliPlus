@@ -37,6 +37,8 @@ class FansController extends FollowTypeController {
   );
 
   Future<void> onRemoveFan(int index, int mid) async {
+    // the row, not its index: the list may change while the request runs
+    final item = loadingState.value.dataOrNull?.elementAtOrNull(index);
     final res = await VideoHttp.relationMod(
       mid: mid,
       act: 7,
@@ -44,7 +46,7 @@ class FansController extends FollowTypeController {
     );
     if (res.isSuccess) {
       loadingState
-        ..value.data!.removeAt(index)
+        ..value.dataOrNull?.remove(item)
         ..refresh();
       SmartDialog.showToast('移除成功');
     } else {

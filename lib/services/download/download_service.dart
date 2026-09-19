@@ -3,6 +3,7 @@ import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io'
     show Directory, File, FileSystemEntity, FileSystemException, Platform;
 import 'dart:isolate' show Isolate;
+import 'dart:math' as math;
 
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/grpc/dm.dart';
@@ -73,8 +74,25 @@ class DownloadService extends GetxService {
     waitForInitialization = _readDownloadList();
   }
 
+  /// The download folder changed: the running transfer (it writes into the
+  /// old folder) is paused, and the list and queue are re-read from the new
+  /// folder.
+  void reloadDownloadList() {
+    waitForInitialization = () async {
+      await waitForInitialization;
+      await cancelDownload(isDelete: false, downloadNext: false);
+      // a merge still in progress completes its entry on its own
+      if (!_mergingCids.contains(_curCid)) {
+        _curCid = null;
+        curDownload.value = null;
+      }
+      await _readDownloadList();
+    }();
+  }
+
   Future<void> _readDownloadList() async {
     downloadList.clear();
+    waitDownloadQueue.clear();
     final downloadDir = Directory(await _getDownloadPath());
     await for (final dir in downloadDir.list()) {
       if (dir is Directory) {
@@ -361,10 +379,11 @@ class DownloadService extends GetxService {
         if (!isUpdate) {
           _updateCurStatus(DownloadStatus.getDanmaku);
         }
-        final seg = (entry.totalTimeMilli / DmUtils.segLength).ceil();
-        if (seg <= 0) {
-          throw StateError('Invalid danmaku segment count: $seg');
-        }
+        // unknown duration: at least the first segment
+        final seg = math.max(
+          (entry.totalTimeMilli / DmUtils.segLength).ceil(),
+          1,
+        );
 
         final danmaku = (await DmGrpc.dmSegMobile(
           cid: cid,
@@ -419,12 +438,13 @@ class DownloadService extends GetxService {
 
   Future<void> _startDownload(BiliDownloadEntryInfo entry) async {
     try {
-      if (!await downloadDanmaku(entry: entry)) {
-        return;
-      }
+      // danmaku is optional: a failed fetch must not block the video (it
+      // can be fetched again later with "update danmaku")
+      await downloadDanmaku(entry: entry);
 
       _updateCurStatus(DownloadStatus.getPlayUrl);
 
+      final oldTypeTag = entry.typeTag;
       final mediaFileInfo = await DownloadHttp.getVideoUrl(
         entry: entry,
         ep: entry.ep,
@@ -432,12 +452,29 @@ class DownloadService extends GetxService {
         pageData: entry.pageData,
       );
 
+      // the stream is picked again on every start (codec / login / quality
+      // settings may have changed): partial files of another stream must
+      // not be resumed, or two streams end up in one file
+      if (oldTypeTag != entry.typeTag) {
+        await Directory(
+          path.join(entry.entryDirPath, oldTypeTag),
+        ).tryDel(recursive: true);
+      }
       final videoDir = Directory(path.join(entry.entryDirPath, entry.typeTag));
+      final mediaJsonFile = File(path.join(videoDir.path, _indexFile));
+      if (videoDir.existsSync()) {
+        String? oldKey;
+        try {
+          oldKey = _streamKey(jsonDecode(await mediaJsonFile.readAsString()));
+        } catch (_) {}
+        if (oldKey != _streamKey(mediaFileInfo.toJson())) {
+          await videoDir.tryDel(recursive: true);
+        }
+      }
       if (!videoDir.existsSync()) {
         await videoDir.create(recursive: true);
       }
 
-      final mediaJsonFile = File(path.join(videoDir.path, _indexFile));
       await Future.wait([
         mediaJsonFile.writeAsString(jsonEncode(mediaFileInfo.toJson())),
         _downloadCover(entry: entry),
@@ -487,6 +524,25 @@ class DownloadService extends GetxService {
         debugPrint('get download url error: $e');
       }
     }
+  }
+
+  /// What identifies the bytes of a saved stream ([_indexFile] json): the
+  /// dash video / audio stream picked, or the durl segment sizes.
+  static String? _streamKey(Object? json) {
+    if (json is! Map) return null;
+    String file(Object? list) {
+      if (list is! List || list.isEmpty || list.first is! Map) return '';
+      final f = list.first as Map;
+      return '${f['id']}/${f['codecid']}/${f['width']}x${f['height']}';
+    }
+
+    if (json['video'] != null) {
+      return 'dash:${file(json['video'])}:${file(json['audio'])}';
+    }
+    if (json['segment_list'] case final List segments) {
+      return 'durl:${segments.map((e) => e is Map ? e['bytes'] : null).join(',')}';
+    }
+    return null;
   }
 
   /// Old single-URL (durl) streams may come in several segments: they are

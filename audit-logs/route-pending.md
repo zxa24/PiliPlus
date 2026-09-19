@@ -104,3 +104,111 @@
 - deferred_at: 2026-09-19T16:10:46+00:00
 - resolved_at: 2026-09-19T17:29:56+00:00 — user picked B (rename on collision)
 
+## pass3 D1 - stored accounts deleted on a single not-logged-in response; refresh_token never used
+- tag: `pass3-D1`
+- codex_bullet: |
+    - [P3] [A] Stored accounts are deleted permanently on a single "not logged in" response, and refresh_token is never used — lib/pages/mine/controller.dart:101-132; lib/utils/login_utils.dart:90-98; lib/pages/login/controller.dart:628-632
+      `isLogin == false` or '账号未登录' from `userInfo` leads to `Accounts.deleteAll`, which deletes the cookies and the stored `refresh_token`. No cookie/token refresh flow exists anywhere (the only reference to refresh_token is the login controller storing it). An expired SESSDATA, or a transient -101 during risk control, destroys a renewable login without confirmation. Fix: try a refresh first, or mark the account expired instead of deleting it.
+- routes:
+    - try a cookie/token refresh first
+    - mark the account expired instead of deleting
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked B (mark expired, do not delete)
+
+## pass3 D2 - update check contacts GitHub on every launch by default
+- tag: `pass3-D2`
+- codex_bullet: |
+    - [P3] [D] The update check runs on every launch by default, and "查看完整更新" links to the upstream-mirror branch — lib/utils/update.dart:24-30,68-70; lib/utils/storage_pref.dart:475-476
+      `autoUpdate` defaults to true, so a privacy-first build contacts api.github.com at every start. The commits link goes to `.../commits/main`, but the fork's code is on `librepili` (`main` tracks upstream). Fix: link to `librepili`, and consider making the check opt-in.
+- routes:
+    - make the update check opt-in
+    - keep it on by default
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked ask on first launch; updates auto-download and are applied on the next launch
+
+## pass3 D3 - card menu incognito toggle flips persistent login mode in one tap
+- tag: `pass3-D3`
+- codex_bullet: |
+    - [P2] [A] Card ⋮ menu offers "进入/退出无痕模式", which now flips the persistent login mode in one tap with no confirmation — lib/common/widgets/video_popup_menu.dart:308-314
+      In upstream this was a session-only toggle. The fork's `MineController.onChangeAnonymity` (lib/pages/mine/controller.dart:157-172) writes `SettingBoxKey.loginMode`, calls `Accounts.refresh()` and `onLoginMain()`. Any user with a saved account can therefore leave incognito from any video card's menu, where it sits next to 拉黑/不感兴趣. Fix: remove the item from the card menu, or confirm before leaving incognito.
+- routes:
+    - remove the item from the card menu
+    - confirm before leaving incognito
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked hide login-only items when not logged in (the incognito toggle only when an account exists)
+
+## pass3 D4 - biliSendCommAntifraud sends full cookies to an unverified package
+- tag: `pass3-D4`
+- codex_bullet: |
+    - [P3] [A] biliSendCommAntifraud sends the full cookie string to an unverified package — android/app/src/main/java/com/example/piliplus/AndroidHelper.java:77-104; lib/utils/reply_utils.dart:69-93
+      The explicit intent targets a package name only, with no signature or installer check. Any sideloaded app using that package name receives SESSDATA and bili_jct for every comment sent while the (opt-in) switch is on. Fix: verify the target's signing certificate first, or send only what the check needs.
+- routes:
+    - verify the target app's signing certificate
+    - send only what the check needs
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked A (verify signing certificate)
+
+## pass3 D5 - RetryInterceptor re-sends non-idempotent POSTs
+- tag: `pass3-D5`
+- codex_bullet: |
+    - [P3] [A] RetryInterceptor re-sends non-idempotent POSTs — lib/http/retry_interceptor.dart:52-73
+      `connectionError`/`unknown` errors are retried up to `retryCount` (default 2) whatever the method. On HTTP/1.1 (the default), "Connection closed before full header was received" maps to connectionError (dio io_adapter.dart:178-185), even though the server may already have processed the request. Coin, like, reply and danmaku POSTs can therefore be applied twice (e.g. 2 coins for one tap).
+      **hypothesis:** how often the server has already processed the request in these cases. Fix: only retry GET/HEAD, or only errors where nothing was sent.
+    - [P2] [A] Automatic retry resends POST writes that the server may already have processed — lib/http/retry_interceptor.dart:52-73
+      With the defaults (retryCount 2, HTTP/2 off, so the dart:io adapter), dio maps "Connection closed before full header was received" to `connectionError` after the body was fully sent (dio io_adapter.dart:178-186, read). `sendTimeout` and `unknown` are retried too. Only HTTP/2 `TransportConnectionException` is excluded. So a comment, danmaku, coin or dynamic post can be sent twice. **Hypothesis** (not probed): that the server really does process the first attempt in these cases. Fix: retry only idempotent methods, or only connection errors raised before the request was sent.
+- routes:
+    - retry only GET/HEAD
+    - retry only errors raised before the request was sent
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked A (retry only GET/HEAD)
+
+## pass3 D6 - WebDAV restore replaces local library without merge
+- tag: `pass3-D6`
+- codex_bullet: |
+    - [P1] [A] WebDAV "恢复设置" replaces all settings and the local follows/favorites in one tap, with no confirmation and no merge — lib/pages/webdav/view.dart:108-117 (lib/pages/webdav/webdav.dart:102-119, lib/utils/storage.dart:95-110)
+      `onPressed: WebDav().restore` runs `setting.clear()`+`putAll`, `video.clear()` and `LocalLibrary.importAll`, which clears and replaces the local-library boxes. Without an account those boxes are the only copy of follows/favorites. Mis-tapping it next to "备份设置", or restoring an older backup, silently loses everything added since that backup. Fix: add a confirm dialog that names what gets replaced, and either merge the library boxes by key or snapshot the current state first.
+- routes:
+    - merge local-library boxes by key
+    - snapshot current state before replacing
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked B (snapshot before replacing)
+
+## pass3 D7 - macOS custom download path lost after restart (hypothesis, needs a Mac)
+- tag: `pass3-D7`
+- codex_bullet: |
+    - [P3] [A] macOS: a custom download path does not survive a restart under the sandbox — **hypothesis** — macos/Runner/Release.entitlements:5-10; lib/main.dart:62-80
+      Only `files.user-selected.read-write` is granted, and no security-scoped bookmark is stored for the picked folder. At the next launch, access to the folder is presumably gone. `_initDownPath` then either fails to create it and silently deletes the setting, or keeps a path it cannot write to. Fix: store and resolve an app-scope bookmark.
+- routes:
+    - store a security-scoped bookmark
+    - leave as is until verified on a Mac
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked verify on the Mac (ssh mac_user@100.104.75.108) first
+- probe (2026-09-19, Mac mini macOS 13.7.8 x86_64 via ssh): CI dmg (run 35465726801) is universal (x86_64 arm64), entitlements = app-sandbox + files.user-selected.read-write + network.client (no bookmarks entitlement in use). A sandboxed probe app with the same entitlements: unsandboxed control writes ~/Downloads/lp_audit_dir OK; sandboxed without a grant → "You don't have permission to save the file". A restart has no grant unless a security-scoped bookmark was stored → hypothesis CONFIRMED (mechanism). Probe files removed from the Mac.
+
+## pass3 D8 - comment anti-fraud check compares anonymous with anonymous in login mode
+- tag: `pass3-D8`
+- codex_bullet: |
+    - [P3] [C] Login mode: the comment anti-fraud check's "with account" lookups are sent anonymously, so it gives wrong verdicts — lib/utils/reply_utils.dart:174-305; lib/http/reply.dart:59-78
+      `replyReplyList(isLogin:true)` is a GET to `Api.replyReplyList`, which is not in `_accountApis`, so LoginPolicy sends it anonymously (while still sending the csrf, see the first finding). The self-visible vs. anonymous comparison therefore compares anonymous with anonymous. A shadow-banned root reply is reported as "无法找到你的评论" instead of "shadow ban", and sub-replies always end in "评论不可见".
+      Fix: bind these check calls to the account explicitly (listed `_explicitAccountApis`-style), or disable the check in LibrePili.
+    - [P2] [A] The comment-visibility check no longer checks as the logged-in user, so its verdicts are wrong — lib/utils/reply_utils.dart:198-285 with lib/http/reply.dart:59-78
+      The check compares "as the account" (`isLogin: true`) against "without an account". `Api.replyReplyList` is not in `_accountApis`, so the "as the account" request is now also sent anonymously (confirmed by the probe above). Both sides are then anonymous, so the shadow-ban case (only visible to yourself) reports "无法找到你的评论" instead of "shadow ban". A reply missing from page 1 of the main list reports the false "评论区被戒严" warning. Fix: have these check calls pass the account explicitly and add `replyReplyList` to `_explicitAccountApis`. Otherwise drop the account half of the check and change the messages.
+- routes:
+    - bind the check's requests to the account explicitly
+    - disable/reword the check in LibrePili
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked A (bind the check to the account explicitly)
+
+## pass3 D9 - settings export contains WebDAV password and SponsorBlock user id
+- tag: `pass3-D9`
+- codex_bullet: |
+    - [P3] [A] The settings export contains secrets in plain text — lib/utils/storage.dart:83-90; lib/utils/storage_pref.dart:323-332,631-641
+      `setting.toMap()` includes the WebDAV password and the SponsorBlock private `blockUserID`, which acts as a password for that service. These go to the clipboard or a shareable file (export_import.dart:21-39) and up to the WebDAV server. Import also overwrites this device's WebDAV credentials. Fix: leave credential keys out of export/import.
+    - [P3] [A] Exported settings include the WebDAV password in plain text — lib/utils/storage.dart:83-90; lib/utils/storage_key.dart:190-193
+      `exportAllSettings` writes the whole `setting` box: `webdavPassword`, `webdavUsername`, proxy host, `blockUserID`. The export goes to the clipboard or a shared file. Fix: leave the credential keys out of the export, or ask before including them.
+- routes:
+    - leave credential keys out of export/import
+    - ask before including them
+- deferred_at: 2026-09-19T20:15:39+00:00
+- resolved_at: 2026-09-19T21:06:21+00:00 — user picked B (ask before including secrets)
+

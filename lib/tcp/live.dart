@@ -48,7 +48,8 @@ class PackageHeaderRes extends PackageHeader {
   final int headerSize;
 
   static PackageHeaderRes? fromBytesData(Uint8List data) {
-    if (data.length < 10) {
+    // the header is 16 bytes (seq is read at offset 12)
+    if (data.length < 16) {
       logger.w('数据不足以解析PackageHeader');
       return null;
     }
@@ -151,9 +152,20 @@ class LiveMessageStream {
     required this.roomId,
     required this.uid,
     required this.servers,
+    this.onDisconnect,
   });
 
+  /// Called when the connection is lost or cannot be made (not after
+  /// [close]), so the owner can reconnect.
+  final void Function(LiveMessageStream stream)? onDisconnect;
+
   static final _zlib = ZLibDecoder();
+
+  void _onDrop() {
+    if (!_active) return;
+    close();
+    onDisconnect?.call(this);
+  }
 
   bool _active = true;
   WebSocketChannel? _channel;
@@ -203,12 +215,13 @@ class LiveMessageStream {
       //   ..d('$logTag ===> 发送认证包');
       _socketSubscription = _channel?.stream.listen(
         onData,
-        onDone: close,
-        onError: (_) => close(),
+        onDone: _onDrop,
+        onError: (_) => _onDrop(),
       );
       _channel?.sink.add(authPackage.marshal());
     } catch (e) {
       SmartDialog.showToast("弹幕地址链接失败: $e");
+      _onDrop();
     }
   }
 
@@ -276,7 +289,8 @@ class LiveMessageStream {
 
   @pragma('vm:notify-debugger-on-exception')
   void onData(dynamic data) {
-    final header = PackageHeaderRes.fromBytesData(data as Uint8List);
+    if (data is! Uint8List) return;
+    final header = PackageHeaderRes.fromBytesData(data);
     if (header != null) {
       //心跳包回复不用处理
       if (header.operationCode == 3) return;

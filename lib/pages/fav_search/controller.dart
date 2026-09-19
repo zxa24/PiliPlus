@@ -29,7 +29,9 @@ class FavSearchController
     final args = Get.arguments;
     type = args['type'];
     mediaId = args['mediaId'];
-    isOwner = args['isOwner'];
+    // type 1 searches every folder: [mediaId] is only the folder the search
+    // started from, so it must not be used to act on the results
+    isOwner = type == 1 ? false : args['isOwner'];
     count = args['count'];
     title = args['title'];
     super.onInit();
@@ -63,14 +65,16 @@ class FavSearchController
     cid: item.ugc!.firstCid!,
     cover: item.cover,
     title: item.title,
-    extraArguments: {
-      'sourceType': SourceType.fav,
-      'mediaId': mediaId,
-      'oid': item.id,
-      'favTitle': title,
-      'count': count,
-      'desc': true,
-      'isContinuePlaying': true,
-    },
+    extraArguments: type == 1
+        ? null
+        : {
+            'sourceType': SourceType.fav,
+            'mediaId': mediaId,
+            'oid': item.id,
+            'favTitle': title,
+            'count': count,
+            'desc': true,
+            'isContinuePlaying': true,
+          },
   );
 }

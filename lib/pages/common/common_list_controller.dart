@@ -19,11 +19,18 @@ abstract class CommonListController<R, T> extends CommonController<R, T> {
 
   void checkIsEnd(int length) {}
 
+  // bumped by every refresh: a response of an older request (a load-more or
+  // refresh still in flight) is dropped, so it can neither append a page to
+  // the new list nor advance [page]
+  int _generation = 0;
+
   @override
   Future<void> queryData([bool isRefresh = true]) async {
-    if (isLoading || (!isRefresh && isEnd)) return;
+    if (!isRefresh && (isLoading || isEnd)) return;
+    final generation = isRefresh ? ++_generation : _generation;
     isLoading = true;
     final LoadingState<R> res = await customGetData();
+    if (generation != _generation) return;
     if (res case Success(:final response)) {
       if (!customHandleResponse(isRefresh, res)) {
         final dataList = getDataList(response);

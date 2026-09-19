@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Directory, File;
 import 'dart:typed_data';
 
 import 'package:PiliPlus/models/model_owner.dart';
@@ -80,34 +81,146 @@ abstract final class GStorage {
     }
   }
 
-  static String exportAllSettings() {
+  /// Setting keys that are credentials of this device: left out of an
+  /// export unless asked for, and kept on import unless the user agrees.
+  static const credentialKeys = [
+    SettingBoxKey.webdavUsername,
+    SettingBoxKey.webdavPassword,
+    SettingBoxKey.blockUserID,
+  ];
+
+  /// Whether a backup [map] carries any of the [credentialKeys].
+  static bool hasCredentials(Map<String, dynamic> map) {
+    final settingMap = map[setting.name];
+    return settingMap is Map && credentialKeys.any(settingMap.containsKey);
+  }
+
+  static String exportAllSettings({bool includeCredentials = false}) {
     return Utils.jsonEncoder.convert({
-      setting.name: setting.toMap(),
+      setting.name: {
+        for (final e in setting.toMap().entries)
+          if (includeCredentials || !credentialKeys.contains(e.key))
+            e.key: e.value,
+      },
       video.name: video.toMap(),
       // local follows / favorites: the only copy without an account
       for (final box in LocalLibrary.boxes) box.name: box.toMap(),
     });
   }
 
-  static Future<void> importAllSettings(String data) =>
-      importAllJsonSettings(jsonDecode(data));
+  static Future<String?> importAllSettings(
+    String data, {
+    bool importCredentials = false,
+  }) => importAllJsonSettings(
+    jsonDecode(data),
+    importCredentials: importCredentials,
+  );
 
-  static Future<List<void>> importAllJsonSettings(
-    Map<String, dynamic> map,
-  ) {
+  static String get _snapshotDir => path.join(appSupportDirPath, 'snapshots');
+  static const _snapshotPrefix = 'before_import_';
+  static const _maxSnapshots = 5;
+
+  /// Saves the current settings and local library (credentials included:
+  /// the file stays in the app's own data dir) before an import replaces
+  /// them. Returns the file path; only the newest [_maxSnapshots] are kept.
+  static Future<String> _saveSnapshot() async {
+    final dir = Directory(_snapshotDir);
+    await dir.create(recursive: true);
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final name =
+        '$_snapshotPrefix${now.year}${two(now.month)}${two(now.day)}_'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}.json';
+    final file = File(path.join(dir.path, name));
+    await file.writeAsString(exportAllSettings(includeCredentials: true));
+    final old = await _snapshots();
+    for (final f in old.skip(_maxSnapshots)) {
+      try {
+        await f.delete();
+      } catch (_) {}
+    }
+    return file.path;
+  }
+
+  /// Snapshots taken before imports, newest first.
+  static Future<List<File>> _snapshots() async {
+    final dir = Directory(_snapshotDir);
+    if (!dir.existsSync()) return [];
+    final files = [
+      await for (final f in dir.list())
+        if (f is File && path.basename(f.path).startsWith(_snapshotPrefix)) f,
+    ]..sort((a, b) => path.basename(b.path).compareTo(path.basename(a.path)));
+    return files;
+  }
+
+  /// The newest snapshot taken before an import, if any.
+  static Future<File?> latestSnapshot() async =>
+      (await _snapshots()).firstOrNull;
+
+  /// Undoes the last import: restores [latestSnapshot] (with its
+  /// credentials, they were this device's) and removes it.
+  static Future<void> restoreLatestSnapshot() async {
+    final file = await latestSnapshot();
+    if (file == null) throw const FormatException('没有导入前的快照');
+    await importAllJsonSettings(
+      jsonDecode(await file.readAsString()),
+      importCredentials: true,
+      snapshot: false,
+    );
+    await file.delete();
+  }
+
+  /// Replaces settings and the local library with [map]. Unless [snapshot]
+  /// is false, the current state is saved first (see [_saveSnapshot]) and
+  /// the snapshot path is returned. This device's [credentialKeys] are kept
+  /// unless [importCredentials] (the user agreed) and [map] has them.
+  static Future<String?> importAllJsonSettings(
+    Map<String, dynamic> map, {
+    bool importCredentials = false,
+    bool snapshot = true,
+  }) async {
     // login mode is a per-device opt-in: a backup must not switch it (the
     // running account state is not re-applied after an import)
     final loginMode = Pref.loginMode;
-    // validate the local library first, so a bad backup changes nothing
+    // validate everything first, so a bad backup changes nothing; a missing
+    // section leaves that box as it is
+    final settingMap = map[setting.name];
+    final videoMap = map[video.name];
+    if ((settingMap != null && settingMap is! Map) ||
+        (videoMap != null && videoMap is! Map) ||
+        (settingMap == null && videoMap == null)) {
+      throw const FormatException('不是有效的设置备份');
+    }
     LocalLibrary.checkImport(map);
-    return Future.wait([
-      setting
-          .clear()
-          .then((_) => setting.putAll(map[setting.name]))
-          .then((_) => setting.put(SettingBoxKey.loginMode, loginMode)),
-      video.clear().then((_) => video.putAll(map[video.name])),
+    final snapshotPath = snapshot ? await _saveSnapshot() : null;
+    final credentials = {
+      for (final key in credentialKeys)
+        if (setting.containsKey(key)) key: setting.get(key),
+    };
+    await Future.wait([
+      if (settingMap is Map)
+        setting
+            .clear()
+            .then(
+              (_) => setting.putAll({
+                for (final e in settingMap.entries)
+                  if (importCredentials || !credentialKeys.contains(e.key))
+                    e.key: e.value,
+              }),
+            )
+            .then(
+              (_) => setting.putAll({
+                SettingBoxKey.loginMode: loginMode,
+                // credentials the backup does not replace stay as they were
+                for (final e in credentials.entries)
+                  if (!importCredentials || !settingMap.containsKey(e.key))
+                    e.key: e.value,
+              }),
+            ),
+      if (videoMap is Map) video.clear().then((_) => video.putAll(videoMap)),
       LocalLibrary.importAll(map),
     ]);
+    return snapshotPath;
   }
 
   static void regAdapter() {

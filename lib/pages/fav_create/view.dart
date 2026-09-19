@@ -60,7 +60,7 @@ class _CreateFavPageState extends State<CreateFavPage> {
       } else {
         _errMsg = res.toString();
       }
-      setState(() {});
+      if (mounted) setState(() {});
     });
   }
 

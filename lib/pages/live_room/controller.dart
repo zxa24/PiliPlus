@@ -413,8 +413,42 @@ class LiveRoomController extends GetxController {
   }
 
   void closeLiveMsg() {
+    _dmGen++;
+    _dmRetryTimer?.cancel();
+    _dmRetryTimer = null;
     _msgStream?.close();
     _msgStream = null;
+  }
+
+  // bumped by closeLiveMsg: a token request or retry from before is dropped
+  int _dmGen = 0;
+  Timer? _dmRetryTimer;
+  int _dmRetryCount = 0;
+  DateTime? _dmConnectedAt;
+
+  /// The socket dropped (network switch, server close...): reconnect with a
+  /// fresh token after a growing delay.
+  void _onDmDisconnect(LiveMessageStream stream) {
+    if (!identical(stream, _msgStream)) return;
+    _msgStream = null;
+    dmInfo = null;
+    // a connection that lasted a while starts the backoff over
+    if (_dmConnectedAt case final at?
+        when DateTime.now().difference(at) > const Duration(minutes: 1)) {
+      _dmRetryCount = 0;
+    }
+    _scheduleDmReconnect();
+  }
+
+  void _scheduleDmReconnect() {
+    if (isClosed) return;
+    final seconds = math.min(2 << math.min(_dmRetryCount, 4), 30);
+    _dmRetryCount++;
+    _dmRetryTimer?.cancel();
+    _dmRetryTimer = Timer(Duration(seconds: seconds), () {
+      _dmRetryTimer = null;
+      if (_msgStream == null) _connectDm();
+    });
   }
 
   @pragma('vm:notify-debugger-on-exception')
@@ -473,16 +507,25 @@ class LiveRoomController extends GetxController {
         getSuperChatMsg();
       }
     }
-    if (_msgStream != null) {
+    if (_msgStream != null || _dmRetryTimer != null) {
       return;
     }
+    _connectDm();
+  }
+
+  void _connectDm() {
     if (dmInfo != null) {
       initDm(dmInfo!);
       return;
     }
+    final gen = _dmGen;
     LiveHttp.liveRoomGetDanmakuToken(roomId: roomId).then((res) {
+      if (isClosed || gen != _dmGen || _msgStream != null) return;
       if (res case Success(:final response)) {
         initDm(dmInfo = response);
+      } else if (_dmRetryCount > 0) {
+        // reconnecting: keep trying
+        _scheduleDmReconnect();
       }
     });
   }
@@ -544,6 +587,7 @@ class LiveRoomController extends GetxController {
     if (info.hostList.isEmpty) {
       return;
     }
+    _dmConnectedAt = DateTime.now();
     _msgStream =
         LiveMessageStream(
             streamToken: info.token,
@@ -554,6 +598,7 @@ class LiveRoomController extends GetxController {
             servers: info.hostList
                 .map((host) => 'wss://${host.host}:${host.wssPort}/sub')
                 .toList(),
+            onDisconnect: _onDmDisconnect,
           )
           ..addEventListener(_danmakuListener)
           ..init();

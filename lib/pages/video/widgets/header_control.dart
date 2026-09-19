@@ -1861,20 +1861,21 @@ class HeaderControlState extends State<HeaderControl>
               if (!Pref.hideInteraction &&
                   Accounts.main.isLogin &&
                   (!isPortrait || isFullScreen || PlatformUtils.isDesktop)) ...[
-                SizedBox(
-                  width: btnWidth,
-                  height: btnHeight,
-                  child: IconButton(
-                    tooltip: '发弹幕',
-                    style: btnStyle,
-                    onPressed: videoDetailCtr.showShootDanmakuSheet,
-                    icon: const Icon(
-                      Icons.comment_outlined,
-                      size: 19,
-                      color: Colors.white,
+                if (!isFileSource)
+                  SizedBox(
+                    width: btnWidth,
+                    height: btnHeight,
+                    child: IconButton(
+                      tooltip: '发弹幕',
+                      style: btnStyle,
+                      onPressed: videoDetailCtr.showShootDanmakuSheet,
+                      icon: const Icon(
+                        Icons.comment_outlined,
+                        size: 19,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),
                 SizedBox(
                   width: btnWidth,
                   height: btnHeight,

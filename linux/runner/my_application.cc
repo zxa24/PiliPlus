@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <string.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -104,6 +105,18 @@ static gboolean my_application_local_command_line(GApplication *application,
                                                   gchar ***arguments,
                                                   int *exit_status) {
   MyApplication *self = MY_APPLICATION(application);
+  // Relative file paths are forwarded to an already running instance, which
+  // would resolve them against its own working directory: make them
+  // absolute here.
+  for (gchar **arg = *arguments + 1; *arg != nullptr; arg++) {
+    if ((*arg)[0] != '-' && !g_path_is_absolute(*arg) &&
+        strstr(*arg, "://") == nullptr &&
+        g_file_test(*arg, G_FILE_TEST_EXISTS)) {
+      gchar *absolute = g_canonicalize_filename(*arg, nullptr);
+      g_free(*arg);
+      *arg = absolute;
+    }
+  }
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
 

@@ -35,6 +35,7 @@ abstract final class LoginPolicy {
     // relation to the current user
     Api.pgcLikeCoinFav,
     Api.videoRelation, Api.seasonStatus, Api.relation, Api.relations,
+    Api.mutualRelation,
     Api.sameFollowing, Api.followedUp, Api.followSearch, Api.blackLst,
     Api.followUpTag, Api.followUpGroup, Api.danmakuFilter,
     Api.replyInteraction, Api.danmakuEditState,
@@ -93,17 +94,25 @@ abstract final class LoginPolicy {
   /// off. Existing comments and danmaku are displayed either way.
   static bool get canInteract => Accounts.main.isLogin && !Pref.hideInteraction;
 
+  /// `options.extra[explicitAccount] = true`: the call site must go out as
+  /// the account it passed in `extra['account']` although the path is not
+  /// on the lists (e.g. the comment check's "seen as the account" half,
+  /// compared with an anonymous request). Honoured in login mode only.
+  static const explicitAccount = 'explicitAccount';
+
   /// The account [options] goes out with: [account] is the one its role
   /// resolved to (see ApiType), kept only when login mode is on and the
-  /// request needs it; otherwise anonymous. [loginMode] defaults to the
-  /// setting (tests pass it).
+  /// request needs it (or asks for it, see [explicitAccount]); otherwise
+  /// anonymous. [loginMode] defaults to the setting (tests pass it).
   static Account bind(
     Account account,
     RequestOptions options, {
     bool? loginMode,
   }) {
     if (account is LoginAccount &&
-        (!(loginMode ?? LoginPolicy.loginMode) || !requiresAccount(options))) {
+        (!(loginMode ?? LoginPolicy.loginMode) ||
+            (!requiresAccount(options) &&
+                options.extra[explicitAccount] != true))) {
       return AnonymousAccount();
     }
     return account;

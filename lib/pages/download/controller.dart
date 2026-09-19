@@ -39,6 +39,8 @@ class DownloadPageController extends GetxController
     if (isClosed) return;
     if (_downloadService.downloadList.isEmpty) {
       pages.clear();
+      rxCount.value = 0;
+      enableMultiSelect.value = false;
       return;
     }
     final list = <DownloadPageInfo>[];
@@ -66,6 +68,25 @@ class DownloadPageController extends GetxController
             entries: [entry],
           ),
         );
+      }
+    }
+    if (enableMultiSelect.value) {
+      // the items are rebuilt here: carry the selection over by pageId, so
+      // the count keeps matching the ticks
+      final checked = {
+        for (final page in pages)
+          if (page.checked) page.pageId,
+      };
+      int count = 0;
+      for (final page in list) {
+        if (checked.contains(page.pageId)) {
+          page.checked = true;
+          count++;
+        }
+      }
+      rxCount.value = count;
+      if (count == 0) {
+        enableMultiSelect.value = false;
       }
     }
     pages.value = list;

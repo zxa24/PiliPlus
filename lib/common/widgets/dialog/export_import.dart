@@ -210,9 +210,13 @@ Future<void> showImportExportDialog<T>(
   required ValueGetter<String> onExport,
   required FutureOr<void> Function(T json) onImport,
   required ValueGetter<String> localFileName,
+  // runs before either export, e.g. to ask what to include
+  Future<void> Function()? beforeExport,
 }) => showDialog(
   context: context,
-  builder: (context) {
+  // note: the outer [context] is used for what runs after this dialog is
+  // popped; the builder's own context is unmounted by then
+  builder: (dialogContext) {
     const style = TextStyle(fontSize: 15);
     return SimpleDialog(
       clipBehavior: .hardEdge,
@@ -220,21 +224,23 @@ Future<void> showImportExportDialog<T>(
       children: [
         DialogOption(
           child: const Text('导出至剪贴板', style: style),
-          onPressed: () {
+          onPressed: () async {
             Get.back();
+            await beforeExport?.call();
             exportToClipBoard(onExport: onExport);
           },
         ),
         DialogOption(
           child: const Text('导出文件至本地', style: style),
-          onPressed: () {
+          onPressed: () async {
             Get.back();
+            await beforeExport?.call();
             exportToLocalFile(onExport: onExport, localFileName: localFileName);
           },
         ),
         Divider(
           height: 1,
-          color: ColorScheme.of(context).outline.withValues(alpha: 0.1),
+          color: ColorScheme.of(dialogContext).outline.withValues(alpha: 0.1),
         ),
         DialogOption(
           child: const Text('输入', style: style),

@@ -624,7 +624,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.cid = cid;
       _epid = epid;
       _seasonId = seasonId;
+      final wasAnim = isAnim;
       _pgcType = pgcType;
+      // the player is shared by nested video pages: follow the new video's
+      // type (anime or not) and re-apply / clear the shaders
+      if (wasAnim != isAnim) {
+        superResolutionType.value = isAnim
+            ? Pref.superResolutionType
+            : SuperResolutionType.disable;
+        if (_videoPlayerController != null) {
+          await setShader();
+        }
+      }
 
       if (showSeekPreview) {
         _clearPreview();
@@ -684,7 +695,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     );
   }
 
-  late final isAnim = _pgcType == 1 || _pgcType == 4;
+  bool get isAnim => _pgcType == 1 || _pgcType == 4;
   late final Rx<SuperResolutionType> superResolutionType =
       (isAnim ? Pref.superResolutionType : SuperResolutionType.disable).obs;
   Future<void> setShader([SuperResolutionType? type, NativePlayer? pp]) async {
@@ -951,7 +962,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
         final seconds = videoPlayerController!.state.position.inSeconds;
         if (seconds != 0) {
-          makeHeartBeat(seconds, type: .status);
+          makeHeartBeat(seconds, type: .status, isManual: true);
         }
       }),
 
@@ -1020,7 +1031,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           if (event.startsWith('tcp: ffurl_read returned ') ||
               event.startsWith("Failed to open https://") ||
               event.startsWith("Can not open external file https://")) {
-            Future.delayed(const Duration(milliseconds: 3000), refreshPlayer);
+            // one reopen per burst of error lines
+            EasyThrottle.throttle(
+              'controllerStream.error.listen.live',
+              const Duration(milliseconds: 5000),
+              () => Future.delayed(
+                const Duration(milliseconds: 3000),
+                refreshPlayer,
+              ),
+            );
           }
           return;
         }
@@ -1211,7 +1230,30 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   bool volumeInterceptEventStream = false;
 
   final double maxVolume = PlatformUtils.isDesktop ? Pref.maxVolume : 1.0;
+
+  /// Player-level mute (mpv volume); [volume] keeps the level to restore.
+  void toggleMute() {
+    final isMuted = !this.isMuted;
+    this.isMuted = isMuted;
+    _videoPlayerController?.setVolume(
+      isMuted ? 0 : _unmutedPlayerVolume,
+    );
+  }
+
+  // mobile: [volume] is the system volume, mpv stays at the setting
+  double get _unmutedPlayerVolume =>
+      PlatformUtils.isMobile ? Pref.playerVolume : volume.value * 100;
+
+  /// Any volume change ends the mute.
+  void unmuteOnVolumeChange() {
+    if (isMuted) {
+      isMuted = false;
+      _videoPlayerController?.setVolume(_unmutedPlayerVolume);
+    }
+  }
+
   Future<void> setVolume(double volume, {bool showIndicator = true}) async {
+    unmuteOnVolumeChange();
     if (this.volume.value != volume) {
       this.volume.value = volume;
       try {

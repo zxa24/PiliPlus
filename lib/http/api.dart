@@ -160,6 +160,9 @@ abstract final class Api {
 
   static const String relations = '/x/relation/relations';
 
+  // 互相关系查询（be_relation: 对方是否关注自己）
+  static const String mutualRelation = '/x/space/acc/relation';
+
   // 操作用户关系
   static const String relationMod = '/x/relation/modify';
 

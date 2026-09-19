@@ -194,12 +194,10 @@ class PlayerFocus extends StatelessWidget {
 
         case LogicalKeyboardKey.keyM:
           if (hasPlayer) {
-            final isMuted = !plPlayerController.isMuted;
-            plPlayerController.videoPlayerController!.setVolume(
-              isMuted ? 0 : plPlayerController.volume.value * 100,
+            plPlayerController.toggleMute();
+            SmartDialog.showToast(
+              '${plPlayerController.isMuted ? '' : '取消'}静音',
             );
-            plPlayerController.isMuted = isMuted;
-            SmartDialog.showToast('${isMuted ? '' : '取消'}静音');
           }
           return true;
 
@@ -235,6 +233,17 @@ class PlayerFocus extends StatelessWidget {
             }
             SmartDialog.showToast('${speed}x播放');
           }
+          return true;
+        }
+
+        // offline / local playback: no account actions (coin, fav,
+        // watch later, follow) on the downloaded or fake video
+        if (plPlayerController.isFileSource &&
+            (key == LogicalKeyboardKey.keyW ||
+                key == LogicalKeyboardKey.keyE ||
+                key == LogicalKeyboardKey.keyT ||
+                key == LogicalKeyboardKey.keyV ||
+                key == LogicalKeyboardKey.keyG)) {
           return true;
         }
 

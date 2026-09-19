@@ -52,10 +52,12 @@ class FavPgcController
 
   // 取消追番
   Future<void> pgcDel(int index, seasonId) async {
+    // the row, not its index: the list may change while the request runs
+    final item = loadingState.value.dataOrNull?.elementAtOrNull(index);
     final result = await VideoHttp.pgcDel(seasonId: seasonId);
     if (result case Success(:final response)) {
       loadingState
-        ..value.data!.removeAt(index)
+        ..value.dataOrNull?.remove(item)
         ..refresh();
       SmartDialog.showToast(response);
     } else {
@@ -97,18 +99,21 @@ class FavPgcController
   }
 
   Future<void> onUpdate(int index, int followStatus, int? seasonId) async {
+    // the row, not its index: the list may change while the request runs
+    final moved = loadingState.value.dataOrNull?.elementAtOrNull(index);
     final res = await VideoHttp.pgcUpdate(
       seasonId: seasonId.toString(),
       status: followStatus,
     );
     if (res case Success(:final response)) {
-      List<FavPgcItemModel> list = loadingState.value.data!;
-      final item = list.removeAt(index);
-      loadingState.refresh();
+      loadingState
+        ..value.dataOrNull?.remove(moved)
+        ..refresh();
       try {
         final ctr = Get.find<FavPgcController>(tag: '$type$followStatus');
-        if (ctr.loadingState.value case Success(:final response)) {
-          response?.insert(0, item);
+        if (ctr.loadingState.value case Success(:final response)
+            when moved != null) {
+          response?.insert(0, moved);
           ctr
             ..loadingState.refresh()
             ..allSelected.value = false;

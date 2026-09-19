@@ -127,8 +127,12 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
   void _onLogoutMain() {
     // "未登录" only proves the account is invalid if the request carried it:
     // with login mode off the policy sent it anonymously, so keep the account
-    if (!LoginPolicy.loginMode || Accounts.main is! LoginAccount) return;
-    Accounts.deleteAll({Accounts.main});
+    if (!LoginPolicy.loginMode) return;
+    if (Accounts.main case final LoginAccount account) {
+      // kept (marked expired) so the user can re-login or remove it
+      Accounts.markExpired({account});
+      SmartDialog.showToast('账号登录已失效，可在「账号切换」中重新登录或删除');
+    }
   }
 
   Future<void> queryUserStatOwner() async {

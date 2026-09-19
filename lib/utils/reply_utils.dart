@@ -197,6 +197,7 @@ abstract final class ReplyUtils {
           // cookie check
           final res1 = await ReplyHttp.replyReplyList(
             isLogin: true,
+            asAccount: true,
             oid: oid,
             root: id,
             pageNum: 1,
@@ -274,6 +275,7 @@ https://api.bilibili.com/x/v2/reply/reply?oid=$oid&pn=1&ps=20&root=$id&type=$typ
       for (int i = 1; ; i++) {
         final res4 = await ReplyHttp.replyReplyList(
           isLogin: true,
+          asAccount: true,
           oid: oid,
           root: root,
           pageNum: i,

@@ -7,10 +7,12 @@ import 'dart:convert';
 
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/init.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart' show Options;
 import 'package:hive_ce/hive.dart';
 
 abstract final class WbiSign {
@@ -75,8 +77,12 @@ abstract final class WbiSign {
   }
 
   static Future<String> _getWbiKeys() async {
-    final resp = await Request().get(Api.userInfo);
     try {
+      // the keys are not account-specific: never send the account for them
+      final resp = await Request().get(
+        Api.userInfo,
+        options: Options(extra: {'account': AnonymousAccount()}),
+      );
       final wbiUrls = resp.data['data']['wbi_img'];
 
       final mixinKey = getMixinKey(
@@ -88,16 +94,20 @@ abstract final class WbiSign {
 
       return mixinKey;
     } catch (_) {
-      return '';
+      // do not keep the failed result: the next call fetches again
+      _future = null;
+      return _localCache.get(LocalCacheKey.mixinKey) as String? ?? '';
     }
   }
 
   static FutureOr<String> getWbiKeys() {
     final nowDate = DateTime.now();
-    if (DateTime.fromMillisecondsSinceEpoch(
-          _localCache.get(LocalCacheKey.timeStamp, defaultValue: 0) as int,
-        ).day ==
-        nowDate.day) {
+    final lastDate = DateTime.fromMillisecondsSinceEpoch(
+      _localCache.get(LocalCacheKey.timeStamp, defaultValue: 0) as int,
+    );
+    if (lastDate.year == nowDate.year &&
+        lastDate.month == nowDate.month &&
+        lastDate.day == nowDate.day) {
       final String? mixinKey = _localCache.get(LocalCacheKey.mixinKey);
       if (mixinKey != null) return mixinKey;
       return _future ??= _getWbiKeys();

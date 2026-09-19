@@ -223,10 +223,32 @@ class AudioController extends GetxController
     );
   }
 
+  // the cursors are only updated once the response is in: without this a
+  // second call loads the same page again
+  bool _queryingPlayList = false;
+
   Future<void> _queryPlayList({
     bool isInit = false,
     bool isLoadPrev = false,
     bool isLoadNext = false,
+  }) async {
+    if (_queryingPlayList) return;
+    _queryingPlayList = true;
+    try {
+      await _doQueryPlayList(
+        isInit: isInit,
+        isLoadPrev: isLoadPrev,
+        isLoadNext: isLoadNext,
+      );
+    } finally {
+      _queryingPlayList = false;
+    }
+  }
+
+  Future<void> _doQueryPlayList({
+    required bool isInit,
+    required bool isLoadPrev,
+    required bool isLoadNext,
   }) async {
     final res = await AudioGrpc.audioPlayList(
       id: id,

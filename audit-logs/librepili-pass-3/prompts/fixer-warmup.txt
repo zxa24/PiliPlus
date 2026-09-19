@@ -1,0 +1,28 @@
+You are about to receive an audit task for the repository at:
+
+C:/Users/Z14/Documents/Coding/Piliplus
+
+Before that task arrives, briefly orient yourself to the codebase.
+
+The orchestrator has provided this brief based on its existing
+understanding of the repo:
+
+---
+LibrePili: a privacy-first fork of the PiliPlus Flutter Bilibili client (branch librepili; main = upstream). Fork additions: incognito by default with an opt-in login mode and per-request account binding (lib/utils/accounts/login_policy.dart, account_manager/account_mgr.dart, accounts.dart); local follows/favorites in Hive boxes (lib/services/local_library.dart, lib/pages/local/); downloads remuxed to a single mp4 in a per-video folder with extras (danmaku XML/ASS, comments JSON, subtitles SRT) (lib/services/download/{download_service,download_manager,download_extras}.dart, lib/utils/mp4_remux.dart); a local video player for downloaded folders or plain files (lib/services/local_player.dart, video page file-source paths, lib/pages/video/reply/local_reply_panel.dart); a self-test harness (lib/utils/self_test.dart). The next message is a list of audit findings to fix.
+---
+
+Trust this brief as a high-level model. Read at most **1-2 files** of
+your own choosing to spot-verify (e.g. the README, or the most central
+source file the brief named) and confirm the brief is consistent with
+what's on disk. Then reply with a 2-3 sentence acknowledgement plus
+any correction if you spotted a meaningful discrepancy with the brief.
+
+Constraints (both branches):
+
+- Do NOT make any code changes
+- Do NOT begin the audit/fix task itself — just orient
+- If a focus list is provided: lib/utils/accounts/, lib/services/download/, lib/services/local_player.dart, lib/pages/main/controller.dart, lib/utils/storage.dart — prioritize understanding
+  those files first
+
+After your summary/acknowledgement, end with: `[warmup-complete]` on
+its own line. The next message will contain the actual audit/fix task.

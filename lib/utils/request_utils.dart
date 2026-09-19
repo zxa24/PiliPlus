@@ -147,8 +147,16 @@ abstract final class RequestUtils {
     feedBack();
     if (!Accounts.main.isLogin) {
       // LibrePili: follow locally without an account
+      final localMid = mid is int ? mid : int.parse('$mid');
+      if (LocalLibrary.isFollowed(localMid) &&
+          !await showConfirmDialog(
+            context: context,
+            title: Text('确定取消本地关注${name != null ? ' $name' : ''}？'),
+          )) {
+        return;
+      }
       final followed = await LocalLibrary.toggleFollow(
-        mid is int ? mid : int.parse('$mid'),
+        localMid,
         name: name,
         face: face,
       );

@@ -67,4 +67,21 @@ void main() {
       expect(Accounts.account.containsKey('123'), isFalse);
     },
   );
+
+  test('expired flag is persisted and the account is kept', () async {
+    final account = _account()..expired = true;
+    await account.onChange();
+    expect(Accounts.account.get('123')?.expired, isTrue);
+
+    // through the adapter (a box of its own, closed and read back from disk)
+    var box = await Hive.openBox<LoginAccount>('account-roundtrip');
+    await box.put('123', account);
+    await box.close();
+    box = await Hive.openBox<LoginAccount>('account-roundtrip');
+    expect(box.get('123')?.expired, isTrue);
+    await box.close();
+
+    expect(LoginAccount.fromJson(account.toJson()!).expired, isTrue);
+    expect(LoginAccount.fromJson(_account().toJson()!).expired, isFalse);
+  });
 }

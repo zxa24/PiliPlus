@@ -30,8 +30,14 @@ abstract final class LinuxCookieManager {
     }
   }
 
-  static String generateCookieInjectionJs([List<Cookie>? cookieList]) {
+  /// [session]: no max-age, so the cookies do not outlive the WebKit
+  /// session if the store is not cleared (used for account cookies)
+  static String generateCookieInjectionJs([
+    List<Cookie>? cookieList,
+    bool session = false,
+  ]) {
     final cookies = cookieList ?? getCookies();
+    final maxAge = session ? '' : '; max-age=31536000';
     if (cookies.isEmpty) return '';
 
     final cookieMaps = cookies.map((c) {
@@ -54,7 +60,7 @@ abstract final class LinuxCookieManager {
     var cookies = $jsonStr;
     for (var i = 0; i < cookies.length; i++) {
       var c = cookies[i];
-      var str = c.name + '=' + c.value + '; path=' + (c.path || '/') + '; domain=' + c.domain + '; max-age=31536000; SameSite=Lax';
+      var str = c.name + '=' + c.value + '; path=' + (c.path || '/') + '; domain=' + c.domain + '$maxAge; SameSite=Lax';
       if (c.secure) str += '; Secure';
       document.cookie = str;
     }

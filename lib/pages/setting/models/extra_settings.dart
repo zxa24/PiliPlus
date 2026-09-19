@@ -76,7 +76,9 @@ List<SettingsModel> get extraSettings => [
   ] else if (Platform.isAndroid)
     SwitchModel(
       title: '允许三方APP访问私有存储',
-      subtitle: '允许三方APP（例如MT管理器）通过访问外部存储的方式访问私有存储下的文件',
+      subtitle:
+          '允许三方APP（例如MT管理器）通过访问外部存储的方式访问私有存储下的文件。'
+          '注意：私有存储中含有已登录账号的凭据（Cookie、access_key），获得授权的APP可读取',
       leading: const Icon(Icons.storage),
       setKey: SettingBoxKey.enableDocProvider,
       defaultVal: Pref.enableDocProvider,
@@ -772,7 +774,7 @@ void _showDownPathDialog(BuildContext context, VoidCallback setState) {
             if (downloadPath == defPath) return;
             downloadPath = defPath;
             setState();
-            Get.find<DownloadService>().initDownloadList();
+            Get.find<DownloadService>().reloadDownloadList();
             GStorage.setting.delete(SettingBoxKey.downloadPath);
           },
           child: const Text('重置', style: TextStyle(fontSize: 14)),
@@ -788,7 +790,7 @@ void _showDownPathDialog(BuildContext context, VoidCallback setState) {
             if (path == null || path == downloadPath) return;
             downloadPath = path;
             setState();
-            Get.find<DownloadService>().initDownloadList();
+            Get.find<DownloadService>().reloadDownloadList();
             GStorage.setting.put(SettingBoxKey.downloadPath, path);
           },
           child: const Text('设置新路径', style: TextStyle(fontSize: 14)),
@@ -1158,6 +1160,11 @@ void _showProxyDialog(BuildContext context) {
             ),
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             onChanged: (e) => systemProxyPort = e,
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            '使用代理时仍会校验 HTTPS 证书；若代理需要替换证书（如抓包工具），须另行开启「禁用 SSL 证书验证」，此时经过代理的登录凭据可被截获',
+            style: TextStyle(fontSize: 12),
           ),
         ],
       ),

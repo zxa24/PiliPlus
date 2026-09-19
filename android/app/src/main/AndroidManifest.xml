@@ -20,6 +20,10 @@
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
     </queries>
+    <!-- signature check before handing cookies to it (AndroidHelper) -->
+    <queries>
+        <package android:name="icu.freedomIntrovert.biliSendCommAntifraud" />
+    </queries>
 
     <queries>
         <!-- If your app checks for http support -->
@@ -263,11 +267,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
-      Media access permissions.
-      Android 13 or higher.
-      https://developer.android.com/about/versions/13/behavior-changes-13#granular-media-permissions
+      READ_MEDIA_AUDIO / READ_MEDIA_VIDEO are not declared: nothing requests
+      them (images: READ_MEDIA_IMAGES above, Permission.photos). Local files
+      are opened through the system picker (SAF).
+      WRITE_SETTINGS: screen_brightness setSystemScreenBrightness (player).
       -->
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 </manifest>

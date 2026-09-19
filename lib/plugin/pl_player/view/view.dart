@@ -153,6 +153,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   bool _pauseDueToPauseUponEnteringBackgroundMode = false;
 
   StreamSubscription? _brightnessListener;
+  // the plugin keeps one global listener: a nested page's player replaces
+  // it, so dispose cancels only our own (not the page below's)
+  StreamSubscription<double>? _volumeListener;
   void _onBrightnessChanged(double value) {
     if (mounted && _gestureType != .left) {
       _brightnessValue.value = value;
@@ -177,7 +180,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   void _onVolumeChanged(double value) {
     if (mounted && !plPlayerController.volumeInterceptEventStream) {
-      plPlayerController.volume.value = value;
+      plPlayerController
+        ..unmuteOnVolumeChange()
+        ..volume.value = value;
       if (Platform.isIOS && !FlutterVolumeController.showSystemUI) {
         plPlayerController
           ..volumeIndicator.value = true
@@ -272,7 +277,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         try {
           FlutterVolumeController.updateShowSystemUI(true);
           _getCurrVolume();
-          FlutterVolumeController.addListener(
+          if (!mounted) return;
+          _volumeListener = FlutterVolumeController.addListener(
             _onVolumeChanged,
             emitOnStart: false,
           );
@@ -382,9 +388,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     _animationController.dispose();
     _transformationController.dispose();
     _removeDmAction();
-    if (PlatformUtils.isMobile) {
-      FlutterVolumeController.removeListener();
-    }
+    _volumeListener?.cancel();
     super.dispose();
   }
 
@@ -2266,9 +2270,16 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       return const SizedBox.shrink();
     }
 
-    final seekOffset = _getValidOffset(item.content.text);
+    final extra = item.content.extra;
+    // live rooms have no videoDetailController; downloaded / local files
+    // only get copy + seek (no account actions on the real / fake cid)
+    final isVideoDm = extra is VideoDanmaku;
+    final isFileSource = plPlayerController.isFileSource;
+    final seekOffset = isVideoDm ? _getValidOffset(item.content.text) : null;
 
-    final overlayWidth = _actionItemWidth * (seekOffset == null ? 3 : 4);
+    final overlayWidth =
+        _actionItemWidth *
+        ((isVideoDm && isFileSource ? 1 : 3) + (seekOffset == null ? 0 : 1));
 
     final top = dy + item.height + _triangleHeight + 2;
 
@@ -2287,8 +2298,6 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       return const SizedBox.shrink();
     }
 
-    final extra = item.content.extra;
-
     return Positioned(
       right: right,
       top: top,
@@ -2300,40 +2309,41 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
           children: switch (extra) {
             null => throw UnimplementedError(),
             VideoDanmaku() => [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  _dmActionItem(
-                    extra.isLike
-                        ? const Icon(
-                            size: 20,
-                            CustomIcons.player_dm_tip_like_solid,
-                            color: Colors.white,
-                          )
-                        : const Icon(
-                            size: 20,
-                            CustomIcons.player_dm_tip_like,
-                            color: Colors.white,
-                          ),
-                    onTap: () => HeaderControl.likeDanmaku(
-                      extra,
-                      plPlayerController.cid!,
-                    ),
-                  ),
-                  if (extra.like > 0)
-                    Positioned(
-                      left: _actionItemWidth - 10.5,
-                      top: 0,
-                      child: Text(
-                        extra.like.toString(),
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          color: Colors.white,
-                        ),
+              if (!isFileSource)
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _dmActionItem(
+                      extra.isLike
+                          ? const Icon(
+                              size: 20,
+                              CustomIcons.player_dm_tip_like_solid,
+                              color: Colors.white,
+                            )
+                          : const Icon(
+                              size: 20,
+                              CustomIcons.player_dm_tip_like,
+                              color: Colors.white,
+                            ),
+                      onTap: () => HeaderControl.likeDanmaku(
+                        extra,
+                        plPlayerController.cid!,
                       ),
                     ),
-                ],
-              ),
+                    if (extra.like > 0)
+                      Positioned(
+                        left: _actionItemWidth - 10.5,
+                        top: 0,
+                        child: Text(
+                          extra.like.toString(),
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
 
               _dmActionItem(
                 const Icon(
@@ -2343,31 +2353,32 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                 ),
                 onTap: () => Utils.copyText(item.content.text),
               ),
-              if (item.content.selfSend)
-                _dmActionItem(
-                  const Icon(
-                    size: 20,
-                    CustomIcons.player_dm_tip_recall,
-                    color: Colors.white,
+              if (!isFileSource)
+                if (item.content.selfSend)
+                  _dmActionItem(
+                    const Icon(
+                      size: 20,
+                      CustomIcons.player_dm_tip_recall,
+                      color: Colors.white,
+                    ),
+                    onTap: () => HeaderControl.deleteDanmaku(
+                      extra.id,
+                      plPlayerController.cid!,
+                    ),
+                  )
+                else
+                  _dmActionItem(
+                    const Icon(
+                      size: 20,
+                      CustomIcons.player_dm_tip_back,
+                      color: Colors.white,
+                    ),
+                    onTap: () => HeaderControl.reportDanmaku(
+                      context,
+                      extra: extra,
+                      ctr: plPlayerController,
+                    ),
                   ),
-                  onTap: () => HeaderControl.deleteDanmaku(
-                    extra.id,
-                    plPlayerController.cid!,
-                  ),
-                )
-              else
-                _dmActionItem(
-                  const Icon(
-                    size: 20,
-                    CustomIcons.player_dm_tip_back,
-                    color: Colors.white,
-                  ),
-                  onTap: () => HeaderControl.reportDanmaku(
-                    context,
-                    extra: extra,
-                    ctr: plPlayerController,
-                  ),
-                ),
               if (seekOffset != null)
                 _dmActionItem(
                   const Icon(

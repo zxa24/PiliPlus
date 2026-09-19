@@ -134,7 +134,12 @@ class DynTopicController
     }
   }
 
+  // in flight / already unfolded: a second tap would drop a real item
+  bool _folding = false;
+
   Future<void> topicFold() async {
+    if (_folding) return;
+    _folding = true;
     final res = await DynamicsHttp.topicFold(topicId: topicId, sortBy: sortBy);
     if (res case Success(:final response)) {
       if (response?.items case final items? when items.isNotEmpty) {
@@ -142,7 +147,9 @@ class DynTopicController
           ..removeLast()
           ..addAll(items);
         loadingState.refresh();
+        return;
       }
     }
+    _folding = false;
   }
 }

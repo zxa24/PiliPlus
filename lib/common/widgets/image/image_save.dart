@@ -3,6 +3,7 @@ import 'package:PiliPlus/common/widgets/button/icon_button.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/selection_text.dart';
 import 'package:PiliPlus/http/user.dart';
+import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -61,7 +62,8 @@ void imageSaveDialog({
                         )
                       else
                         const Spacer(),
-                      if (aid != null || bvid != null)
+                      if (Accounts.main.isLogin &&
+                          (aid != null || bvid != null))
                         iconButton(
                           iconSize: _iconSize,
                           tooltip: '稍后再看',
@@ -144,11 +146,12 @@ class _ImageDecoration extends Decoration {
     }
     return other is _ImageDecoration &&
         other.color == color &&
+        other.imageHeight == imageHeight &&
         other.borderRadius == borderRadius;
   }
 
   @override
-  int get hashCode => Object.hash(color, borderRadius);
+  int get hashCode => Object.hash(color, imageHeight, borderRadius);
 
   @override
   bool hitTest(Size size, Offset position, {TextDirection? textDirection}) {

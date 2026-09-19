@@ -522,16 +522,13 @@ class _CreateDynPanelState extends CommonRichTextPubPageState<CreateDynPanel> {
                     );
                     if (selectedTime != null) {
                       if (selectedDate.day == nowDate.day) {
-                        if (selectedTime.hour < nowTime.hour) {
+                        // in minutes: an hour later can still be < 6 min away
+                        final selected =
+                            selectedTime.hour * 60 + selectedTime.minute;
+                        final earliest = nowTime.hour * 60 + nowTime.minute + 6;
+                        if (selected < earliest) {
                           SmartDialog.showToast('时间设置错误，至少选择6分钟之后');
                           return;
-                        } else if (selectedTime.hour == nowTime.hour) {
-                          if (selectedTime.minute < nowTime.minute + 6) {
-                            if (selectedDate.day == nowDate.day) {
-                              SmartDialog.showToast('时间设置错误，至少选择6分钟之后');
-                            }
-                            return;
-                          }
                         }
                       }
                       _publishTime.value = DateTime(

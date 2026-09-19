@@ -1,0 +1,83 @@
+- [P2] [A] A low-weight danmaku stops the rest of its 100 ms bucket from showing — lib/pages/danmaku/view.dart:115-118
+  Inside `for (DanmakuElem e in currentDanmakuList)`, the check `if (e.weight < danmakuWeight) return;` leaves the whole position listener, so every element after the first low-weight one in that bucket is dropped. With the 屏蔽等级 (danmaku weight) set above 0, high-weight danmaku are silently lost. It gets worse for XML danmaku without the 9th field: `weight` is 0 there (download_extras.dart:333), so one such element blanks its bucket. Probed: the same loop shape with weights [1,9,9] added nothing. Fix: use `continue`.
+
+- [P2] [A] Tapping a live danmaku that contains a time string throws in build — lib/plugin/pl_player/view/view.dart:136-137, 2269, 2245-2255
+  `_buildDmAction` calls `_getValidOffset(item.content.text)` before it checks the extra type. That reads `videoDetailController`, which is `late final … = widget.videoDetailController!`, and the live room passes null. With enableTapDm on (default true on mobile), tapping a live danmaku such as "今晚8:30见" throws a `_TypeError` inside the overlay build. Probed: the regex matches "8:30", and the late null-check throws `_TypeError`. Fix: only compute `seekOffset` in the `VideoDanmaku()` branch, or check `widget.videoDetailController != null`.
+
+- [P2] [A] Failed danmaku segments are re-requested every 100 ms — lib/pages/danmaku/controller.dart:43-61, 100-108
+  `queryDanmaku` removes the segment from `_requestedSeg` on any error. `getCurrentDanmaku` runs on every 100 ms bucket while playing and asks again whenever the segment is missing. Offline, or on a server/risk-control error, this sends about 10 gRPC `dmSegMobile` requests per second for as long as playback continues, which can itself trigger rate limiting. Fix: keep the segment marked as failed and retry with backoff (or retry only on seek or segment change).
+
+- [P2] [A] Live danmaku stream dies silently after a disconnect and does not reconnect — lib/tcp/live.dart:204-209; lib/pages/live_room/controller.dart:469-488
+  Socket `onDone`/`onError` → `close()`, but `LiveRoomController._msgStream` stays non-null. `startLiveMsg()` then returns early at `if (_msgStream != null) return;` (line 476). The same happens when every server fails in `init()`, which only shows a toast. After any network blip, live chat and danmaku stop until the user pauses and resumes or leaves the room. `dmInfo` (the token) is also cached for reuse. Fix: have `LiveMessageStream` report closure, clear `_msgStream`, and reconnect with backoff, fetching a new token if needed.
+
+- [P2] [A] The offline/local player shows 发弹幕 and sends danmaku to Bilibili — lib/pages/video/view.dart:1399-1414; lib/pages/video/widgets/header_control.dart:1861-1875; lib/pages/video/controller.dart:646-684
+  Neither send button checks `isFileSource`: the tab-bar one is gated only on `!Pref.hideInteraction && Accounts.main.isLogin`, and the header one sits outside the `if (!isFileSource)` block. The Enter shortcut (player_focus.dart:236-241) reaches the same code. In an offline download this posts a danmaku to the real cid with the account. For plain local files (cid 0, bvid '') the request just fails. Fix: hide the buttons and short-circuit `showShootDanmakuSheet` when `isFileSource`.
+
+- [P3] [A] Danmaku actions on offline/local videos send like, recall and report requests — lib/plugin/pl_player/view/view.dart:2300-2368
+  The tap overlay for `VideoDanmaku` is the same for file sources. Like, recall and report call `HeaderControl.likeDanmaku`, `deleteDanmaku` and `reportDanmaku` with `plPlayerController.cid!`. That is the real cid for downloads and 0 for local files, and XML danmaku ids are usually 0 (only `idStr` is set). Fix: show only copy and seek when `isFileSource`.
+
+- [P3] [A] Toggling fullscreen resets danmaku speed while playback is sped up — lib/pages/danmaku/view.dart:68-77
+  `didUpdateWidget` calls `DanmakuOptions.get(notFullscreen: …)` without `speed:`, so `duration` goes back to the 1x value. For example, at 2x the danmaku move too slowly after entering fullscreen. The next `setPlaybackSpeed` then scales that wrong base (pl_player/controller.dart:1130-1141), so the error compounds: going back to 1x gives twice the normal duration. Fix: pass `speed: playerController.playbackSpeed`.
+
+- [P3] [A] Super-resolution state follows the shared player across video pages — lib/plugin/pl_player/controller.dart:687-689, 791-793
+  `isAnim` and `superResolutionType` are `late final` on the singleton `PlPlayerController`, which nested video pages share through `getInstance` (it only increments the count). The shader is applied only when the player is created. Open an anime (pgcType 1/4) with SR on, then open a related UGC video: it plays with Anime4K shaders and shows the SR button. In the reverse order, SR is unavailable for the anime. Runtime not probed; confirmed by reading the code. Fix: recompute per `setDataSource` and re-apply or clear the shader.
+
+- [P3] [A] Pause never sends a heartbeat — lib/plugin/pl_player/controller.dart:937-955, 1491-1496
+  In the `stream.playing` listener, the pause branch sets `playerStatus = .paused` before calling `makeHeartBeat(seconds, type: .status)`. `makeHeartBeat` returns early when `playerStatus.isPaused && !isManual`, so `.status` only fires on resume. The saved watch position can lag by up to about 5 s whenever the user pauses. Fix: pass `isManual: true` for status beats, or send the beat before changing the status.
+
+- [P3] [A] Live error handler can reopen the stream many times at once — lib/plugin/pl_player/controller.dart:1019-1025
+  For live, each matching error event (`tcp: ffurl_read returned …`, `Failed to open https://…`) schedules its own `Future.delayed(3s, refreshPlayer)`, with no throttle, unlike the VOD path. A burst of error lines queues several overlapping `ctr.open(...)` calls. Fix: reuse the `EasyThrottle`/debounce used on the VOD branch.
+
+- [P3] [A] Keyboard shortcuts on the local player: W throws, T sends a watch-later write — lib/pages/video/widgets/player_focus.dart:250-263; lib/pages/video/introduction/local/controller.dart:18
+  `PlayerFocus` wraps file-source pages too. When logged in, W → `actionCoinVideo` reads `copyright`, which LocalIntroController defines as `throw UnimplementedError()`. T/V → `viewLater()` sends `toViewLater(bvid)` from the offline player: a real write for downloads, a failing request for local files (bvid ''). Fix: skip the account-action keys when `isFileSource`.
+
+- [P3] [A] Mute key (M) gets out of sync with the volume keys and mobile volume — lib/pages/video/widgets/player_focus.dart:195-204
+  M sets mpv volume to 0 but leaves `volume.value` alone, and keeps a separate `isMuted`. On desktop, pressing ↑/↓ unmutes through `setVolume` while `isMuted` stays true, so the next M shows "取消静音" instead of muting. On mobile, unmuting sets mpv volume to `volume.value*100`, which is the system volume fraction, not `Pref.playerVolume`. Fix: route mute through `setVolume` and clear `isMuted` whenever the volume changes.
+
+- [P3] [A] Local playback progress is only saved when the page closes or the item changes — lib/pages/video/controller.dart:353-359, 1314-1320, 1333-1336
+  `cacheLocalProgress` runs only from `onClose` and `onReset`. If the process is killed (Android swipe-away, crash), the resume point for that session is lost. Network videos are covered by 5 s heartbeats. Fix: also save progress periodically or on pause (e.g. from `positionListener`, throttled).
+
+- [P3] [A] Live packet header length check is too short — lib/tcp/live.dart:50-63, 250-252
+  `fromBytesData` accepts anything of 10 bytes or more but reads up to offset 16 (`getUint32(12)`). A 10–15 byte frame throws a RangeError in `onData`, where header parsing is outside any try, so it goes to the zone error handler. Fix: check `data.length < 16`.
+
+- [P3] [A] Self-test raises the player count and never lowers it — lib/utils/self_test.dart:137, 213
+  `PlPlayerController.getInstance()` is called only to read state. It increments `_playerCount` and sets `isLive=false`, so after a self-test run the instance is never fully disposed (wakelock, listeners, mpv stay alive). Fix: use `PlPlayerController.instance`.
+
+- [P3] [A] **hypothesis** Nested player pages remove the global volume listener — lib/plugin/pl_player/view/view.dart:275-278, 385-387
+  `FlutterVolumeController.addListener` and `removeListener` are process-global. When a nested video page's player widget is disposed, the listener is removed while the page below still shows a player, so hardware volume changes stop updating `volume` and the indicator there. Not probed.
+
+PROBED vs READ:
+- PROBED:
+  - `dart analyze` on lib/plugin, lib/pages/video, lib/pages/live_room, lib/pages/danmaku and lib/tcp: no issues.
+  - A Dart probe confirmed three things: the time regex matches ("今晚8:30见" → "8:30"); the late `!` field throws `_TypeError` when the widget value is null; the early-`return` loop drops later elements.
+  - The probe directory has been deleted.
+- READ in full:
+  - lib/plugin/pl_player/controller.dart
+  - lib/plugin/pl_player/models/data_source.dart
+  - lib/plugin/pl_player/utils/fullscreen.dart and danmaku_options.dart
+  - lib/plugin/pl_player/widgets/bottom_control.dart
+  - lib/pages/video/controller.dart
+  - lib/pages/danmaku/controller.dart and view.dart
+  - lib/pages/live_room/controller.dart
+  - lib/tcp/live.dart
+  - lib/services/local_player.dart and audio_handler.dart
+  - lib/pages/video/introduction/local/controller.dart
+  - lib/pages/video/widgets/player_focus.dart
+  - lib/pages/common/common_intro_controller.dart and the triple mixin
+- READ in part:
+  - lib/pages/video/view.dart: lifecycle, overlay, tab bar and PlayerFocus wiring.
+  - lib/plugin/pl_player/view/view.dart: listeners, lifecycle, gestures, bottom-bar builder and the danmaku action overlay.
+  - lib/pages/live_room/view.dart: lifecycle and LiveDanmaku.
+  - lib/pages/video/widgets/header_control.dart: settings sheet, quality/audio/decoder selection and the send button.
+  - lib/pages/video/introduction/ugc/controller.dart: episode switching, next/prev and related autoplay.
+  - lib/pages/video/send_danmaku/view.dart: the publish call.
+  - The live header and bottom controls: audio-only and danmaku toggles.
+  - Helpers checked only to confirm behaviour: LoginPolicy, GrpcReq, block_mixin (seek and SponsorBlock defaults) and DownloadExtras.xmlToDanmaku.
+- NOT LOOKED AT:
+  - lib/pages/video/introduction/pgc/*: controller beyond grep, and the view.
+  - lib/pages/video/reply*, note, pay_coins, post_panel, member, medialist, download_panel, ai_conclusion (except the seek tap), view_point (except the seek tap), related.
+  - lib/pages/live_room: contribution_rank, superchat, chat_panel and send_danmaku internals.
+  - lib/plugin/pl_player/view/widgets.dart and the remaining pl_player widgets (mpv_convert_webp, forward/backward seek, app_bar_ani).
+  - Most of header_control.dart: danmaku filter, subtitle settings and the like/report/delete implementations.
+  - lib/services/local_documents.dart (the Android fd bridge).
+  - audio_session.dart.

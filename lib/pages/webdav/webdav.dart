@@ -76,10 +76,12 @@ class WebDav {
     return 'piliplus_settings_${DeviceUtils.platformName}.json';
   }
 
-  Future<void> backup() async {
+  Future<void> backup({bool includeCredentials = false}) async {
     // Keep the payload bound to the same settings snapshot as the connection.
     final config = _getConfig();
-    final data = GStorage.exportAllSettings();
+    final data = GStorage.exportAllSettings(
+      includeCredentials: includeCredentials,
+    );
     final webdav.Client client;
     try {
       client = await _connect(config);
@@ -89,17 +91,22 @@ class WebDav {
     }
     try {
       final path = '${config.directory}/${_getFileName()}';
-      try {
-        await client.remove(path);
-      } catch (_) {}
-      await client.write(path, utf8.encode(data));
+      // write a new file first and move it over the old one: a failed upload
+      // must not lose the existing backup
+      final tmpPath = '$path.tmp';
+      await client.write(tmpPath, utf8.encode(data));
+      await client.rename(tmpPath, path, true);
       SmartDialog.showToast('备份成功');
     } catch (e) {
       SmartDialog.showToast('备份失败: $e');
     }
   }
 
-  Future<void> restore() async {
+  /// [askCredentials]: asked when the backup carries credentials; true
+  /// lets them replace this device's.
+  Future<void> restore({
+    required Future<bool> Function() askCredentials,
+  }) async {
     final config = _getConfig();
     final webdav.Client client;
     try {
@@ -111,8 +118,24 @@ class WebDav {
     try {
       final path = '${config.directory}/${_getFileName()}';
       final data = await client.read(path);
-      await GStorage.importAllSettings(utf8.decode(data));
-      SmartDialog.showToast('恢复成功');
+      final Map<String, dynamic> map = jsonDecode(utf8.decode(data));
+      final importCredentials =
+          GStorage.hasCredentials(map) && await askCredentials();
+      final snapshot = await GStorage.importAllJsonSettings(
+        map,
+        importCredentials: importCredentials,
+      );
+      SmartDialog.showToast('恢复成功，恢复前的数据已保存至 $snapshot');
+    } catch (e) {
+      SmartDialog.showToast('恢复失败: $e');
+    }
+  }
+
+  /// Undoes the last restore / import (see [GStorage.restoreLatestSnapshot]).
+  Future<void> restoreSnapshot() async {
+    try {
+      await GStorage.restoreLatestSnapshot();
+      SmartDialog.showToast('已恢复到导入前');
     } catch (e) {
       SmartDialog.showToast('恢复失败: $e');
     }

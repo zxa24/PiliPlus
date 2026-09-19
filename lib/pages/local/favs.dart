@@ -247,6 +247,7 @@ class _LocalFavFolderPageState extends State<LocalFavFolderPage> {
                           item.key,
                           widget.folder.id,
                         ),
+                        removeTitle: '移出收藏夹',
                       );
                     },
                   ),

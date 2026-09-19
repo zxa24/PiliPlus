@@ -74,14 +74,74 @@ public final class AndroidHelper {
         getContext().startActivity(intent);
     }
 
+    private static final String ANTIFRAUD_PACKAGE = "icu.freedomIntrovert.biliSendCommAntifraud";
+
+    /**
+     * SHA-256 fingerprints (uppercase hex, no separators) of the signing
+     * certificate of the official biliSendCommAntifraud release
+     * (https://github.com/freedom-introvert/biliSendCommAntifraud). The full
+     * cookie string is only handed to a package signed with one of these.
+     * <p>
+     * Taken from the v2 signing certificate of the official release APKs
+     * (tags 6.4.5-fix, 6.3.5 and 6.2.5 all carry this one), as printed by
+     * {@code apksigner verify --print-certs <apk>} ("Signer #1 certificate
+     * SHA-256 digest"). A package signed by anything else gets nothing.
+     */
+    private static final String[] ANTIFRAUD_CERT_SHA256 = {
+            "0225A7553765722353B0A27980F779A4ECF8302AFB27911E3D42AACBECAA31BF",
+    };
+
+    /** Whether [packageName] is installed and signed by one of [expected]. */
+    @SuppressWarnings("deprecation")
+    private static boolean isSignedBy(@NonNull String packageName, @NonNull String[] expected) {
+        if (expected.length == 0) return false;
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            android.content.pm.Signature[] signatures;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                android.content.pm.SigningInfo info = pm.getPackageInfo(
+                        packageName, PackageManager.GET_SIGNING_CERTIFICATES).signingInfo;
+                if (info == null || info.hasMultipleSigners()) return false;
+                signatures = info.getSigningCertificateHistory();
+            } else {
+                signatures = pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures;
+                // several signers: not the single-key release we know
+                if (signatures == null || signatures.length != 1) return false;
+            }
+            if (signatures == null || signatures.length == 0) return false;
+            // the current signer (last in the rotation history)
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(signatures[signatures.length - 1].toByteArray());
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte b : digest) hex.append(String.format("%02X", b));
+            String actual = hex.toString();
+            for (String e : expected) {
+                if (e.replace(":", "").equalsIgnoreCase(actual)) return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
     public static void biliSendCommAntifraud(
             int action, long oid, int type, long rpId, long root, long parent, long ctime, @NonNull String commentText,
             String pictures, @NonNull String sourceId, long uid, @NonNull String cookie
     ) {
+        // the intent carries the account's full cookies: only for the genuine
+        // app, never for whatever package happens to use its name
+        if (!isSignedBy(ANTIFRAUD_PACKAGE, ANTIFRAUD_CERT_SHA256)) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                    android.widget.Toast.makeText(
+                            getContext(),
+                            "未能验证 biliSendCommAntifraud 的签名，未发送账号信息",
+                            android.widget.Toast.LENGTH_LONG
+                    ).show());
+            return;
+        }
         Intent intent = new Intent();
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.setComponent(new ComponentName(
-                "icu.freedomIntrovert.biliSendCommAntifraud",
+                ANTIFRAUD_PACKAGE,
                 "icu.freedomIntrovert.biliSendCommAntifraud.ByXposedLaunchedActivity"
         ));
         intent.putExtra("action", action);

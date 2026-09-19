@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/widgets/appbar/appbar.dart';
+import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recognizer.dart';
@@ -195,7 +196,11 @@ class _HistoryPageState extends State<HistoryPage>
             child: const Text('清空观看记录'),
           ),
           PopupMenuItem(
-            onTap: currCtr().onDelViewedHistory,
+            onTap: () => showConfirmDialog(
+              context: context,
+              title: const Text('确定删除已看记录？'),
+              onConfirm: currCtr().onDelViewedHistory,
+            ),
             child: const Text('删除已看记录'),
           ),
         ],

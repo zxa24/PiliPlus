@@ -150,8 +150,9 @@ class Request {
           ? () => HttpClient()
               ..idleTimeout = const Duration(seconds: 15)
               ..autoUncompress = false
+              // certificates are still verified; only the separate
+              // badCertificateCallback setting (HttpOverrides) skips it
               ..findProxy = ((_) => 'PROXY $systemProxyHost:$systemProxyPort')
-              ..badCertificateCallback = (cert, host, port) => true
           : () => HttpClient()
               ..idleTimeout = const Duration(seconds: 15)
               ..autoUncompress = false, // Http2Adapter没有自动解压, 统一行为
@@ -161,13 +162,16 @@ class Request {
         ? ConnectionManager(
             idleTimeout: const Duration(seconds: 15),
             onClientCreate: enableSystemProxy
-                ? (_, config) => config
-                    ..proxy = Uri(
+                ? (_, config) {
+                    config.proxy = Uri(
                       scheme: 'http',
                       host: systemProxyHost,
                       port: systemProxyPort,
-                    )
-                    ..onBadCertificate = (_) => true
+                    );
+                    if (Pref.badCertificateCallback) {
+                      config.onBadCertificate = (_) => true;
+                    }
+                  }
                 : Pref.badCertificateCallback
                 ? (_, config) => config.onBadCertificate = (_) => true
                 : null,

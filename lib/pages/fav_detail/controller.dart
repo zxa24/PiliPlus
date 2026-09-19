@@ -38,8 +38,9 @@ mixin BaseFavController
       delIds: mediaId.toString(),
     );
     if (res.isSuccess) {
+      // by id: the list may have changed while the request ran
       loadingState
-        ..value.data!.removeAt(index)
+        ..value.dataOrNull?.removeWhere((e) => e.id == id && e.type == type)
         ..refresh();
       updateCount?.call(1);
       SmartDialog.showToast('取消收藏');
@@ -214,6 +215,12 @@ class FavDetailController
   }
 
   void onSort() {
+    // sorting moves items relative to their neighbours in the real folder
+    // order, so the list has to be shown in that order
+    if (order.value != FavOrderType.mtime || pageDesc) {
+      SmartDialog.showToast('请先按「最近收藏」正序显示，再排序');
+      return;
+    }
     if (loadingState.value case Success(:final response)) {
       if (response != null && response.isNotEmpty) {
         if (folderInfo.value.mediaCount > 1000) {

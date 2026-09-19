@@ -66,11 +66,15 @@ class WebviewPage extends StatefulWidget {
     if (!Platform.isLinux) return null;
     final shouldInjectCookie = LinuxCookieManager.isBiliDomain(url);
     // LibrePili: pages are anonymous; only taking notes needs the account
+    // only the video page's note flow (which passes [oid]) gets the account,
+    // not a note-app url opened from a link
+    final accountCookie = shouldInjectCookie && _isNoteUrl(url) && oid != null;
     final cookieJs = shouldInjectCookie
         ? LinuxCookieManager.generateCookieInjectionJs(
             LinuxCookieManager.getCookies(
-              _isNoteUrl(url) ? null : AnonymousAccount(),
+              accountCookie ? null : AnonymousAccount(),
             ),
+            accountCookie,
           )
         : '';
 
@@ -170,12 +174,17 @@ document.addEventListener('click', function(e) {
             final uri = Uri.tryParse(url);
             final targetOid = uri?.queryParameters['oid'] ?? oid?.toString();
             if (targetOid != null) {
-              PiliScheme.videoPush(int.parse(targetOid), null);
+              if (int.tryParse(targetOid) case final aid?) {
+                PiliScheme.videoPush(aid, null);
+              }
             }
           }
         });
 
       webview.onClose.whenComplete(() {
+        // the account's cookies went into the shared WebKit store: take
+        // them out with the window
+        if (accountCookie) LinuxCookieManager.deleteAllCookies();
         onClose?.call();
       });
 
@@ -227,9 +236,10 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
 
     if (Platform.isLinux) {
       _initLinuxWebview();
-    } else if (WebviewPage._isNoteUrl(_url) && Accounts.main.isLogin) {
+    } else if (_isNotePage && Accounts.main.isLogin) {
       // taking notes is an account flow: the account's cookies go in before
-      // the page loads and are taken out again on close
+      // the page loads and are taken out again on close. Only the video
+      // page's note widget ([widget.url]) counts, not a route/link url
       _accountCookie = true;
       _cookieReady = false;
       Future.value(
@@ -240,14 +250,22 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
     }
   }
 
+  bool get _isNotePage => widget.url != null && WebviewPage._isNoteUrl(_url);
+
   bool _accountCookie = false;
   bool _cookieReady = true;
 
   @override
   void dispose() {
-    if (_accountCookie) LoginUtils.setAnonymousWebCookie();
+    if (_accountCookie && !Platform.isLinux) {
+      LoginUtils.setAnonymousWebCookie();
+    }
     if (Platform.isAndroid) routeObserver.unsubscribe(this);
-    if (Platform.isLinux) _closeLinuxWebview();
+    if (Platform.isLinux) {
+      _closeLinuxWebview();
+      // WebKitGTK has no per-cookie delete here: drop the shared store
+      if (_accountCookie) LinuxCookieManager.deleteAllCookies();
+    }
     _webViewController = null;
     super.dispose();
   }
@@ -386,7 +404,10 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
       case WebviewMenuItem.resetCookie:
         if (Platform.isLinux) {
           if (LinuxCookieManager.isBiliDomain(_url)) {
-            final js = LinuxCookieManager.generateCookieInjectionJs();
+            final js = LinuxCookieManager.generateCookieInjectionJs(
+              null,
+              true,
+            );
             if (js.isNotEmpty) {
               await _linuxWebview?.evaluateJavaScript(js);
             }
@@ -395,6 +416,8 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
         } else {
           await LoginUtils.setWebCookie();
         }
+        // the account's cookies are taken out again on close
+        _accountCookie = true;
         SmartDialog.showToast('设置成功，刷新或重新打开网页');
         break;
     }
@@ -470,13 +493,16 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
                   algorithmicDarkeningAllowed: true,
                   useShouldOverrideUrlLoading: true,
                   userAgent: userAgent,
-                  mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+                  mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
                 ),
                 initialUrlRequest: URLRequest(
                   url: WebUri.uri(Uri.tryParse(_url) ?? Uri()),
                 ),
                 onWebViewCreated: (InAppWebViewController controller) {
-                  _webViewController = controller
+                  _webViewController = controller;
+                  // the note page's buttons only
+                  if (!_isNotePage) return;
+                  controller
                     ..addJavaScriptHandler(
                       handlerName: 'finishButtonClicked',
                       callback: (args) {
@@ -489,8 +515,8 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
                         WebUri? uri = await controller.getUrl();
                         if (uri != null) {
                           String? oid = uri.queryParameters['oid'];
-                          if (oid != null) {
-                            PiliScheme.videoPush(int.parse(oid), null);
+                          if (int.tryParse(oid ?? '') case final aid?) {
+                            PiliScheme.videoPush(aid, null);
                           }
                         }
                       },
@@ -593,7 +619,7 @@ document.styleSheets[0].insertRule('#app__display-area > div.control-panel {disp
                     return ajaxRequest
                       ..data = ajaxRequest.data.toString().replaceFirst(
                         '&title=--&',
-                        '&title=${widget.title}&',
+                        '&title=${Uri.encodeQueryComponent(widget.title!)}&',
                       );
                   }
                   return null;

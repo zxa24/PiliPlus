@@ -22,11 +22,13 @@ class VideoCardH extends StatelessWidget {
     this.onTap,
     this.onViewLater,
     this.onRemove,
+    this.removeTitle,
   });
   final HorizontalVideoModel videoItem;
   final VoidCallback? onTap;
   final ValueChanged<int>? onViewLater;
   final VoidCallback? onRemove;
+  final String? removeTitle;
 
   void onLongPress() => imageSaveDialog(
     bvid: videoItem.bvid,
@@ -132,6 +134,7 @@ class VideoCardH extends StatelessWidget {
               iconSize: 17,
               videoItem: videoItem,
               onRemove: onRemove,
+              removeTitle: removeTitle,
             ),
           ),
         ],
@@ -140,7 +143,7 @@ class VideoCardH extends StatelessWidget {
   }
 
   Widget content(ThemeData theme) {
-    String pubdate = DateFormatUtils.dateFormat(videoItem.pubdate!);
+    String pubdate = DateFormatUtils.dateFormat(videoItem.pubdate);
     if (pubdate != '') pubdate += '  ';
     return Expanded(
       child: Column(

@@ -262,13 +262,44 @@ Commit Hash: ${BuildConfig.commitHash}''',
             title: const Text('导入/导出设置'),
             dense: false,
             leading: const Icon(Icons.import_export_outlined),
-            onTap: () => showImportExportDialog<Map<String, dynamic>>(
-              context,
-              title: '设置',
-              localFileName: () => 'setting_${DeviceUtils.platformName}',
-              onExport: GStorage.exportAllSettings,
-              onImport: GStorage.importAllJsonSettings,
-            ),
+            onTap: () {
+              // credentials (WebDAV login, SponsorBlock user id) are left out
+              // unless the user says otherwise
+              bool includeCredentials = false;
+              showImportExportDialog<Map<String, dynamic>>(
+                context,
+                title: '设置',
+                localFileName: () => 'setting_${DeviceUtils.platformName}',
+                beforeExport: () async {
+                  includeCredentials = await showConfirmDialog(
+                    context: context,
+                    title: const Text('导出中包含凭据？'),
+                    content: const Text(
+                      'WebDAV 用户名/密码、空降助手用户 ID。点「取消」则不包含（推荐）',
+                    ),
+                  );
+                },
+                onExport: () => GStorage.exportAllSettings(
+                  includeCredentials: includeCredentials,
+                ),
+                onImport: (json) async {
+                  final importCredentials =
+                      GStorage.hasCredentials(json) &&
+                      context.mounted &&
+                      await showConfirmDialog(
+                        context: context,
+                        title: const Text('使用备份中的凭据？'),
+                        content: const Text(
+                          '备份含有 WebDAV 用户名/密码或空降助手用户 ID。点「取消」保留本机的',
+                        ),
+                      );
+                  await GStorage.importAllJsonSettings(
+                    json,
+                    importCredentials: importCredentials,
+                  );
+                },
+              );
+            },
           ),
           ListTile(
             title: const Text('重置所有设置'),

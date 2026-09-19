@@ -151,6 +151,35 @@ void main() {
       });
     }
 
+    test('explicit account: kept in login mode (comment check)', () {
+      final options = _req(Api.replyReplyList, query: {'csrf': 'csrf'})
+        ..extra[LoginPolicy.explicitAccount] = true;
+      expect(
+        LoginPolicy.bind(account, options, loginMode: true),
+        same(account),
+      );
+    });
+
+    test('explicit account: still anonymous in incognito', () {
+      final options = _req(Api.replyReplyList)
+        ..extra[LoginPolicy.explicitAccount] = true;
+      expect(
+        LoginPolicy.bind(account, options, loginMode: false),
+        isA<AnonymousAccount>(),
+      );
+    });
+
+    test('the same read without the flag stays anonymous (other half)', () {
+      expect(
+        LoginPolicy.bind(
+          account,
+          _req(Api.replyReplyList, query: {'csrf': 'csrf'}),
+          loginMode: true,
+        ),
+        isA<AnonymousAccount>(),
+      );
+    });
+
     test('other home tabs stay anonymous in login mode', () {
       for (final path in [Api.hotList, Api.liveList, Api.getRankApi]) {
         expect(

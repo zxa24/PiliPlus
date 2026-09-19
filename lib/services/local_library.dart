@@ -43,7 +43,13 @@ abstract final class LocalLibrary {
     for (final box in boxes) {
       if (map[box.name] case final Map data) {
         await box.clear();
-        await box.putAll(data);
+        await box.putAll(
+          // follows are looked up by '$mid': key them by their own mid, so a
+          // hand-edited backup cannot hold an entry unfollow cannot reach
+          identical(box, _follows)
+              ? {for (final v in data.values) '${(v as Map)['mid']}': v}
+              : data,
+        );
       }
     }
     await _ensureDefaultFolder();
