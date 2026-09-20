@@ -1241,10 +1241,16 @@ class VideoDetailController extends GetxController
       (_) => _publishAsrSubtitle(),
     );
     _asrCueSub = session.cues.listen((_) {});
+    // the menu closes on tap, so without this nothing on screen says a
+    // minute-long job just started
+    SmartDialog.showToast(auto ? '正在自动转录字幕…' : '正在转录字幕…');
     _asrStateWorker = ever(session.state, (state) {
       switch (state.stage) {
         case AsrStage.done:
           _publishAsrSubtitle(select: true);
+          SmartDialog.showToast(
+            session.cues.isEmpty ? '没有识别到语音' : '转录完成，已添加字幕轨',
+          );
         case AsrStage.failed:
           SmartDialog.showToast('转录失败：${state.message ?? ''}');
         case AsrStage.idle:
