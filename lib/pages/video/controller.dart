@@ -1242,10 +1242,18 @@ class VideoDetailController extends GetxController
     );
     _asrCueSub = session.cues.listen((_) {});
     _asrStateWorker = ever(session.state, (state) {
-      if (state.stage == AsrStage.done) {
-        _publishAsrSubtitle(select: true);
-      } else if (state.stage == AsrStage.failed) {
-        SmartDialog.showToast('转录失败：${state.message ?? ''}');
+      switch (state.stage) {
+        case AsrStage.done:
+          _publishAsrSubtitle(select: true);
+        case AsrStage.failed:
+          SmartDialog.showToast('转录失败：${state.message ?? ''}');
+        case AsrStage.idle:
+          // the service gave up on its own — an automatic run that turned out
+          // to be in the user's own language. Take the half-finished track
+          // back off the menu; a *manual* stop keeps what was recognised.
+          _removeAsrTrack();
+        case _:
+          break;
       }
     });
   }
@@ -1274,6 +1282,19 @@ class VideoDetailController extends GetxController
     asrSession = null;
     _asrTrackIndex = null;
     if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
+  }
+
+  /// Drops the transcription track again, but only while it is still the last
+  /// one: anything else would shift the indexes [vttSubtitles] is keyed by.
+  void _removeAsrTrack() {
+    _asrRefresh?.cancel();
+    _asrRefresh = null;
+    final index = _asrTrackIndex;
+    if (index == null || index != subtitles.length - 1) return;
+    _asrTrackIndex = null;
+    subtitles.removeLast();
+    vttSubtitles.remove(index);
+    if (vttSubtitlesIndex.value == index + 1) setSubtitle(0);
   }
 
   /// Puts what has been recognised so far into the subtitle list, adding the

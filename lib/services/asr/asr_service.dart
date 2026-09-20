@@ -294,8 +294,14 @@ class AsrService extends GetxService {
 
   /// Compares at the "major language" level: `zh` covers zh-Hans, zh-Hant and
   /// yue, which is as fine as SenseVoice's own language ID is useful.
+  ///
+  /// The comparison is against the language the *app* is in, not the device's
+  /// — the point is whether the user can follow the speech, and the app is
+  /// what they chose to read. `Get.locale` is null until the app is
+  /// translated (still a TODO), so the device locale stands in until then.
   static bool _isAppLanguage(String spoken) {
-    final app = Get.deviceLocale?.languageCode.toLowerCase() ?? 'zh';
+    final app =
+        (Get.locale ?? Get.deviceLocale)?.languageCode.toLowerCase() ?? 'zh';
     final normalised = spoken.toLowerCase();
     if (normalised == app) return true;
     const zh = {'zh', 'yue', 'cmn'};

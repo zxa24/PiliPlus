@@ -1,9 +1,9 @@
 /// LibrePili: what the user sees the first time they ask for transcription.
 ///
 /// The models are a 240 MB download, so nothing is fetched until this asks.
-/// The same sheet offers importing files the user downloaded themselves —
-/// both sources are on github.com, which is not reliably reachable from
-/// everywhere, and a hash-checked manual import is the honest fallback.
+/// The same sheet offers importing files the user fetched themselves, checked
+/// against the same hashes — for a flaky connection, or for a device that is
+/// simply offline.
 library;
 
 import 'dart:io';
@@ -85,8 +85,8 @@ abstract final class AsrEntry {
             Text('共 $size，只需下载一次，存在应用数据目录，可随时删除。'),
             const SizedBox(height: 8),
             Text(
-              '下载源：${AsrModelCatalog.required.length} 个文件，'
-              '带 SHA-256 校验；也可以自己下载后手动导入。',
+              '${AsrModelCatalog.required.length} 个模型文件，带 SHA-256 校验；'
+              '也可以自己下载后手动导入。',
               style: TextStyle(
                 fontSize: 13,
                 color: ColorScheme.of(context).outline,

@@ -54,8 +54,7 @@ Future<void> _manageModels(BuildContext context, VoidCallback setState) async {
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
           child: Text(
             '存放在应用数据目录，删除后需要重新下载。'
-            '两个下载源都在 github.com，下不动时可以自己下载后手动导入，'
-            '导入同样要通过 SHA-256 校验。',
+            '网络不便时可以自己下载后手动导入，导入同样要通过 SHA-256 校验。',
             style: TextStyle(
               fontSize: 13,
               color: ColorScheme.of(context).outline,

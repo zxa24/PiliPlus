@@ -92,7 +92,10 @@ class AsrTranscriber {
           controller.close();
           port.close();
       }
-    });
+    },
+    // a killed isolate never sends 'done'; close on the port itself so the
+    // caller's `await` for completion cannot hang forever
+    onDone: controller.close);
     return AsrTranscriber._(isolate, port, controller.stream);
   }
 

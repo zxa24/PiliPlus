@@ -88,10 +88,7 @@ class AsrModel {
 abstract final class AsrModelCatalog {
   /// Our own release. It holds the *unpacked* files, so a phone never has to
   /// bzip2-decompress 163 MB into 239 MB — which is why it is tried first.
-  ///
-  /// Both this and [_upstream] are github.com: the mirror exists for the file
-  /// shape and for redundancy, **not** to get around GitHub being blocked.
-  /// When neither is reachable the user imports the files by hand.
+  /// [_upstream] is the fallback, and the pinned hash is the same either way.
   static const _mirror =
       'https://github.com/zxa24/PiliPlus/releases/download/asr-models';
 
