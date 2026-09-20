@@ -1,9 +1,0 @@
-[Follow-up for pass3-D4 — the missing certificate fingerprint]
-
-You left `ANTIFRAUD_CERT_SHA256` empty in android/app/src/main/java/com/example/piliplus/AndroidHelper.java because the repo had no authoritative fingerprint, which keeps the feature off. The orchestrator obtained it: the official releases of `icu.freedomIntrovert.biliSendCommAntifraud` (GitHub freedom-introvert/biliSendCommAntifraud) — tags 6.4.5-fix, 6.3.5 and 6.2.5 — all carry the same APK v2 signing certificate, SHA-256:
-
-02:25:A7:55:37:65:72:23:53:B0:A2:79:80:F7:79:A4:EC:F8:30:2A:FB:27:91:1E:3D:42:AA:CB:EC:AA:31:BF
-
-Put it into `ANTIFRAUD_CERT_SHA256` in whatever format your `isSignedBy` comparison expects (match the normalisation you already implemented — colons/case), keep the fail-closed behaviour for a mismatch, and note the source in a short comment. Do not change anything else.
-
-Then run `dart analyze lib test` (must exit 0) and `flutter test`, and reply with the diff for that file plus the TEST RESULTS block. The Java cannot be compiled here.
