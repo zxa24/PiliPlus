@@ -838,13 +838,18 @@ class VideoDetailController extends GetxController
 
       if (vttSubtitlesIndex.value == -1) {
         _queryPlayInfo();
+      } else {
+        // subtitles were settled on an earlier pass (a quality switch, say);
+        // the source is only known now, so this is where auto-start can fire
+        _maybeAutoTranscribe();
       }
 
       if (plPlayerController.showDmChart && dmTrend.value == null) {
         _getDmTrend();
       }
     } else {
-      _loadLocalSubtitles();
+      await _loadLocalSubtitles();
+      _maybeAutoTranscribe();
     }
 
     defaultST = null;
@@ -1245,6 +1250,20 @@ class VideoDetailController extends GetxController
     });
   }
 
+  /// Starts transcription by itself when the user has said it should and the
+  /// video has nothing of its own. Never asks anything here: an automatic run
+  /// that popped a dialog would be worse than no automatic run.
+  void _maybeAutoTranscribe() {
+    if (!Get.isRegistered<AsrService>()) return;
+    // the source is resolved by queryVideoUrl, the subtitles by
+    // _queryPlayInfo: whichever finishes last is the one that starts this
+    if (asrSession != null || !canTranscribe) return;
+    if (!AsrService.to.shouldAutoStart(hasSubtitles: subtitles.isNotEmpty)) {
+      return;
+    }
+    startAsr(auto: true);
+  }
+
   Future<void> stopAsr() async {
     _asrRefresh?.cancel();
     _asrRefresh = null;
@@ -1397,6 +1416,8 @@ class VideoDetailController extends GetxController
           res.toast();
         }
       }
+      // LibrePili: nothing of its own to show — offer the device's own ears
+      _maybeAutoTranscribe();
     }
   }
 
