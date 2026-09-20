@@ -21,6 +21,49 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
+/// The subtitle-menu entry. Its own widget so it can be pumped in a test:
+/// the first version was an inline `Obx` that read nothing observable when no
+/// transcription was running, which GetX turns into an exception — on a phone
+/// it rendered as a grey error box and took the rest of the menu with it.
+class AsrMenuTile extends StatelessWidget {
+  const AsrMenuTile({
+    super.key,
+    required this.session,
+    required this.onStart,
+    required this.onStop,
+    this.titleStyle,
+  });
+
+  final Rxn<AsrSession> session;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+  final TextStyle? titleStyle;
+
+  @override
+  Widget build(BuildContext context) => Obx(() {
+    final current = session.value;
+    final state = current?.state.value;
+    final running = state?.isBusy ?? false;
+    return ListTile(
+      dense: true,
+      onTap: running ? onStop : onStart,
+      leading: Icon(
+        running
+            ? Icons.stop_circle_outlined
+            : Icons.record_voice_over_outlined,
+        size: 20,
+      ),
+      title: Text(
+        running ? '停止转录（${state!.label}）' : '自动转录字幕',
+        style: titleStyle,
+      ),
+      subtitle: running && state!.progress != null
+          ? LinearProgressIndicator(value: state.progress)
+          : null,
+    );
+  });
+}
+
 abstract final class AsrEntry {
   /// Asks whatever still needs asking, then starts transcription.
   static Future<void> start(

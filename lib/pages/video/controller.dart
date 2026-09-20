@@ -1200,8 +1200,11 @@ class VideoDetailController extends GetxController
 
   // ---------------------------------------------------- LibrePili: 自动转录
 
-  /// The transcription running for this part, if any.
-  AsrSession? asrSession;
+  /// The transcription running for this part, if any. Reactive so the menu
+  /// entry can watch it: an `Obx` that reads nothing observable is an error
+  /// in GetX, and a null session used to make that entry throw and render as
+  /// a grey error box in release builds.
+  final asrSession = Rxn<AsrSession>();
   StreamSubscription<void>? _asrCueSub;
   Worker? _asrStateWorker;
   int? _asrTrackIndex;
@@ -1244,7 +1247,7 @@ class VideoDetailController extends GetxController
       userAgent: isFileSource ? null : BrowserUa.pc,
       auto: auto,
     );
-    asrSession = session;
+    asrSession.value = session;
 
     // cues stream in; rebuilding the track on every batch would restart the
     // renderer constantly, so coalesce into one refresh a few seconds
@@ -1283,7 +1286,7 @@ class VideoDetailController extends GetxController
     if (!Get.isRegistered<AsrService>()) return;
     // the source is resolved by queryVideoUrl, the subtitles by
     // _queryPlayInfo: whichever finishes last is the one that starts this
-    if (asrSession != null || !canTranscribe) return;
+    if (asrSession.value != null || !canTranscribe) return;
     if (!AsrService.to.shouldAutoStart(hasSubtitles: subtitles.isNotEmpty)) {
       return;
     }
@@ -1297,7 +1300,7 @@ class VideoDetailController extends GetxController
     _asrStateWorker = null;
     await _asrCueSub?.cancel();
     _asrCueSub = null;
-    asrSession = null;
+    asrSession.value = null;
     _asrTrackIndex = null;
     if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
   }
@@ -1318,7 +1321,7 @@ class VideoDetailController extends GetxController
   /// Puts what has been recognised so far into the subtitle list, adding the
   /// track the first time and replacing its data afterwards.
   void _publishAsrSubtitle({bool select = false}) {
-    final session = asrSession;
+    final session = asrSession.value;
     if (session == null || isClosed) return;
     final cues = session.cues;
     if (cues.isEmpty) return;

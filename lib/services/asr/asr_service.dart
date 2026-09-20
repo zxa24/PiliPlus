@@ -60,6 +60,10 @@ class AsrState {
 class AsrSession {
   AsrSession._(this.key);
 
+  /// A session with no job behind it, for widget tests.
+  @visibleForTesting
+  factory AsrSession.debugFor(String key) = AsrSession._;
+
   /// Usually the cid: one job per part, which is the granularity subtitles
   /// have anyway.
   final String key;
@@ -81,6 +85,9 @@ class AsrSession {
   void _set(AsrState value) {
     if (!_closed) state.value = value;
   }
+
+  @visibleForTesting
+  void debugSet(AsrState value) => _set(value);
 
   Future<void> dispose() async {
     _closed = true;
