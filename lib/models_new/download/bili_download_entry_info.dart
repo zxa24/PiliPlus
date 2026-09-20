@@ -44,6 +44,12 @@ class BiliDownloadEntryInfo with MultiSelectData {
   /// that still play from the separate `.m4s` files.
   String? mergedPath;
 
+  /// The other exported files when the segments of an old (durl) stream had
+  /// no common MP4 mapping and were kept as they are: [mergedPath] is then
+  /// only the first part, so the entry is complete on disk but not playable
+  /// as one video.
+  List<String>? mergedParts;
+
   /// LibrePili (Android local player): the video is played from this
   /// `content://` URI (system grant, not copied); [mergedPath] then names it
   /// inside a cache folder that holds only the small side files. Not saved.
@@ -58,6 +64,11 @@ class BiliDownloadEntryInfo with MultiSelectData {
   late DownloadStatus status = .wait;
 
   int get cid => source?.cid ?? pageData!.cid;
+
+  /// [typeTag] names the stream sub-folder; an `entry.json` written by
+  /// another client may have none, so every path built from it uses this
+  /// fallback (never `typeTag!`, which crashes the playback path).
+  String get streamTypeTag => typeTag ?? '0';
 
   String get pageId => seasonId ?? avid.toString();
 
@@ -173,47 +184,49 @@ class BiliDownloadEntryInfo with MultiSelectData {
     this.source,
     this.ep,
     this.mergedPath,
+    this.mergedParts,
   });
 
-  factory BiliDownloadEntryInfo.fromJson(Map<String, dynamic> json) =>
-      BiliDownloadEntryInfo(
-        mediaType: json['media_type'] as int? ?? 1,
-        hasDashAudio: json['has_dash_audio'] as bool? ?? false,
-        isCompleted: json['is_completed'] as bool,
-        totalBytes: json['total_bytes'] as int,
-        downloadedBytes: json['downloaded_bytes'] as int,
-        title: json['title'] as String,
-        typeTag: json['type_tag'] as String?,
-        cover: json['cover'] as String,
-        videoQuality: json['video_quality'] as int?,
-        preferedVideoQuality: json['prefered_video_quality'] as int,
-        qualityPithyDescription:
-            json['quality_pithy_description'] as String? ?? '',
-        guessedTotalBytes: json['guessed_total_bytes'] as int,
-        totalTimeMilli: json['total_time_milli'] as int,
-        danmakuCount: json['danmaku_count'] as int,
-        timeUpdateStamp: json['time_update_stamp'] as int? ?? 0,
-        timeCreateStamp: json['time_create_stamp'] as int? ?? 0,
-        canPlayInAdvance: json['can_play_in_advance'] as bool? ?? false,
-        interruptTransformTempFile:
-            json['interrupt_transform_temp_file'] as bool? ?? false,
-        avid: json['avid'] as int,
-        spid: json['spid'] as int?,
-        bvid: json['bvid'] as String,
-        ownerId: json['owner_id'] as int?,
-        ownerName: json['owner_name'] as String?,
-        pageData: json['page_data'] != null
-            ? PageInfo.fromJson(json['page_data'] as Map<String, dynamic>)
-            : null,
-        seasonId: json['season_id'] as String?,
-        source: json['source'] != null
-            ? SourceInfo.fromJson(json['source'] as Map<String, dynamic>)
-            : null,
-        ep: json['ep'] != null
-            ? EpInfo.fromJson(json['ep'] as Map<String, dynamic>)
-            : null,
-        mergedPath: json['merged_path'] as String?,
-      );
+  factory BiliDownloadEntryInfo.fromJson(
+    Map<String, dynamic> json,
+  ) => BiliDownloadEntryInfo(
+    mediaType: json['media_type'] as int? ?? 1,
+    hasDashAudio: json['has_dash_audio'] as bool? ?? false,
+    isCompleted: json['is_completed'] as bool,
+    totalBytes: json['total_bytes'] as int,
+    downloadedBytes: json['downloaded_bytes'] as int,
+    title: json['title'] as String,
+    typeTag: json['type_tag'] as String?,
+    cover: json['cover'] as String,
+    videoQuality: json['video_quality'] as int?,
+    preferedVideoQuality: json['prefered_video_quality'] as int,
+    qualityPithyDescription: json['quality_pithy_description'] as String? ?? '',
+    guessedTotalBytes: json['guessed_total_bytes'] as int,
+    totalTimeMilli: json['total_time_milli'] as int,
+    danmakuCount: json['danmaku_count'] as int,
+    timeUpdateStamp: json['time_update_stamp'] as int? ?? 0,
+    timeCreateStamp: json['time_create_stamp'] as int? ?? 0,
+    canPlayInAdvance: json['can_play_in_advance'] as bool? ?? false,
+    interruptTransformTempFile:
+        json['interrupt_transform_temp_file'] as bool? ?? false,
+    avid: json['avid'] as int,
+    spid: json['spid'] as int?,
+    bvid: json['bvid'] as String,
+    ownerId: json['owner_id'] as int?,
+    ownerName: json['owner_name'] as String?,
+    pageData: json['page_data'] != null
+        ? PageInfo.fromJson(json['page_data'] as Map<String, dynamic>)
+        : null,
+    seasonId: json['season_id'] as String?,
+    source: json['source'] != null
+        ? SourceInfo.fromJson(json['source'] as Map<String, dynamic>)
+        : null,
+    ep: json['ep'] != null
+        ? EpInfo.fromJson(json['ep'] as Map<String, dynamic>)
+        : null,
+    mergedPath: json['merged_path'] as String?,
+    mergedParts: (json['merged_parts'] as List?)?.whereType<String>().toList(),
+  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'media_type': mediaType,
@@ -244,6 +257,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     'source': ?source?.toJson(),
     'ep': ?ep?.toJson(),
     'merged_path': ?mergedPath,
+    'merged_parts': ?mergedParts,
   };
 
   @override

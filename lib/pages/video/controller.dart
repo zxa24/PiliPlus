@@ -379,7 +379,14 @@ class VideoDetailController extends GetxController
 
   void initFileSource(BiliDownloadEntryInfo entry, {bool isInit = true}) {
     this.entry = entry;
-    if (entry.playUri != null) _localMirror = entry.entryDirPath;
+    if (entry.playUri != null && entry.entryDirPath != _localMirror) {
+      // the page moved to another document: the folder it showed until now
+      // is released here, or its count never reaches zero and the copied
+      // side files stay in the temp dir for the rest of the session
+      LocalPlayer.release(_localMirror);
+      _localMirror = entry.entryDirPath;
+      LocalPlayer.retain(_localMirror);
+    }
     localCommentsPath = null;
     if (entry.mergedPath case final merged?) {
       final file = path.join(
@@ -786,7 +793,7 @@ class VideoDetailController extends GetxController
       isFileSource
           ? FileSource(
               dir: args['dirPath'],
-              typeTag: entry.typeTag!,
+              typeTag: entry.streamTypeTag,
               isMp4: entry.mediaType == 1,
               hasDashAudio: entry.hasDashAudio,
               mergedPath: entry.mergedPath,
@@ -915,18 +922,34 @@ class VideoDetailController extends GetxController
       return _initPlayerIfNeeded(autoFullScreenFlag);
     }
     if (isQuerying) {
+      // an episode picked while the previous round trip runs must not be
+      // dropped: its answer is fetched as soon as that one is in
+      _pendingQuery = (fromReset, autoFullScreenFlag);
       return;
     }
     isQuerying = true;
     try {
       await _queryVideoUrl(fromReset, autoFullScreenFlag);
+      while (_pendingQuery != null) {
+        final pending = _pendingQuery!;
+        _pendingQuery = null;
+        await _queryVideoUrl(pending.$1, pending.$2);
+      }
     } finally {
+      _pendingQuery = null;
       isQuerying = false;
     }
   }
 
+  /// A [queryVideoUrl] call that arrived while one was in flight.
+  (bool, bool)? _pendingQuery;
+
   @pragma('vm:prefer-inline')
   Future<void> _queryVideoUrl(bool fromReset, bool autoFullScreenFlag) async {
+    // the episode this answer belongs to: `onChangeEpisode` can move the
+    // page on while the play URL is being fetched, and applying the old
+    // episode's stream would play it under the new episode's header
+    final queryCid = cid.value;
     if (plPlayerController.enableSponsorBlock && isBlock && !fromReset) {
       querySponsorBlock(bvid: bvid, cid: cid.value);
     }
@@ -943,6 +966,11 @@ class VideoDetailController extends GetxController
     }
 
     final result = await _getVideoUrl(VideoQuality.hdrVivid.code);
+
+    // superseded meanwhile: the queued request fetches the current episode
+    if (cid.value != queryCid) {
+      return;
+    }
 
     if (result case Success(:final response)) {
       data = response;

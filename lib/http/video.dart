@@ -46,10 +46,7 @@ import 'package:protobuf/protobuf.dart';
 /// view层根据 status 判断渲染逻辑
 abstract final class VideoHttp {
   static RegExp zoneRegExp = RegExp(Pref.banWordForZone, caseSensitive: false);
-  // a pattern matching the empty string (a stray `|`) would filter out
-  // everything: treat it as no filter
-  static bool enableFilter =
-      zoneRegExp.pattern.isNotEmpty && !zoneRegExp.hasMatch('');
+  static bool enableFilter = zoneRegExp.isUsableFilter;
 
   // 首页推荐视频
   static Future<LoadingState<List<RcmdVideoItemModel>>> rcmdVideoList({

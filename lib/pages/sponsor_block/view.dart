@@ -332,7 +332,6 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
                     Get.back();
                     _blockServer = HttpString.sponsorBlockBaseUrl;
                     setting.put(SettingBoxKey.blockServer, _blockServer);
-                    AccountManager.blockServer = _blockServer;
                     (context as Element).markNeedsBuild();
                   },
                   child: const Text('重置'),
@@ -361,7 +360,6 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
                     Get.back();
                     _blockServer = text;
                     setting.put(SettingBoxKey.blockServer, _blockServer);
-                    AccountManager.blockServer = _blockServer;
                     _checkServerStatus();
                     _getUserInfo();
                     (context as Element).markNeedsBuild();

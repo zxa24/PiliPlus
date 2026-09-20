@@ -11,6 +11,7 @@ import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/common/widgets/flutter/list_tile.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/pages/mine/controller.dart';
+import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
@@ -255,9 +256,32 @@ Commit Hash: ${BuildConfig.commitHash}''',
               onExport: () =>
                   Utils.jsonEncoder.convert(Accounts.account.toMap()),
               onImport: (json) async {
-                final res = json.map(
-                  (key, value) => MapEntry(key, LoginAccount.fromJson(value)),
-                );
+                // validate first, like the settings / local library imports:
+                // nothing downstream checks these, and a jar without
+                // DedeUserID parses fine and then throws on every mid read
+                // (Accounts.refresh) at every launch, while a key that is
+                // not the account's own mid makes delete() unreachable
+                final res = <String, LoginAccount>{};
+                for (final MapEntry(:key, :value) in json.entries) {
+                  final LoginAccount account;
+                  try {
+                    account = LoginAccount.fromJson(value);
+                    // reading mid forces the DedeUserID lookup
+                    if (account.mid <= 0) {
+                      throw const FormatException('DedeUserID 无效');
+                    }
+                  } catch (e) {
+                    throw FormatException('登录信息无效（$key）: $e');
+                  }
+                  final mid = '${account.mid}';
+                  if (mid != '$key') {
+                    throw FormatException('登录信息的键与账号 mid 不一致：$key / $mid');
+                  }
+                  if (res.containsKey(mid)) {
+                    throw FormatException('登录信息有重复的 mid: $mid');
+                  }
+                  res[mid] = account;
+                }
                 await Accounts.account.putAll(res);
                 await Accounts.refresh();
                 MineController.anonymity.value = !Pref.loginMode;
@@ -307,8 +331,10 @@ Commit Hash: ${BuildConfig.commitHash}''',
                     json,
                     importCredentials: importCredentials,
                   );
-                  // tell the user the undo exists, like the WebDAV restore
-                  SmartDialog.showToast('导入成功，导入前的数据已保存至 $snapshot');
+                  // tell the user the undo exists, like the WebDAV restore;
+                  // many settings are mirrored into statics read once at
+                  // startup, so the running session keeps the old values
+                  SmartDialog.showToast('导入成功（重启生效），导入前的数据已保存至 $snapshot');
                 },
               );
             },
@@ -326,7 +352,7 @@ Commit Hash: ${BuildConfig.commitHash}''',
               if (!confirmed) return;
               try {
                 await GStorage.restoreLatestSnapshot();
-                SmartDialog.showToast('已恢复到导入前');
+                SmartDialog.showToast('已恢复到导入前（重启生效）');
               } catch (e) {
                 SmartDialog.showToast('恢复失败: $e');
               }
@@ -348,6 +374,9 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // login mode is not an exportable setting: keep it
                         // (the running account state is not re-applied)
                         final loginMode = Pref.loginMode;
+                        // snapshot first, like every import path, so
+                        // 恢复到导入前 can undo this too
+                        final snapshot = await GStorage.saveSnapshot();
                         await Future.wait([
                           GStorage.setting.clear(),
                           GStorage.video.clear(),
@@ -356,17 +385,30 @@ Commit Hash: ${BuildConfig.commitHash}''',
                           SettingBoxKey.loginMode,
                           loginMode,
                         );
-                        SmartDialog.showToast('重置成功');
+                        SmartDialog.showToast(
+                          '重置成功（重启生效），重置前的数据已保存至 $snapshot',
+                        );
                       },
                       child: const Text('重置可导出的设置', style: style),
                     ),
                     DialogOption(
                       onPressed: () async {
                         Get.back();
+                        // no snapshot: a full reset must not leave a copy of
+                        // the data behind (GStorage.clear also drops the
+                        // import snapshots), so it cannot be undone
                         await GStorage.clear();
-                        SmartDialog.showToast('重置成功');
+                        // outside Hive, and just as much user data: the
+                        // crash log (entries can carry signed request URLs)
+                        // and the picked-document side-file mirrors
+                        await LoggerUtils.clearLogs();
+                        await LocalPlayer.clearMirrors();
+                        SmartDialog.showToast('重置成功（重启生效）');
                       },
-                      child: const Text('重置所有数据（含登录信息）', style: style),
+                      child: const Text(
+                        '重置所有数据（含登录信息、本地关注/收藏，不可撤回）',
+                        style: style,
+                      ),
                     ),
                   ],
                 );

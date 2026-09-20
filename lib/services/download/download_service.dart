@@ -47,7 +47,7 @@ class DownloadService extends GetxService {
   /// `path.join` drops a null part, so joining it directly would give the
   /// entry folder itself — which is deleted recursively below.
   static String _streamDirPath(BiliDownloadEntryInfo entry) =>
-      path.join(entry.entryDirPath, entry.typeTag ?? '0');
+      path.join(entry.entryDirPath, entry.streamTypeTag);
 
   final _lock = Lock();
 
@@ -94,6 +94,11 @@ class DownloadService extends GetxService {
         curDownload.value = null;
       }
       await _readDownloadList();
+      // the list page still shows entries of the old root until it reloads,
+      // and the re-read queue is all "waiting": start it again (a merge left
+      // running keeps its entry, it calls [nextDownload] when it is done)
+      flagNotifier.refresh();
+      if (curDownload.value == null) nextDownload();
     }();
   }
 
@@ -122,9 +127,19 @@ class DownloadService extends GetxService {
     await for (final entryDir in pageDir.list()) {
       if (entryDir is Directory) {
         final entryFile = File(path.join(entryDir.path, _entryFile));
-        if (entryFile.existsSync()) {
+        final tmpFile = File('${entryFile.path}.tmp');
+        if (entryFile.existsSync() || tmpFile.existsSync()) {
           try {
-            final entryJson = await entryFile.readAsString();
+            // a write interrupted before the rename leaves the previous
+            // (complete) entry.json in place; only a file torn by an older
+            // build needs the .tmp copy
+            String entryJson;
+            try {
+              entryJson = await entryFile.readAsString();
+              jsonDecode(entryJson);
+            } catch (_) {
+              entryJson = await tmpFile.readAsString();
+            }
             final entry = BiliDownloadEntryInfo.fromJson(jsonDecode(entryJson))
               ..pageDirPath = pageDir.path
               ..entryDirPath = entryDir.path;
@@ -465,14 +480,15 @@ class DownloadService extends GetxService {
       );
 
       // the stream is picked again on every start (codec / login / quality
-      // settings may have changed): partial files of another stream must
-      // not be resumed, or two streams end up in one file
+      // settings may have changed). Each quality has its own folder, so the
+      // new one never resumes the old one's bytes; the old folder is kept
+      // until this download completes ([_delStaleStreamDirs]) instead of
+      // being dropped here — leaving login mode re-resolves to a lower
+      // quality and that used to throw away a nearly finished transfer
       if (oldTypeTag != null &&
           oldTypeTag.isNotEmpty &&
           oldTypeTag != entry.typeTag) {
-        await Directory(
-          path.join(entry.entryDirPath, oldTypeTag),
-        ).tryDel(recursive: true);
+        debugPrint('download stream changed: $oldTypeTag -> ${entry.typeTag}');
       }
       final videoDir = Directory(_streamDirPath(entry));
       final mediaJsonFile = File(path.join(videoDir.path, _indexFile));
@@ -481,7 +497,10 @@ class DownloadService extends GetxService {
         try {
           oldKey = _streamKey(jsonDecode(await mediaJsonFile.readAsString()));
         } catch (_) {}
-        if (oldKey != _streamKey(mediaFileInfo.toJson())) {
+        // an unreadable / missing index.json says nothing about the bytes on
+        // disk: they are kept and re-verified by the resume's `Content-Range`
+        // total ([DownloadManager.expectedTotal]) instead of being dropped
+        if (oldKey != null && oldKey != _streamKey(mediaFileInfo.toJson())) {
           await videoDir.tryDel(recursive: true);
         }
       }
@@ -490,7 +509,7 @@ class DownloadService extends GetxService {
       }
 
       await Future.wait([
-        mediaJsonFile.writeAsString(jsonEncode(mediaFileInfo.toJson())),
+        _writeIndexJson(mediaJsonFile, mediaFileInfo),
         _downloadCover(entry: entry),
       ]);
 
@@ -593,9 +612,51 @@ class DownloadService extends GetxService {
     _downloadManager = manager;
   }
 
+  /// Writes `index.json` through `<file>.tmp` + rename: it is rewritten on
+  /// every start, and a torn one used to make the resume look like another
+  /// stream — throwing away the bytes already on disk.
+  static Future<void> _writeIndexJson(
+    File file,
+    BiliDownloadMediaInfo mediaFileInfo,
+  ) async {
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(jsonEncode(mediaFileInfo.toJson()), flush: true);
+    await tmp.rename(file.path);
+  }
+
+  /// `entry.json` saves in flight, per entry folder.
+  final _entrySaves = <String, Future<void>>{};
+
+  /// Saves `entry.json`. Most call sites do not await this (a size change,
+  /// a pause, the completion point), and two of them overlapping would
+  /// write and rename the same `entry.json.tmp` at once — exactly the torn
+  /// file the tmp+rename is there to prevent. Saves for one folder are
+  /// therefore chained: they run one after another, each serialising the
+  /// entry when its turn comes (so the last one writes the newest state,
+  /// nothing is lost), and the returned future completes once this call's
+  /// state is on disk.
   Future<void> _updateBiliDownloadEntryJson(BiliDownloadEntryInfo entry) {
+    final dir = entry.entryDirPath;
+    final save = (_entrySaves[dir] ?? Future<void>.value()).then(
+      (_) => _writeEntryJson(entry),
+    );
+    // a failed save must not stall the ones behind it
+    final chained = _entrySaves[dir] = save.catchError((_) {});
+    chained.whenComplete(() {
+      if (identical(_entrySaves[dir], chained)) _entrySaves.remove(dir);
+    });
+    return save;
+  }
+
+  /// Writes `entry.json` through `<file>.tmp` + rename: this runs on every
+  /// size change and at the completion point, so a truncated file would
+  /// hide the whole (possibly finished) download from the list. Only called
+  /// from [_updateBiliDownloadEntryJson], which keeps the writes apart.
+  static Future<void> _writeEntryJson(BiliDownloadEntryInfo entry) async {
     final entryJsonFile = File(path.join(entry.entryDirPath, _entryFile));
-    return entryJsonFile.writeAsString(jsonEncode(entry.toJson()));
+    final tmp = File('${entryJsonFile.path}.tmp');
+    await tmp.writeAsString(jsonEncode(entry.toJson()), flush: true);
+    await tmp.rename(entryJsonFile.path);
   }
 
   void _onReceive(int progress, int total) {
@@ -636,10 +697,13 @@ class DownloadService extends GetxService {
     _updateCurStatus(status);
 
     if (curDownload.value case final curEntryInfo?) {
-      curEntryInfo.downloadedBytes = curEntryInfo.totalBytes;
       if (status == DownloadStatus.completed) {
+        curEntryInfo.downloadedBytes = curEntryInfo.totalBytes;
         _completeDownload();
       } else {
+        // audio still running / failed, or paused: the counters must keep
+        // saying what is on disk, or the entry shows a full progress bar
+        // after a restart although a stream is missing
         _updateBiliDownloadEntryJson(curEntryInfo);
       }
     }
@@ -698,20 +762,26 @@ class DownloadService extends GetxService {
       await _updateBiliDownloadEntryJson(entry);
       return;
     }
-    // record completion before removing the stream files, so a crash here
-    // cannot turn the entry back into an incomplete one
-    entry.isCompleted = true;
+    // segments that had no common MP4 mapping were kept apart: record the
+    // other parts, [mergedPath] alone plays only the first of them
+    final parts = output == null ? const <String>[] : _exportedParts(output);
+    // (completion is recorded before the stream files are removed, so a
+    // crash here cannot turn the entry back into an incomplete one)
+    entry
+      ..mergedParts = parts.length > 1 ? parts.sublist(1) : null
+      ..isCompleted = true;
     await _updateBiliDownloadEntryJson(entry);
     if (output != null) {
       for (final input in inputs) {
         await File(input).tryDel();
       }
       if (Platform.isAndroid) {
-        for (final part in _exportedParts(output)) {
+        for (final part in parts) {
           await _scanMedia(part);
         }
       }
     }
+    await _delStaleStreamDirs(entry);
     waitDownloadQueue.remove(entry);
     // the download folder can change while a merge runs (the merge is left
     // to finish): the list was re-read from the new root, so an entry of the
@@ -729,6 +799,21 @@ class DownloadService extends GetxService {
     // comments / subtitles etc. can take many requests: do not hold the
     // queue for them
     if (output != null) _queueExtras(entry, output);
+  }
+
+  /// Removes the stream folders of qualities this entry no longer uses.
+  /// They are kept while the download runs (a re-resolve to another quality
+  /// must not throw away a nearly finished transfer, see [_startDownload]),
+  /// so this runs once the entry is complete.
+  static Future<void> _delStaleStreamDirs(BiliDownloadEntryInfo entry) async {
+    final keep = entry.streamTypeTag;
+    try {
+      await for (final dir in Directory(entry.entryDirPath).list()) {
+        if (dir is Directory && path.basename(dir.path) != keep) {
+          await dir.tryDel(recursive: true);
+        }
+      }
+    } catch (_) {}
   }
 
   /// Extras exports run one at a time (each can be hundreds of requests).
@@ -1274,7 +1359,10 @@ class DownloadService extends GetxService {
     await _cancelExtras(entry.cid);
     if (deleteExported) await _deleteMerged(entry);
     final downloadDir = Directory(entry.pageDirPath);
-    if (downloadDir.existsSync()) {
+    // the download folder may have changed since this entry was listed: a
+    // path outside the configured root is not ours to remove
+    if (downloadDir.existsSync() &&
+        path.isWithin(downloadPath, entry.entryDirPath)) {
       // a page folder that is also an export folder (made before exports
       // avoided internal names) keeps the export's files
       if (!await downloadDir.lengthGte(2) && !_isForeignFolder(downloadDir)) {
@@ -1312,16 +1400,20 @@ class DownloadService extends GetxService {
     }
     waitDownloadQueue.removeWhere((e) => e.pageDirPath == pageDirPath);
     final pageDir = Directory(pageDirPath);
-    if (pageDir.existsSync() && _isForeignFolder(pageDir)) {
-      // also an export folder: remove only the downloads inside it
-      for (final e in pageDir.listSync()) {
-        if (e is Directory &&
-            File(path.join(e.path, _entryFile)).existsSync()) {
-          await e.tryDel(recursive: true);
+    // as in [deleteDownload]: never remove a folder outside the configured
+    // download root (the root can change while this page is listed)
+    if (path.isWithin(downloadPath, pageDirPath)) {
+      if (pageDir.existsSync() && _isForeignFolder(pageDir)) {
+        // also an export folder: remove only the downloads inside it
+        for (final e in pageDir.listSync()) {
+          if (e is Directory &&
+              File(path.join(e.path, _entryFile)).existsSync()) {
+            await e.tryDel(recursive: true);
+          }
         }
+      } else {
+        await pageDir.tryDel(recursive: true);
       }
-    } else {
-      await pageDir.tryDel(recursive: true);
     }
     downloadList.removeWhere((e) => e.pageDirPath == pageDirPath);
     if (curDownload.value == null) nextDownload();

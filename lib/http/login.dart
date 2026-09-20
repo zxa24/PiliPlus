@@ -17,7 +17,8 @@ import 'package:encrypt/encrypt.dart';
 abstract final class LoginHttp {
   static final String deviceId = LoginUtils.genDeviceId();
   static String get buvid => LoginUtils.buvid;
-  static final Map<String, String> headers = {
+  // rebuilt per request: [buvid] changes when 重置所有数据 clears `localCache`
+  static Map<String, String> get headers => {
     'buvid': buvid,
     'env': 'prod',
     'app-key': 'android_hd',

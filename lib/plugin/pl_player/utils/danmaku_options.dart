@@ -5,7 +5,7 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 
 abstract final class DanmakuOptions {
-  static final Set<int> blockTypes = Pref.danmakuBlockType;
+  static Set<int> blockTypes = Pref.danmakuBlockType;
   static bool blockColorful = blockTypes.contains(6);
 
   static int danmakuWeight = Pref.danmakuWeight;
@@ -20,6 +20,27 @@ abstract final class DanmakuOptions {
   static bool danmakuStatic2Scroll = Pref.danmakuStatic2Scroll;
   static bool danmakuMassiveMode = Pref.danmakuMassiveMode;
   static double danmakuLineHeight = Pref.danmakuLineHeight;
+
+  /// Re-reads every cached option from the box. These are initialised once
+  /// at class load, and [save] writes all of them back, so a settings
+  /// import / reset would otherwise be undone by the next panel close:
+  /// call this before showing the panel.
+  static void applyPrefs() {
+    blockTypes = Pref.danmakuBlockType;
+    blockColorful = blockTypes.contains(6);
+    danmakuWeight = Pref.danmakuWeight;
+    danmakuFontScaleFS = Pref.danmakuFontScaleFS;
+    danmakuFontScale = Pref.danmakuFontScale;
+    danmakuFontWeight = Pref.danmakuFontWeight;
+    danmakuShowArea = Pref.danmakuShowArea;
+    danmakuDuration = Pref.danmakuDuration;
+    danmakuStaticDuration = Pref.danmakuStaticDuration;
+    danmakuStrokeWidth = Pref.danmakuStrokeWidth;
+    danmakuFixedV = Pref.danmakuFixedV;
+    danmakuStatic2Scroll = Pref.danmakuStatic2Scroll;
+    danmakuMassiveMode = Pref.danmakuMassiveMode;
+    danmakuLineHeight = Pref.danmakuLineHeight;
+  }
 
   static bool get sameFontScale => danmakuFontScale == danmakuFontScaleFS;
 

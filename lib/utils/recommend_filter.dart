@@ -1,4 +1,5 @@
 import 'package:PiliPlus/models/model_video.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 
 abstract final class RecommendFilter {
@@ -11,10 +12,7 @@ abstract final class RecommendFilter {
     Pref.banWordForRecommend,
     caseSensitive: false,
   );
-  // a pattern matching the empty string (a stray `|`) would filter out
-  // everything: treat it as no filter
-  static bool enableFilter =
-      rcmdRegExp.pattern.isNotEmpty && !rcmdRegExp.hasMatch('');
+  static bool enableFilter = rcmdRegExp.isUsableFilter;
 
   static bool filter(BaseVideoItemModel videoItem) {
     //由于相关视频中没有已关注标签，只能视为非关注视频

@@ -139,7 +139,7 @@ abstract final class LocalPlayer {
     // would only name a file that does not exist (the video plays from its
     // URI), so it stays null.
     bool mirrored = true,
-  }) {
+  }) async {
     entry
       ..mergedPath = mirrored ? path.join(mirror, video.name) : null
       ..playUri = video.uri
@@ -147,8 +147,16 @@ abstract final class LocalPlayer {
       ..isCompleted = true
       ..entryDirPath = mirror
       ..pageDirPath = path.dirname(mirror);
-    _mirrorsInUse.update(mirror, (n) => n + 1, ifAbsent: () => 1);
-    return _toVideoPage(entry);
+    // held only for the navigation: the page itself takes its own count
+    // ([VideoDetailController.initFileSource]), so a `toVideoPage` that
+    // returns without ever building a controller cannot leave the folder
+    // counted for the rest of the session
+    retain(mirror);
+    try {
+      await _toVideoPage(entry);
+    } finally {
+      release(mirror);
+    }
   }
 
   /// Cache folders shown by a video page that is still open (count per
@@ -172,6 +180,24 @@ abstract final class LocalPlayer {
     }
     await dir.create(recursive: true);
     return dir.path;
+  }
+
+  /// Removes every cached side-file mirror, the ones an open page still
+  /// shows included: 重置所有数据 must not leave copies of the user's picked
+  /// documents behind. Folders are recreated on the next open.
+  static Future<void> clearMirrors() async {
+    _mirrorsInUse.clear();
+    final root = Directory(path.join(tmpDirPath, 'local_documents'));
+    try {
+      if (root.existsSync()) await root.delete(recursive: true);
+    } catch (_) {}
+  }
+
+  /// A video page now shows the picked document in [dir]: its side-file
+  /// cache folder is kept until that page releases it again.
+  static void retain(String? dir) {
+    if (dir == null) return;
+    _mirrorsInUse.update(dir, (n) => n + 1, ifAbsent: () => 1);
   }
 
   /// The video page showing a picked document closed: its side-file cache
@@ -247,9 +273,15 @@ abstract final class LocalPlayer {
     final info = File(path.join(folder, DownloadExtras.infoName));
     if (info.existsSync()) {
       try {
-        entry = BiliDownloadEntryInfo.fromJson(
+        final parsed = BiliDownloadEntryInfo.fromJson(
           jsonDecode(info.readAsStringSync()) as Map<String, dynamic>,
         );
+        // `cid` and `sortKey` read `pageData!` when there is no `source`: a
+        // record with neither (written by another tool) parses but throws on
+        // the very next step, so it is treated like a foreign file
+        if (parsed.source != null || parsed.pageData != null) {
+          entry = parsed;
+        }
       } catch (_) {}
     }
     entry ??= _plainEntry(path.basenameWithoutExtension(video), size);

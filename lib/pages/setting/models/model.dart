@@ -4,6 +4,7 @@ import 'package:PiliPlus/pages/setting/widgets/normal_item.dart';
 import 'package:PiliPlus/pages/setting/widgets/popup_item.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/switch_item.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter/services.dart' show FilteringTextInputFormatter;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -259,8 +260,9 @@ SettingsModel getBanWordModel({
                   return;
                 }
                 // `测试|` is valid but matches everything (empty alternative),
-                // which would silently empty the whole list
-                if (editValue.isNotEmpty && regExp.hasMatch('')) {
+                // which would silently empty the whole list. Same test the
+                // `enableFilter` flags use, so the two cannot disagree
+                if (editValue.isNotEmpty && !regExp.isUsableFilter) {
                   SmartDialog.showToast('过滤规则匹配空内容（多余的「|」？），会过滤掉全部内容');
                   return;
                 }

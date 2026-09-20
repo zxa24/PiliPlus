@@ -68,6 +68,8 @@ abstract final class GStorage {
       ).then((res) => watchProgress = res),
     ]);
 
+    await _capLocalProgress();
+
     if (Pref.saveReply) {
       reply = await Hive.openBox<Uint8List>(
         'reply',
@@ -79,6 +81,26 @@ abstract final class GStorage {
     } else {
       reply = null;
     }
+  }
+
+  /// How many resume points for local files [watchProgress] keeps.
+  static const _maxLocalProgress = 500;
+
+  /// Resume points for downloads are keyed by cid and pruned when the
+  /// download goes, but those for plain local files / picked documents are
+  /// keyed by a hash of the path (`f…` / `u…`, see the video controller's
+  /// `_progressKey`): nothing can tell from the key whether the target
+  /// still exists, and renaming or moving a file leaves its row behind for
+  /// good. Cap them so the box cannot grow with every file ever opened.
+  /// The box is key-ordered ([_intStrDescKeyComparator] puts the cid rows
+  /// first), so this is a stable subset rather than a random one.
+  static Future<void> _capLocalProgress() async {
+    final hashed = [
+      for (final key in watchProgress.keys)
+        if (key is String) key,
+    ];
+    if (hashed.length <= _maxLocalProgress) return;
+    await watchProgress.deleteAll(hashed.skip(_maxLocalProgress));
   }
 
   /// Setting keys that are credentials of this device: left out of an
@@ -124,20 +146,31 @@ abstract final class GStorage {
   static const _maxSnapshots = 5;
 
   /// Saves the current settings and local library before an import replaces
-  /// them. [credentialKeys] stay out of the file — the app's own data dir is
-  /// what the optional Documents provider serves — an undo restores them
-  /// from the live box instead (see [importAllJsonSettings]).
+  /// them, [credentialKeys] included: an import the user answered
+  /// 使用备份中的凭据 to overwrites this device's, so leaving them out of the
+  /// snapshot would make the undo unable to bring them back. The file stays
+  /// in the app's own data dir, which the optional Documents provider does
+  /// not serve.
   /// Returns the file path; only the newest [_maxSnapshots] are kept.
-  static Future<String> _saveSnapshot() async {
+  static Future<String> saveSnapshot() async {
     final dir = Directory(_snapshotDir);
     await dir.create(recursive: true);
     final now = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
-    final name =
-        '$_snapshotPrefix${now.year}${two(now.month)}${two(now.day)}_'
-        '${two(now.hour)}${two(now.minute)}${two(now.second)}.json';
-    final file = File(path.join(dir.path, name));
-    await file.writeAsString(exportAllSettings());
+    // milliseconds and, if that is still not enough, a counter: two imports
+    // sharing a name would overwrite each other's snapshot, and an undo
+    // taken at the same instant as its import would write its replacement
+    // over the very file it then deletes. The suffixes keep sorting by name
+    // newest-first (see [_snapshots]).
+    final stamp =
+        '${now.year}${two(now.month)}${two(now.day)}_'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}_'
+        '${now.millisecond.toString().padLeft(3, '0')}';
+    var file = File(path.join(dir.path, '$_snapshotPrefix$stamp.json'));
+    for (var i = 1; file.existsSync(); i++) {
+      file = File(path.join(dir.path, '$_snapshotPrefix${stamp}_$i.json'));
+    }
+    await file.writeAsString(exportAllSettings(includeCredentials: true));
     final old = await _snapshots();
     for (final f in old.skip(_maxSnapshots)) {
       try {
@@ -162,8 +195,8 @@ abstract final class GStorage {
   static Future<File?> latestSnapshot() async =>
       (await _snapshots()).firstOrNull;
 
-  /// Undoes the last import: restores [latestSnapshot] (it carries no
-  /// credentials, so this device's stay as they are) and removes it.
+  /// Undoes the last import: restores [latestSnapshot], credentials
+  /// included (see [saveSnapshot]), and removes it.
   static Future<void> restoreLatestSnapshot() async {
     final file = await latestSnapshot();
     if (file == null) throw const FormatException('没有导入前的快照');
@@ -177,7 +210,7 @@ abstract final class GStorage {
   }
 
   /// Replaces settings and the local library with [map]. Unless [snapshot]
-  /// is false, the current state is saved first (see [_saveSnapshot]) and
+  /// is false, the current state is saved first (see [saveSnapshot]) and
   /// the snapshot path is returned. This device's [credentialKeys] are kept
   /// unless [importCredentials] (the user agreed) and [map] has them.
   static Future<String?> importAllJsonSettings(
@@ -198,7 +231,7 @@ abstract final class GStorage {
       throw const FormatException('不是有效的设置备份');
     }
     LocalLibrary.checkImport(map);
-    final snapshotPath = snapshot ? await _saveSnapshot() : null;
+    final snapshotPath = snapshot ? await saveSnapshot() : null;
     final credentials = {
       for (final key in credentialKeys)
         if (setting.containsKey(key)) key: setting.get(key),
@@ -279,10 +312,23 @@ abstract final class GStorage {
       Accounts.clear(),
       watchProgress.clear(),
       LocalLibrary.clear(),
-      ?reply?.clear(),
+      clearReply(),
       // "reset all data" must not leave the pre-import snapshots behind
       _clearSnapshots(),
     ]);
+  }
+
+  /// Removes the user's own posted comments. The [reply] box is opened only
+  /// while 记录评论 is on, so going through the handle would skip the file
+  /// exactly when the setting is off — which is when nothing else in the app
+  /// can reach the bodies any more (the /myReply entry is hidden too).
+  static Future<void> clearReply() async {
+    final box = reply;
+    if (box != null && box.isOpen) {
+      await box.clear();
+    } else {
+      await Hive.deleteBoxFromDisk('reply');
+    }
   }
 
   static Future<void> _clearSnapshots() async {

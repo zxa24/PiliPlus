@@ -53,6 +53,23 @@ abstract final class Pref {
   static final Box _video = GStorage.video;
   static final Box _localCache = GStorage.localCache;
 
+  /// [values] at the stored [index], or [fallback] when it is not a usable
+  /// index for this build: an imported backup carries whatever the box held
+  /// on the machine it came from, so the value can be of the wrong type or
+  /// name an enum entry a newer build added and this one does not have.
+  /// Indexing blindly would throw on every read, including the ones [MyApp]
+  /// does at launch.
+  static T _enumAt<T>(List<T> values, Object? index, T fallback) =>
+      index is int ? values.getOrNull(index) ?? fallback : fallback;
+
+  /// The entry of [values] named [name], or null (see [_enumAt]).
+  static T? _enumByName<T extends Enum>(List<T> values, Object? name) {
+    for (final value in values) {
+      if (value.name == name) return value;
+    }
+    return null;
+  }
+
   static UserInfoData? get userInfoCache =>
       GStorage.userInfo.get('userInfoCache');
 
@@ -84,20 +101,22 @@ abstract final class Pref {
     GlobalData().blackMids..remove(mid),
   );
 
-  static MemberTabType get memberTab =>
-      MemberTabType.values[_setting.get(
-        SettingBoxKey.memberTab,
-        defaultValue: 0,
-      )];
+  static MemberTabType get memberTab => _enumAt(
+    MemberTabType.values,
+    _setting.get(SettingBoxKey.memberTab),
+    MemberTabType.values.first,
+  );
 
-  static int get _themeTypeInt => _setting.get(
+  // untyped: an imported backup can hold anything here (see [_enumAt])
+  static Object? get _themeTypeValue => _setting.get(
     SettingBoxKey.themeMode,
     defaultValue: ThemeType.system.index,
   );
 
-  static ThemeType get themeType => ThemeType.values[_themeTypeInt];
+  static ThemeType get themeType =>
+      _enumAt(ThemeType.values, _themeTypeValue, ThemeType.system);
 
-  static ThemeMode get themeMode => switch (_themeTypeInt) {
+  static ThemeMode get themeMode => switch (_themeTypeValue) {
     0 => ThemeMode.light,
     1 => ThemeMode.dark,
     _ => ThemeMode.system,
@@ -128,7 +147,11 @@ abstract final class Pref {
         .map(
           (item) => Pair(
             first: item,
-            second: SkipType.values[list[item.index]],
+            second: _enumAt(
+              SkipType.values,
+              list[item.index],
+              SkipType.skipOnce,
+            ),
           ),
         )
         .toList();
@@ -154,31 +177,36 @@ abstract final class Pref {
   static int get picQuality =>
       _setting.get(SettingBoxKey.defaultPicQa, defaultValue: 10);
 
-  static DynamicBadgeMode get dynamicBadgeType =>
-      DynamicBadgeMode.values[_setting.get(
-        SettingBoxKey.dynamicBadgeMode,
-        defaultValue: DynamicBadgeMode.number.index,
-      )];
-
-  static DynamicBadgeMode get msgBadgeMode =>
-      DynamicBadgeMode.values[_setting.get(
-        SettingBoxKey.msgBadgeMode,
-        defaultValue: DynamicBadgeMode.number.index,
-      )];
-
-  static Set<MsgUnReadType> get msgUnReadTypeV2 =>
-      (_setting.get(SettingBoxKey.msgUnReadTypeV2) as List?)
-          ?.map((index) => MsgUnReadType.values[index])
-          .toSet() ??
-      MsgUnReadType.values.toSet();
-
-  static NavigationBarType get defaultHomePage =>
-      NavigationBarType.values[defaultHomePageIndex];
-
-  static int get defaultHomePageIndex => _setting.get(
-    SettingBoxKey.defaultHomePage,
-    defaultValue: NavigationBarType.home.index,
+  static DynamicBadgeMode get dynamicBadgeType => _enumAt(
+    DynamicBadgeMode.values,
+    _setting.get(SettingBoxKey.dynamicBadgeMode),
+    DynamicBadgeMode.number,
   );
+
+  static DynamicBadgeMode get msgBadgeMode => _enumAt(
+    DynamicBadgeMode.values,
+    _setting.get(SettingBoxKey.msgBadgeMode),
+    DynamicBadgeMode.number,
+  );
+
+  static Set<MsgUnReadType> get msgUnReadTypeV2 {
+    if (_setting.get(SettingBoxKey.msgUnReadTypeV2) case final List list) {
+      return {
+        for (final index in list)
+          if (index is int && index >= 0 && index < MsgUnReadType.values.length)
+            MsgUnReadType.values[index],
+      };
+    }
+    return MsgUnReadType.values.toSet();
+  }
+
+  static NavigationBarType get defaultHomePage => _enumAt(
+    NavigationBarType.values,
+    _setting.get(SettingBoxKey.defaultHomePage),
+    NavigationBarType.home,
+  );
+
+  static int get defaultHomePageIndex => defaultHomePage.index;
 
   static int get previewQ =>
       _setting.get(SettingBoxKey.previewQuality, defaultValue: 100);
@@ -189,14 +217,14 @@ abstract final class Pref {
   static double get recommendCardWidth =>
       _setting.get(SettingBoxKey.recommendCardWidth, defaultValue: 240.0);
 
-  static UpPanelPosition get upPanelPosition =>
-      UpPanelPosition.values[_setting.get(
-        SettingBoxKey.upPanelPosition,
-        defaultValue: UpPanelPosition.leftFixed.index,
-      )];
+  static UpPanelPosition get upPanelPosition => _enumAt(
+    UpPanelPosition.values,
+    _setting.get(SettingBoxKey.upPanelPosition),
+    UpPanelPosition.leftFixed,
+  );
 
   static FullScreenMode get fullScreenMode {
-    int? index = _setting.get(SettingBoxKey.fullScreenMode);
+    final index = _setting.get(SettingBoxKey.fullScreenMode);
     if (index == null) {
       final FullScreenMode mode = horizontalScreen && DeviceUtils.isTablet
           ? .none
@@ -204,20 +232,20 @@ abstract final class Pref {
       _setting.put(SettingBoxKey.fullScreenMode, mode.index);
       return mode;
     }
-    return FullScreenMode.values[index];
+    return _enumAt(FullScreenMode.values, index, FullScreenMode.auto);
   }
 
-  static BtmProgressBehavior get btmProgressBehavior =>
-      BtmProgressBehavior.values[_setting.get(
-        SettingBoxKey.btmProgressBehavior,
-        defaultValue: BtmProgressBehavior.alwaysShow.index,
-      )];
+  static BtmProgressBehavior get btmProgressBehavior => _enumAt(
+    BtmProgressBehavior.values,
+    _setting.get(SettingBoxKey.btmProgressBehavior),
+    BtmProgressBehavior.alwaysShow,
+  );
 
-  static SubtitlePrefType get subtitlePreferenceV2 =>
-      SubtitlePrefType.values[_setting.get(
-        SettingBoxKey.subtitlePreferenceV2,
-        defaultValue: SubtitlePrefType.off.index,
-      )];
+  static SubtitlePrefType get subtitlePreferenceV2 => _enumAt(
+    SubtitlePrefType.values,
+    _setting.get(SettingBoxKey.subtitlePreferenceV2),
+    SubtitlePrefType.off,
+  );
 
   static bool get useRelativeSlide =>
       _setting.get(SettingBoxKey.useRelativeSlide, defaultValue: false);
@@ -245,21 +273,23 @@ abstract final class Pref {
     defaultValue: AudioQuality.k192.code,
   );
 
-  static List<VideoDecodeFormatType> get preferCodecs {
-    final codecs = _setting.get(SettingBoxKey.preferCodecs);
-    if (codecs is List) {
-      return codecs.map((i) => VideoDecodeFormatType.values.byName(i)).toList();
-    }
-    return const <VideoDecodeFormatType>[.AVC, .AV1];
+  /// The known codecs named by [key], or null when the box holds no usable
+  /// list there (an imported backup can name a codec this build lacks).
+  static List<VideoDecodeFormatType>? _codecsOf(String key) {
+    final codecs = _setting.get(key);
+    if (codecs is! List) return null;
+    final list = <VideoDecodeFormatType>[
+      for (final i in codecs) ?_enumByName(VideoDecodeFormatType.values, i),
+    ];
+    return list.isEmpty ? null : list;
   }
 
-  static List<VideoDecodeFormatType> get preferCodecsCellular {
-    final codecs = _setting.get(SettingBoxKey.preferCodecsCellular);
-    if (codecs is List) {
-      return codecs.map((i) => VideoDecodeFormatType.values.byName(i)).toList();
-    }
-    return preferCodecs;
-  }
+  static List<VideoDecodeFormatType> get preferCodecs =>
+      _codecsOf(SettingBoxKey.preferCodecs) ??
+      const <VideoDecodeFormatType>[.AVC, .AV1];
+
+  static List<VideoDecodeFormatType> get preferCodecsCellular =>
+      _codecsOf(SettingBoxKey.preferCodecsCellular) ?? preferCodecs;
 
   static String get hardwareDecoding => _setting.get(
     SettingBoxKey.hardwareDecoding,
@@ -276,12 +306,9 @@ abstract final class Pref {
     defaultValue: Platform.isAndroid ? '30' : '0',
   );
 
-  static CDNService get defaultCDNService {
-    if (_setting.get(SettingBoxKey.CDNService) case final String cdnName) {
-      return CDNService.values.byName(cdnName);
-    }
-    return CDNService.backupUrl;
-  }
+  static CDNService get defaultCDNService =>
+      _enumByName(CDNService.values, _setting.get(SettingBoxKey.CDNService)) ??
+      CDNService.backupUrl;
 
   static String get banWordForRecommend =>
       _setting.get(SettingBoxKey.banWordForRecommend, defaultValue: '');
@@ -301,13 +328,13 @@ abstract final class Pref {
   static String get systemProxyPort =>
       _setting.get(SettingBoxKey.systemProxyPort, defaultValue: '');
 
-  static DynamicsTabType get defaultDynamicType =>
-      DynamicsTabType.values[defaultDynamicTypeIndex];
-
-  static int get defaultDynamicTypeIndex => _setting.get(
-    SettingBoxKey.defaultDynamicType,
-    defaultValue: DynamicsTabType.all.index,
+  static DynamicsTabType get defaultDynamicType => _enumAt(
+    DynamicsTabType.values,
+    _setting.get(SettingBoxKey.defaultDynamicType),
+    DynamicsTabType.all,
   );
+
+  static int get defaultDynamicTypeIndex => defaultDynamicType.index;
 
   static bool get showDynInteraction =>
       _setting.get(SettingBoxKey.showDynInteraction, defaultValue: true);
@@ -348,11 +375,11 @@ abstract final class Pref {
   static int get dynamicPeriod =>
       _setting.get(SettingBoxKey.dynamicPeriod, defaultValue: 5);
 
-  static FlexSchemeVariant get schemeVariant =>
-      FlexSchemeVariant.values[_setting.get(
-        SettingBoxKey.schemeVariant,
-        defaultValue: FlexSchemeVariant.material3Legacy.index,
-      )];
+  static FlexSchemeVariant get schemeVariant => _enumAt(
+    FlexSchemeVariant.values,
+    _setting.get(SettingBoxKey.schemeVariant),
+    FlexSchemeVariant.material3Legacy,
+  );
 
   static double get danmakuFontScaleFS => _setting.get(
     SettingBoxKey.danmakuFontScaleFS,
@@ -608,15 +635,15 @@ abstract final class Pref {
         return .normal;
       } else {
         _setting.put(SettingBoxKey.appFontWeightV2, valV1);
-        return .values[valV1];
+        return _enumAt(FontWeight.values, valV1, FontWeight.normal);
       }
     }
 
-    final int? val = _setting.get(SettingBoxKey.appFontWeightV2);
-    if (val == null) {
-      return .normal;
-    }
-    return .values[val];
+    return _enumAt(
+      FontWeight.values,
+      _setting.get(SettingBoxKey.appFontWeightV2),
+      FontWeight.normal,
+    );
   }
 
   static bool get enableDragSubtitle =>
@@ -727,11 +754,11 @@ abstract final class Pref {
     defaultValue: PlatformUtils.isMobile,
   );
 
-  static BarHideType get barHideType =>
-      BarHideType.values[_setting.get(
-        SettingBoxKey.barHideType,
-        defaultValue: BarHideType.sync.index,
-      )];
+  static BarHideType get barHideType => _enumAt(
+    BarHideType.values,
+    _setting.get(SettingBoxKey.barHideType),
+    BarHideType.sync,
+  );
 
   static bool get enableSearchWord =>
       _setting.get(SettingBoxKey.enableSearchWord, defaultValue: false);
@@ -769,32 +796,32 @@ abstract final class Pref {
   static bool get enableHttp2 =>
       _setting.get(SettingBoxKey.enableHttp2, defaultValue: false);
 
-  static ReplySortType get replySortType =>
-      ReplySortType.values[_setting.get(
-        SettingBoxKey.replySortType,
-        defaultValue: ReplySortType.hot.index,
-      )];
+  static ReplySortType get replySortType => _enumAt(
+    ReplySortType.values,
+    _setting.get(SettingBoxKey.replySortType),
+    ReplySortType.hot,
+  );
 
-  static ReplySortType get reply2SortType =>
-      ReplySortType.values[_setting.get(
-        SettingBoxKey.reply2SortType,
-        defaultValue: ReplySortType.time.index,
-      )];
+  static ReplySortType get reply2SortType => _enumAt(
+    ReplySortType.values,
+    _setting.get(SettingBoxKey.reply2SortType),
+    ReplySortType.time,
+  );
 
-  static DynamicBadgeMode get dynamicBadgeMode =>
-      DynamicBadgeMode.values[_setting.get(
-        SettingBoxKey.dynamicBadgeMode,
-        defaultValue: DynamicBadgeMode.number.index,
-      )];
+  static DynamicBadgeMode get dynamicBadgeMode => _enumAt(
+    DynamicBadgeMode.values,
+    _setting.get(SettingBoxKey.dynamicBadgeMode),
+    DynamicBadgeMode.number,
+  );
 
   static bool get enableMYBar =>
       _setting.get(SettingBoxKey.enableMYBar, defaultValue: true);
 
-  static Transition get pageTransition =>
-      Transition.values[_setting.get(
-        SettingBoxKey.pageTransition,
-        defaultValue: Transition.native.index,
-      )];
+  static Transition get pageTransition => _enumAt(
+    Transition.values,
+    _setting.get(SettingBoxKey.pageTransition),
+    Transition.native,
+  );
 
   static bool get enableQuickDouble =>
       _setting.get(SettingBoxKey.enableQuickDouble, defaultValue: true);
@@ -912,11 +939,11 @@ abstract final class Pref {
   static double get defaultToastOp =>
       _setting.get(SettingBoxKey.defaultToastOp, defaultValue: 1.0);
 
-  static PlayRepeat get playRepeat =>
-      PlayRepeat.values[_video.get(
-        VideoBoxKey.playRepeat,
-        defaultValue: PlayRepeat.pause.index,
-      )];
+  static PlayRepeat get playRepeat => _enumAt(
+    PlayRepeat.values,
+    _video.get(VideoBoxKey.playRepeat),
+    PlayRepeat.pause,
+  );
 
   static int get cacheVideoFit =>
       _video.get(VideoBoxKey.cacheVideoFit, defaultValue: 1);
@@ -964,11 +991,11 @@ abstract final class Pref {
   static bool get showMemberShop =>
       _setting.get(SettingBoxKey.showMemberShop, defaultValue: false);
 
-  static SuperChatType get superChatType =>
-      SuperChatType.values[_setting.get(
-        SettingBoxKey.superChatType,
-        defaultValue: SuperChatType.valid.index,
-      )];
+  static SuperChatType get superChatType => _enumAt(
+    SuperChatType.values,
+    _setting.get(SettingBoxKey.superChatType),
+    SuperChatType.valid,
+  );
 
   static double get fullScreenSCWidth => _setting.get(
     SettingBoxKey.fullScreenSCWidth,
@@ -1002,13 +1029,17 @@ abstract final class Pref {
   static double get desktopVolume =>
       _setting.get(SettingBoxKey.desktopVolume, defaultValue: 1.0);
 
-  static SkipType get pgcSkipType =>
-      SkipType.values[_setting.get(SettingBoxKey.pgcSkipType) ??
-          SkipType.skipOnce.index];
+  static SkipType get pgcSkipType => _enumAt(
+    SkipType.values,
+    _setting.get(SettingBoxKey.pgcSkipType),
+    SkipType.skipOnce,
+  );
 
-  static PlayRepeat get audioPlayMode =>
-      PlayRepeat.values[_setting.get(SettingBoxKey.audioPlayMode) ??
-          PlayRepeat.listOrder.index];
+  static PlayRepeat get audioPlayMode => _enumAt(
+    PlayRepeat.values,
+    _setting.get(SettingBoxKey.audioPlayMode),
+    PlayRepeat.listOrder,
+  );
 
   static bool get enablePlayAll =>
       _setting.get(SettingBoxKey.enablePlayAll, defaultValue: true);
@@ -1033,11 +1064,11 @@ abstract final class Pref {
     defaultValue: PlatformUtils.isMobile,
   );
 
-  static FollowOrderType get followOrderType =>
-      FollowOrderType.values[_setting.get(
-        SettingBoxKey.followOrderType,
-        defaultValue: FollowOrderType.def.index,
-      )];
+  static FollowOrderType get followOrderType => _enumAt(
+    FollowOrderType.values,
+    _setting.get(SettingBoxKey.followOrderType),
+    FollowOrderType.def,
+  );
 
   static bool get enableImgMenu =>
       _setting.get(SettingBoxKey.enableImgMenu, defaultValue: false);

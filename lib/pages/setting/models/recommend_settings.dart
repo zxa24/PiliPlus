@@ -1,6 +1,7 @@
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/pages/rcmd/controller.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/recommend_filter.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:flutter/foundation.dart';
@@ -60,7 +61,7 @@ List<SettingsModel> get recommendSettings => [
     key: SettingBoxKey.banWordForRecommend,
     onChanged: (value) {
       RecommendFilter.rcmdRegExp = value;
-      RecommendFilter.enableFilter = value.pattern.isNotEmpty;
+      RecommendFilter.enableFilter = value.isUsableFilter;
     },
   ),
   getBanWordModel(
@@ -68,7 +69,7 @@ List<SettingsModel> get recommendSettings => [
     key: SettingBoxKey.banWordForZone,
     onChanged: (value) {
       VideoHttp.zoneRegExp = value;
-      VideoHttp.enableFilter = value.pattern.isNotEmpty;
+      VideoHttp.enableFilter = value.isUsableFilter;
     },
   ),
   getVideoFilterSelectModel(

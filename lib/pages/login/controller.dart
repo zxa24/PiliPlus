@@ -175,8 +175,6 @@ class LoginPageController extends GetxController
       );
       if (result.data['code'] == 0) {
         try {
-          // LibrePili: finishing a login is the explicit opt-in to login mode
-          await GStorage.setting.put(SettingBoxKey.loginMode, true);
           await LoginAccount(
             BiliCookieJar.fromJson(
               Map.fromEntries(
@@ -197,6 +195,11 @@ class LoginPageController extends GetxController
             null,
             null,
           ).onChange();
+          // LibrePili: finishing a login is the explicit opt-in to login
+          // mode — only after the account is saved, so a cookie text
+          // without DedeUserID (which throws above) cannot leave the app
+          // out of incognito with no account
+          await GStorage.setting.put(SettingBoxKey.loginMode, true);
           // login mode was just turned on: activate the saved roles
           await Accounts.refresh();
           MineController.anonymity.value = false;

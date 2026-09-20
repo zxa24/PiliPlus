@@ -4,6 +4,7 @@ import 'package:PiliPlus/grpc/bilibili/pagination.pb.dart';
 import 'package:PiliPlus/grpc/grpc_req.dart';
 import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:fixnum/fixnum.dart';
 
@@ -13,10 +14,7 @@ abstract final class ReplyGrpc {
     Pref.banWordForReply,
     caseSensitive: false,
   );
-  // a pattern matching the empty string (a stray `|`) would filter out
-  // everything: treat it as no filter
-  static bool enableFilter =
-      replyRegExp.pattern.isNotEmpty && !replyRegExp.hasMatch('');
+  static bool enableFilter = replyRegExp.isUsableFilter;
 
   // static Future replyInfo({required int rpid}) {
   //   return _request(

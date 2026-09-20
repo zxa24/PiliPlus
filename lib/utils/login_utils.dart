@@ -110,7 +110,8 @@ abstract final class LoginUtils {
       // 获取用户信息失败
       final errMsg = res.toString();
       if (errMsg == '账号未登录') {
-        // kept (marked expired), so one bad answer cannot delete it
+        // kept (marked expired), credentials included: one bad answer can
+        // be a blip, so it must not cost the user their login
         if (account is LoginAccount) await Accounts.markExpired({account});
         SmartDialog.showNotify(
           msg: '账号登录已失效（$errMsg），可在「账号切换」中重新登录或删除',
@@ -147,8 +148,11 @@ abstract final class LoginUtils {
     return 'XY${md5Str[2]}${md5Str[12]}${md5Str[22]}$md5Str';
   }
 
-  /// Persistent device id: only for requests that carry the account.
-  static final buvid = Pref.buvid;
+  /// Persistent device id: only for requests that carry the account. Read
+  /// from the box each time, not cached: 重置所有数据 clears `localCache`, and
+  /// a cached copy would keep tying the session (a login done right after
+  /// the reset included) to the device id the user just reset.
+  static String get buvid => Pref.buvid;
 
   /// LibrePili: fresh device id per launch for anonymous requests, so they
   /// cannot be linked across launches or to the logged-in account.

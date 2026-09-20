@@ -105,12 +105,16 @@ void main(List<String> args) async {
   ScaledWidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   isSelfTestProfile = SelfTest.isRequested(args);
+  // before anything that can fail: `--out` is read from the args alone, and
+  // a caller must not see "no report + exit 0" as a pass
+  if (isSelfTestProfile) SelfTest.markStarted(args);
   await _initAppPath();
   try {
     await GStorage.init();
   } catch (e) {
     await Utils.copyText(e.toString(), needToast: false);
     if (kDebugMode) debugPrint('GStorage init error: $e');
+    if (isSelfTestProfile) SelfTest.abort(args, e);
     exit(0);
   }
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;

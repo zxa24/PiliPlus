@@ -228,14 +228,27 @@ class _SettingPageState extends State<SettingPage> {
     if (mounted) _noAccount.value = Accounts.account.isEmpty;
   }
 
+  /// 退出登录 for [account]: ends the session server-side, then the entry is
+  /// removed locally.
+  ///
+  /// Sending an **expired** account here is deliberate, not a leak. An
+  /// expired account is never used for an ordinary request (see
+  /// [Accounts.markExpired]); this is the one exception, because ending that
+  /// session is the whole point of the action and it can only be done as
+  /// that account. The credentials are still there to do it with —
+  /// `markExpired` keeps them — and a "not logged in" answer may have been a
+  /// risk-control blip over a session that is in fact still live.
   static Future<LoginAccount?> _logoutWrapper(LoginAccount account) async {
     try {
       final res = await LoginHttp.logout(account);
-      return res.isSuccess ? account : null;
+      if (res.isSuccess) return account;
     } catch (e, s) {
       Utils.reportError(e, s);
-      return null;
     }
+    // ...but if there is no session left for the server to end, 确认 must
+    // still make the entry disappear — and removing it is what finally
+    // clears its credentials (see [LoginAccount.delete])
+    return account.expired ? account : null;
   }
 
   Future<void> _logoutDialog(BuildContext context) async {

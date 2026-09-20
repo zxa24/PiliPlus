@@ -88,9 +88,22 @@ abstract final class Accounts {
     }
   }
 
-  /// The server said "not logged in" for [accounts]: they are not deleted
-  /// (the user re-logs in or removes them in the account list), only
-  /// marked expired (persisted) and no longer used for requests.
+  /// The server said "not logged in" for [accounts]: the records are not
+  /// deleted (the user re-logs in or removes them in the account list) but
+  /// marked expired (persisted), which is what keeps [refresh] and [set]
+  /// from using them for requests.
+  ///
+  /// **Invariant**: an expired account is never used for an ordinary
+  /// request. The one exception is the user's own 退出登录, which exists to
+  /// end that session server-side and so has to send the account it is
+  /// ending (`_logoutWrapper`, lib/pages/setting/view.dart).
+  ///
+  /// Their credentials are deliberately **kept**. A single unretried answer
+  /// can be a risk-control blip rather than a dead session, and dropping
+  /// SESSDATA/bili_jct/access_key here would force a full re-login with no
+  /// undo. They go when the user acts on the 已失效 entry — logging it out
+  /// or removing it, both [LoginAccount.delete] — or when logging in again
+  /// replaces the record.
   static Future<void> markExpired(Set<LoginAccount> accounts) async {
     final isLoginMain = Accounts.main.isLogin;
     for (int i = 0; i < AccountType.values.length; i++) {
@@ -99,11 +112,7 @@ abstract final class Accounts {
       }
     }
     await Future.wait([
-      for (final a in accounts)
-        ?(a
-              ..expired = true
-              ..dropCredentials())
-            .onChange(),
+      for (final a in accounts) ?(a..expired = true).onChange(),
     ]);
     if (isLoginMain && !Accounts.main.isLogin) {
       await LoginUtils.onLogoutMain();

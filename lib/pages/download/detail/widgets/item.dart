@@ -117,6 +117,12 @@ class DetailItem extends StatelessWidget {
               SmartDialog.showToast('视频文件已被移动或删除，可删除此条后重新下载');
               return;
             }
+            if (entry.mergedParts case final parts?) {
+              // the segments could not be joined: playback covers part 1
+              SmartDialog.showToast(
+                '该视频分为${parts.length + 1}个文件保存，此处仅播放第1个',
+              );
+            }
             await PageUtils.toVideoPage(
               aid: entry.avid,
               cid: cid!,
@@ -333,6 +339,8 @@ class DetailItem extends StatelessWidget {
                         left: 0,
                         bottom: 0,
                         child: Text(
+                          // segments kept apart: only the first part plays
+                          '${entry.mergedParts != null ? '分${entry.mergedParts!.length + 1}段  ' : ''}'
                           '${CacheManager.formatSize(entry.totalBytes)}${entry.ownerName != null ? '  ${entry.ownerName}' : ''}',
                           style: TextStyle(
                             fontSize: 12,

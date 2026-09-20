@@ -29,6 +29,31 @@ abstract final class LocalLibrary {
         'ctime': _now(),
       });
     }
+    await _dropGhostFolders();
+  }
+
+  /// Moves items that only reference folders which no longer exist back to
+  /// the default folder. A [deleteFolder] killed while it rewrote the items
+  /// leaves the rest pointing at the folder it already removed: they then
+  /// show in no folder and in no count, while [isFav] stays true and the
+  /// fav sheet keeps the ghost id, so nothing can ever clear them.
+  static Future<void> _dropGhostFolders() async {
+    final ids = {
+      for (final v in _folders.values)
+        if ((v as Map)['id'] case final int id) id,
+    };
+    for (final item in _allItems().toList()) {
+      final kept = item.folders.where(ids.contains).toSet();
+      if (kept.length == item.folders.length) continue;
+      await _saveItem(
+        LocalFavItem(
+          key: item.key,
+          data: item.data,
+          folders: kept.isEmpty ? {defaultFolderId} : kept,
+          time: item.time,
+        ),
+      );
+    }
   }
 
   /// The boxes, for backup / compact / close (see GStorage).
@@ -44,10 +69,13 @@ abstract final class LocalLibrary {
       if (map[box.name] case final Map data) {
         await box.clear();
         await box.putAll(
-          // follows are looked up by '$mid': key them by their own mid, so a
-          // hand-edited backup cannot hold an entry unfollow cannot reach
+          // follows are looked up by '$mid' and items by their own `key`:
+          // key them that way, so a hand-edited backup cannot hold an entry
+          // unfollow / un-favorite cannot reach
           identical(box, _follows)
               ? {for (final v in data.values) '${(v as Map)['mid']}': v}
+              : identical(box, _items)
+              ? {for (final v in data.values) '${(v as Map)['key']}': v}
               : data,
         );
       }
@@ -55,15 +83,45 @@ abstract final class LocalLibrary {
     await _ensureDefaultFolder();
   }
 
-  /// Checks that every box in [map] parses the way the app reads it, and
-  /// that no two follows share a mid: [importAll] keys follows by their own
-  /// mid, so duplicates would be dropped without the user noticing.
+  /// Checks that every box in [map] parses the way the app reads it, that
+  /// no two follows share a mid and no two items a key ([importAll] keys
+  /// both by their own field, so duplicates would be dropped without the
+  /// user noticing), and that no item references a folder the backup does
+  /// not have: such an item would show in no folder and in no count while
+  /// staying favorited, with no way to clear it.
   static void checkImport(Map<String, dynamic> map) {
     if (map[_follows.name] case final Map data) {
       final mids = <Object?>{};
       for (final v in data.values) {
         if (v is Map && !mids.add(v['mid'])) {
           throw FormatException('本地关注数据有重复的 mid: ${v['mid']}');
+        }
+      }
+    }
+    if (map[_items.name] case final Map data) {
+      // only when the backup brings its own folders: with that box left out
+      // the items keep referencing the ones already on this device, and
+      // [_ensureDefaultFolder] heals whatever no longer resolves
+      final foldersMap = map[_folders.name];
+      final Set<Object?>? ids = foldersMap is Map
+          ? {
+              for (final v in foldersMap.values)
+                if (v is Map) v['id'],
+            }
+          : null;
+      final keys = <Object?>{};
+      for (final v in data.values) {
+        if (v is! Map) continue;
+        if (!keys.add(v['key'])) {
+          throw FormatException('本地收藏数据有重复的 key: ${v['key']}');
+        }
+        if (ids == null) continue;
+        if (v['folders'] case final List refs) {
+          for (final id in refs) {
+            if (!ids.contains(id)) {
+              throw FormatException('本地收藏「${v['key']}」引用了不存在的收藏夹: $id');
+            }
+          }
         }
       }
     }

@@ -4,6 +4,7 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -63,6 +64,13 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
     final danmakuController = plPlayerController.danmakuController;
 
     final isFullScreen = this.isFullScreen;
+
+    // the panel's [DanmakuOptions.save] writes every option back on close,
+    // so start from what the box holds now — a settings import / reset
+    // since app start would otherwise be overwritten with the old values
+    // (the opacity comes from the player controller, same story)
+    DanmakuOptions.applyPrefs();
+    plPlayerController.danmakuOpacity.value = Pref.danmakuOpacity;
 
     showBottomSheet(
       (context, setState) {

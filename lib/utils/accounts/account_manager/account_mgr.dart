@@ -23,7 +23,11 @@ final _setCookieReg = RegExp('(?<=)(,)(?=[^;]+?=)');
 class AccountManager extends Interceptor {
   AccountManager();
 
-  static String blockServer = Pref.blockServer;
+  // read live, like [SponsorBlock.blockServer]: a cached copy would keep
+  // matching the old address after a settings import / reset, and every
+  // request to the new third-party host would go out with the bilibili
+  // headers and the anonymous jar's cookies
+  static String get blockServer => Pref.blockServer;
 
   static String getCookies(List<Cookie> cookies) {
     // Sort cookies by path (longer path first).

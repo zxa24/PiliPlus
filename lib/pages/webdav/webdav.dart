@@ -73,6 +73,10 @@ class WebDav {
   }
 
   String _getFileName() {
+    // deliberately still `piliplus_`: this names an object on the user's own
+    // server, and renaming it would orphan every backup already up there
+    // (restore looks for this exact name). The local export file is free to
+    // carry the new brand, see [exportToLocalFile].
     return 'piliplus_settings_${DeviceUtils.platformName}.json';
   }
 

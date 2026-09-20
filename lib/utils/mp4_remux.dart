@@ -250,7 +250,15 @@ abstract final class Mp4Remuxer {
         }
         if (offset < win.start || offset + length > win.start + win.length) {
           await src.setPosition(offset);
-          final n = await src.readInto(win.buf);
+          // a short read is not EOF on every backend (SAF / FUSE / network
+          // paths): keep filling the window until a read returns nothing,
+          // and only then decide whether the chunk was covered
+          var n = 0;
+          while (n < win.buf.length) {
+            final read = await src.readInto(win.buf, n);
+            if (read <= 0) break;
+            n += read;
+          }
           if (n < length) throw FormatException('unexpected EOF in $from');
           win
             ..start = offset
@@ -260,7 +268,16 @@ abstract final class Mp4Remuxer {
         await putBytes(win.buf, at, at + length);
       }
 
-      for (final c in chunks) {
+      // the last chunk of each source: its read window is freed there, so a
+      // merge of many segments does not hold one window per input file for
+      // the whole write
+      final lastChunkOf = <String, int>{};
+      for (var i = 0; i < chunks.length; i++) {
+        lastChunkOf[chunks[i].sourcePath] = i;
+      }
+
+      for (var ci = 0; ci < chunks.length; ci++) {
+        final c = chunks[ci];
         final src = sources[c.sourcePath] ??= await File(
           c.sourcePath,
         ).open();
@@ -282,6 +299,7 @@ abstract final class Mp4Remuxer {
             c.length - (prefix?.length ?? 0),
           );
         }
+        if (lastChunkOf[c.sourcePath] == ci) windows.remove(c.sourcePath);
         onProgress?.call(copied, payloadSize);
       }
       await flushOut();

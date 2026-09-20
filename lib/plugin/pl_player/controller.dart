@@ -365,7 +365,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   late int? cacheVideoQa = PlatformUtils.isMobile ? null : Pref.defaultVideoQa;
   late int cacheAudioQa = Pref.defaultAudioQa;
-  bool enableHeart = true;
+
+  /// Read live: this controller is a singleton that outlives account
+  /// changes, so leaving / entering 登录模式 or toggling 暂停记录历史 while a
+  /// video is open must take effect at once, not on the next page.
+  bool get enableHeart => Accounts.heartbeat.isLogin && !Pref.historyPause;
   late final String? hwdec = Pref.enableHA ? Pref.hardwareDecoding : null;
 
   late final progressType = Pref.btmProgressBehavior;
@@ -542,10 +546,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             angleDegrees: Platform.isAndroid ? Pref.angleDegrees : null,
           )
           .listen(_onOrientationChanged);
-    }
-
-    if (!Accounts.heartbeat.isLogin || Pref.historyPause) {
-      enableHeart = false;
     }
 
     if (Platform.isAndroid && autoPiP) {

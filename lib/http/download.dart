@@ -58,11 +58,14 @@ abstract final class DownloadHttp {
           Pref.preferCodecs,
         );
 
+        // [BiliDownloadEntryInfo.preferedVideoQuality] stays the quality the
+        // user asked for (it is the `qn` of every later start): only the
+        // achieved one is recorded, so a download capped while anonymous can
+        // still be restarted at the requested quality after logging in
         entry
           ..mediaType = 2
           ..typeTag = targetVideoQa.toString()
           ..videoQuality = targetVideoQa
-          ..preferedVideoQuality = targetVideoQa
           ..qualityPithyDescription =
               targetSupportFormats.newDesc ??
               VideoQuality.fromCode(targetVideoQa).desc;
@@ -171,11 +174,11 @@ abstract final class DownloadHttp {
         final int targetVideoQa =
             formatItem?.quality ?? VideoQuality.clear480.code;
 
+        // see the dash branch above: the requested quality is kept as is
         entry
           ..mediaType = 1
           ..typeTag = targetVideoQa.toString()
           ..videoQuality = targetVideoQa
-          ..preferedVideoQuality = targetVideoQa
           ..qualityPithyDescription = description;
 
         final List<Type1PlayerCodecConfig> playerCodecConfigList = [
@@ -191,7 +194,7 @@ abstract final class DownloadHttp {
 
         return Type1(
           from: pageData?.from ?? ep?.from,
-          quality: entry.preferedVideoQuality,
+          quality: targetVideoQa,
           typeTag: entry.typeTag,
           description: description,
           playerCodecConfigList: playerCodecConfigList,

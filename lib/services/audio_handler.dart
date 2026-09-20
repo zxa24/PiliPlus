@@ -35,7 +35,10 @@ Future<VideoPlayerServiceHandler> initAudioService() {
 }
 
 class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
-  static final List<MediaItem> _item = [];
+  /// One entry per open video page, keyed by its heroTag: a page replaces
+  /// its own entry when it changes episode (the list must not grow with a
+  /// playlist) and removes exactly it on dispose.
+  static final List<({String herotag, MediaItem item})> _item = [];
   bool enableBackgroundPlay = Pref.enableBackgroundPlay;
 
   Future<void>? Function()? onPlay;
@@ -241,7 +244,9 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
     }
     // if (kDebugMode) debugPrint("exist: ${PlPlayerController.instanceExists()}");
     if (!PlPlayerController.instanceExists()) return;
-    _item.add(mediaItem);
+    _item
+      ..removeWhere((e) => e.herotag == herotag)
+      ..add((herotag: herotag, item: mediaItem));
     setMediaItem(mediaItem);
   }
 
@@ -249,13 +254,15 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
     if (!enableBackgroundPlay) return;
 
     if (_item.isNotEmpty) {
-      _item.removeWhere((item) => item.id.endsWith(herotag));
+      // by heroTag, not by an id suffix: one page's heroTag can be the
+      // suffix of another's, and dispose would drop that page's item too
+      _item.removeWhere((e) => e.herotag == herotag);
     }
     if (_item.isNotEmpty) {
       playbackState.add(
         playbackState.value.copyWith(processingState: .ready, playing: false),
       );
-      setMediaItem(_item.last);
+      setMediaItem(_item.last.item);
       stop();
     }
   }

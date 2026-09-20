@@ -7,6 +7,7 @@ import 'package:PiliPlus/models/model_avatar.dart';
 import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models_new/live/live_feed_index/watched_show.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/parse_bool.dart';
 import 'package:PiliPlus/utils/parse_int.dart';
 import 'package:PiliPlus/utils/parse_string.dart';
@@ -43,10 +44,7 @@ class DynamicsDataModel {
     Pref.banWordForDyn,
     caseSensitive: false,
   );
-  // a pattern matching the empty string (a stray `|`) would filter out
-  // everything: treat it as no filter
-  static bool enableFilter =
-      banWordForDyn.pattern.isNotEmpty && !banWordForDyn.hasMatch('');
+  static bool enableFilter = banWordForDyn.isUsableFilter;
 
   static bool antiGoodsDyn = Pref.antiGoodsDyn;
 

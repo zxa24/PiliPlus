@@ -41,13 +41,34 @@ abstract final class SelfTest {
     return i != -1 && i + 1 < args.length ? args[i + 1] : null;
   }
 
-  /// Schedules the run once the first frame is on screen. Writes a
-  /// `started` marker right away so a caller can tell "app never started"
-  /// from "test still running".
-  static void schedule(List<String> args) {
+  /// Writes the `started` marker so a caller can tell "app never started"
+  /// from "test still running". `--out` comes from the args alone, so this
+  /// works before storage (and everything else) is up.
+  static void markStarted(List<String> args) {
     if (_arg(args, '--out') case final out?) {
-      File(out).writeAsStringSync(jsonEncode({'stage': 'started'}));
+      try {
+        File(out).writeAsStringSync(jsonEncode({'stage': 'started'}));
+      } catch (_) {}
     }
+  }
+
+  /// The app could not start (e.g. storage init failed): the run is recorded
+  /// as failed and the process exits non-zero, so a scripted caller checking
+  /// the exit code does not read a broken build as a pass.
+  static Never abort(List<String> args, Object error) {
+    if (_arg(args, '--out') case final out?) {
+      try {
+        File(out).writeAsStringSync(
+          jsonEncode({'stage': 'error', 'pass': false, 'error': '$error'}),
+        );
+      } catch (_) {}
+    }
+    exit(1);
+  }
+
+  /// Schedules the run once the first frame is on screen.
+  static void schedule(List<String> args) {
+    markStarted(args);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(seconds: 2), () => _run(args));
     });
@@ -415,7 +436,7 @@ abstract final class SelfTest {
         ?.timeout(const Duration(minutes: 5), onTimeout: () {});
     final merged = done.mergedPath;
     final mergedFile = merged == null ? null : File(merged);
-    final streamDir = path.join(done.entryDirPath, done.typeTag);
+    final streamDir = path.join(done.entryDirPath, done.streamTypeTag);
     final leftovers = [
       PathUtils.videoNameType2,
       PathUtils.audioNameType2,

@@ -5,14 +5,16 @@
 
 
 <div align="center">
-    <h1>PiliPlus</h1>
+    <h1>LibrePili</h1>
 <div align="center">
     
-![GitHub repo size](https://img.shields.io/github/repo-size/bggRGjQaUbCoE/PiliPlus) 
-![GitHub Repo stars](https://img.shields.io/github/stars/bggRGjQaUbCoE/PiliPlus) 
-![GitHub all releases](https://img.shields.io/github/downloads/bggRGjQaUbCoE/PiliPlus/total) 
+![GitHub repo size](https://img.shields.io/github/repo-size/zxa24/PiliPlus) 
+![GitHub Repo stars](https://img.shields.io/github/stars/zxa24/PiliPlus) 
+![GitHub all releases](https://img.shields.io/github/downloads/zxa24/PiliPlus/total) 
+![License](https://img.shields.io/badge/license-GPL--3.0-blue) 
 </div>
-    <p>使用Flutter开发的BiliBili第三方客户端</p>
+    <p>使用Flutter开发的BiliBili第三方客户端，注重隐私</p>
+    <p><a href="https://github.com/bggRGjQaUbCoE/PiliPlus">PiliPlus</a> 的分支：默认无痕，登录是可选项</p>
     
 <img src="assets/screenshots/510shots_so.png" width="32%" alt="home" />
 <img src="assets/screenshots/174shots_so.png" width="32%" alt="home" />
@@ -25,6 +27,51 @@
 
 <br/>
 
+## LibrePili 与上游 PiliPlus 的区别
+
+LibrePili 是 [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) 的分支，
+改动集中在“账号什么时候被带上”这一件事上。上游的功能保留（见下文各节），以下是本分支新增或改写的部分。
+
+### 默认无痕，登录是可选项
+
+- **默认不登录**。全部请求匿名发出，匿名请求每次启动换一个设备标识（buvid），无法跨启动关联。
+- **登录模式是显式开关**，默认关闭。关闭时，即使本机存有账号也处于休眠状态，一个请求都不带。
+- 完成一次登录即视为开启登录模式；退出后账号被标记为“已失效”而**不是**静默删除，由用户决定重新登录还是移除。
+
+### 按请求绑定账号（`LoginPolicy`）
+
+开启登录模式后，账号也**只**附加到需要它的请求上，见
+[`lib/utils/accounts/login_policy.dart`](lib/utils/accounts/login_policy.dart)：
+
+- 带账号：本人私有数据的读取（收藏、历史、消息、关注列表…）、带 csrf 的写操作、
+  播放地址（高画质需要账号）、登录流程本身；
+- 首页「推荐」流及其「不感兴趣」反馈绑定到**推荐角色**的账号（该角色也可以留空 = 匿名）；
+- 其余一律匿名发出：搜索、首页其他 tab、视频信息、评论、UP 主空间等，
+  因此这些浏览行为无法与账号关联。
+
+多账号可按角色分配（推荐 / 视频 / 直播 / 动态 / 消息…），互不关联。
+
+### 无账号也能用的本地关注 / 收藏
+
+本地关注和本地收藏夹只存在本机（Hive），不经过服务器，登录与否都可用；
+它们是**没有账号时的唯一副本**，导入/重置前会先存快照。
+见 [`lib/services/local_library.dart`](lib/services/local_library.dart)。
+
+### 离线 / 本地播放
+
+- 下载导出为**每个视频一个文件夹、一个完整 mp4**，旁边放弹幕（XML/ASS）、字幕（SRT）和评论（JSON）；
+- 内置本地播放器可直接打开下载目录、任意视频文件或（Android）用系统选择器挑选的文档，
+  连带读出旁边的弹幕/字幕/评论；
+- 离线/本地播放**不上报**任何观看历史。
+
+### 设置快照与撤回
+
+导入设置 / WebDAV 恢复 / 重置可导出的设置之前，会先把当前设置与本地关注收藏存成快照，
+可用「恢复到导入前」撤回。「重置所有数据（含登录信息）」按其字面意思执行：
+不留快照，同时清除日志与临时镜像，**不可撤回**。
+
+<br/>
+
 ## 适配平台
 
 - [x] Android
@@ -32,8 +79,6 @@
 - [x] Pad
 - [x] Windows
 - [x] Linux
-
-[![Packaging status](https://repology.org/badge/vertical-allrepos/piliplus.svg)](https://repology.org/project/piliplus/versions)
 
 ## refactor
 
@@ -147,8 +192,9 @@
 - [x] 热门直播
 - [x] 番剧列表
 - [x] 屏蔽黑名单内用户视频
-- [x] 无痕模式（播放视为未登录）
-- [x] 游客模式（推荐视为未登录）
+- [x] 默认无痕（不登录，全部请求匿名）
+- [x] 登录模式为可选开关，开启后仅在必要处附加账号（见上文 `LoginPolicy`）
+- [x] 本地关注 / 本地收藏夹（无需账号）
 
 - [x] 用户相关
   - [x] 粉丝、关注用户、拉黑用户查看
@@ -213,19 +259,29 @@
 
 ## 下载
 
-可以通过右侧release进行下载或拉取代码到本地进行编译
+可以通过右侧 release 进行下载，或拉取代码到本地自行编译。
+上游 PiliPlus 的 release 不适用于本分支。
 
 <br/>
 
 ## 声明
 
-此项目（PiliPlus）是个人为了兴趣而开发，仅用于学习和测试，请于下载后24小时内删除。
+此项目（LibrePili）是个人为了兴趣而开发，仅用于学习和测试，请于下载后24小时内删除。
 所用API皆从官方网站收集，不提供任何破解内容。
-在此致敬原作者：[guozhigq/pilipala](https://github.com/guozhigq/pilipala)
-在此致敬上游作者：[orz12/PiliPalaX](https://github.com/orz12/PiliPalaX)
-本仓库做了更激进的修改，感谢原作者的开源精神。
 
-感谢使用
+### 许可与修改说明（GPL-3.0）
+
+本项目以 GPL-3.0 授权，源自 [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus)。
+相对上游的主要修改：默认无痕并把登录改为可选开关、按请求绑定账号（`LoginPolicy`）、
+无账号的本地关注/收藏、下载导出为单个 mp4 + 旁挂弹幕/字幕/评论、本地/离线播放器（不上报历史）、
+设置快照与撤回。详见上文「LibrePili 与上游 PiliPlus 的区别」及提交历史。
+
+上游及其前身：
+- 上游：[bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus)
+- [orz12/PiliPalaX](https://github.com/orz12/PiliPalaX)
+- 原作者：[guozhigq/pilipala](https://github.com/guozhigq/pilipala)
+
+感谢原作者们的开源精神。感谢使用
 
 
 <br/>
@@ -244,10 +300,10 @@
 
 ## Star History
 
-<a href="https://star-history.dera.page/#bggRGjQaUbCoE/PiliPlus&Date">
+<a href="https://star-history.dera.page/#zxa24/PiliPlus&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=bggRGjQaUbCoE/PiliPlus&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=bggRGjQaUbCoE/PiliPlus&type=Date" />
-   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=bggRGjQaUbCoE/PiliPlus&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=zxa24/PiliPlus&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=zxa24/PiliPlus&type=Date" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=zxa24/PiliPlus&type=Date" />
  </picture>
 </a>

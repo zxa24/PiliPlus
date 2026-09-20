@@ -49,8 +49,14 @@ abstract final class DownloadExtras {
     }
 
     try {
+      // this folder is the user's shareable copy: the absolute paths of this
+      // device (they hold the account / user name) are left out. The reader
+      // ([LocalPlayer]) resolves the video file locally anyway.
+      final info = entry.toJson()
+        ..remove('merged_path')
+        ..remove('merged_parts');
       await File(path.join(folder, infoName)).writeAsString(
-        const JsonEncoder.withIndent(' ').convert(entry.toJson()),
+        const JsonEncoder.withIndent(' ').convert(info),
       );
     } catch (_) {}
     Future<void> step(String name, Future<Object?> Function() body) async {

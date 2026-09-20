@@ -6,6 +6,15 @@ extension NullableStringExt on String? {
   bool get isNullOrEmpty => this == null || this!.isEmpty;
 }
 
+extension RegExpExt on RegExp {
+  /// Whether this ban-word pattern filters anything. A pattern that matches
+  /// the empty string (a stray `|`, as in `测试|`) would filter out every
+  /// item, so it counts as no filter. Single definition on purpose: the
+  /// `enableFilter` flags and the settings dialog that writes them must not
+  /// end up with two meanings of "the filter is on".
+  bool get isUsableFilter => pattern.isNotEmpty && !hasMatch('');
+}
+
 extension StringExt on String {
   /// Whether this may be opened in the in-app WebView / handed to the OS.
   /// A deep link (`bilibili://browser/?url=…`) is attacker-controlled, and

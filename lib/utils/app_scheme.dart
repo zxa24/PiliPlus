@@ -504,6 +504,14 @@ abstract final class PiliScheme {
     }
   }
 
+  /// Whether [host] is [domain] itself or one of its subdomains. A
+  /// substring test would also accept `evil-bilibili.com`,
+  /// `bilibili.com.attacker.tld` and `notb23.tv.example`, which would then
+  /// be routed through the internal handlers (and, for b23, have their
+  /// redirect followed).
+  static bool _isHost(String host, String domain) =>
+      host == domain || host.endsWith('.$domain');
+
   static const b23_tv = 'b23.tv';
   static const bilibili = 'bilibili.com';
   static const bilibili_m = 'm.$bilibili';
@@ -530,13 +538,13 @@ abstract final class PiliScheme {
       }
     }
 
-    if (!host.contains(bilibili) && !host.contains(b23_tv)) {
+    if (!_isHost(host, bilibili) && !_isHost(host, b23_tv)) {
       launchURL();
       return false;
     }
 
     // redirect
-    if (host.contains(b23_tv)) {
+    if (_isHost(host, b23_tv)) {
       String? redirectUrl = await UrlUtils.parseRedirectUrl(uri.toString());
       if (redirectUrl != null) {
         uri = Uri.parse(redirectUrl);
@@ -544,7 +552,7 @@ abstract final class PiliScheme {
       }
     }
 
-    if (!host.contains(bilibili)) {
+    if (!_isHost(host, bilibili)) {
       launchURL();
       return false;
     }
@@ -552,7 +560,7 @@ abstract final class PiliScheme {
     final path = uri.path;
     late final queryParameters = uri.queryParameters;
 
-    if (host.contains(bilibili_t)) {
+    if (_isHost(host, bilibili_t)) {
       if (_onPushDynDetail(uri, off)) {
         return true;
       } else if (path.startsWith('/vote')) {
@@ -569,7 +577,7 @@ abstract final class PiliScheme {
       }
       launchURL();
       return false;
-    } else if (host.contains(bilibili_live)) {
+    } else if (_isHost(host, bilibili_live)) {
       final roomId = int.tryParse(
         uriDigitRegExp.firstMatch(path)?.group(1) ?? '',
       );
@@ -579,7 +587,7 @@ abstract final class PiliScheme {
       }
       launchURL();
       return false;
-    } else if (host.contains(bilibili_space)) {
+    } else if (_isHost(host, bilibili_space)) {
       void toType({
         required String mid,
         required String? type,
@@ -629,7 +637,7 @@ abstract final class PiliScheme {
       }
       launchURL();
       return false;
-    } else if (host.contains(bilibili_search)) {
+    } else if (_isHost(host, bilibili_search)) {
       String? keyword = uri.queryParameters['keyword'];
       if (keyword != null) {
         PageUtils.toDupNamed(
@@ -641,7 +649,7 @@ abstract final class PiliScheme {
       }
       launchURL();
       return false;
-    } else if (host.contains(bilibili_music)) {
+    } else if (_isHost(host, bilibili_music)) {
       // music.bilibili.com/pc/music-detail?music_id=MA***
       // music.bilibili.com/h5-music-detail?music_id=MA***
       if (path.contains('music-detail')) {

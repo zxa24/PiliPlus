@@ -80,18 +80,22 @@ class LoginAccount extends Account {
   );
 
   @override
-  // empty once [dropCredentials] ran (the session is dead anyway)
-  late final String csrf =
+  // read from the jar each time, not cached, so it follows the jar rather
+  // than whatever it happened to be at the first read: still the live token
+  // while the record is (an expired account keeps its credentials), and
+  // empty once [dropCredentials] has run
+  String get csrf =>
       cookieJar
           .domainCookies['bilibili.com']?['/']?['bili_jct']
           ?.cookie
           .value ??
       '';
 
-  /// The stored credentials are dead (see [Accounts.markExpired]): drop them
-  /// so they do not stay in `hive/account.hive`. Only what identifies the
-  /// record in the account list is kept, so the user can re-login or remove
-  /// it. Call [onChange] to persist.
+  /// Drops the credentials, keeping only what identifies the record in the
+  /// account list. [Accounts.markExpired] deliberately does not call this —
+  /// an expired account keeps its credentials until the user acts on the
+  /// 已失效 entry — so the caller is [delete], which is that action. Call
+  /// [onChange] to persist if the record itself is being kept.
   void dropCredentials() {
     // [_midStr] / the account list need DedeUserID; buvid3 is not a secret
     const keep = {'DedeUserID', 'buvid3'};
@@ -107,7 +111,14 @@ class LoginAccount extends Account {
   @override
   Future<void> delete() {
     _hasDelete = true;
-    return Future.wait([cookieJar.deleteAll(), _box.delete(_midStr)]);
+    // the user acted on this entry (logged it out or removed it): this is
+    // where the credentials go, in memory as well as on disk — an expired
+    // account keeps them until now, see [Accounts.markExpired]. The key is
+    // read first because [dropCredentials] keeps DedeUserID but
+    // [DefaultCookieJar.deleteAll] does not.
+    final key = _midStr;
+    dropCredentials();
+    return Future.wait([cookieJar.deleteAll(), _box.delete(key)]);
   }
 
   @override

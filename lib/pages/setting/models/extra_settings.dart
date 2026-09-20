@@ -34,6 +34,7 @@ import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/filtering_text.dart';
 import 'package:PiliPlus/utils/global_data.dart';
@@ -238,7 +239,7 @@ List<SettingsModel> get extraSettings => [
     key: SettingBoxKey.banWordForReply,
     onChanged: (value) {
       ReplyGrpc.replyRegExp = value;
-      ReplyGrpc.enableFilter = value.pattern.isNotEmpty;
+      ReplyGrpc.enableFilter = value.isUsableFilter;
     },
   ),
   getBanWordModel(
@@ -246,7 +247,7 @@ List<SettingsModel> get extraSettings => [
     key: SettingBoxKey.banWordForDyn,
     onChanged: (value) {
       DynamicsDataModel.banWordForDyn = value;
-      DynamicsDataModel.enableFilter = value.pattern.isNotEmpty;
+      DynamicsDataModel.enableFilter = value.isUsableFilter;
     },
   ),
   const SwitchModel(
@@ -383,12 +384,18 @@ List<SettingsModel> get extraSettings => [
     setKey: SettingBoxKey.showDmChart,
     defaultVal: false,
   ),
-  const SwitchModel(
+  SwitchModel(
     title: '记录评论',
-    leading: Icon(Icons.message_outlined),
+    subtitle: '关闭时删除已记录的评论内容',
+    leading: const Icon(Icons.message_outlined),
     setKey: SettingBoxKey.saveReply,
     defaultVal: true,
     needReboot: true,
+    // the box is not opened next launch, so this is the last point at which
+    // the saved comment bodies can still be removed from the app
+    onChanged: (value) {
+      if (!value) GStorage.clearReply();
+    },
   ),
   const SwitchModel(
     title: '发评反诈',

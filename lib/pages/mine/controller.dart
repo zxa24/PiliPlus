@@ -129,7 +129,8 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
     // with login mode off the policy sent it anonymously, so keep the account
     if (!LoginPolicy.loginMode) return;
     if (Accounts.main case final LoginAccount account) {
-      // kept (marked expired) so the user can re-login or remove it
+      // kept (marked expired), credentials included, so the user can
+      // re-login or remove it — one bad answer must not cost the login
       Accounts.markExpired({account});
       SmartDialog.showToast('账号登录已失效，可在「账号切换」中重新登录或删除');
     }
