@@ -56,6 +56,14 @@ abstract final class AsrCueBuilder {
   /// A cue ends after one of these even when it is still short.
   static const _sentenceEnd = '。！？.!?…';
 
+  /// A clause end: only used to break a cue that is already too long to read.
+  static const _clauseEnd = '，、,;；：:';
+
+  /// Characters per cue. Measured against the same video's official AI
+  /// subtitle: continuous speech with no full stops otherwise ran to 35
+  /// characters on one line, which nobody can read in six seconds.
+  static const _maxChars = 20;
+
   /// Nothing is cut below this, otherwise punctuation-heavy speech flickers.
   static const _minDuration = 1.0;
 
@@ -137,13 +145,17 @@ abstract final class AsrCueBuilder {
           ? duration
           : (silent ? token.time + _gap : next.time);
       final held = end - start;
+      final tail = trimmed.isEmpty ? '' : trimmed[trimmed.length - 1];
+      final long = buffer.length >= _maxChars;
       final breakHere =
           next == null ||
           held >= maxDuration ||
           (held >= _minDuration &&
-              (trimmed.isNotEmpty &&
-                      _sentenceEnd.contains(trimmed[trimmed.length - 1]) ||
-                  silent));
+              (_sentenceEnd.contains(tail) ||
+                  silent ||
+                  // a long line breaks at the next clause end rather than
+                  // running on to the duration cap
+                  (long && _clauseEnd.contains(tail))));
       if (breakHere) {
         flush(end);
         if (next != null) start = next.time;

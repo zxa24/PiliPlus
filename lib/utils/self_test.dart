@@ -150,6 +150,7 @@ abstract final class SelfTest {
           source,
           modelDir: _arg(args, '--asr-models'),
           srtOut: _arg(args, '--asr-srt'),
+          pcmOut: _arg(args, '--asr-pcm'),
         ),
       );
     }
@@ -209,6 +210,7 @@ abstract final class SelfTest {
     String source, {
     String? modelDir,
     String? srtOut,
+    String? pcmOut,
   }) async {
     final store = AsrModelStore(
       root: modelDir == null ? null : Directory(modelDir),
@@ -221,7 +223,7 @@ abstract final class SelfTest {
       };
     }
 
-    final pcm = path.join(tmpDirPath, 'asr', 'selftest.pcm');
+    final pcm = pcmOut ?? path.join(tmpDirPath, 'asr', 'selftest.pcm');
     final extractStarted = DateTime.now();
     final audio = await AsrAudioExtractor.extract(
       source: source,
@@ -273,9 +275,11 @@ abstract final class SelfTest {
     if (srtOut != null && cues.isNotEmpty) {
       await File(srtOut).writeAsString(cues.toSrt());
     }
-    try {
-      await File(pcm).delete();
-    } catch (_) {}
+    if (pcmOut == null) {
+      try {
+        await File(pcm).delete();
+      } catch (_) {}
+    }
 
     return {
       'pass': error == null && cues.isNotEmpty,

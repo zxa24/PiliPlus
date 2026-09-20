@@ -7,12 +7,13 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
+
 import 'dart:isolate';
-import 'dart:typed_data';
+
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
+import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 /// Where the recogniser has got to, in seconds of audio.
@@ -145,7 +146,7 @@ class AsrTranscriber {
       // segment offsets are counted from the last reset, not from zero
       vad.reset();
 
-      final reader = _PcmReader(job.pcmPath);
+      final reader = PcmWindowReader(job.pcmPath);
       final total = reader.durationSeconds;
       var reportedLanguage = false;
       var lastProgress = 0.0;
@@ -187,7 +188,7 @@ class AsrTranscriber {
       for (final window in reader.windows()) {
         vad.acceptWaveform(window);
         drain();
-        final done = reader.positionSeconds;
+        final done = reader.samplesRead / asrSampleRate;
         if (done - lastProgress >= 1) {
           lastProgress = done;
           send.send({'type': 'progress', 'done': done, 'total': total});
@@ -215,67 +216,4 @@ class AsrTranscriber {
         (text: tokens[i], time: timestamps[i]),
     ];
   }
-}
-
-/// Streams the headerless s16le file in VAD-sized windows so a two-hour video
-/// never has to be in memory at once (it would be 230 MB of float32).
-class _PcmReader {
-  _PcmReader(String path)
-    : _file = File(path).openSync(),
-      _length = File(path).lengthSync();
-
-  static const _window = 512;
-  static const _blockSamples = 1 << 15;
-
-  final RandomAccessFile _file;
-  final int _length;
-  var _samplesRead = 0;
-
-  double get durationSeconds => _length / 2 / asrSampleRate;
-
-  double get positionSeconds => _samplesRead / asrSampleRate;
-
-  Iterable<Float32List> windows() sync* {
-    final carry = Float32List(_window);
-    var carried = 0;
-    while (true) {
-      final bytes = _file.readSync(_blockSamples * 2);
-      if (bytes.isEmpty) break;
-      final samples = Int16List.sublistView(
-        Uint8List.fromList(bytes),
-        0,
-        bytes.length ~/ 2,
-      );
-      var offset = 0;
-      while (offset < samples.length) {
-        if (carried > 0 || samples.length - offset < _window) {
-          final take = (_window - carried).clamp(0, samples.length - offset);
-          for (var i = 0; i < take; i++) {
-            carry[carried + i] = samples[offset + i] / 32768.0;
-          }
-          carried += take;
-          offset += take;
-          if (carried == _window) {
-            _samplesRead += _window;
-            carried = 0;
-            yield Float32List.fromList(carry);
-          }
-        } else {
-          final window = Float32List(_window);
-          for (var i = 0; i < _window; i++) {
-            window[i] = samples[offset + i] / 32768.0;
-          }
-          offset += _window;
-          _samplesRead += _window;
-          yield window;
-        }
-      }
-    }
-    if (carried > 0) {
-      _samplesRead += carried;
-      yield Float32List.sublistView(carry, 0, carried);
-    }
-  }
-
-  void close() => _file.closeSync();
 }

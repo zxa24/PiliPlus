@@ -247,4 +247,42 @@ void main() {
       }
     });
   });
+
+  // continuous speech with commas but no full stop: the official AI subtitle
+  // for the same video split it into readable lines, ours ran to 35 chars
+  group('long lines break at a clause end', () {
+    test('a comma-separated run is split, not left as one long line', () {
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 7,
+        tokens: _tokens([
+          for (var i = 0; i < 12; i++) ('字', i * 0.2),
+          ('，', 2.4),
+          for (var i = 0; i < 12; i++) ('词', 2.6 + i * 0.2),
+          ('，', 5.0),
+          ('完', 5.2),
+        ]),
+      );
+      expect(cues.length, greaterThan(1));
+      for (final cue in cues) {
+        expect(cue.content.length, lessThanOrEqualTo(26), reason: '$cue');
+      }
+    });
+
+    test('a short line is not split at a comma', () {
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 4,
+        tokens: _tokens([
+          ('好', 0.0),
+          ('的', 0.5),
+          ('，', 1.0),
+          ('走', 1.5),
+          ('吧', 2.0),
+        ]),
+      );
+      expect(cues, hasLength(1));
+      expect(cues.single.content, '好的，走吧');
+    });
+  });
 }
