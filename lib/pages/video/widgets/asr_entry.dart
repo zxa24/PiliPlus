@@ -44,22 +44,36 @@ class AsrMenuTile extends StatelessWidget {
     final current = session.value;
     final state = current?.state.value;
     final running = state?.isBusy ?? false;
+    final failed = state?.stage == AsrStage.failed;
     return ListTile(
       dense: true,
       onTap: running ? onStop : onStart,
       leading: Icon(
         running
             ? Icons.stop_circle_outlined
-            : Icons.record_voice_over_outlined,
+            : (failed
+                  ? Icons.error_outline
+                  : Icons.record_voice_over_outlined),
         size: 20,
       ),
       title: Text(
-        running ? '停止转录（${state!.label}）' : '自动转录字幕',
+        running
+            ? '停止转录（${state!.label}）'
+            : (failed ? '转录失败，点击重试' : '自动转录字幕'),
         style: titleStyle,
       ),
+      // the reason stays on screen: a toast that has come and gone leaves the
+      // user (and anyone debugging) with nothing at all
       subtitle: running && state!.progress != null
           ? LinearProgressIndicator(value: state.progress)
-          : null,
+          : (failed && state!.message != null
+                ? Text(
+                    state.message!,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11),
+                  )
+                : null),
     );
   });
 }

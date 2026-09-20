@@ -83,4 +83,17 @@ void main() {
     expect(stopped, 1);
     expect(started, 1);
   });
+
+  testWidgets('a failure stays on screen with its reason', (tester) async {
+    final session = Rxn<AsrSession>()
+      ..value = (AsrSession.debugFor('1')
+        ..debugSet(
+          const AsrState(stage: AsrStage.failed, message: '没有解出音频'),
+        ));
+    await _pump(tester, session);
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('转录失败，点击重试'), findsOneWidget);
+    expect(find.text('没有解出音频'), findsOneWidget);
+  });
 }

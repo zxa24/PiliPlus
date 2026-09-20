@@ -18,6 +18,7 @@ import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
@@ -260,6 +261,7 @@ class AsrService extends GetxService {
                 if (!completer.isCompleted) completer.complete();
               }
             case AsrErrorEvent(:final message):
+              Utils.reportError('asr: $message');
               session._set(
                 AsrState(stage: AsrStage.failed, message: message),
               );
@@ -283,7 +285,10 @@ class AsrService extends GetxService {
       }
     } on AsrCancelled {
       session._set(const AsrState.idle());
-    } catch (e) {
+    } catch (e, stack) {
+      // a transcription that fails silently is indistinguishable from one
+      // that was never started: put it in the error log the user can read
+      Utils.reportError('asr: $e', stack);
       session._set(AsrState(stage: AsrStage.failed, message: e.toString()));
     } finally {
       // the PCM is only needed while decoding; a two-hour video leaves
