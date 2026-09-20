@@ -5,6 +5,7 @@ import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/setting_type.dart';
 import 'package:PiliPlus/pages/about/view.dart';
 import 'package:PiliPlus/pages/login/controller.dart';
+import 'package:PiliPlus/pages/setting/pages/local_models.dart';
 import 'package:PiliPlus/pages/setting/common_setting.dart';
 import 'package:PiliPlus/pages/setting/widgets/multi_select_dialog.dart';
 import 'package:PiliPlus/pages/webdav/view.dart';
@@ -84,6 +85,11 @@ class _SettingPageState extends State<SettingPage> {
       icon: Icon(Icons.record_voice_over_outlined),
     ),
     _SettingsModel(
+      type: SettingType.localModelSetting,
+      subtitle: '在本机运行的模型：下载、占用与删除',
+      icon: Icon(Icons.memory_outlined),
+    ),
+    _SettingsModel(
       type: SettingType.webdavSetting,
       icon: Icon(MdiIcons.databaseCogOutline),
     ),
@@ -135,6 +141,9 @@ class _SettingPageState extends State<SettingPage> {
                         settingType: _type,
                         showAppBar: false,
                       ),
+                      .localModelSetting => const LocalModelsPage(
+                        showAppBar: false,
+                      ),
                       .webdavSetting => const WebDavSettingPage(
                         showAppBar: false,
                       ),
@@ -165,6 +174,7 @@ class _SettingPageState extends State<SettingPage> {
           .extraSetting ||
           .downloadSetting ||
           .asrSetting => CommonSetting(settingType: type),
+          .localModelSetting => const LocalModelsPage(),
           .webdavSetting => const WebDavSettingPage(),
           .about => const AboutPage(),
         },

@@ -1028,9 +1028,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           return;
         }
         if (isLive) {
-          if (event.startsWith('tcp: ffurl_read returned ') ||
-              event.startsWith("Failed to open https://") ||
-              event.startsWith("Can not open external file https://")) {
+          if (_isTransportFailure(event)) {
             // one reopen per burst of error lines
             EasyThrottle.throttle(
               'controllerStream.error.listen.live',
@@ -1043,11 +1041,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
           return;
         }
-        if (event.startsWith("Failed to open https://") ||
-            event.startsWith("Can not open external file https://") ||
-            //tcp: ffurl_read returned 0xdfb9b0bb
-            //tcp: ffurl_read returned 0xffffff99
-            event.startsWith('tcp: ffurl_read returned ')) {
+        if (_isTransportFailure(event)) {
           EasyThrottle.throttle(
             'controllerStream.error.listen',
             const Duration(milliseconds: 10000),
@@ -1086,6 +1080,29 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }),
     ];
   }
+
+
+  /// mpv could not get the bytes: the URL, the connection or the TLS session
+  /// failed. All of these are worth one re-open — unlike a decoder error,
+  /// which will fail again the same way.
+  ///
+  /// `tls:` was missing here until a phone whose network had gone stale sat
+  /// on "加载中..." forever: mpv reported
+  /// `tls: mbedtls_ssl_handshake returned -0x7280` over and over, no branch
+  /// matched it, so there was neither a retry nor a word to the user — the
+  /// error only existed in the log file.
+  static bool _isTransportFailure(String event) =>
+      event.startsWith('Failed to open https://') ||
+      event.startsWith('Can not open external file https://') ||
+      // tcp: ffurl_read returned 0xdfb9b0bb / 0xffffff99
+      event.startsWith('tcp: ffurl_read returned ') ||
+      event.startsWith('tls: ') ||
+      event.startsWith('https: ') ||
+      event.startsWith('stream: ');
+
+  @visibleForTesting
+  static bool debugIsTransportFailure(String event) =>
+      _isTransportFailure(event);
 
   /// 移除事件监听
   void _removeListeners() {

@@ -17,6 +17,7 @@ enum SettingType {
   extraSetting('其它设置'),
   downloadSetting('下载设置'),
   asrSetting('语音转录'),
+  localModelSetting('本地模型'),
   webdavSetting('WebDAV 设置'),
   about('关于'),
   ;
