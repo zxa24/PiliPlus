@@ -35,8 +35,33 @@ class AsrModelException implements Exception {
 
 class AsrCancelToken {
   var _cancelled = false;
+  final _onCancel = <VoidCallback>[];
+
   bool get isCancelled => _cancelled;
-  void cancel() => _cancelled = true;
+
+  /// Runs every registered teardown. A download blocked on a socket that has
+  /// stopped delivering cannot notice a flag — the only way out is to close
+  /// the connection under it.
+  void cancel() {
+    _cancelled = true;
+    for (final callback in _onCancel) {
+      try {
+        callback();
+      } catch (_) {}
+    }
+    _onCancel.clear();
+  }
+
+  void _register(VoidCallback callback) {
+    if (_cancelled) {
+      callback();
+    } else {
+      _onCancel.add(callback);
+    }
+  }
+
+  void _unregister(VoidCallback callback) => _onCancel.remove(callback);
+
   void throwIfCancelled() {
     if (_cancelled) throw const AsrCancelled();
   }
@@ -58,6 +83,22 @@ class AsrModelStore {
   final Directory? _rootOverride;
 
   static const _userAgent = 'LibrePili';
+
+  /// A connection that delivers nothing for this long is treated as dead.
+  ///
+  /// Without it a stalled socket hangs the download for ever: a phone sat on
+  /// "100%" for minutes on a 315 KB file that the other phone had already
+  /// fetched, and cancelling did nothing either, because the flag is only
+  /// read between chunks and no chunk was coming.
+  static Duration _idleTimeout = const Duration(seconds: 30);
+
+  /// Tests cannot wait 30 s for a stall.
+  @visibleForTesting
+  static set debugIdleTimeout(Duration value) => _idleTimeout = value;
+
+  /// One retry of the same source before falling back to the next one —
+  /// a stall is usually transient, and the partial file resumes.
+  static const _attemptsPerSource = 2;
 
   Directory get root =>
       _rootOverride ?? Directory(path.join(appSupportDirPath, 'asr'));
@@ -158,23 +199,28 @@ class AsrModelStore {
       final file = pending.first;
       Object? lastError;
       var installed = <AsrModelFile>[];
+      outer:
       for (final source in file.sources) {
-        try {
-          installed = source.archive == AsrArchive.none
-              ? [await _installDirect(model, file, source, report, token)]
-              : await _installFromArchive(
-                  model,
-                  source,
-                  pending,
-                  report,
-                  token,
-                );
-          break;
-        } on AsrCancelled {
-          rethrow;
-        } catch (e) {
-          lastError = e;
-          if (kDebugMode) debugPrint('asr: ${source.url} failed: $e');
+        for (var attempt = 0; attempt < _attemptsPerSource; attempt++) {
+          try {
+            installed = source.archive == AsrArchive.none
+                ? [await _installDirect(model, file, source, report, token)]
+                : await _installFromArchive(
+                    model,
+                    source,
+                    pending,
+                    report,
+                    token,
+                  );
+            break outer;
+          } on AsrCancelled {
+            rethrow;
+          } catch (e) {
+            lastError = e;
+            if (kDebugMode) {
+              debugPrint('asr: ${source.url} failed (try $attempt): $e');
+            }
+          }
         }
       }
       if (installed.isEmpty) {
@@ -340,6 +386,8 @@ class AsrModelStore {
     final client = HttpClient()
       ..userAgent = _userAgent
       ..connectionTimeout = const Duration(seconds: 30);
+    void abort() => client.close(force: true);
+    token?._register(abort);
     try {
       final request = await client.getUrl(Uri.parse(url));
       if (have > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
@@ -364,7 +412,7 @@ class AsrModelStore {
       );
       var received = have;
       try {
-        await for (final chunk in response) {
+        await for (final chunk in response.timeout(_idleTimeout)) {
           if (token?.isCancelled ?? false) throw const AsrCancelled();
           sink.add(chunk);
           received += chunk.length;
@@ -377,6 +425,7 @@ class AsrModelStore {
         throw AsrModelException('下载不完整（$received / $expected）');
       }
     } finally {
+      token?._unregister(abort);
       client.close(force: true);
     }
   }

@@ -18,6 +18,10 @@ class _Host {
   final HttpServer server;
   final Map<String, List<int>> bodies = {};
   final Set<String> missing = {};
+
+  /// Sends the headers and a first chunk, then never anything again — the
+  /// shape of the stall that hung a phone on a 315 KB file.
+  final Set<String> stalling = {};
   var supportsRange = true;
   var bytesSent = 0;
   var requests = 0;
@@ -57,6 +61,12 @@ class _Host {
         );
     }
     final slice = body.sublist(from);
+    if (stalling.contains(name)) {
+      request.response.add(slice.take(1).toList());
+      await request.response.flush();
+      // deliberately never closed
+      return;
+    }
     bytesSent += slice.length;
     request.response.add(slice);
     await request.response.close();
@@ -354,6 +364,88 @@ void main() {
     test('byId round-trips and is null for anything else', () {
       expect(AsrModelCatalog.byId('silero-vad'), AsrModelCatalog.vad);
       expect(AsrModelCatalog.byId('nope'), isNull);
+    });
+  });
+
+  group('a stalled connection', () {
+    setUp(() {
+      AsrModelStore.debugIdleTimeout = const Duration(milliseconds: 300);
+    });
+    tearDown(() {
+      AsrModelStore.debugIdleTimeout = const Duration(seconds: 30);
+    });
+
+    test('times out instead of hanging, and falls back to the next source',
+        () async {
+      host.bodies['stall.onnx'] = modelBody;
+      host.bodies['good.onnx'] = modelBody;
+      host.stalling.add('stall.onnx');
+      final model = AsrModel(
+        id: 'test-model',
+        label: 'Test',
+        languages: const [],
+        files: [
+          _file('model.onnx', modelBody, [
+            AsrSource(url: host.url('stall.onnx')),
+            AsrSource(url: host.url('good.onnx')),
+          ]),
+        ],
+      );
+
+      await store()
+          .ensure(model)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => fail('the download hung instead of timing out'),
+          );
+      expect(
+        store().fileOf(model, model.files.first).readAsBytesSync(),
+        modelBody,
+      );
+    });
+
+    test('a stall on every source fails rather than hanging', () async {
+      host.bodies['stall.onnx'] = modelBody;
+      host.stalling.add('stall.onnx');
+      final model = AsrModel(
+        id: 'test-model',
+        label: 'Test',
+        languages: const [],
+        files: [
+          _file('model.onnx', modelBody, [
+            AsrSource(url: host.url('stall.onnx')),
+          ]),
+        ],
+      );
+      await expectLater(
+        store().ensure(model).timeout(const Duration(seconds: 10)),
+        throwsA(isA<AsrModelException>()),
+      );
+    });
+
+    test('cancelling a stalled download returns instead of waiting', () async {
+      host.bodies['stall.onnx'] = modelBody;
+      host.stalling.add('stall.onnx');
+      final model = AsrModel(
+        id: 'test-model',
+        label: 'Test',
+        languages: const [],
+        files: [
+          _file('model.onnx', modelBody, [
+            AsrSource(url: host.url('stall.onnx')),
+          ]),
+        ],
+      );
+      // long enough that only the cancel can end this
+      AsrModelStore.debugIdleTimeout = const Duration(seconds: 30);
+      final token = AsrCancelToken();
+      final job = store().ensure(model, token: token);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      token.cancel();
+      await expectLater(
+        job.timeout(const Duration(seconds: 5)),
+        throwsA(anyOf(isA<AsrCancelled>(), isA<AsrModelException>())),
+      );
     });
   });
 }
