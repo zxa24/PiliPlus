@@ -140,6 +140,9 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--asr-download') case final dir?) {
+      await scenario('asrDownload', () => _asrDownload(dir));
+    }
     if (_arg(args, '--asr') case final source?) {
       await scenario(
         'asr',
@@ -161,6 +164,43 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: fetches the recogniser's models for real, against the real
+  /// URLs, into a throwaway directory — the one part of the pipeline whose
+  /// failure modes (a dead mirror, a renamed release asset, a tarball whose
+  /// member paths moved) only show up against the live internet.
+  static Future<Map<String, dynamic>> _asrDownload(String dir) async {
+    final store = AsrModelStore(root: Directory(dir));
+    final started = DateTime.now();
+    var lastLabel = '';
+    final steps = <String>[];
+    await store.ensureAll(
+      onProgress: (p) {
+        if (p.label != lastLabel) {
+          lastLabel = p.label;
+          steps.add(p.label);
+        }
+      },
+    );
+    final ms = DateTime.now().difference(started).inMilliseconds;
+    return {
+      'pass': store.isReady,
+      'ms': ms,
+      'bytes': store.installedBytes(),
+      'steps': steps,
+      'files': [
+        for (final model in AsrModelCatalog.required)
+          for (final file in model.files)
+            {
+              'name': file.name,
+              'size': store.fileOf(model, file).existsSync()
+                  ? store.fileOf(model, file).lengthSync()
+                  : 0,
+              'expected': file.size,
+            },
+      ],
+    };
+  }
 
   /// LibrePili: end-to-end on-device transcription over a real file or URL —
   /// libmpv audio extraction, Silero VAD, SenseVoice — with the timings the
