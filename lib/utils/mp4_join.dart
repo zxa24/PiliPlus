@@ -145,6 +145,10 @@ abstract final class _Mp4Joiner {
         final type = String.fromCharCodes(header, 4, 8);
         var headerSize = 8;
         if (size == 1) {
+          // 64-bit size: the header must be there in full
+          if (header.length < 16) {
+            throw FormatException('truncated box $type at $pos in $path');
+          }
           size = hd.getUint64(8);
           headerSize = 16;
         } else if (size == 0) {

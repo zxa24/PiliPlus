@@ -13,7 +13,10 @@ abstract final class ReplyGrpc {
     Pref.banWordForReply,
     caseSensitive: false,
   );
-  static bool enableFilter = replyRegExp.pattern.isNotEmpty;
+  // a pattern matching the empty string (a stray `|`) would filter out
+  // everything: treat it as no filter
+  static bool enableFilter =
+      replyRegExp.pattern.isNotEmpty && !replyRegExp.hasMatch('');
 
   // static Future replyInfo({required int rpid}) {
   //   return _request(

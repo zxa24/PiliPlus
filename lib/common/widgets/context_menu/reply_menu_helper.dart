@@ -55,9 +55,12 @@ void showReplyCopyDialog(
                       ),
                       onConfirm: () {
                         final filter = ReplyGrpc.replyRegExp.pattern + text;
+                        // same flags as ReplyGrpc / the settings dialog, or
+                        // the stored rule would filter a different set of
+                        // comments after a restart
                         ReplyGrpc.replyRegExp = RegExp(
                           filter,
-                          caseSensitive: true,
+                          caseSensitive: false,
                         );
                         ReplyGrpc.enableFilter = true;
                         GStorage.setting.put(

@@ -372,8 +372,14 @@ class VideoDetailController extends GetxController
     }
   }
 
+  /// Side-file cache folder of the Android document this page was opened
+  /// with: [entry] can later be replaced by a playlist item that has none,
+  /// so the folder to release is kept here.
+  String? _localMirror;
+
   void initFileSource(BiliDownloadEntryInfo entry, {bool isInit = true}) {
     this.entry = entry;
+    if (entry.playUri != null) _localMirror = entry.entryDirPath;
     localCommentsPath = null;
     if (entry.mergedPath case final merged?) {
       final file = path.join(
@@ -1330,7 +1336,7 @@ class VideoDetailController extends GetxController
     cid.close();
     if (isFileSource) {
       cacheLocalProgress();
-      LocalPlayer.release(entry);
+      LocalPlayer.release(_localMirror);
     }
     introScrollCtr?.dispose();
     introScrollCtr = null;

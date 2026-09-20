@@ -13,12 +13,15 @@ enum SubtitleFormat implements EnumWithLabel {
 
 abstract final class SubtitleUtils {
   static String _vttTimecode(num seconds) {
-    final h = (seconds ~/ 3600).toString().padLeft(2, '0');
-    seconds %= 3600;
-    final m = (seconds ~/ 60).toString().padLeft(2, '0');
-    seconds %= 60;
-    final sms = seconds.toStringAsFixed(3).padLeft(6, '0');
-    return "$h:$m:$sms";
+    // round to whole milliseconds first: formatting the seconds remainder on
+    // its own turns 59.9996 into "60.000", which strict players reject
+    final total = (seconds * 1000).round();
+    final ms = (total % 1000).toString().padLeft(3, '0');
+    final s = total ~/ 1000;
+    final h = (s ~/ 3600).toString().padLeft(2, '0');
+    final m = (s % 3600 ~/ 60).toString().padLeft(2, '0');
+    final sec = (s % 60).toString().padLeft(2, '0');
+    return "$h:$m:$sec.$ms";
   }
 
   static String json2Vtt(List list) {
@@ -34,13 +37,15 @@ abstract final class SubtitleUtils {
   }
 
   static String _srtTimecode(num seconds) {
-    final h = (seconds ~/ 3600).toString().padLeft(2, '0');
-    seconds %= 3600;
-    final m = (seconds ~/ 60).toString().padLeft(2, '0');
-    seconds %= 60;
-    final s = seconds.toInt();
-    final ms = ((seconds - s) * 1000).round().toString().padLeft(3, '0');
-    return '$h:$m:${s.toString().padLeft(2, '0')},$ms';
+    // as in [_vttTimecode]: rounding the millisecond part on its own can
+    // produce ",1000"
+    final total = (seconds * 1000).round();
+    final ms = (total % 1000).toString().padLeft(3, '0');
+    final s = total ~/ 1000;
+    final h = (s ~/ 3600).toString().padLeft(2, '0');
+    final m = (s % 3600 ~/ 60).toString().padLeft(2, '0');
+    final sec = (s % 60).toString().padLeft(2, '0');
+    return '$h:$m:$sec,$ms';
   }
 
   static String json2Srt(List list) {

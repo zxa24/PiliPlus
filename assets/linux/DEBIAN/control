@@ -7,7 +7,9 @@ Priority: optional
 Architecture: amd64
 Essential: no
 Installed-Size: size_need_change
-Description: third-party Bilibili client developed in Flutter
+Description: LibrePili, a privacy-first third-party Bilibili client
+ Incognito by default: login is opt-in and the account is attached only to
+ the requests that need it. Developed in Flutter.
 Homepage: https://github.com/zxa24/PiliPlus
 Depends: libgtk-3-0t64,
          libmpv2,

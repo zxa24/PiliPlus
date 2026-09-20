@@ -28,6 +28,131 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!--
+		`bilibili://` deep links. app_links installs a kAEGetURL Apple Event
+		handler (AppLinksMacosPlugin.handleWillFinishLaunching) and feeds the
+		url into the stream PiliScheme.init already listens to, so this
+		declaration is all that was missing.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>bilibili</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bilibili</string>
+			</array>
+		</dict>
+	</array>
+	<!--
+		"Open with" for the formats LocalPlayer handles. Finder sends these as
+		file: urls to application(_:open:), which AppDelegate.swift forwards
+		into the same app_links stream (no plugin implements handleOpenURLs:).
+	-->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Video</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.mpeg-4</string>
+				<string>com.apple.quicktime-movie</string>
+				<string>com.apple.m4v-video</string>
+				<string>public.avi</string>
+				<string>public.mpeg-2-transport-stream</string>
+				<string>com.microsoft.windows-media-wmv</string>
+				<string>org.matroska.mkv</string>
+				<string>org.webmproject.webm</string>
+				<string>com.adobe.flash.video</string>
+			</array>
+			<!-- also by extension: the three imported UTIs below are not
+			     declared by macOS itself -->
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>mp4</string>
+				<string>mkv</string>
+				<string>webm</string>
+				<string>mov</string>
+				<string>m4v</string>
+				<string>flv</string>
+				<string>avi</string>
+				<string>ts</string>
+				<string>wmv</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.matroska.mkv</string>
+			<key>UTTypeDescription</key>
+			<string>Matroska Video</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mkv</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>video/x-matroska</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.webmproject.webm</string>
+			<key>UTTypeDescription</key>
+			<string>WebM Video</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>webm</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>video/webm</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.adobe.flash.video</string>
+			<key>UTTypeDescription</key>
+			<string>Flash Video</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>flv</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>video/x-flv</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>需要访问本地网络以发现和连接 DLNA 投屏设备</string>
 	<key>NSBonjourServices</key>

@@ -11,7 +11,10 @@ abstract final class RecommendFilter {
     Pref.banWordForRecommend,
     caseSensitive: false,
   );
-  static bool enableFilter = rcmdRegExp.pattern.isNotEmpty;
+  // a pattern matching the empty string (a stray `|`) would filter out
+  // everything: treat it as no filter
+  static bool enableFilter =
+      rcmdRegExp.pattern.isNotEmpty && !rcmdRegExp.hasMatch('');
 
   static bool filter(BaseVideoItemModel videoItem) {
     //由于相关视频中没有已关注标签，只能视为非关注视频

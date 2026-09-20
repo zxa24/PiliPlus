@@ -2,8 +2,12 @@ param(
     [string]$platform = ""
 )
 
-git config --global user.name "ci"
-git config --global user.email "example@example.com"
+# only on the CI runner: `git apply` needs no identity, and a contributor
+# running this locally must keep their own
+if ($env:GITHUB_ACTIONS -eq "true") {
+    git config --global user.name "ci"
+    git config --global user.email "example@example.com"
+}
 
 # TODO: remove
 # https://github.com/flutter/flutter/issues/182281
@@ -229,10 +233,35 @@ switch ($platform.ToLower()) {
     default {}
 }
 
+# Resolve the cached package from the version pub actually resolved, not from
+# a name glob: `material_ui-1.0.9` sorts after `material_ui-1.0.10`, so
+# `Select-Object -Last 1` can patch a version nothing links against.
+$RepoRoot = (Resolve-Path "$PSScriptRoot/../..").Path
+
+function Get-CachedPackageDir([string]$name) {
+    $lockPath = Join-Path $RepoRoot "pubspec.lock"
+    if (-not (Test-Path $lockPath)) { return $null }
+    $lines = Get-Content $lockPath
+    $version = $null
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match "^  $([regex]::Escape($name)):\s*$") {
+            for ($j = $i + 1; $j -lt $lines.Count -and $lines[$j] -match "^    "; $j++) {
+                if ($lines[$j] -match '^    version:\s*"?([^"]+)"?\s*$') {
+                    $version = $Matches[1]
+                    break
+                }
+            }
+            break
+        }
+    }
+    if (-not $version) { return $null }
+    $dir = Join-Path "$PubCacheDir/hosted/pub.dev" "$name-$version"
+    if (Test-Path $dir) { return Get-Item $dir }
+    return $null
+}
+
 try {
-    $MaterialUiDir = Get-ChildItem "$PubCacheDir/hosted/pub.dev" -Directory |
-        Where-Object { $_.Name -like "material_ui-*" } |
-        Select-Object -Last 1
+    $MaterialUiDir = Get-CachedPackageDir "material_ui"
 
     if ($MaterialUiDir) {
         Remove-Item -Path $MaterialUiDir.FullName -Recurse -Force
@@ -242,9 +271,7 @@ try {
 
 flutter pub get
 
-$MaterialUiDir = Get-ChildItem "$PubCacheDir/hosted/pub.dev" -Directory |
-    Where-Object { $_.Name -like "material_ui-*" } |
-    Select-Object -Last 1
+$MaterialUiDir = Get-CachedPackageDir "material_ui"
 
 if (-not $MaterialUiDir) {
     throw "material_ui package not found in pub cache"
@@ -287,9 +314,7 @@ switch ($platform.ToLower()) {
     default {}
 }
 
-$CupertinoUiDir = Get-ChildItem "$PubCacheDir/hosted/pub.dev" -Directory |
-    Where-Object { $_.Name -like "cupertino_ui-*" } |
-    Select-Object -Last 1
+$CupertinoUiDir = Get-CachedPackageDir "cupertino_ui"
 
 if (-not $CupertinoUiDir) {
     throw "cupertino_ui package not found in pub cache"

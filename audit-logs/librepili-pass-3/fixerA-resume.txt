@@ -68,7 +68,7 @@ The killed turn had finished findings 1–20; nothing in its edits was left half
 - **D4 (anti-fraud target check):**
    - `AndroidHelper` checks the target app's SHA-256 signing-certificate fingerprint before sending cookies. If the check fails it sends nothing and shows a toast.
    - A `<queries>` entry for the package was added.
-   - The repo has no authoritative fingerprint, so the list is empty and **the feature is off until one is added.** It needs the SHA-256 of the official `icu.freedomIntrovert.biliSendCommAntifraud` release's signing certificate, from `apksigner verify --print-certs <official apk>` ("Signer #1 certificate SHA-256 digest"), added to `ANTIFRAUD_CERT_SHA256`.
+   - `ANTIFRAUD_CERT_SHA256` carries the SHA-256 of the official `icu.freedomIntrovert.biliSendCommAntifraud` release's signing certificate (`0225A755…`, added by the `fixerA-cert` follow-up), so **the feature is on**: a package signed by anything else gets nothing. (This line previously said the list was empty and the feature off; corrected in pass 4.)
 - **D5:** only GET and HEAD are retried.
 - **D8 (comment anti-fraud check):**
    - `LoginPolicy.explicitAccount` keeps an explicitly passed account in login mode only.

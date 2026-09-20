@@ -59,6 +59,7 @@ abstract final class DownloadHttp {
         );
 
         entry
+          ..mediaType = 2
           ..typeTag = targetVideoQa.toString()
           ..videoQuality = targetVideoQa
           ..preferedVideoQuality = targetVideoQa
@@ -138,8 +139,10 @@ abstract final class DownloadHttp {
               dashDrmType: 0,
             ),
           ];
-          entry.hasDashAudio = true;
         }
+        // assigned from the stream just resolved: an entry re-resolved to a
+        // video-only stream must not keep the flag from an earlier attempt
+        entry.hasDashAudio = audioFileList != null;
         return Type2(
           duration: dash.duration!,
           video: [videoFile],

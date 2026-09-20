@@ -1,0 +1,74 @@
+Both items are in. Report:
+
+## R1 (pass4-D1) — package identity
+
+**Choice: user-visible fields only. I left the Dart package `name:` as `PiliPlus`.**
+
+The reason is not churn in the abstract — it's that the rename is all-or-nothing and I cannot complete it. `package:PiliPlus/` appears on 6379 import lines in 904 files, and **17 of those files are in the do-not-edit list** this session was given (`lib/services/download/**` 3, `lib/services/local_player.dart` 1, `lib/services/local_library.dart` 1, `lib/pages/download/**` 7, `lib/pages/local/**` 5 — all carry `package:PiliPlus/` imports). Renaming everything except those 17 does not compile; renaming them too would race the other fixer session that owns them. It is a clean standalone mechanical commit (`name:` + one substitution + `dart analyze`/`flutter test`) once both sessions are merged — I left a comment at `pubspec.yaml:1-4` saying so.
+
+What I did change:
+- `pubspec.yaml:6` — `description: A new Flutter project.` (the Flutter template default) → `LibrePili — a privacy-first third-party Bilibili client, developed in Flutter.`
+- `assets/linux/DEBIAN/control` — `Description:` now names LibrePili and carries an extended description. `Package:` was already `LibrePili`, `Maintainer:` already the fork's. I left `Homepage: https://github.com/zxa24/PiliPlus` alone: that is the *real* URL of this fork (`git remote -v` confirms `origin https://github.com/zxa24/PiliPlus`) — the repo is named PiliPlus, and changing it would produce a dead link.
+- I verified the two line-number-based `sed` calls in `linux_x64.yml` (`2s/version_need_change/`, `9s/size_need_change/`) still hit lines 2 and 9: my insertion is below both.
+
+## R2 (pass4-D2) — platform URL/document registration
+
+**iOS** (`ios/Runner/Info.plist`): `CFBundleURLTypes` is now just the `bilibili` entry. Removed the dict claiming `http`/`https` as app URL schemes, and with it the nested `CFBundleURLTypes` → `CFBundleURLSchemes` array of bilibili.com *hostnames* (not schemes; iOS ignores a nested `CFBundleURLTypes` entirely — hostname matching is what Universal Links are for). `LSApplicationQueriesSchemes` still lists `https`/`http`; that is the unrelated `canOpenURL` allow-list and I left it.
+
+**macOS** (`macos/Runner/Info.plist` + `macos/Runner/AppDelegate.swift`): added `CFBundleURLTypes` for `bilibili`, `CFBundleDocumentTypes` for the nine extensions, and `UTImportedTypeDeclarations` for `org.matroska.mkv` / `org.webmproject.webm` / `com.adobe.flash.video` (the three macOS does not declare itself), so the extension list is backed by real UTIs.
+
+**The bridge the brief asked me to check for: half of it was missing, so I added it.** By reading:
+- `bilibili://` needs **no** new native code. `AppLinksMacosPlugin.handleWillFinishLaunching` installs an `NSAppleEventManager` handler for `kAEGetURL` and pushes the url into the same stream `PiliScheme.init()` already listens to (`stringLinkStream` → `_desktopRoutePush` on desktop). The plist declaration was the only missing piece.
+- "Open with" **did** need one. Finder sends a document as a `file:` URL to `application:openURLs:`; `FlutterAppDelegate.mm:68` only offers those to plugins implementing `handleOpenURLs:`, and `AppLinksMacosPlugin` implements no such method (it only has `handleWillFinishLaunching`) — so the URL would have been dropped and the app would have appeared in "Open with" and then done nothing. I overrode `application(_:open:)` in `AppDelegate.swift`: file URLs go to `AppLinks.shared.handleLink(link:)`, everything else to `super`.
+- That lands exactly where the Dart side already expects it: `PiliScheme._localFile` accepts a `file:` URI (`Uri.tryParse(link)?.toFilePath()`, which also decodes `%20`), checks it exists, and `_openFile` → `windowManager.show()/focus()` → `LocalPlayer.open()` — the same path Linux takes. Cold start works because the native plugin stores the first link as `initialLink` and `onListen` replays it to the first subscriber.
+- The nine extensions match `LocalPlayer.videoExtensions` (`local_player.dart:20-30`) exactly, and the Linux `.desktop` `MimeType=` list one-for-one.
+- Sandbox: both `macos/Runner/*.entitlements` already carry `com.apple.security.files.user-selected.read-write`, which covers a Finder-opened document. No entitlement change needed.
+- `import app_links` from the Runner target is valid: `macos/Flutter/GeneratedPluginRegistrant.swift:8` already does exactly that, and the Podfile uses `use_frameworks!`.
+
+## Diff summary
+
+| File | ± |
+|---|---|
+| `pubspec.yaml` | +5 −1 (description + comment; the rest of the stat is pass-4 R27 ref pinning) |
+| `assets/linux/DEBIAN/control` | +3 −1 |
+| `ios/Runner/Info.plist` | +7 −31 |
+| `macos/Runner/Info.plist` | +125 −0 |
+| `macos/Runner/AppDelegate.swift` | +20 −0 |
+
+Full diffs printed above. Batch-A changes are untouched.
+
+## Uncertainty list
+
+- **Nothing on iOS/macOS was built or run** — there is no Mac here. What I verified is by reading: both plists parse cleanly under `plistlib` (I ran that), `FlutterAppDelegate.mm:68` forwards `application:openURLs:` only via `handleOpenURLs:`, `AppLinksMacosPlugin` has no `handleOpenURLs:`, `AppLinks.shared` / `handleLink(link:)` are `public`, and `GeneratedPluginRegistrant.swift` already imports the module. **Unverified by execution:** that `application(_:open:)` is the callback Finder actually reaches for `CFBundleDocumentTypes` opens on the deployment target, and that the Swift override compiles against `FlutterAppDelegate`'s Objective-C `application:openURLs:` signature. Both are standard, but a macOS CI run is the real gate.
+- **Possible double delivery of `bilibili://`.** app_links claims `kAEGetURL` with its own handler, which should pre-empt AppKit's default translation into `application:openURLs:`. If some macOS version delivers both, a `bilibili://` link would arrive twice. My override only takes `isFileURL` URLs and passes the rest to `super`, so it does not *add* a duplicate — but I could not test the interaction.
+- **`Package: LibrePili` in the Debian control is not a valid Debian package name** (policy requires lowercase). That is pre-existing, outside what R1 asked, and changing it to `librepili` would change the installed package identity and break the upgrade path for anyone who already installed it. Flagging rather than changing — your call.
+- **`LSHandlerRank: Alternate`** means LibrePili offers itself in "Open with" without trying to become the default handler for these types. If you'd rather it compete for default, that becomes `Default` or `Owner`.
+- **`.ts` is ambiguous**: `public.mpeg-2-transport-stream` is right for video, but `.ts` is also TypeScript. With `Alternate` rank this only adds LibrePili to the "Open with" menu for `.ts` files; it will not steal them from an editor.
+- The macOS `CFBundleURLTypes` addition only takes effect after LaunchServices re-registers the bundle (normal on install/first run; during development it can need `lsregister -f`).
+
+## TEST RESULTS
+
+```
+TEST RESULTS:
+  runner: flutter test (+ dart analyze)
+  command: dart analyze lib test && flutter test
+  exit_code: 0
+  total: 106
+  passed: 106
+  failed: 0
+  skipped: 0
+  duration_ms: ~7500 (flutter test); analyze ~40000
+
+INFRA REPAIRS (during auto-repair, empty if none):
+  (none)
+
+REAL FAILURES (audit-fix-caused regressions, empty if none):
+  (none)
+
+INFRA-PERSISTENT (failures that hit the 3-cycle repair cap, empty if none):
+  (none)
+
+OVERALL: PASS
+```
+
+`dart analyze lib test` exits 0 with the same 36 pre-existing `info` lints in vendored widget copies — unchanged from the batch-A run, none in any file touched here. The suite is now 106 tests rather than the 102 I reported for batch A; `test/` is gitignored and the extra four appeared without any change of mine, so they are presumably from the concurrent download/media fixer session. All pass.

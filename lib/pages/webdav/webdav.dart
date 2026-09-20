@@ -89,17 +89,23 @@ class WebDav {
       SmartDialog.showToast('备份失败，请检查配置: $e');
       return;
     }
+    final path = '${config.directory}/${_getFileName()}';
+    // write a new file first and move it over the old one: a failed upload
+    // must not lose the existing backup
+    final tmpPath = '$path.tmp';
     try {
-      final path = '${config.directory}/${_getFileName()}';
-      // write a new file first and move it over the old one: a failed upload
-      // must not lose the existing backup
-      final tmpPath = '$path.tmp';
       await client.write(tmpPath, utf8.encode(data));
       await client.rename(tmpPath, path, true);
-      SmartDialog.showToast('备份成功');
     } catch (e) {
-      SmartDialog.showToast('备份失败: $e');
+      // the old backup is untouched; the half-written copy must not stay
+      // on the server
+      try {
+        await client.remove(tmpPath);
+      } catch (_) {}
+      SmartDialog.showToast('备份失败，原有备份未改动: $e');
+      return;
     }
+    SmartDialog.showToast('备份成功');
   }
 
   /// [askCredentials]: asked when the backup carries credentials; true

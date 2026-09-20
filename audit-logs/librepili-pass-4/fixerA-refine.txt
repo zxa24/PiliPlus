@@ -1,0 +1,72 @@
+All five are complete and verified.
+
+## Per item (killed-turn vs now)
+
+**A2 — `launchURL` scheme gate** · *killed turn, complete; verified now by reading*
+`lib/utils/page_utils.dart`. `http`/`https` open directly. `file/content/javascript/data/blob/about/filesystem` stay hard-blocked with a toast, not confirmable. Every other scheme (custom app schemes included) now goes through a confirm dialog naming the scheme and the full target before it reaches the OS. Added the `dialog.dart` import.
+
+**A12 — Linux anonymous jar on logout** · *killed turn, complete; verified now by reading*
+`lib/utils/login_utils.dart`. `onLogoutMain` no longer branches per platform: it calls `clearWebCookies()` (which already does the right per-platform delete) then `setAnonymousWebCookie()`, on both. `setAnonymousWebCookie`'s Linux early-return now carries the reason it is a correct no-op: desktop_webview_window exposes no set-cookie API and keeps no jar between windows, and `WebviewPage.openLinux` injects the anonymous `buvid3` from `AnonymousAccount()` at documentStart for every window it opens.
+
+**A30 — block-server matching** · *killed turn, complete; verified now by test*
+`lib/utils/accounts/account_manager/account_mgr.dart` + `lib/pages/sponsor_block/view.dart`. New public `parseBlockServer(String)`: requires `http(s)`, a non-empty host, no userinfo, and refuses the bilibili family by suffix (`bilibili.com/.cn/.tv`, `bilivideo.com/.cn`, `hdslb.com`, `biliimg.com`, `b23.tv`). `_isBlockServer` now matches scheme + host + **port** + path prefix and returns false outright when `parseBlockServer` rejects the saved value — so it cannot degrade into "matches everything". The settings dialog calls the same function, so the two cannot diverge.
+
+**A31 — `handler.next` on the retry path** · *killed turn, code written; verified now by test*
+`lib/http/retry_interceptor.dart`. The retry path now ends in `handler.next(error)` for the attempt the caller made. Because each retry re-enters the interceptor on the same `RequestOptions`, a naive `next` everywhere delivered the same failure once per retry level (I measured 3 deliveries with `retryCount=2`); a `finish()` helper keyed on whether `_rt` was already present makes the nested levels reject and only the outermost forward. Measured: 3 adapter calls, **1** delivery to the following interceptor, request still fails. A non-retried POST still reaches it once.
+
+**A37 — refresh coalescing** · *killed turn, base written; completed and verified now*
+`lib/pages/common/common_list_controller.dart` (+3 controllers). A refresh started while one is in flight now attaches to it instead of issuing a second request; `_generation` is untouched, so when a request *is* made the superseded response is still dropped. Added `markRefreshStale()` for the case that made me revert this in batch A — a refresh whose parameters differ must not attach to one answering the old ones. `onReload()` calls it (covers sort/filter/account-switch, which all route through it). **New this turn:** I audited the direct `onRefresh()` call sites and found three keyword-driven paths that bypass `onReload` — `CommonSearchController.onRefresh` (every search page), `DynMentionController.onRefresh`, `SelectTopicController` (which had no override; added one). `LiveAreaDetail.onSelectTag` needs nothing: it early-returns on `isLoading`.
+
+## Diff summary
+
+| File | ± |
+|---|---|
+| `lib/utils/page_utils.dart` | +36 −0 |
+| `lib/utils/login_utils.dart` | +14 −5 |
+| `lib/utils/accounts/account_manager/account_mgr.dart` | +51 −7 |
+| `lib/pages/sponsor_block/view.dart` | +11 −6 |
+| `lib/http/retry_interceptor.dart` | +25 −9 |
+| `lib/pages/common/common_list_controller.dart` | +31 −1 |
+| `lib/pages/common/search/common_search_controller.dart` | +3 −0 |
+| `lib/pages/dynamics_mention/controller.dart` | +3 −0 |
+| `lib/pages/dynamics_select_topic/controller.dart` | +8 −0 |
+
+179 insertions, 29 deletions across 9 files. Three regression tests added under `test/utils/` (gitignored): `retry_interceptor_test.dart`, `refresh_coalescing_test.dart`, `block_server_test.dart`. `dart format` reports no changes on all 57 touched files.
+
+## Uncertainties
+
+- **A2, no context:** `launchURL` needs a `BuildContext` for the confirm, and takes `Get.context`. If that is null (very early startup, or a call from outside the widget tree) a non-http(s) url is now silently dropped rather than opened. All call sites I checked are user-initiated from a live page, so this should not fire, but it is a behaviour change if it does.
+- **A2, our own scheme:** an unrecognised `bilibili://` link inside a web page (one `PiliScheme.routePush` did not match) now prompts before being handed back to the OS. I judged that correct rather than exempting `bilibili`; say if you'd rather it be silent.
+- **A12, Linux:** I could not run Linux. The claim that the anonymous jar is reinstated there rests on reading `WebviewPage.openLinux` (`webview/view.dart:67-78`) — it builds the injection JS from `AnonymousAccount()` for every non-account window. If a future change opens a Linux webview without going through `openLinux`, that window would have an empty jar.
+- **A30, prefix semantics:** with the default `https://www.bsbsb.top` (no path) the prefix is empty, so every path on that host still matches — same as before, and correct for the default. The narrowing only takes effect when a user sets a server *with* a path. I did not add a port to the reserved-host check; `https://api.bilibili.com:8443/sb` is refused on the host alone.
+- **A30, existing bad values:** a `blockServer` already saved that the new rule rejects now makes `_isBlockServer` false — SponsorBlock requests to it would carry cookies rather than none. The dialog will refuse to save it again. Arguably it should be reset to the default on load; I left it, since silently rewriting a user setting is worse.
+- **A31:** the `finish()` split relies on `extra['_rt']` being absent on the caller's own attempt and present on every nested one. That holds because `RequestOptions` is shared across retries. If some other interceptor were to copy or clear `extra`, the outermost attempt could be misclassified and the error would be rejected instead of forwarded. Not the case today.
+- **A37, residual risk:** coalescing is now safe for every parameter-changing path I found, but the guarantee is a call-site convention, not a type-level one — a future controller that mutates request state and calls `onRefresh()` directly without `markRefreshStale()` would attach to a stale refresh. The doc comment on `markRefreshStale` says so. A stricter design would thread the parameters through `queryData`, which is a much larger refactor.
+- **A37, error propagation:** a second caller that attaches now also sees the first request's error. Previously it would have issued its own request and seen its own error. Same class of failure, different instance.
+
+## TEST RESULTS
+
+```
+TEST RESULTS:
+  runner: flutter test (+ dart analyze)
+  command: dart analyze lib test && flutter test
+  exit_code: 0
+  total: 114
+  passed: 114
+  failed: 0
+  skipped: 0
+  duration_ms: ~3300 (flutter test); analyze ~40000
+
+INFRA REPAIRS (during auto-repair, empty if none):
+  (none)
+
+REAL FAILURES (audit-fix-caused regressions, empty if none):
+  (none)
+
+INFRA-PERSISTENT (failures that hit the 3-cycle repair cap, empty if none):
+  (none)
+
+OVERALL: PASS
+```
+
+`dart analyze lib test` exits 0 with the same 36 pre-existing `info` lints in vendored widget copies — unchanged, none in any file touched here. The suite is 114 tests (106 before, +8 from the three regression files I added).

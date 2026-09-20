@@ -8,6 +8,10 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 abstract final class Utils {
   static final random = Random();
 
+  /// For anything that authenticates (the SponsorBlock private user id):
+  /// the default [Random]'s seed is not meant to be unguessable.
+  static final secureRandom = Random.secure();
+
   static const jsonEncoder = JsonEncoder.withIndent('    ');
 
   static final numericRegex = RegExp(r'^[\d\.]+$');

@@ -81,7 +81,7 @@ abstract final class LocalPlayer {
       path.basenameWithoutExtension(doc.name),
       doc.size,
     );
-    await _openDocument(entry, mirror: mirror, video: doc);
+    await _openDocument(entry, mirror: mirror, video: doc, mirrored: false);
     SmartDialog.showToast('Android 上单个文件无法读取同目录的弹幕/字幕/评论，请用「打开视频文件夹」');
   }
 
@@ -134,9 +134,14 @@ abstract final class LocalPlayer {
     BiliDownloadEntryInfo entry, {
     required String mirror,
     required LocalDocument video,
+    // whether side files were copied into [mirror]: they are named after the
+    // video, so `mergedPath` anchors them there. With nothing mirrored it
+    // would only name a file that does not exist (the video plays from its
+    // URI), so it stays null.
+    bool mirrored = true,
   }) {
     entry
-      ..mergedPath = path.join(mirror, video.name)
+      ..mergedPath = mirrored ? path.join(mirror, video.name) : null
       ..playUri = video.uri
       ..playKey = video.key
       ..isCompleted = true
@@ -169,11 +174,12 @@ abstract final class LocalPlayer {
     return dir.path;
   }
 
-  /// The video page showing [entry] closed: its side-file cache folder
-  /// goes once no other open page shows it.
-  static void release(BiliDownloadEntryInfo entry) {
-    if (entry.playUri == null) return;
-    final dir = entry.entryDirPath;
+  /// The video page showing a picked document closed: its side-file cache
+  /// folder goes once no other open page shows it. [dir] is the folder
+  /// captured when the document was opened — the page's entry may since
+  /// have been replaced by a playlist item that has no mirror.
+  static void release(String? dir) {
+    if (dir == null) return;
     final n = (_mirrorsInUse[dir] ?? 1) - 1;
     if (n > 0) {
       _mirrorsInUse[dir] = n;

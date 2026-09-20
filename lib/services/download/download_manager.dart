@@ -17,6 +17,13 @@ class DownloadManager {
   final void Function(int, int)? onReceiveProgress;
   final void Function([Object? error]) onDone;
 
+  /// Size of this stream when the bytes on disk were saved, 0 if unknown.
+  /// The stream is resolved again on every start, and the saved index only
+  /// identifies it by id / codec / resolution: a different length means
+  /// different bytes, so the partial file is dropped instead of resumed
+  /// (LibrePili).
+  final int expectedTotal;
+
   static const _maxAttempts = 6;
 
   DownloadStatus _status = DownloadStatus.downloading;
@@ -31,6 +38,7 @@ class DownloadManager {
     required this.path,
     required this.onReceiveProgress,
     required this.onDone,
+    this.expectedTotal = 0,
   }) {
     task = _start();
   }
@@ -189,6 +197,13 @@ class DownloadManager {
           return 'unexpected content-range: $contentRange (have $received)';
         }
         expected = int.tryParse(match[2]!) ?? expected;
+        // same quality and codec but another length: another stream, the
+        // bytes on disk do not belong to it
+        if (expectedTotal > 0 && expected > 0 && expected != expectedTotal) {
+          await discard();
+          await file.writeAsBytes(const []);
+          return 'stream size changed ($expected, had $expectedTotal)';
+        }
       }
     }
 
@@ -196,9 +211,9 @@ class DownloadManager {
       mode: received == 0 ? FileMode.writeOnly : FileMode.writeOnlyAppend,
     );
 
-    if (received == 0) {
-      onReceiveProgress?.call(0, expected);
-    }
+    // also on a resume (received > 0): this is where the size becomes known,
+    // and the caller has no other chance to record it
+    onReceiveProgress?.call(received, expected);
 
     int? last;
     try {

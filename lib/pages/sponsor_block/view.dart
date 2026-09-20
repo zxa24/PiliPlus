@@ -175,7 +175,10 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
                     onPressed: () {
                       Get.back();
                       _userId = Digest(
-                        List.generate(16, (_) => Utils.random.nextInt(256)),
+                        List.generate(
+                          16,
+                          (_) => Utils.secureRandom.nextInt(256),
+                        ),
                       ).toString();
                       setting.put(SettingBoxKey.blockUserID, _userId);
                       (context as Element).markNeedsBuild();
@@ -346,11 +349,13 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
                 TextButton(
                   onPressed: () {
                     final text = _textController.text.trim();
-                    final uri = Uri.tryParse(text);
-                    if (uri == null ||
-                        !(uri.isScheme('http') || uri.isScheme('https')) ||
-                        uri.host.isEmpty) {
-                      SmartDialog.showToast('请输入有效的 http(s) 地址');
+                    // same rule the request path uses, so the two cannot
+                    // disagree: a bilibili host here would take the account
+                    // off every API request
+                    if (AccountManager.parseBlockServer(text) == null) {
+                      SmartDialog.showToast(
+                        '请输入有效的 http(s) 地址（不能是 bilibili 的域名）',
+                      );
                       return;
                     }
                     Get.back();

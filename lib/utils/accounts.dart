@@ -1,8 +1,11 @@
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
+import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:hive_ce/hive.dart';
 
 abstract final class Accounts {
@@ -61,6 +64,10 @@ abstract final class Accounts {
     }
     await AnonymousAccount().delete();
     Request.buvidActive(AnonymousAccount());
+    // the setting box is cleared alongside this, so login mode is back off:
+    // take the UI out of the logged-in state too
+    MineController.anonymity.value = true;
+    await LoginUtils.onLogoutMain();
   }
 
   static Future<void> deleteAll(Set<Account> accounts) async {
@@ -71,6 +78,11 @@ abstract final class Accounts {
       }
     }
     await Future.wait(accounts.map((i) => i.delete()));
+    // no account left: back to the advertised default, incognito
+    if (account.isEmpty) {
+      await GStorage.setting.put(SettingBoxKey.loginMode, false);
+      MineController.anonymity.value = true;
+    }
     if (isLoginMain && !Accounts.main.isLogin) {
       await LoginUtils.onLogoutMain();
     }
@@ -87,7 +99,11 @@ abstract final class Accounts {
       }
     }
     await Future.wait([
-      for (final a in accounts) ?(a..expired = true).onChange(),
+      for (final a in accounts)
+        ?(a
+              ..expired = true
+              ..dropCredentials())
+            .onChange(),
     ]);
     if (isLoginMain && !Accounts.main.isLogin) {
       await LoginUtils.onLogoutMain();

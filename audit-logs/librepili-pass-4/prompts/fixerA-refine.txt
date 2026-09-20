@@ -1,0 +1,16 @@
+[Refinement for pass 4 — batch A PARTIALs]
+
+codex re-review: 106/120 RESOLVED. These five in your area are PARTIAL:
+
+  - [A2] WebView is guarded, launchURL is still not http(s)-only. `_toWebview`/WebView reject non-http(s), but `launchURL` only blocks local/script schemes and still permits arbitrary custom schemes — lib/utils/page_utils.dart:437.
+  - [A12] Non-Linux logout restores the anonymous jar; Linux still only deletes cookies — lib/utils/login_utils.dart:126.
+  - [A30] SponsorBlock: secure random fixed, but a block server configured as host-only still matches every path on that host — lib/utils/accounts/account_manager/account_mgr.dart:228.
+  - [A31] The retry path still calls `handler.reject(error)` instead of `handler.next(error)`, so later interceptors are skipped on a final retried GET failure — lib/http/retry_interceptor.dart:98.
+  - [A37] Concurrent pull-to-refresh is still not coalesced — lib/pages/common/common_list_controller.dart:28.
+
+Fix all five. Notes:
+- A2: a video description or comment can contain any scheme, and `launchURL` hands it to the OS. Keep http/https opening directly; for any other scheme (custom app schemes included) show a confirmation naming the scheme and target before handing it to the OS; keep the existing hard block on file/content/javascript/data/blob/about/filesystem.
+- A30: decide a rule that cannot regress into the "matches everything" failure — e.g. require a path component, or match scheme+host+path prefix and refuse bilibili hosts — and make the settings dialog enforce it.
+- A37: coalesce — a refresh while one is in flight should attach to it (or replace it) rather than issue a second request; keep the generation counter so stale responses are still dropped.
+
+Then run `dart analyze lib test` (exit 0) and `flutter test`; report per item, diff summary, uncertainties and the TEST RESULTS block.

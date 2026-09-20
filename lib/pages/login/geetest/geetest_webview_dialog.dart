@@ -215,7 +215,9 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
             algorithmicDarkeningAllowed: true,
             useShouldOverrideUrlLoading: true,
             userAgent: BrowserUa.mob,
-            mixedContentMode: .MIXED_CONTENT_ALWAYS_ALLOW,
+            // this runs during login: https images/media are still loaded
+            // over http, but http scripts/xhr are not
+            mixedContentMode: .MIXED_CONTENT_COMPATIBILITY_MODE,
 
             incognito: true,
             allowFileAccess: false,

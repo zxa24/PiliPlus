@@ -1,0 +1,1503 @@
+OpenAI Codex v0.146.1
+--------
+workdir: C:\Users\Z14\Documents\Coding\Piliplus
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a0bbb9-5a94-7993-ab8a-55af5547923f
+--------
+user
+You are about to receive an audit task for the repository at:
+
+C:/Users/Z14/Documents/Coding/Piliplus
+
+Before that task arrives, briefly orient yourself to the codebase.
+
+In your reply, give a concise summary (~150 words) covering:
+
+1. **Project purpose** — one sentence on what this codebase does
+2. **Top-level structure** — 3-5 main directories or entry points
+3. **Key modules relevant to the audit** — the files/modules most
+   likely to be touched
+
+Read at most 5-6 files total (README, top-level config, the most
+central source files). If no README exists, infer purpose from
+package.json / Cargo.toml / pyproject.toml / Makefile / similar.
+
+Constraints (both branches):
+
+- Do NOT make any code changes
+- Do NOT begin the audit/fix task itself — just orient
+
+After your summary/acknowledgement, end with: `[warmup-complete]` on
+its own line. The next message will contain the actual audit/fix task.
+
+
+codex
+I’ll do a light reconnaissance pass only: top-level files first, then a couple of central config/source files if they’re obvious. No edits, no audit work yet.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "README*" -g "pubspec.yaml" -g "package.json" -g "Cargo.toml" -g "pyproject.toml" -g "Makefile"' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1419ms:
+tool\README.md
+README.md
+pubspec.yaml
+lib\utils\accounts\account_manager\README.md
+ios\Runner\Assets.xcassets\LaunchImage.imageset\README.md
+
+ succeeded in 1465ms:
+
+    Directory: C:\Users\Z14\Documents\Coding\Piliplus
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----           9/18/2026 11:25 AM                .dart_tool
+d--h-           9/19/2026  6:11 PM                .git
+d----           9/17/2026 10:00 PM                .github
+d----           9/17/2026 10:00 PM                .vscode
+d----           9/18/2026 11:12 AM                android
+d----           9/17/2026 10:00 PM                assets
+d----           9/19/2026  6:11 PM                audit-logs
+d----           9/19/2026 10:53 AM                build
+d----           9/17/2026 10:00 PM                ios
+d----           9/19/2026 12:24 PM                lib
+d----           9/19/2026 11:05 AM                linux
+d----           9/17/2026 10:00 PM                macos
+d----           9/19/2026  5:27 PM                research
+d----           9/17/2026 10:00 PM                test
+d----           9/17/2026 10:00 PM                tool
+d----           9/18/2026  9:41 AM                windows
+-a---           9/18/2026 11:12 PM          30887 .flutter-plugins-dependencies
+-a---           9/17/2026 10:00 PM             27 .fvmrc
+-a---           9/17/2026 10:00 PM             21 .gitattributes
+-a---           9/19/2026 10:22 AM           3127 .gitignore
+-a---           9/17/2026 10:00 PM           1713 .metadata
+-a---           9/17/2026 10:00 PM           3333 analysis_options.yaml
+-a---           9/19/2026  6:08 PM          30926 DEV_LOG.md
+-a---           9/17/2026 10:00 PM             13 distribute_options.yaml
+-a---           9/19/2026  5:27 PM          12236 findings.md
+-a---           9/19/2026 11:54 AM           5728 flutter_01.log
+-a---           9/17/2026 11:03 PM           3167 ld.txt
+-a---           9/17/2026 10:00 PM          35823 LICENSE
+-a---           9/18/2026 11:12 PM          64296 pubspec.lock
+-a---           9/18/2026 11:12 PM           8874 pubspec.yaml
+-a---           9/17/2026 10:00 PM           7466 README.md
+-a---           9/18/2026 10:22 PM           8093 task_plan.md
+-a---           9/19/2026  5:45 PM          11189 TODO.md
+
+
+codex
+It’s a Flutter-shaped repo, so I’m checking the README/pubspec plus the app entry and route/main binding surface. That should be enough to orient without drifting into the real audit.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content README.md -TotalCount 220' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content pubspec.yaml -TotalCount 220' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files lib | Select-Object -First 120' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1357ms:
+lib\main.dart
+lib\grpc\view.dart
+lib\grpc\url.dart
+lib\grpc\space.dart
+lib\grpc\reply.dart
+lib\grpc\im.dart
+lib\grpc\grpc_req.dart
+lib\grpc\dyn.dart
+lib\grpc\dm.dart
+lib\router\app_pages.dart
+lib\utils\wbi_sign.dart
+lib\utils\waterfall.dart
+lib\utils\video_utils.dart
+lib\utils\utils.dart
+lib\utils\url_utils.dart
+lib\utils\update.dart
+lib\utils\theme_utils.dart
+lib\utils\subtitle_utils.dart
+lib\utils\storage_utils.dart
+lib\utils\storage_pref.dart
+lib\utils\storage_key.dart
+lib\utils\storage.dart
+lib\utils\share_utils.dart
+lib\utils\set_int_adapter.dart
+lib\utils\self_test.dart
+lib\utils\request_utils.dart
+lib\utils\reply_utils.dart
+lib\utils\recommend_filter.dart
+lib\utils\platform_utils.dart
+lib\utils\permission_handler.dart
+lib\utils\path_utils.dart
+lib\utils\parse_string.dart
+lib\utils\parse_int.dart
+lib\utils\parse_bool.dart
+lib\utils\page_utils.dart
+lib\utils\num_utils.dart
+lib\utils\mp4_remux.dart
+lib\utils\mp4_join.dart
+lib\utils\mobile_observer.dart
+lib\utils\max_screen_size.dart
+lib\utils\login_utils.dart
+lib\utils\linux_cookie_manager.dart
+lib\utils\latex_unicode_data.dart
+lib\utils\latex_to_unicode.dart
+lib\utils\json_file_handler.dart
+lib\utils\image_utils.dart
+lib\utils\id_utils.dart
+lib\utils\grid.dart
+lib\utils\global_data.dart
+lib\utils\font_utils.dart
+lib\utils\fontconfig.g.dart
+lib\utils\flv_demux.dart
+lib\utils\filtering_text.dart
+lib\utils\feed_back.dart
+lib\plugin\pl_player\widgets\play_pause_btn.dart
+lib\plugin\pl_player\widgets\mpv_convert_webp.dart
+lib\plugin\pl_player\widgets\forward_seek.dart
+lib\plugin\pl_player\widgets\common_btn.dart
+lib\plugin\pl_player\widgets\bottom_control.dart
+lib\plugin\pl_player\widgets\backward_seek.dart
+lib\plugin\pl_player\widgets\app_bar_ani.dart
+lib\models\video\play\url.dart
+lib\http\video.dart
+lib\http\validate.dart
+lib\http\user.dart
+lib\http\sponsor_block_api.dart
+lib\http\sponsor_block.dart
+lib\http\search.dart
+lib\http\retry_interceptor.dart
+lib\http\reply.dart
+lib\http\pgc.dart
+lib\http\music.dart
+lib\http\msg.dart
+lib\http\member.dart
+lib\http\match.dart
+lib\http\login.dart
+lib\http\loading_state.dart
+lib\http\live.dart
+lib\http\init.dart
+lib\http\follow.dart
+lib\http\fav.dart
+lib\http\fan.dart
+lib\http\error_msg.dart
+lib\http\dynamics.dart
+lib\http\download.dart
+lib\http\danmaku_block.dart
+lib\http\danmaku.dart
+lib\http\constants.dart
+lib\http\browser_ua.dart
+lib\http\black.dart
+lib\http\api.dart
+lib\models\model_avatar.dart
+lib\plugin\pl_player\view\widgets.dart
+lib\plugin\pl_player\view\view.dart
+lib\grpc\bilibili\vas\garb\service.pbjson.dart
+lib\grpc\bilibili\vas\garb\service.pbenum.dart
+lib\grpc\bilibili\vas\garb\service.pb.dart
+lib\grpc\bilibili\vas\garb\model.pbjson.dart
+lib\grpc\bilibili\vas\garb\model.pbenum.dart
+lib\grpc\bilibili\vas\garb\model.pb.dart
+lib\grpc\bilibili\rpc.pbjson.dart
+lib\grpc\bilibili\rpc.pbenum.dart
+lib\grpc\bilibili\rpc.pb.dart
+lib\grpc\bilibili\playershared.pbjson.dart
+lib\grpc\bilibili\playershared.pbenum.dart
+lib\grpc\bilibili\playershared.pb.dart
+lib\grpc\bilibili\pagination.pbjson.dart
+lib\grpc\bilibili\pagination.pbenum.dart
+lib\grpc\bilibili\pagination.pb.dart
+lib\grpc\bilibili\metadata.pbjson.dart
+lib\grpc\bilibili\metadata.pbenum.dart
+lib\grpc\bilibili\metadata.pb.dart
+lib\models\user\stat.g.dart
+lib\models\user\stat.dart
+lib\models\user\info.g.dart
+lib\models\user\info.dart
+lib\models\user\danmaku_rule_adapter.dart
+lib\models\user\danmaku_rule.dart
+lib\models\user\danmaku_block.dart
+lib\plugin\pl_player\utils\fullscreen.dart
+
+ succeeded in 1374ms:
+name: PiliPlus
+description: A new Flutter project.
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+# update when release
+version: 2.1.4+1
+
+environment:
+  sdk: ">=3.13.0"
+  flutter: 3.47.4
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  app_links: ^7.1.1
+  archive: ^4.0.0
+  audio_service:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/audio_service.git
+      path: audio_service
+      ref: main
+  audio_session: ^0.2.2
+  battery_plus: ^7.0.0
+  brotli: ^0.6.0
+  cached_network_image_ce:
+    git:
+      url: https://github.com/My-Responsitories/flutter_cached_network_image_ce.git
+      path: cached_network_image
+      ref: develop
+  canvas_danmaku:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/canvas_danmaku.git
+      ref: main
+  catcher_2:
+    git:
+      url: https://github.com/My-Responsitories/catcher_2.git
+      ref: dev
+  characters: ^1.4.1
+  chat_bottom_container:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/flutter_chat_packages.git
+      path: packages/chat_bottom_container
+      ref: dev
+  collection: ^1.19.1
+  connectivity_plus: ^7.1.1
+  cookie_jar: ^4.0.8
+  crypto: ^3.0.6
+  cupertino_ui: ^1.0.0
+  desktop_webview_window:
+    git:
+      url: https://github.com/Predidit/linux_webview_window
+      ref: main
+  device_info_plus: ^13.1.0
+  dio: ^5.9.1
+  dio_http2_adapter: ^2.7.1
+  dlna_dart: ^0.1.0
+  dynamic_color: ^2.1.0
+  easy_debounce: ^2.0.3
+  encrypt: ^5.0.3
+  extended_nested_scroll_view:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/extended_nested_scroll_view.git
+      ref: dev
+  ffi: ^2.2.0
+  file_picker: ^13.1.0
+  fixnum: ^1.1.1
+  fl_chart: ^1.0.0
+  flex_seed_scheme: ^5.0.0
+  flutter_displaymode: ^0.7.0
+  flutter_html:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/flutter_html.git
+      ref: dev
+  flutter_inappwebview: ^6.1.5
+  flutter_smart_dialog:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/flutter_smart_dialog.git
+      ref: main
+  flutter_sortable_wrap:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/flutter_sortable_wrap.git
+      ref: master
+  flutter_svg: ^2.0.14
+  flutter_volume_controller: ^2.0.0
+  font_awesome_flutter:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/font_awesome_flutter.git
+      ref: v10.9.0
+  get:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/getx.git
+      ref: dev
+  hive_ce: ^2.19.3
+  html: ^0.15.4
+  http2: ^2.3.1
+  image_cropper: ^12.0.0
+  image_picker: ^1.1.2
+  intl: ^0.20.2
+  jni: ^1.0.0
+  json_annotation: ^4.11.0
+  live_photo_maker: ^0.0.6
+  logger: ^2.5.0
+  material_color_utilities: ^0.13.0
+  material_design_icons_flutter:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/material_design_icons_flutter.git
+      ref: const
+  material_new_shapes: ^1.0.0
+  material_ui: ^1.0.0
+  media_kit: 1.1.11
+  media_kit_libs_video: 1.0.5
+  media_kit_video: 1.2.5
+  mime: ^2.0.0
+  native_device_orientation:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/flutter_native_device_orientation.git
+      ref: master
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  permission_handler_android: ^14.0.0
+  permission_handler_apple: ^9.4.7
+  permission_handler_platform_interface: ^4.3.0
+  pretty_qr_code: ^3.3.0
+  protobuf: ^6.0.0
+  re_highlight: ^0.0.3
+  saver_gallery: ^5.0.2
+  screen_brightness_android: ^2.1.6
+  screen_brightness_ios: ^2.1.4
+  screen_brightness_platform_interface: ^2.1.0
+  screen_retriever: ^0.2.0
+  share_plus: ^13.1.0
+  stream_transform: ^2.1.1
+  super_sliver_list:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/super_sliver_list.git
+      ref: mod
+  synchronized: ^3.3.0
+  tray_manager: ^0.5.1
+  url_launcher: ^6.3.1
+  uuid: ^4.5.1
+  vector_math: ^2.2.0
+  wakelock_plus: ^1.2.8
+  waterfall_flow: ^3.1.0
+  web_socket_channel: ^3.0.3
+  webdav_client:
+    git:
+      url: https://github.com/wgh136/webdav_client.git
+      ref: main
+  win32: ^6.3.0
+  window_manager:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/window_manager.git
+      path: packages/window_manager
+      ref: main
+  desktop_drop: ^0.8.4
+
+dependency_overrides:
+  flutter_inappwebview_android:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/flutter_inappwebview.git
+      path: flutter_inappwebview_android
+      ref: v6.1.5
+  flutter_inappwebview_windows:
+    git:
+      url: https://github.com/bggRGjQaUbCoE/flutter_inappwebview.git
+      path: flutter_inappwebview_windows
+      ref: v6.1.5
+  media_kit:
+    git:
+      url: https://github.com/My-Responsitories/media-kit.git
+      path: media_kit
+      ref: upstream
+  media_kit_libs_android_video:
+    git:
+      url: https://github.com/My-Responsitories/media-kit.git
+      path: libs/android/media_kit_libs_android_video
+      ref: upstream
+  media_kit_libs_ios_video:
+    git:
+      url: https://github.com/My-Responsitories/media-kit.git
+      path: libs/ios/media_kit_libs_ios_video
+      ref: upstream
+  media_kit_libs_video:
+    git:
+      url: https://github.com/My-Responsitories/media-kit.git
+      path: libs/universal/media_kit_libs_video
+      ref: upstream
+  media_kit_libs_windows_video:
+    git:
+      url: https://github.com/My-Responsitories/media-kit.git
+      path: libs/windows/media_kit_libs_windows_video
+      ref: upstream
+  media_kit_native_event_loop:
+    git:
+      url: https://github.com/My-Responsitories/media-kit.git
+      path: media_kit_native_event_loop
+      ref: upstream
+
+ succeeded in 1424ms:
+<div align="center">
+    <img width="200" height="200" src="assets/images/logo/logo.png">
+</div>
+
+
+
+<div align="center">
+    <h1>PiliPlus</h1>
+<div align="center">
+    
+![GitHub repo size](https://img.shields.io/github/repo-size/bggRGjQaUbCoE/PiliPlus) 
+![GitHub Repo stars](https://img.shields.io/github/stars/bggRGjQaUbCoE/PiliPlus) 
+![GitHub all releases](https://img.shields.io/github/downloads/bggRGjQaUbCoE/PiliPlus/total) 
+</div>
+    <p>使用Flutter开发的BiliBili第三方客户端</p>
+    
+<img src="assets/screenshots/510shots_so.png" width="32%" alt="home" />
+<img src="assets/screenshots/174shots_so.png" width="32%" alt="home" />
+<img src="assets/screenshots/850shots_so.png" width="32%" alt="home" />
+<br/>
+<img src="assets/screenshots/main_screen.png" width="96%" alt="home" />
+<br/>
+</div>
+
+
+<br/>
+
+## 适配平台
+
+- [x] Android
+- [x] iOS
+- [x] Pad
+- [x] Windows
+- [x] Linux
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/piliplus.svg)](https://repology.org/project/piliplus/versions)
+
+## refactor
+
+- [ ] gRPC [wip]
+- [x] 用户界面
+- [x] 其他
+
+## feat
+
+- [x] 编辑动态
+- [x] DLNA 投屏
+- [x] 离线缓存/播放
+- [x] 移动端支持点击弹幕悬停，点赞、复制、举报 by [@My-Responsitories](https://github.com/My-Responsitories)
+- [x] 播放音频
+- [x] 跳过番剧片头/片尾
+- [x] 安卓端 `loudnorm` 适配 by [@My-Responsitories](https://github.com/My-Responsitories)
+- [x] Win/Mac 支持极验、短信登录 by [@My-Responsitories](https://github.com/My-Responsitories)
+- [x] 视频截取动图 by [@My-Responsitories](https://github.com/My-Responsitories)
+- [x] AI 原声翻译
+- [x] SuperChat
+- [x] 播放课堂视频
+- [x] 发起投票
+- [x] 发布动态/评论支持`富文本编辑`/`表情显示`/`@用户`
+- [x] 修改消息设置
+- [x] 修改聊天设置
+- [x] 展示折叠消息
+- [x] 查看用户图文
+- [x] 动态话题
+- [x] 直播分区
+- [x] 分享`视频`/`番剧`/`动态`/`专栏`/`直播`至消息
+- [x] 创建/修改/删除关注分组
+- [x] 移除粉丝
+- [x] 直播弹幕发送表情
+- [x] 收藏夹排序
+- [x] 稍后再看 ~~`未看`~~ / `未看完` / ~~`已看完`~~ 分类
+- [x] WebDAV 备份/恢复设置
+- [x] 保存评论/动态
+- [x] 高级弹幕 by [@My-Responsitories](https://github.com/My-Responsitories)
+- [x] 取消/置顶评论
+- [x] 记笔记
+- [x] 多账号支持 by [@My-Responsitories](https://github.com/My-Responsitories)
+- [x] 屏蔽带货动态/评论
+- [x] 互动视频
+- [x] 发评/动态反诈
+- [x] 高能进度条
+- [x] 滑动跳转预览视频缩略图
+- [x] Live Photo
+- [x] 复制/移动/排序收藏夹/稍后再看视频
+- [x] 超分辨率
+- [x] 合并弹幕
+- [x] 会员彩色弹幕
+- [x] 播放全部/继续播放/倒序播放
+- [x] Cookie登录
+- [x] 显示视频分段信息
+- [x] 调节字幕大小
+- [x] 调节全屏弹幕大小
+- [x] 收藏夹/稍后再看多选删除
+- [x] 搜索用户动态
+- [x] 直播弹幕
+- [x] 修改头像/用户名/签名/性别/生日
+- [x] 创建/编辑/删除收藏夹
+- [x] 评论楼中楼查看对话
+- [x] 评论楼中楼定位点击查看的评论
+- [x] 评论楼中楼按热度/时间排序
+- [x] 评论点踩
+- [x] 私信发图
+- [x] 投币动画
+- [x] 取消/追番，更新追番状态
+- [x] 取消/订阅合集
+- [x] SponsorBlock
+- [x] 显示视频完整合集
+- [x] 三连动画
+- [x] 番剧三连
+- [x] 带图评论
+- [x] 视频TAG
+- [x] 筛选搜索
+- [x] 转发动态
+- [x] 合集图片
+- [x] 删除/置顶/撤回私信
+- [x] 举报用户/评论/视频/动态
+- [x] 删除/发布/置顶文本/图片动态
+- [x] 其他
+
+## opt
+
+- [x] 专栏界面
+- [x] 私信界面
+- [x] 收藏面板
+- [x] PIP
+- [x] 视频封面
+- [x] 回复界面
+- [x] 系统通知
+- [x] 评论显示
+- [x] 亮度调节
+- [x] 视频播放
+- [x] 视频staff
+- [x] 防止bottomsheet遮挡全屏视频
+- [x] 其他
+
+## fix
+
+- [x] 番剧分集点赞/投币/收藏
+- [x] bugs
+
+<br/>
+
+## 功能
+
+- [x] 推荐视频列表(app端)
+- [x] 最热视频列表
+- [x] 热门直播
+- [x] 番剧列表
+- [x] 屏蔽黑名单内用户视频
+- [x] 无痕模式（播放视为未登录）
+- [x] 游客模式（推荐视为未登录）
+
+- [x] 用户相关
+  - [x] 粉丝、关注用户、拉黑用户查看
+  - [x] 用户主页查看
+  - [x] 关注/取关用户
+  - [x] 离线缓存
+  - [x] 稍后再看
+  - [x] 观看记录
+  - [x] 我的收藏
+  - [x] 站内私信
+  
+- [x] 动态相关
+  - [x] 全部、投稿、番剧分类查看
+  - [x] 动态评论查看
+  - [x] 动态评论回复功能
+
+- [x] 视频播放相关
+  - [x] 双击快进/快退
+  - [x] 双击播放/暂停
+  - [x] 垂直方向调节亮度/音量
+  - [x] 垂直方向上滑全屏、下滑退出全屏
+  - [x] 水平方向手势快进/快退
+  - [x] 全屏方向设置
+  - [x] 倍速选择/长按2倍速
+  - [x] 硬件加速（视机型而定）
+  - [x] 画质选择（高清画质未解锁）
+  - [x] 音质选择（视视频而定）
+  - [x] 解码格式选择（视视频而定）
+  - [x] 弹幕
+  - [x] 字幕
+  - [x] 记忆播放
+  - [x] 视频比例：高度/宽度适应、填充、包含等
+     
+- [x] 搜索相关
+  - [x] 热搜
+  - [x] 搜索历史
+  - [x] 默认搜索词
+  - [x] 投稿、番剧、直播间、用户搜索
+  - [x] 视频搜索排序、按时长筛选
+    
+- [x] 视频详情页相关
+  - [x] 视频选集(分p)切换
+  - [x] 点赞、投币、收藏/取消收藏
+  - [x] 相关视频查看
+  - [x] 评论用户身份标识
+  - [x] 评论(排序)查看、二楼评论查看
+  - [x] 主楼、二楼评论回复功能
+  - [x] 评论点赞
+  - [x] 评论笔记图片查看、保存
+
+- [x] 设置相关
+  - [x] 画质、音质、解码方式预设      
+  - [x] 图片质量设定
+  - [x] 主题模式：亮色/暗色/跟随系统
+  - [x] 震动反馈(可选)
+  - [x] 高帧率
+  - [x] 自动全屏
+  - [x] 横屏适配
+- [ ] 等等
+
+<br/>
+
+## 下载
+
+可以通过右侧release进行下载或拉取代码到本地进行编译
+
+<br/>
+
+## 声明
+
+codex
+I’ve got the broad map. I’m reading just the central startup/router/http pieces now, since those usually anchor where a later audit will branch from.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content lib\\main.dart -TotalCount 220" in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content lib\\router\\app_pages.dart -TotalCount 220" in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content lib\\http\\init.dart -TotalCount 220" in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content lib\\http\\api.dart -TotalCount 180" in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1536ms:
+import 'dart:io';
+
+import 'package:PiliPlus/build_config.dart';
+import 'package:PiliPlus/common/constants.dart';
+import 'package:PiliPlus/common/widgets/back_detector.dart';
+import 'package:PiliPlus/common/widgets/custom_toast.dart';
+import 'package:PiliPlus/common/widgets/route_aware_mixin.dart';
+import 'package:PiliPlus/common/widgets/scale_app.dart';
+import 'package:PiliPlus/common/widgets/scroll_behavior.dart';
+import 'package:PiliPlus/http/init.dart';
+import 'package:PiliPlus/models/common/theme/theme_color_type.dart';
+import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
+import 'package:PiliPlus/router/app_pages.dart';
+import 'package:PiliPlus/services/account_service.dart';
+import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/services/logger.dart';
+import 'package:PiliPlus/services/service_locator.dart';
+import 'package:PiliPlus/utils/app_scheme.dart';
+import 'package:PiliPlus/utils/cache_manager.dart';
+import 'package:PiliPlus/utils/calc_window_position.dart';
+import 'package:PiliPlus/utils/date_utils.dart';
+import 'package:PiliPlus/utils/extension/core_palettes_ext.dart';
+import 'package:PiliPlus/utils/extension/theme_ext.dart';
+import 'package:PiliPlus/utils/font_utils.dart';
+import 'package:PiliPlus/utils/json_file_handler.dart';
+import 'package:PiliPlus/utils/max_screen_size.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
+import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/request_utils.dart';
+import 'package:PiliPlus/utils/self_test.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/theme_utils.dart';
+import 'package:PiliPlus/utils/utils.dart';
+import 'package:catcher_2/catcher_2.dart';
+import 'package:collection/collection.dart';
+import 'package:dynamic_color/dynamic_color.dart' show DynamicColorPlugin;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_displaymode/flutter_displaymode.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:get/get.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
+import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
+import 'package:window_manager/window_manager.dart' hide calcWindowPosition;
+
+WebViewEnvironment? webViewEnvironment;
+
+EdgeInsets? tmpPadding;
+
+Future<void> _initDownPath() async {
+  if (isSelfTestProfile) {
+    downloadPath = defDownloadPath;
+    return;
+  }
+  if (PlatformUtils.isDesktop) {
+    final customDownPath = Pref.downloadPath;
+    if (customDownPath != null && customDownPath.isNotEmpty) {
+      try {
+        final dir = Directory(customDownPath);
+        if (!dir.existsSync()) {
+          await dir.create(recursive: true);
+        }
+        downloadPath = customDownPath;
+      } catch (e) {
+        downloadPath = defDownloadPath;
+        await GStorage.setting.delete(SettingBoxKey.downloadPath);
+        if (kDebugMode) {
+          debugPrint('download path error: $e');
+        }
+      }
+    } else {
+      downloadPath = defDownloadPath;
+    }
+  } else if (Platform.isAndroid) {
+    final externalStorageDirPath = (await getExternalStorageDirectory())?.path;
+    downloadPath = externalStorageDirPath != null
+        ? path.join(externalStorageDirPath, PathUtils.downloadDir)
+        : defDownloadPath;
+  } else {
+    downloadPath = defDownloadPath;
+  }
+}
+
+Future<void> _initTmpPath() async {
+  tmpDirPath = (await appTempDirectory()).path;
+}
+
+Future<void> _initAppPath() async {
+  var dir = (await getApplicationSupportDirectory()).path;
+  if (isSelfTestProfile) {
+    dir = path.join(dir, 'selftest');
+    await Directory(dir).create(recursive: true);
+  }
+  appSupportDirPath = dir;
+}
+
+void main(List<String> args) async {
+  ScaledWidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+  isSelfTestProfile = SelfTest.isRequested(args);
+  await _initAppPath();
+  try {
+    await GStorage.init();
+  } catch (e) {
+    await Utils.copyText(e.toString(), needToast: false);
+    if (kDebugMode) debugPrint('GStorage init error: $e');
+    exit(0);
+  }
+  ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
+  await Future.wait([
+    _initDownPath(),
+    _initTmpPath(),
+    CacheManager.ensureInitialized(),
+    ?FontUtils.init(),
+  ]);
+  Get
+    ..lazyPut(AccountService.new)
+    ..lazyPut(DownloadService.new);
+  HttpOverrides.global = _CustomHttpOverrides();
+
+  if (PlatformUtils.isMobile) {
+    if (Platform.isAndroid) MaxScreenSize.init();
+    await Future.wait([
+      if (Pref.horizontalScreen) ?fullMode() else ?portraitUpMode(),
+      setupServiceLocator(),
+    ]);
+  } else if (Platform.isWindows) {
+    if (await WebViewEnvironment.getAvailableVersion() != null) {
+      webViewEnvironment = await WebViewEnvironment.create(
+        settings: WebViewEnvironmentSettings(
+          userDataFolder: path.join(appSupportDirPath, 'flutter_inappwebview'),
+        ),
+      );
+    }
+  } else if (Platform.isMacOS) {
+    await setupServiceLocator();
+  }
+
+  Request();
+  Request.setCookie();
+  RequestUtils.syncHistoryStatus();
+
+  SmartDialog.config.toast = SmartConfigToast(displayType: .onlyRefresh);
+
+  if (PlatformUtils.isMobile) {
+    SystemChrome.setEnabledSystemUIMode(.edgeToEdge);
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        statusBarColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+    );
+    if (Platform.isAndroid) {
+      FlutterDisplayMode.supported.then((mode) {
+        final String? storageDisplay = GStorage.setting.get(
+          SettingBoxKey.displayMode,
+        );
+        DisplayMode? displayMode;
+        if (storageDisplay != null) {
+          displayMode = mode.firstWhereOrNull(
+            (e) => e.toString() == storageDisplay,
+          );
+        }
+        FlutterDisplayMode.setPreferredMode(displayMode ?? DisplayMode.auto);
+      });
+    } else {
+      ScreenBrightnessPlatform.instance.setAutoReset(false);
+    }
+  } else if (PlatformUtils.isDesktop) {
+    FocusManager.instance.addEarlyKeyEventHandler(_onKeyEvent);
+
+    await windowManager.ensureInitialized();
+
+    final windowOptions = WindowOptions(
+      minimumSize: const Size(400, 720),
+      skipTaskbar: false,
+      titleBarStyle: Pref.showWindowTitleBar
+          ? TitleBarStyle.normal
+          : TitleBarStyle.hidden,
+      title: Constants.appName,
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      final windowSize = Pref.windowSize;
+      await windowManager.setBounds(
+        await calcWindowPosition(windowSize) & windowSize,
+      );
+      if (Pref.isWindowMaximized) await windowManager.maximize();
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
+
+  if (Pref.dynamicColor) {
+    await MyApp.initPlatformState();
+  }
+
+  if (Pref.enableLog) {
+    // 异常捕获 logo记录
+    final customParameters = {
+      'Build Time': DateFormatUtils.format(
+        BuildConfig.buildTime,
+        format: DateFormatUtils.longFormatDs,
+      ),
+      'Commit Hash': BuildConfig.commitHash,
+      'MPV Api Version':
+          '${NativePlayer.apiVersion >> 16}.${NativePlayer.apiVersion & 0xFFFF}',
+    };
+    final fileHandler = await JsonFileHandler.init();
+
+    Catcher2(
+      [?fileHandler, const ConsoleHandler()],
+
+ succeeded in 1567ms:
+import 'package:PiliPlus/pages/article/view.dart';
+import 'package:PiliPlus/pages/article_list/view.dart';
+import 'package:PiliPlus/pages/audio/view.dart';
+import 'package:PiliPlus/pages/blacklist/view.dart';
+import 'package:PiliPlus/pages/bubble/view.dart';
+import 'package:PiliPlus/pages/danmaku_block/view.dart';
+import 'package:PiliPlus/pages/dlna/view.dart';
+import 'package:PiliPlus/pages/download/view.dart';
+import 'package:PiliPlus/pages/dynamics/view.dart';
+import 'package:PiliPlus/pages/dynamics_create_vote/view.dart';
+import 'package:PiliPlus/pages/dynamics_detail/view.dart';
+import 'package:PiliPlus/pages/dynamics_topic/view.dart';
+import 'package:PiliPlus/pages/dynamics_topic_rcmd/view.dart';
+import 'package:PiliPlus/pages/fan/view.dart';
+import 'package:PiliPlus/pages/fav/view.dart';
+import 'package:PiliPlus/pages/fav_create/view.dart';
+import 'package:PiliPlus/pages/fav_detail/view.dart';
+import 'package:PiliPlus/pages/fav_search/view.dart';
+import 'package:PiliPlus/pages/follow/view.dart';
+import 'package:PiliPlus/pages/follow_search/view.dart';
+import 'package:PiliPlus/pages/follow_type/follow_same/view.dart';
+import 'package:PiliPlus/pages/follow_type/followed/view.dart';
+import 'package:PiliPlus/pages/history/view.dart';
+import 'package:PiliPlus/pages/history_search/view.dart';
+import 'package:PiliPlus/pages/home/view.dart';
+import 'package:PiliPlus/pages/hot/view.dart';
+import 'package:PiliPlus/pages/later/view.dart';
+import 'package:PiliPlus/pages/later_search/view.dart';
+import 'package:PiliPlus/pages/live_dm_block/view.dart';
+import 'package:PiliPlus/pages/live_room/view.dart';
+import 'package:PiliPlus/pages/login/view.dart';
+import 'package:PiliPlus/pages/main/view.dart';
+import 'package:PiliPlus/pages/main_reply/view.dart';
+import 'package:PiliPlus/pages/match_info/view.dart';
+import 'package:PiliPlus/pages/member/view.dart';
+import 'package:PiliPlus/pages/member_dynamics/view.dart';
+import 'package:PiliPlus/pages/member_guard/view.dart';
+import 'package:PiliPlus/pages/member_profile/view.dart';
+import 'package:PiliPlus/pages/member_search/view.dart';
+import 'package:PiliPlus/pages/member_upower_rank/view.dart';
+import 'package:PiliPlus/pages/member_video_web/archive/view.dart';
+import 'package:PiliPlus/pages/member_video_web/season_series/view.dart';
+import 'package:PiliPlus/pages/msg_feed_top/at_me/view.dart';
+import 'package:PiliPlus/pages/msg_feed_top/like_detail/view.dart';
+import 'package:PiliPlus/pages/msg_feed_top/like_me/view.dart';
+import 'package:PiliPlus/pages/msg_feed_top/reply_me/view.dart';
+import 'package:PiliPlus/pages/msg_feed_top/sys_msg/view.dart';
+import 'package:PiliPlus/pages/music/view.dart';
+import 'package:PiliPlus/pages/my_reply/view.dart';
+import 'package:PiliPlus/pages/popular_precious/view.dart';
+import 'package:PiliPlus/pages/popular_series/view.dart';
+import 'package:PiliPlus/pages/search/view.dart';
+import 'package:PiliPlus/pages/search_result/view.dart';
+import 'package:PiliPlus/pages/search_trending/view.dart';
+import 'package:PiliPlus/pages/setting/pages/bar_set.dart';
+import 'package:PiliPlus/pages/setting/pages/color_select.dart';
+import 'package:PiliPlus/pages/setting/pages/display_mode.dart';
+import 'package:PiliPlus/pages/setting/pages/font_setting.dart';
+import 'package:PiliPlus/pages/setting/pages/logs.dart';
+import 'package:PiliPlus/pages/setting/pages/play_speed_set.dart';
+import 'package:PiliPlus/pages/setting/view.dart';
+import 'package:PiliPlus/pages/settings_search/view.dart';
+import 'package:PiliPlus/pages/space_setting/view.dart';
+import 'package:PiliPlus/pages/sponsor_block/view.dart';
+import 'package:PiliPlus/pages/subscription/view.dart';
+import 'package:PiliPlus/pages/subscription_detail/view.dart';
+import 'package:PiliPlus/pages/video/view.dart';
+import 'package:PiliPlus/pages/webview/view.dart';
+import 'package:PiliPlus/pages/whisper/view.dart';
+import 'package:PiliPlus/pages/whisper_detail/view.dart';
+import 'package:get/get.dart';
+
+class Routes {
+  static final List<GetPage<dynamic>> getPages = [
+    GetPage(name: '/', page: () => const MainApp()),
+    // 首页(推荐)
+    GetPage(name: '/home', page: () => const HomePage()),
+    // 热门
+    GetPage(name: '/hot', page: () => const HotPage()),
+    // 视频详情
+    GetPage(name: '/videoV', page: () => const VideoDetailPageV()),
+    //
+    GetPage(name: '/webview', page: () => const WebviewPage()),
+    // 设置
+    GetPage(name: '/setting', page: () => const SettingPage()),
+    //
+    GetPage(name: '/fav', page: () => const FavPage()),
+    //
+    GetPage(name: '/favDetail', page: () => const FavDetailPage()),
+    // 稍后再看
+    GetPage(name: '/later', page: () => const LaterPage()),
+    // 历史记录
+    GetPage(name: '/history', page: () => const HistoryPage()),
+    // 搜索页面
+    GetPage(name: '/search', page: () => const SearchPage()),
+    // 搜索结果
+    GetPage(name: '/searchResult', page: () => const SearchResultPage()),
+    // 动态
+    GetPage(name: '/dynamics', page: () => const DynamicsPage()),
+    // 动态详情
+    GetPage(name: '/dynamicDetail', page: () => const DynamicDetailPage()),
+    // 关注
+    GetPage(name: '/follow', page: () => const FollowPage()),
+    // 粉丝
+    GetPage(name: '/fan', page: () => const FansPage()),
+    // 直播详情
+    GetPage(name: '/liveRoom', page: () => const LiveRoomPage()),
+    // 用户中心
+    GetPage(name: '/member', page: () => const MemberPage()),
+    GetPage(name: '/memberSearch', page: () => const MemberSearchPage()),
+    //
+    GetPage(name: '/blackListPage', page: () => const BlackListPage()),
+    GetPage(name: '/colorSetting', page: () => const ColorSelectPage()),
+    GetPage(name: '/fontSetting', page: () => const FontSettingPage()),
+    // 屏幕帧率
+    GetPage(name: '/displayModeSetting', page: () => const SetDisplayMode()),
+    //
+    GetPage(name: '/articlePage', page: () => const ArticlePage()),
+
+    // 历史记录搜索
+    GetPage(name: '/playSpeedSet', page: () => const PlaySpeedPage()),
+    // 收藏搜索
+    GetPage(name: '/favSearch', page: () => const FavSearchPage()),
+    GetPage(name: '/historySearch', page: () => const HistorySearchPage()),
+    GetPage(name: '/laterSearch', page: () => const LaterSearchPage()),
+    GetPage(name: '/followSearch', page: () => const FollowSearchPage()),
+    // 消息页面
+    GetPage(name: '/whisper', page: () => const WhisperPage()),
+    // 私信详情
+    GetPage(name: '/whisperDetail', page: () => const WhisperDetailPage()),
+    // 回复我的
+    GetPage(name: '/replyMe', page: () => const ReplyMePage()),
+    // @我的
+    GetPage(name: '/atMe', page: () => const AtMePage()),
+    // 收到的赞
+    GetPage(name: '/likeMe', page: () => const LikeMePage()),
+    // 系统消息
+    GetPage(name: '/sysMsg', page: () => const SysMsgPage()),
+    // 登录页面
+    GetPage(name: '/loginPage', page: () => const LoginPage()),
+    // 用户动态
+    GetPage(name: '/memberDynamics', page: () => const MemberDynamicsPage()),
+    // 日志
+    GetPage(name: '/logs', page: () => const LogsPage()),
+    // 订阅
+    GetPage(name: '/subscription', page: () => const SubPage()),
+    // 订阅详情
+    GetPage(name: '/subDetail', page: () => const SubDetailPage()),
+    // 弹幕屏蔽管理
+    GetPage(name: '/danmakuBlock', page: () => const DanmakuBlockPage()),
+    GetPage(name: '/sponsorBlock', page: () => const SponsorBlockPage()),
+    GetPage(name: '/createFav', page: () => const CreateFavPage()),
+    GetPage(name: '/editProfile', page: () => const EditProfilePage()),
+    GetPage(name: '/settingsSearch', page: () => const SettingsSearchPage()),
+    GetPage(name: '/searchTrending', page: () => const SearchTrendingPage()),
+    GetPage(name: '/dynTopic', page: () => const DynTopicPage()),
+    GetPage(name: '/articleList', page: () => const ArticleListPage()),
+    GetPage(name: '/barSetting', page: () => const BarSetPage()),
+    GetPage(name: '/upowerRank', page: () => const UpowerRankPage()),
+    GetPage(name: '/spaceSetting', page: () => const SpaceSettingPage()),
+    GetPage(name: '/dynTopicRcmd', page: () => const DynTopicRcmdPage()),
+    GetPage(name: '/matchInfo', page: () => const MatchInfoPage()),
+    GetPage(name: '/msgLikeDetail', page: () => const LikeDetailPage()),
+    GetPage(name: '/liveDmBlockPage', page: () => const LiveDmBlockPage()),
+    GetPage(name: '/createVote', page: () => const CreateVotePage()),
+    GetPage(name: '/musicDetail', page: () => const MusicDetailPage()),
+    GetPage(name: '/popularSeries', page: () => const PopularSeriesPage()),
+    GetPage(name: '/popularPrecious', page: () => const PopularPreciousPage()),
+    GetPage(name: '/audio', page: () => const AudioPage()),
+    GetPage(name: '/mainReply', page: () => const MainReplyPage()),
+    GetPage(name: '/followed', page: () => const FollowedPage()),
+    GetPage(name: '/sameFollowing', page: () => const FollowSamePage()),
+    GetPage(name: '/download', page: () => const DownloadPage()),
+    GetPage(name: '/dlna', page: () => const DLNAPage()),
+    GetPage(name: '/myReply', page: () => const MyReply()),
+    GetPage(name: '/videoWeb', page: () => const MemberVideoWeb()),
+    GetPage(name: '/ssWeb', page: () => const MemberSSWeb()),
+    GetPage(name: '/memberGuard', page: () => const MemberGuard()),
+    GetPage(name: '/bubble', page: () => const BubblePage()),
+  ];
+}
+
+ succeeded in 1618ms:
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:PiliPlus/http/api.dart';
+import 'package:PiliPlus/http/constants.dart';
+import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/http/retry_interceptor.dart';
+import 'package:PiliPlus/http/user.dart';
+import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
+import 'package:PiliPlus/utils/accounts/account_manager/account_mgr.dart';
+import 'package:PiliPlus/utils/global_data.dart';
+import 'package:PiliPlus/utils/login_utils.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/utils.dart';
+import 'package:archive/archive.dart';
+import 'package:brotli/brotli.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
+import 'package:dio_http2_adapter/dio_http2_adapter.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, listEquals;
+
+class Request {
+  static const _gzipDecoder = GZipDecoder();
+  static const _brotliDecoder = BrotliDecoder();
+
+  static final Request _instance = Request._internal();
+  static late AccountManager accountManager;
+  static final _enableHttp2 = Pref.enableHttp2;
+  static late final Dio dio;
+  static Dio? _http11Dio;
+  static Dio get http11Dio =>
+      _http11Dio ??= _enableHttp2 ? _cloneHttp11Dio() : dio;
+  factory Request() => _instance;
+
+  /// 设置cookie
+  static void setCookie() {
+    accountManager = AccountManager();
+    dio.interceptors.add(accountManager);
+    Accounts.refresh();
+    LoginUtils.setAnonymousWebCookie();
+
+    if (Accounts.main.isLogin) {
+      final coin = Pref.userInfoCache?.money;
+      if (coin == null) {
+        setCoin();
+      } else {
+        GlobalData().coins = coin;
+      }
+    }
+  }
+
+  static Future<void> setCoin() async {
+    final res = await UserHttp.getCoin();
+    if (res case Success(:final response)) {
+      GlobalData().coins = response;
+    }
+  }
+
+  static Future<void> buvidActive(Account account) async {
+    // 这样线程不安全, 但仍按预期进行
+    if (account.activated) return;
+    account.activated = true;
+    try {
+      // final html = await Request().get(Api.dynamicSpmPrefix,
+      //     options: Options(extra: {'account': account}));
+      // final String spmPrefix = _spmPrefixExp.firstMatch(html.data)!.group(1)!;
+      final String randPngEnd = base64.encode([
+        ...Iterable<int>.generate(32, (_) => Utils.random.nextInt(256)),
+        0,
+        0,
+        0,
+        0,
+        73,
+        69,
+        78,
+        68,
+        ...Iterable<int>.generate(4, (_) => Utils.random.nextInt(256)),
+      ]);
+
+      final jsonData = json.encode({
+        '3064': 1,
+        '39c8': '333.1387.fp.risk',
+        '3c43': {
+          'adca': 'Linux',
+          'bfe9': randPngEnd.substring(randPngEnd.length - 50),
+        },
+      });
+
+      await Request().post(
+        Api.activateBuvidApi,
+        data: {'payload': jsonData},
+        options: Options(
+          extra: {'account': account},
+          contentType: Headers.jsonContentType,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  static Dio _cloneHttp11Dio() {
+    final h11 = dio.clone(
+      httpClientAdapter:
+          (dio.httpClientAdapter as Http2Adapter).fallbackAdapter,
+    );
+    final interceptors = h11.interceptors;
+    for (var i = 0; i < interceptors.length; i++) {
+      final elem = interceptors[i];
+      if (elem is RetryInterceptor) {
+        interceptors[i] = elem.copyWith(client: h11);
+        break;
+      }
+    }
+    return h11;
+  }
+
+  static Timer? _networkChangeDebounce;
+
+  static void _onConnectivityChanged(List<ConnectivityResult> result) {
+    if (listEquals(result, const [ConnectivityResult.none])) {
+      return;
+    }
+    _networkChangeDebounce?.cancel();
+    _networkChangeDebounce = Timer(
+      const Duration(milliseconds: 500),
+      _resetAdaptersForNetworkChange,
+    );
+  }
+
+  static void _watchConnectivity() {
+    Connectivity().onConnectivityChanged.skip(1).listen(_onConnectivityChanged);
+  }
+
+  static (IOHttpClientAdapter, ConnectionManager?) _createPool() {
+    final bool enableSystemProxy;
+    late final String systemProxyHost;
+    late final int? systemProxyPort;
+    if (Pref.enableSystemProxy) {
+      systemProxyHost = Pref.systemProxyHost;
+      systemProxyPort = int.tryParse(Pref.systemProxyPort);
+      enableSystemProxy = systemProxyPort != null && systemProxyHost.isNotEmpty;
+    } else {
+      enableSystemProxy = false;
+    }
+
+    final http11Adapter = IOHttpClientAdapter(
+      createHttpClient: enableSystemProxy
+          ? () => HttpClient()
+              ..idleTimeout = const Duration(seconds: 15)
+              ..autoUncompress = false
+              // certificates are still verified; only the separate
+              // badCertificateCallback setting (HttpOverrides) skips it
+              ..findProxy = ((_) => 'PROXY $systemProxyHost:$systemProxyPort')
+          : () => HttpClient()
+              ..idleTimeout = const Duration(seconds: 15)
+              ..autoUncompress = false, // Http2Adapter没有自动解压, 统一行为
+    );
+
+    final connectionManager = _enableHttp2
+        ? ConnectionManager(
+            idleTimeout: const Duration(seconds: 15),
+            onClientCreate: enableSystemProxy
+                ? (_, config) {
+                    config.proxy = Uri(
+                      scheme: 'http',
+                      host: systemProxyHost,
+                      port: systemProxyPort,
+                    );
+                    if (Pref.badCertificateCallback) {
+                      config.onBadCertificate = (_) => true;
+                    }
+                  }
+                : Pref.badCertificateCallback
+                ? (_, config) => config.onBadCertificate = (_) => true
+                : null,
+          )
+        : null;
+    return (http11Adapter, connectionManager);
+  }
+
+  @pragma('vm:notify-debugger-on-exception')
+  static void _resetAdaptersForNetworkChange() {
+    try {
+      final (h11, connectionManager) = _createPool();
+      if (connectionManager != null) {
+        (dio.httpClientAdapter as Http2Adapter)
+          ..connectionManager.close(force: true)
+          ..connectionManager = connectionManager
+          ..fallbackAdapter.close(force: true)
+          ..fallbackAdapter = h11;
+        _http11Dio?.httpClientAdapter = h11;
+      } else {
+        dio
+          ..httpClientAdapter.close(force: true)
+          ..httpClientAdapter = h11;
+      }
+    } catch (_) {}
+  }
+
+  /*
+   * config it and create
+   */
+  Request._internal() {
+    //BaseOptions、Options、RequestOptions 都可以配置参数，优先级别依次递增，且可以根据优先级别覆盖参数
+    BaseOptions options = BaseOptions(
+      //请求基地址,可以包含子路径
+      baseUrl: HttpString.apiBaseUrl,
+      //连接服务器超时时间，单位是毫秒.
+      connectTimeout: const Duration(milliseconds: 10000),
+      //响应流上前后两次接受到数据的间隔，单位为毫秒。
+      receiveTimeout: const Duration(milliseconds: 10000),
+      //Http请求头.
+      headers: {
+        'user-agent': 'Dart/3.6 (dart:io)', // Http2Adapter不会自动添加标头
+        if (!_enableHttp2) 'connection': 'keep-alive',
+        'accept-encoding': 'br,gzip',
+      },
+      responseDecoder: _responseDecoder, // Http2Adapter没有自动解压
+
+ succeeded in 1679ms:
+import 'package:PiliPlus/http/constants.dart';
+
+abstract final class Api {
+  // 推荐视频
+  static const String recommendListApp =
+      '${HttpString.appBaseUrl}/x/v2/feed/index';
+  static const String recommendListWeb =
+      '/x/web-interface/wbi/index/top/feed/rcmd';
+
+  // APP端不感兴趣、取消不感兴趣
+  static const String feedDislike = '${HttpString.appBaseUrl}/x/feed/dislike';
+  static const String feedDislikeCancel =
+      '${HttpString.appBaseUrl}/x/feed/dislike/cancel';
+
+  // 热门视频
+  static const String hotList = '/x/web-interface/popular';
+
+  // 视频流
+  // https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/video/videostream_url.md
+  static const String ugcUrl = '/x/player/wbi/playurl';
+
+  // 番剧视频流
+  // https://api.bilibili.com/pgc/player/web/v2/playurl?cid=104236640&bvid=BV13t411n7ex
+  static const String pgcUrl = '/pgc/player/web/v2/playurl';
+
+  static const String pugvUrl = '/pugv/player/web/playurl';
+
+  static const String tvPlayUrl = '/x/tv/playurl';
+
+  // 字幕
+  // aid, cid
+  static const String playInfo = '/x/player/wbi/v2';
+
+  // 视频详情
+  // 竖屏 https://api.bilibili.com/x/web-interface/view?aid=527403921
+  // https://api.bilibili.com/x/web-interface/view/detail  获取视频超详细信息(web端)
+  static const String videoIntro = '/x/web-interface/wbi/view';
+  // 视频详情 超详细
+  // https://api.bilibili.com/x/web-interface/view/detail?aid=527403921
+
+  /// https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/video/action.md
+  // 点赞 Post
+  /// aid	num	稿件avid	必要（可选）	avid与bvid任选一个
+  /// bvid	str	稿件bvid	必要（可选）	avid与bvid任选一个
+  /// like	num	操作方式	必要	1：点赞 2：取消赞
+  // csrf	str	CSRF Token（位于cookie）	必要
+  // https://api.bilibili.com/x/web-interface/archive/like
+  // static const String likeVideo = '/x/web-interface/archive/like';
+
+  // 改用app端点赞接口
+  static const String likeVideo = '${HttpString.appBaseUrl}/x/v2/view/like';
+  //判断视频是否被点赞（双端）Get
+  // access_key	str	APP登录Token	APP方式必要
+  /// aid	num	稿件avid	必要（可选）	avid与bvid任选一个
+  /// bvid	str	稿件bvid	必要（可选）	avid与bvid任选一个
+  // https://api.bilibili.com/x/web-interface/archive/has/like
+  // static const String hasLikeVideo = '/x/web-interface/archive/has/like';
+
+  static const String pgcLikeCoinFav = '/pgc/season/episode/community';
+
+  // 视频点踩 web端不支持
+
+  // 点踩 Post(app端)
+  /// access_key str	APP登录Token 必要
+  /// aid num	稿件avid	必要
+  ///
+  static const String dislikeVideo =
+      '${HttpString.appBaseUrl}/x/v2/view/dislike';
+
+  // 投币视频（web端）POST
+  /// aid	num	稿件avid	必要（可选）	avid与bvid任选一个
+  /// bvid	str	稿件bvid	必要（可选）	avid与bvid任选一个
+  /// multiply	num	投币数量	必要	上限为2
+  /// select_like	num	是否附加点赞	非必要	0：不点赞 1：同时点赞 默认为0
+  // csrf	str	CSRF Token（位于cookie）	必要
+  // https://api.bilibili.com/x/web-interface/coin/add
+  // static const String coinVideo = '/x/web-interface/coin/add';
+
+  // 改用app端投币接口
+  static const String coinVideo = '${HttpString.appBaseUrl}/x/v2/view/coin/add';
+
+  // 判断视频是否被投币（双端）GET
+  // access_key	str	APP登录Token	APP方式必要
+  /// aid	num	稿件avid	必要（可选）	avid与bvid任选一个
+  /// bvid	str	稿件bvid	必要（可选）	avid与bvid任选一个
+  /// https://api.bilibili.com/x/web-interface/archive/coins
+  // static const String hasCoinVideo = '/x/web-interface/archive/coins';
+
+  /// 收藏夹 详情
+  /// media_id  当前收藏夹id 搜索全部时为默认收藏夹id
+  /// pn int 当前页
+  /// ps int pageSize
+  /// keyword String 搜索词
+  /// order String 排序方式 view 最多播放 mtime 最近收藏 pubtime 最近投稿
+  /// tid int 分区id
+  /// platform web
+  /// type 0 当前收藏夹 1 全部收藏夹
+  // https://api.bilibili.com/x/v3/fav/resource/list?media_id=76614671&pn=1&ps=20&keyword=&order=mtime&type=0&tid=0
+  static const String favResourceList = '/x/v3/fav/resource/list';
+
+  // 收藏视频（双端）POST
+  // access_key	str	APP登录Token	APP方式必要
+  /// rid	num	稿件avid	必要
+  /// type	num	必须为2	必要
+  /// add_media_ids	nums	需要加入的收藏夹mlid	非必要	同时添加多个，用,（%2C）分隔
+  /// del_media_ids	nums	需要取消的收藏夹mlid	非必要	同时取消多个，用,（%2C）分隔
+  // csrf	str	CSRF Token（位于cookie）	Cookie方式必要
+  // https://api.bilibili.com/medialist/gateway/coll/resource/deal
+  // https://api.bilibili.com/x/v3/fav/resource/deal
+  static const String favVideo = '/x/v3/fav/resource/batch-deal';
+
+  static const String unfavAll = '/x/v3/fav/resource/unfav-all';
+
+  static const String copyFav = '/x/v3/fav/resource/copy';
+
+  static const String moveFav = '/x/v3/fav/resource/move';
+
+  static const String cleanFav = '/x/v3/fav/resource/clean';
+
+  static const String sortFav = '/x/v3/fav/resource/sort';
+
+  static const String sortFavFolder = '/x/v3/fav/folder/sort';
+
+  // 判断视频是否被收藏（双端）GET
+  /// aid
+  // https://api.bilibili.com/x/v2/fav/video/favoured
+  // static const String hasFavVideo = '/x/v2/fav/video/favoured';
+
+  // 分享视频 （Web端） POST
+  // https://api.bilibili.com/x/web-interface/share/add
+  // aid	num	稿件avid	必要（可选）	avid与bvid任选一个
+  // bvid	str	稿件bvid	必要（可选）	avid与bvid任选一个
+  // csrf	str	CSRF Token（位于cookie）	必要
+
+  // 一键三连
+  // https://api.bilibili.com/x/web-interface/archive/like/triple
+  // aid	num	稿件avid	必要（可选）	avid与bvid任选一个
+  // bvid	str	稿件bvid	必要（可选）	avid与bvid任选一个
+  // csrf	str	CSRF Token（位于cookie）	必要
+  static const String ugcTriple = '/x/web-interface/archive/like/triple';
+
+  static const String pgcTriple = '/pgc/season/episode/like/triple';
+
+  // 获取指定用户创建的所有收藏夹信息
+  // 该接口也能查询目标内容id存在于那些收藏夹中
+  // up_mid	num	目标用户mid	必要
+  // type	num	目标内容属性	非必要	默认为全部 0：全部 2：视频稿件
+  // rid	num	目标 视频稿件avid
+  static const String favFolder = '/x/v3/fav/folder/created/list-all';
+
+  static const String copyToview = '/x/v2/history/toview/copy';
+
+  static const String moveToview = '/x/v2/history/toview/move';
+
+  // 视频详情页 相关视频
+  static const String relatedList = '/x/web-interface/archive/related';
+
+  // 查询用户与自己关系_仅查关注
+  static const String relation = '/x/relation';
+
+  static const String relations = '/x/relation/relations';
+
+  // 互相关系查询（be_relation: 对方是否关注自己）
+  static const String mutualRelation = '/x/space/acc/relation';
+
+  // 操作用户关系
+  static const String relationMod = '/x/relation/modify';
+
+  // 相互关系查询 // 失效
+  // static const String relationSearch = '/x/space/wbi/acc/relation';
+
+  // 评论列表
+  // https://api.bilibili.com/x/v2/reply/main?csrf=6e22efc1a47225ea25f901f922b5cfdd&mode=3&oid=254175381&pagination_str=%7B%22offset%22:%22%22%7D&plat=1&seek_rpid=0&type=11
+  static const String replyList = '/x/v2/reply';
+
+  // 楼中楼
+  static const String replyReplyList = '/x/v2/reply/reply';
+
+  // 评论点赞
+  static const String likeReply = '/x/v2/reply/action';
+
+codex
+**Project Purpose** — PiliPlus is a Flutter-based third-party Bilibili client supporting video playback, comments, login/account features, downloads, live/dynamic content, settings, and multi-platform builds.
+
+**Top-Level Structure** — Main areas are `lib/` for app code, `android/ios/windows/linux/macos/` for platform shells, `assets/` for images/resources, `test/` for tests, and root config files like `pubspec.yaml` and `analysis_options.yaml`.
+
+**Key Modules Relevant To The Audit** — Likely central files include [lib/main.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/main.dart) for startup/service initialization, [lib/router/app_pages.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/router/app_pages.dart) for GetX routing, [lib/http/init.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/http/init.dart) for Dio/client/cookie/proxy setup, [lib/http/api.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/http/api.dart) for Bilibili endpoint constants, plus `lib/pages/`, `lib/services/`, `lib/utils/`, `lib/models/`, and `lib/plugin/pl_player/` for feature-specific behavior.
+
+[warmup-complete]
+tokens used
+17,795
+**Project Purpose** — PiliPlus is a Flutter-based third-party Bilibili client supporting video playback, comments, login/account features, downloads, live/dynamic content, settings, and multi-platform builds.
+
+**Top-Level Structure** — Main areas are `lib/` for app code, `android/ios/windows/linux/macos/` for platform shells, `assets/` for images/resources, `test/` for tests, and root config files like `pubspec.yaml` and `analysis_options.yaml`.
+
+**Key Modules Relevant To The Audit** — Likely central files include [lib/main.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/main.dart) for startup/service initialization, [lib/router/app_pages.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/router/app_pages.dart) for GetX routing, [lib/http/init.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/http/init.dart) for Dio/client/cookie/proxy setup, [lib/http/api.dart](C:/Users/Z14/Documents/Coding/Piliplus/lib/http/api.dart) for Bilibili endpoint constants, plus `lib/pages/`, `lib/services/`, `lib/utils/`, `lib/models/`, and `lib/plugin/pl_player/` for feature-specific behavior.
+
+[warmup-complete]
+[dispatch:sid] 01a0bbb9-5a94-7993-ab8a-55af5547923f

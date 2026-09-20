@@ -244,7 +244,9 @@ class LiveMessageStream {
             f(msgBody);
           }
         }
-        if (subHeader.totalSize < data.length) {
+        // a totalSize of 0 (or below the header) would slice the same buffer
+        // again and recurse until the stack dies
+        if (subHeader.totalSize >= 16 && subHeader.totalSize < data.length) {
           _processingData(Uint8List.sublistView(data, subHeader.totalSize));
         }
       }

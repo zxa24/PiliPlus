@@ -90,8 +90,17 @@ abstract final class WbiSign {
             Utils.getFileName(wbiUrls['sub_url'], fileExt: false),
       );
 
-      _localCache.put(LocalCacheKey.mixinKey, mixinKey);
+      // the "refreshed today" mark is only written here, on success: a failed
+      // fetch must not make the rest of the day serve yesterday's key
+      await Future.wait([
+        _localCache.put(LocalCacheKey.mixinKey, mixinKey),
+        _localCache.put(
+          LocalCacheKey.timeStamp,
+          DateTime.now().millisecondsSinceEpoch,
+        ),
+      ]);
 
+      _future = null;
       return mixinKey;
     } catch (_) {
       // do not keep the failed result: the next call fetches again
@@ -105,17 +114,15 @@ abstract final class WbiSign {
     final lastDate = DateTime.fromMillisecondsSinceEpoch(
       _localCache.get(LocalCacheKey.timeStamp, defaultValue: 0) as int,
     );
+    // the timestamp is stamped by [_getWbiKeys] on success only, so a key
+    // dated today is a key that was actually fetched today
     if (lastDate.year == nowDate.year &&
         lastDate.month == nowDate.month &&
         lastDate.day == nowDate.day) {
       final String? mixinKey = _localCache.get(LocalCacheKey.mixinKey);
       if (mixinKey != null) return mixinKey;
-      return _future ??= _getWbiKeys();
-    } else {
-      return _future = _localCache
-          .put(LocalCacheKey.timeStamp, nowDate.millisecondsSinceEpoch)
-          .then((_) => _getWbiKeys());
     }
+    return _future ??= _getWbiKeys();
   }
 
   static Future<Map<String, Object>> makSign(

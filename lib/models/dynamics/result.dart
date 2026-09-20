@@ -43,7 +43,10 @@ class DynamicsDataModel {
     Pref.banWordForDyn,
     caseSensitive: false,
   );
-  static bool enableFilter = banWordForDyn.pattern.isNotEmpty;
+  // a pattern matching the empty string (a stray `|`) would filter out
+  // everything: treat it as no filter
+  static bool enableFilter =
+      banWordForDyn.pattern.isNotEmpty && !banWordForDyn.hasMatch('');
 
   static bool antiGoodsDyn = Pref.antiGoodsDyn;
 

@@ -1,0 +1,7 @@
+[Resume — your refinement turn was killed by the OS (low memory) before you reported]
+
+The five batch-A PARTIALs from the previous message (A2 launchURL scheme gate, A12 Linux anonymous jar on logout, A30 block-server matching, A31 handler.next, A37 refresh coalescing) were being worked on when the process was killed. `git diff` shows edits already exist in: lib/utils/page_utils.dart, lib/utils/login_utils.dart, lib/utils/accounts/account_manager/account_mgr.dart, lib/http/retry_interceptor.dart, lib/pages/common/common_list_controller.dart.
+
+Inspect `git diff` for those files, work out which of the five are done, half-done or not started, finish all five as specified, and make sure nothing is left inconsistent. Keep memory use modest: no whole-disk searches, no sub-agents, run the test suite once at the end.
+
+Then run `dart analyze lib test` (exit 0) and `flutter test`; report per item what you changed (mark killed-turn vs now), diff summary, uncertainties and the TEST RESULTS block.

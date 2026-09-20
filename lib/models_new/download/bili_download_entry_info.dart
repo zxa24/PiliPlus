@@ -177,8 +177,8 @@ class BiliDownloadEntryInfo with MultiSelectData {
 
   factory BiliDownloadEntryInfo.fromJson(Map<String, dynamic> json) =>
       BiliDownloadEntryInfo(
-        mediaType: json['media_type'] as int,
-        hasDashAudio: json['has_dash_audio'] as bool,
+        mediaType: json['media_type'] as int? ?? 1,
+        hasDashAudio: json['has_dash_audio'] as bool? ?? false,
         isCompleted: json['is_completed'] as bool,
         totalBytes: json['total_bytes'] as int,
         downloadedBytes: json['downloaded_bytes'] as int,
@@ -187,15 +187,16 @@ class BiliDownloadEntryInfo with MultiSelectData {
         cover: json['cover'] as String,
         videoQuality: json['video_quality'] as int?,
         preferedVideoQuality: json['prefered_video_quality'] as int,
-        qualityPithyDescription: json['quality_pithy_description'] as String,
+        qualityPithyDescription:
+            json['quality_pithy_description'] as String? ?? '',
         guessedTotalBytes: json['guessed_total_bytes'] as int,
         totalTimeMilli: json['total_time_milli'] as int,
         danmakuCount: json['danmaku_count'] as int,
-        timeUpdateStamp: json['time_update_stamp'] as int,
-        timeCreateStamp: json['time_create_stamp'] as int,
-        canPlayInAdvance: json['can_play_in_advance'] as bool,
+        timeUpdateStamp: json['time_update_stamp'] as int? ?? 0,
+        timeCreateStamp: json['time_create_stamp'] as int? ?? 0,
+        canPlayInAdvance: json['can_play_in_advance'] as bool? ?? false,
         interruptTransformTempFile:
-            json['interrupt_transform_temp_file'] as bool,
+            json['interrupt_transform_temp_file'] as bool? ?? false,
         avid: json['avid'] as int,
         spid: json['spid'] as int?,
         bvid: json['bvid'] as String,
@@ -301,9 +302,9 @@ class PageInfo {
     vid: json['vid'] as String?,
     hasAlias: json['has_alias'] as bool,
     tid: json['tid'] as int,
-    width: json['width'] as int,
-    height: json['height'] as int,
-    rotate: json['rotate'] as int,
+    width: json['width'] as int? ?? 0,
+    height: json['height'] as int? ?? 0,
+    rotate: json['rotate'] as int? ?? 0,
     downloadTitle: json['download_title'] as String?,
     downloadSubtitle: json['download_subtitle'] as String?,
   );
@@ -395,9 +396,9 @@ class EpInfo {
     width: json['width'] as int,
     height: json['height'] as int,
     rotate: json['rotate'] as int,
-    link: json['link'] as String,
-    bvid: json['bvid'] as String,
-    sortIndex: json['sort_index'] as int,
+    link: json['link'] as String? ?? '',
+    bvid: json['bvid'] as String? ?? '',
+    sortIndex: json['sort_index'] as int? ?? 0,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{

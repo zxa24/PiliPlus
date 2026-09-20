@@ -22,6 +22,7 @@ import java.io.FileNotFoundException
 /// https://github.com/BiliRoamingX/BiliRoamingX
 class BiliDocumentsProvider : DocumentsProvider() {
     private var packageName: String = ""
+    private var authority: String = ""
     private var dataDir: File? = null
     private var deDataDir: File? = null
     private var exDataDir: File? = null
@@ -54,6 +55,7 @@ class BiliDocumentsProvider : DocumentsProvider() {
     override fun attachInfo(context: Context, info: ProviderInfo?) {
         super.attachInfo(context, info)
         this.packageName = context.packageName
+        this.authority = info?.authority.orEmpty()
         val dir = context.filesDir.parentFile
         this.dataDir = dir
         val dirPath = dir?.path.orEmpty()
@@ -189,15 +191,20 @@ class BiliDocumentsProvider : DocumentsProvider() {
         val superResult = super.call(method, arg, extras)
         if (superResult != null || !method.startsWith("mt:") || extras == null)
             return superResult
-        // call() is not covered by the provider permission: require the
-        // caller to hold a write grant for the uri (and the uri's tree)
+        // call() is not covered by the provider permission: require the uri
+        // to be one of ours and the caller to hold a write grant for it (and
+        // for the uri's tree). Without the authority check any grantable uri
+        // shaped `/document/<id>` would do, whoever it belongs to.
         val documentId = extras.parcelable<Uri>("uri")?.takeIf {
-            context!!.checkCallingOrSelfUriPermission(
-                it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            ) == PackageManager.PERMISSION_GRANTED
+            it.authority == authority && authority.isNotEmpty() &&
+                    context!!.checkCallingOrSelfUriPermission(
+                        it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    ) == PackageManager.PERMISSION_GRANTED
         }?.let {
             val id = DocumentsContract.getDocumentId(it)
-            if (DocumentsContract.isTreeUri(it) &&
+            // the documentId must resolve under this provider's root
+            if (!isChildDocument(packageName, id)) null
+            else if (DocumentsContract.isTreeUri(it) &&
                 !isChildDocument(DocumentsContract.getTreeDocumentId(it), id)
             ) null else id
         } ?: return Bundle().apply {

@@ -1,0 +1,18 @@
+[Audit task — repo summary already established in your prior turn]
+
+Review the whole codebase at HEAD of branch librepili (a privacy-first fork of PiliPlus renamed LibrePili). Upstream code is in scope.
+
+User's original audit request (verbatim, Chinese): "做5轮审计，第1-2轮聚焦fork后的更改，之后全局" (5 audit rounds; rounds 1-2 focus on the changes made after the fork, later rounds are global). This is round 4 — a global audit of the whole codebase at HEAD of branch librepili. Rounds 1-3 already fixed 100+ findings (the three audit commits in git log); do not re-report what they fixed.
+
+Output your findings in the standard codex-review format:
+
+  - [P<n>] <short title> — <file>:<startline>-<endline>
+    <2-4 line description, explaining the issue and what would fix it>
+
+Use:
+  - P0 for security holes / data loss
+  - P1 for actionable critical issues
+  - P2 for meaningful problems but not blockers
+  - P3 for nits / hardening / style
+
+Top the findings list with a 1-paragraph narrative summary of the state of the codebase and what (if anything) is wrong with it overall. If you find no issues at any priority, say so explicitly with one short paragraph of justification.

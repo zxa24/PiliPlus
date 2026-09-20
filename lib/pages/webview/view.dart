@@ -218,7 +218,10 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
   void initState() {
     super.initState();
     final parameters = Get.parameters;
-    _url = (widget.url ?? parameters['url']!).http2https;
+    final url = (widget.url ?? parameters['url']!).http2https;
+    // a route url can come from a deep link: only http(s) may be rendered,
+    // never file: / content: (app-private files) or javascript:
+    _url = url.isHttpUrl ? url : 'about:blank';
     _title = _url.obs;
     userAgent = switch (parameters['uaType']) {
       'pc' => BrowserUa.pc,

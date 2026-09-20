@@ -24,8 +24,37 @@ abstract class CommonListController<R, T> extends CommonController<R, T> {
   // the new list nor advance [page]
   int _generation = 0;
 
+  // A refresh already in flight is shared instead of raced: a fast second
+  // pull would otherwise send a second request only to throw one away.
+  // [_generation] still drops a stale response when a new request *is* made.
+  Future<void>? _refreshing;
+
+  // Set by [markRefreshStale]: the request parameters changed, so attaching
+  // to the refresh in flight would answer with data fetched for the old ones.
+  bool _refreshIsStale = false;
+
+  /// Call before [onRefresh] when the next request differs from the one that
+  /// may still be in flight (a new search keyword, a sort order, a different
+  /// account): that one must not be attached to, it is answering the old
+  /// parameters. [onReload] does this itself.
+  void markRefreshStale() => _refreshIsStale = true;
+
   @override
-  Future<void> queryData([bool isRefresh = true]) async {
+  Future<void> queryData([bool isRefresh = true]) {
+    if (!isRefresh) return _queryData(false);
+    final stale = _refreshIsStale;
+    _refreshIsStale = false;
+    final refreshing = _refreshing;
+    if (!stale && refreshing != null) return refreshing;
+    final future = _queryData(true);
+    _refreshing = future;
+    return future.whenComplete(() {
+      // a stale refresh that replaced this one owns the slot now
+      if (identical(_refreshing, future)) _refreshing = null;
+    });
+  }
+
+  Future<void> _queryData(bool isRefresh) async {
     if (!isRefresh && (isLoading || isEnd)) return;
     final generation = isRefresh ? ++_generation : _generation;
     isLoading = true;
@@ -72,6 +101,7 @@ abstract class CommonListController<R, T> extends CommonController<R, T> {
 
   @override
   Future<void> onReload() {
+    markRefreshStale();
     loadingState.value = LoadingState<List<T>?>.loading();
     return super.onReload();
   }

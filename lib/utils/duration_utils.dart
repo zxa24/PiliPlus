@@ -22,7 +22,13 @@ abstract final class DurationUtils {
     if (data == null || data.isEmpty) {
       return 0;
     }
-    List<int> split = data.split(_splitRegex).reversed.map(int.parse).toList();
+    // a part too large to parse counts as 0 instead of throwing: this also
+    // runs on text from danmaku / subtitles
+    List<int> split = data
+        .split(_splitRegex)
+        .reversed
+        .map((e) => int.tryParse(e) ?? 0)
+        .toList();
     int duration = 0;
     for (int i = 0; i < split.length; i++) {
       duration += split[i] * pow(60, i).toInt();

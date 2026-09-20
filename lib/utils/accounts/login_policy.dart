@@ -74,11 +74,15 @@ abstract final class LoginPolicy {
     Api.recommendListWeb,
     Api.feedDislike,
     Api.feedDislikeCancel,
+    // 直播「不感兴趣」: signed with the recommend role's access_key
+    Api.liveFeedback,
   };
 
   static const Set<String> _grpcAccountApis = {
     GrpcUrl.dynRed,
     GrpcUrl.audioPlayUrl,
+    // 听视频 of a favourite folder / watch later: account-scoped lists
+    GrpcUrl.audioPlayList,
     GrpcUrl.audioThumbUp,
     GrpcUrl.audioTripleLike,
     GrpcUrl.audioCoinAdd,
@@ -117,6 +121,12 @@ abstract final class LoginPolicy {
     }
     return account;
   }
+
+  /// Whether [path] is on the lists that may carry the account. For the
+  /// settings UI: the per-request checks in [requiresAccount] (csrf writes,
+  /// own-mid reads) can still attach the account to a path not listed here.
+  static bool isAccountPath(String path) =>
+      _accountApis.contains(path) || _recommendApis.contains(path);
 
   /// Whether [options] may carry the logged-in account. False means it is
   /// sent anonymously even in login mode.

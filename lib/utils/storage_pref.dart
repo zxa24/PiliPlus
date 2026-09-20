@@ -324,7 +324,7 @@ abstract final class Pref {
     String? blockUserID = _setting.get(SettingBoxKey.blockUserID);
     if (blockUserID == null || blockUserID.isEmpty) {
       blockUserID = Digest(
-        List.generate(16, (_) => Utils.random.nextInt(256)),
+        List.generate(16, (_) => Utils.secureRandom.nextInt(256)),
       ).toString();
       _setting.put(SettingBoxKey.blockUserID, blockUserID);
     }

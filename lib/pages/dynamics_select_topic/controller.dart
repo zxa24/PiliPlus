@@ -28,6 +28,14 @@ class SelectTopicController
   }
 
   @override
+  Future<void> onRefresh() {
+    // [customGetData] reads the live keyword: a refresh in flight is for the
+    // previous one, so it must not be attached to
+    markRefreshStale();
+    return super.onRefresh();
+  }
+
+  @override
   Future<LoadingState<TopicPubSearchData>> customGetData() =>
       SearchHttp.topicPubSearch(
         keywords: controller.text,

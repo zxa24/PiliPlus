@@ -237,8 +237,22 @@ class MainActivity : AudioServiceActivity() {
                 file.parentFile?.mkdirs()
                 contentResolver.openInputStream(Uri.parse(from))?.use { input ->
                     part.outputStream().use { input.copyTo(it) }
-                    file.delete()
-                    if (part.renameTo(file)) copied++
+                    // replace, never delete first: a rename that fails must
+                    // not lose the old copy as well as the new one
+                    if (part.renameTo(file)) {
+                        copied++
+                    } else {
+                        val old = File("$to.old")
+                        old.delete()
+                        if (!file.exists() || file.renameTo(old)) {
+                            if (part.renameTo(file)) {
+                                copied++
+                                old.delete()
+                            } else if (old.exists()) {
+                                old.renameTo(file)
+                            }
+                        }
+                    }
                 }
             } catch (_: Exception) {
                 // best-effort: a missing side file only loses that extra

@@ -19,6 +19,9 @@ abstract class CommonSearchController<R, T> extends CommonListController<R, T> {
     if (editController.value.text.isEmpty) {
       return Future.syncValue(null);
     }
+    // the keyword can have changed since a refresh started (submitting a new
+    // query calls this): that one is searching for the old one
+    markRefreshStale();
     return super.onRefresh();
   }
 

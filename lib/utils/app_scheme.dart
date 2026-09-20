@@ -20,6 +20,7 @@ import 'package:PiliPlus/pages/rank/view.dart';
 import 'package:PiliPlus/pages/subscription_detail/view.dart';
 import 'package:PiliPlus/pages/video/reply_reply/view.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/parse_string.dart';
@@ -197,9 +198,10 @@ abstract final class PiliScheme {
               // to video reply
               String? oid = uriDigitRegExp.firstMatch(path)?.group(1);
               int? rpid = int.tryParse(queryParameters['comment_root_id']!);
-              if (oid != null && rpid != null) {
+              final oidVal = oid != null ? int.tryParse(oid) : null;
+              if (oidVal != null && rpid != null) {
                 VideoReplyReplyPanel.toReply(
-                  oid: int.parse(oid),
+                  oid: oidVal,
                   rootId: rpid,
                   rpIdStr: queryParameters['comment_secondary_id'],
                   type: 1,
@@ -212,21 +214,22 @@ abstract final class PiliScheme {
 
             // to video
             // bilibili://video/12345678?page=0&h5awaken=random
-            String? aid = uriDigitRegExp.firstMatch(path)?.group(1);
+            String? aidStr = uriDigitRegExp.firstMatch(path)?.group(1);
             String? bvid = IdUtils.bvRegex.firstMatch(path)?.group(0);
+            final aid = aidStr != null ? int.tryParse(aidStr) : null;
             if (aid != null || bvid != null) {
-              final cid = queryParameters['cid'];
+              final cid = int.tryParse(queryParameters['cid'] ?? '');
               if (cid != null) {
-                bvid ??= IdUtils.av2bv(int.parse(aid!));
+                bvid ??= IdUtils.av2bv(aid!);
                 PageUtils.toVideoPage(
                   bvid: bvid,
-                  cid: int.parse(cid),
+                  cid: cid,
                   progress: _videoProgress(queryParameters),
                   off: off,
                 );
               } else {
                 videoPush(
-                  aid != null ? int.parse(aid) : null,
+                  aid,
                   bvid,
                   off: off,
                   progress: _videoProgress(queryParameters),
@@ -237,9 +240,11 @@ abstract final class PiliScheme {
             return false;
           case 'live':
             // bilibili://live/12345678?extra_jump_from=1&from=1&is_room_feed=1&h5awaken=random
-            String? roomId = uriDigitRegExp.firstMatch(path)?.group(1);
+            final roomId = int.tryParse(
+              uriDigitRegExp.firstMatch(path)?.group(1) ?? '',
+            );
             if (roomId != null) {
-              PageUtils.toLiveRoom(int.parse(roomId), off: off);
+              PageUtils.toLiveRoom(roomId, off: off);
               return true;
             }
             return false;
@@ -290,12 +295,15 @@ abstract final class PiliScheme {
               // bilibili://comment/msg_fold/11/22222/33333/11111/?enterUri=bilibili://following/detail/44444 (dynId)
               final pathSegments = uri.pathSegments;
               final queryParameters = uri.queryParameters;
-              final type = int.parse(pathSegments[1]); // business_id
-              final oid = int.parse(pathSegments[2]); // subject_id
-              final rootId = int.parse(pathSegments[3]); // root_id // target_id
+              if (pathSegments.length < 4) return false;
+              final type = int.tryParse(pathSegments[1]); // business_id
+              final oid = int.tryParse(pathSegments[2]); // subject_id
+              // root_id // target_id
+              final rootId = int.tryParse(pathSegments[3]);
               // int subType = int.parse(queryParameters['subType'] ?? '0');
               // int extraIntentId =
               // int.parse(queryParameters['extraIntentId'] ?? '0');
+              if (type == null || oid == null || rootId == null) return false;
               final enterUri = queryParameters['enterUri'];
               VideoReplyReplyPanel.toReply(
                 oid: oid,
@@ -340,11 +348,13 @@ abstract final class PiliScheme {
               final queryParameters = uri.queryParameters;
               final commentRootId = queryParameters['comment_root_id'];
               if (commentRootId != null) {
-                String? dynId = uriDigitRegExp.firstMatch(path)?.group(1);
+                final dynId = int.tryParse(
+                  uriDigitRegExp.firstMatch(path)?.group(1) ?? '',
+                );
                 int? rpid = int.tryParse(commentRootId);
-                if (dynId != null && rpid != null) {
+                if ((oid ?? dynId) case final oidVal? when rpid != null) {
                   VideoReplyReplyPanel.toReply(
-                    oid: oid ?? int.parse(dynId),
+                    oid: oidVal,
                     rootId: rpid,
                     rpIdStr: queryParameters['comment_secondary_id'],
                     type: businessId ?? 17,
@@ -475,11 +485,12 @@ abstract final class PiliScheme {
           parameters: parameters,
         );
       default:
-        final aid = IdUtils.avRegexExact.matchAsPrefix(path)?.group(1);
+        final aidStr = IdUtils.avRegexExact.matchAsPrefix(path)?.group(1);
         final bvid = IdUtils.bvRegexExact.matchAsPrefix(path)?.group(0);
+        final aid = aidStr != null ? int.tryParse(aidStr) : null;
         if (aid != null || bvid != null) {
           videoPush(
-            aid != null ? int.parse(aid) : null,
+            aid,
             bvid,
             off: off,
           );
@@ -559,9 +570,11 @@ abstract final class PiliScheme {
       launchURL();
       return false;
     } else if (host.contains(bilibili_live)) {
-      String? roomId = uriDigitRegExp.firstMatch(path)?.group(1);
+      final roomId = int.tryParse(
+        uriDigitRegExp.firstMatch(path)?.group(1) ?? '',
+      );
       if (roomId != null) {
-        PageUtils.toLiveRoom(int.parse(roomId), off: off);
+        PageUtils.toLiveRoom(roomId, off: off);
         return true;
       }
       launchURL();
@@ -602,8 +615,8 @@ abstract final class PiliScheme {
       final sid =
           queryParameters['sid'] ??
           RegExp(r'lists/(\d+)').firstMatch(path)?.group(1);
-      if (sid != null) {
-        SubDetailPage.toSubDetailPage(int.parse(sid));
+      if (int.tryParse(sid ?? '') case final sidVal?) {
+        SubDetailPage.toSubDetailPage(sidVal);
         return true;
       }
 
@@ -731,10 +744,13 @@ abstract final class PiliScheme {
           final queryParameters = uri.queryParameters;
           final rootIdStr = queryParameters['comment_root_id'];
           final part = queryParameters['p'];
-          if (rootIdStr != null) {
+          final oid =
+              res.av ?? (res.bv != null ? IdUtils.bv2avOrNull(res.bv!) : null);
+          final rootId = int.tryParse(rootIdStr ?? '');
+          if (oid != null && rootId != null) {
             VideoReplyReplyPanel.toReply(
-              oid: res.av ?? IdUtils.bv2av(res.bv!),
-              rootId: int.parse(rootIdStr),
+              oid: oid,
+              rootId: rootId,
               rpIdStr: queryParameters['comment_secondary_id'],
               type: 1,
               uri: uri.replace(query: part != null ? 'p=$part' : ''),
@@ -830,14 +846,15 @@ abstract final class PiliScheme {
         // https://www.bilibili.com/h5/comment/sub?oid=123456&pageType=1&root=87654321
         final queryParameters = uri.queryParameters;
         final oid = queryParameters['oid'];
-        final root = queryParameters['root'];
-        final pageType = queryParameters['pageType'];
-        if (oid != null && root != null && pageType != null) {
+        final oidVal = int.tryParse(oid ?? '');
+        final root = int.tryParse(queryParameters['root'] ?? '');
+        final pageType = int.tryParse(queryParameters['pageType'] ?? '');
+        if (oidVal != null && root != null && pageType != null) {
           VideoReplyReplyPanel.toReply(
-            oid: int.parse(oid),
-            rootId: int.parse(root),
+            oid: oidVal,
+            rootId: root,
             rpIdStr: queryParameters['comment_secondary_id'],
-            type: int.parse(pageType),
+            type: pageType,
             uri: Uri(scheme: 'bilibili', host: 'video', path: oid),
           );
           return true;
@@ -873,10 +890,10 @@ abstract final class PiliScheme {
           r'/au(\d+)',
           caseSensitive: false,
         ).firstMatch(path)?.group(1);
-        if (oid != null) {
+        if (int.tryParse(oid ?? '') case final oidVal?) {
           AudioPage.toAudioPage(
             itemType: 3,
-            oid: int.parse(oid),
+            oid: oidVal,
             from: PlaylistSource.AUDIO_CARD,
           );
           return true;
@@ -926,6 +943,11 @@ abstract final class PiliScheme {
     bool off,
     Map? parameters,
   ) {
+    // `bilibili://browser/?url=…` is attacker-controlled: only http(s) may
+    // reach the WebView, never file: / content: / javascript:
+    if (!url.http2https.isHttpUrl) {
+      return;
+    }
     PageUtils.toDupNamed(
       '/webview',
       parameters: {

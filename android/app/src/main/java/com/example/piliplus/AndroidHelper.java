@@ -313,10 +313,14 @@ public final class AndroidHelper {
             Context context = getContext();
             ShortcutManager shortcutManager = context.getSystemService(ShortcutManager.class);
             if (shortcutManager != null && shortcutManager.isRequestPinShortcutSupported()) {
+                // the cached avatar can be missing / corrupt / not an image
                 Bitmap bitmap = BitmapFactory.decodeFile(icon);
+                Icon shortcutIcon = bitmap != null
+                        ? Icon.createWithAdaptiveBitmap(bitmap)
+                        : Icon.createWithResource(context, R.mipmap.ic_launcher);
                 ShortcutInfo shortcut = new ShortcutInfo.Builder(context, id)
                         .setShortLabel(label)
-                        .setIcon(Icon.createWithAdaptiveBitmap(bitmap))
+                        .setIcon(shortcutIcon)
                         .setIntent(new Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
                         .build();
                 // TODO: WorkerThread

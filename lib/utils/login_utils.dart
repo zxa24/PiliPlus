@@ -47,6 +47,11 @@ abstract final class LoginUtils {
   /// anonymous jar; account cookies go in only for explicit account flows
   /// (the "reset cookie" menu, taking notes).
   static FutureOr setAnonymousWebCookie() async {
+    // Linux (WebKitGTK via desktop_webview_window) has no set-cookie API and
+    // no jar to seed between windows: [clearWebCookies] drops the shared
+    // store, and every window opened afterwards injects the anonymous buvid3
+    // itself at documentStart (WebviewPage.openLinux ->
+    // LinuxCookieManager.generateCookieInjectionJs with AnonymousAccount).
     if (Platform.isLinux) return null;
     final webManager = web.CookieManager.instance(
       webViewEnvironment: webViewEnvironment,
@@ -123,12 +128,14 @@ abstract final class LoginUtils {
       ..isLogin.value = false;
 
     return Future.wait([
-      if (Platform.isLinux)
-        LinuxCookieManager.deleteAllCookies()
-      else
-        web.CookieManager.instance(
-          webViewEnvironment: webViewEnvironment,
-        ).deleteAllCookies(),
+      // an empty jar is not anonymous: drop the account's cookies and put the
+      // anonymous buvid3 back, or every WebView page for the rest of the
+      // session looks like a bot. Both platforms take the same two steps;
+      // see [setAnonymousWebCookie] for how Linux reinstates it.
+      () async {
+        await clearWebCookies();
+        await setAnonymousWebCookie();
+      }(),
       GStorage.userInfo.delete('userInfoCache'),
     ]);
   }

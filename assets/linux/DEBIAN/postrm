@@ -17,10 +17,11 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     fi
 fi
 
-if [ $1 = "purge" ]; then
-    echo "Removing user data..."
-    rm -rf /home/*/.local/share/com.zxa24.librepili || true
-    rm -rf /root/.local/share/com.zxa24.librepili || true
+if [ "$1" = "purge" ]; then
+    # User data (settings, local follows/favorites, downloads index) belongs to
+    # the users, not to the package: leave it in place. Remove it from within
+    # the app ("重置所有数据") or by hand.
+    echo "Leaving per-user data in ~/.local/share/com.zxa24.librepili untouched."
 fi
 
 exit 0

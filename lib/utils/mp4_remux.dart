@@ -17,6 +17,7 @@ abstract final class Mp4Remuxer {
   static const _movieTimescale = 1000;
   static const _maxChunkSeconds = 1.0;
   static const _copyBufferSize = 4 << 20;
+  static const _readWindowSize = 1 << 20;
 
   static Future<void> remux({
     required List<String> inputs,
@@ -41,7 +42,14 @@ abstract final class Mp4Remuxer {
   static bool isMp4(String path) => _hasMagic(path, 4, 'ftyp');
 
   static bool _hasMagic(String path, int offset, String magic) {
-    final raf = File(path).openSync();
+    final RandomAccessFile raf;
+    try {
+      raf = File(path).openSync();
+    } on FileSystemException {
+      // missing or unreadable: not this format (the caller reports the file
+      // itself as damaged)
+      return false;
+    }
     try {
       raf.setPositionSync(offset);
       return String.fromCharCodes(raf.readSync(magic.length)) == magic;
@@ -128,6 +136,8 @@ abstract final class Mp4Remuxer {
         'stsd': t.stsdBox,
         'sampleEntries': t.sampleEntries?.length ?? 1,
         'descIndexes': [for (final c in t.chunks) c.descIndex],
+        'sampleCounts': [for (final c in t.chunks) c.sampleCount],
+        'chunkOffsets': [for (final c in t.chunks) c.sourceOffset],
         'tkhdTail': t.tkhdTail,
         'edits': [
           for (final e in t.edits) [e.segmentDuration, e.mediaTime],
@@ -166,6 +176,7 @@ abstract final class Mp4Remuxer {
     final tmp = File('$output.part');
     final out = await tmp.open(mode: FileMode.write);
     final sources = <String, RandomAccessFile>{};
+    final windows = <String, _ReadWindow>{};
     try {
       await out.writeFrom(ftyp);
       await out.writeFrom(moov);
@@ -182,34 +193,98 @@ abstract final class Mp4Remuxer {
       }
       await out.writeFrom(mdatHeader.bytes);
 
-      final buffer = Uint8List(_copyBufferSize);
+      // Sample bytes go through buffers on both sides: a chunk is one sample
+      // in an FLV, so a read and a write per chunk is hundreds of thousands
+      // of round-trips for a long video. Chunks run forward through each
+      // source, so a window that slides forward serves nearly all of them
+      // from memory.
+      final outBuf = Uint8List(_copyBufferSize);
+      var outLen = 0;
       var copied = 0;
+
+      Future<void> flushOut() async {
+        if (outLen > 0) {
+          await out.writeFrom(outBuf, 0, outLen);
+          outLen = 0;
+        }
+      }
+
+      Future<void> putBytes(Uint8List bytes, int start, int end) async {
+        var i = start;
+        while (i < end) {
+          if (outLen == outBuf.length) await flushOut();
+          final n = min(end - i, outBuf.length - outLen);
+          outBuf.setRange(outLen, outLen + n, bytes, i);
+          outLen += n;
+          i += n;
+          copied += n;
+        }
+      }
+
+      Future<void> copyRange(
+        RandomAccessFile src,
+        _ReadWindow win,
+        String from,
+        int offset,
+        int length,
+      ) async {
+        if (length <= 0) return;
+        if (length >= win.buf.length) {
+          // bigger than the window: stream it straight through
+          await flushOut();
+          await src.setPosition(offset);
+          win.length = 0; // the window's bytes are no longer what it says
+          var left = length;
+          while (left > 0) {
+            final n = await src.readInto(
+              win.buf,
+              0,
+              left < win.buf.length ? left : win.buf.length,
+            );
+            if (n <= 0) throw FormatException('unexpected EOF in $from');
+            await out.writeFrom(win.buf, 0, n);
+            left -= n;
+            copied += n;
+          }
+          return;
+        }
+        if (offset < win.start || offset + length > win.start + win.length) {
+          await src.setPosition(offset);
+          final n = await src.readInto(win.buf);
+          if (n < length) throw FormatException('unexpected EOF in $from');
+          win
+            ..start = offset
+            ..length = n;
+        }
+        final at = offset - win.start;
+        await putBytes(win.buf, at, at + length);
+      }
+
       for (final c in chunks) {
         final src = sources[c.sourcePath] ??= await File(
           c.sourcePath,
         ).open();
-        await src.setPosition(c.sourceOffset);
-        var remaining = c.length;
-        if (c.prefix case final prefix?) {
-          await out.writeFrom(prefix);
-          remaining -= prefix.length;
-          copied += prefix.length;
+        final win = windows[c.sourcePath] ??= _ReadWindow();
+        final prefix = c.prefix;
+        if (prefix != null) {
+          await putBytes(prefix, 0, prefix.length);
         }
-        while (remaining > 0) {
-          final n = await src.readInto(
-            buffer,
-            0,
-            remaining < buffer.length ? remaining : buffer.length,
-          );
-          if (n <= 0) {
-            throw FormatException('unexpected EOF in ${c.sourcePath}');
+        if (c.ranges case final ranges?) {
+          for (final (offset, length) in ranges) {
+            await copyRange(src, win, c.sourcePath, offset, length);
           }
-          await out.writeFrom(buffer, 0, n);
-          remaining -= n;
-          copied += n;
+        } else {
+          await copyRange(
+            src,
+            win,
+            c.sourcePath,
+            c.sourceOffset,
+            c.length - (prefix?.length ?? 0),
+          );
         }
         onProgress?.call(copied, payloadSize);
       }
+      await flushOut();
     } catch (_) {
       await out.close();
       for (final s in sources.values) {
@@ -304,6 +379,14 @@ class _Chunk {
   int sampleCount = 0;
   int outputOffset = 0;
 
+  /// `(offset, length)` of this chunk's sample bytes in [sourcePath], in
+  /// output order. Null when the samples are one contiguous run starting at
+  /// [sourceOffset], as in a fragmented MP4. An FLV's samples are payloads
+  /// of separate tags with the other track's tags in between, so they are
+  /// listed one by one: a chunk has to be contiguous in the *output* file
+  /// (`stco` names one offset for it), not in its source.
+  List<(int, int)>? ranges;
+
   /// 1-based index of the sample entry (in `stsd`) its samples use.
   int descIndex = 1;
 
@@ -311,6 +394,17 @@ class _Chunk {
   /// first sample's size): in-band parameter sets at a configuration switch.
   Uint8List? prefix;
   double get startSeconds => startDts / track.timescale;
+}
+
+/// A block of one source file held in memory, so the many small reads a
+/// chunk list makes (one sample each, in increasing offset order) mostly
+/// come out of it instead of hitting the file.
+class _ReadWindow {
+  final Uint8List buf = Uint8List(Mp4Remuxer._readWindowSize);
+
+  /// Offset in the source [buf] starts at, and how much of it is filled.
+  int start = 0;
+  int length = 0;
 }
 
 class _EditEntry {
@@ -452,6 +546,10 @@ class _Track {
         final type = String.fromCharCodes(header, 4, 8);
         var headerSize = 8;
         if (size == 1) {
+          // 64-bit size: the header must be there in full
+          if (header.length < 16) {
+            throw FormatException('truncated box $type at $pos in $path');
+          }
           size = hd.getUint64(8);
           headerSize = 16;
         } else if (size == 0) {

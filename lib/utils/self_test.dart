@@ -147,7 +147,9 @@ abstract final class SelfTest {
     return {
       'pass': !play || pos > 0,
       'positionMs': pos,
-      'durationMs': player?.durationInMilliseconds,
+      // no player (nothing playing): 0, the scripted checks read these as
+      // numbers
+      'durationMs': player?.durationInMilliseconds ?? 0,
       'danmakuLoaded': PlDanmakuController.lastLoadedCount,
     };
   }
@@ -222,8 +224,8 @@ abstract final class SelfTest {
       'extras': extras,
       'tabs': ?tabs,
       if (play) ...{
-        'positionMs': player?.positionInMilliseconds,
-        'durationMs': player?.durationInMilliseconds,
+        'positionMs': player?.positionInMilliseconds ?? 0,
+        'durationMs': player?.durationInMilliseconds ?? 0,
         'danmakuLoaded': PlDanmakuController.lastLoadedCount,
       },
     };

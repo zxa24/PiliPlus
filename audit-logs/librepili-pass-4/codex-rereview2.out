@@ -1,0 +1,3439 @@
+OpenAI Codex v0.146.1
+--------
+workdir: C:\Users\Z14\Documents\Coding\Piliplus
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a0bbb9-5a94-7993-ab8a-55af5547923f
+--------
+user
+[Pass 4, iter 2 re-review — structured output requested]
+
+Previously RESOLVED in this pass: everything except the seven PARTIALs. Do not re-litigate those.
+
+The seven PARTIALs you reported (A2 launchURL scheme gate, A12 Linux anonymous jar, A30 block-server matching, A31 handler.next, A37 refresh coalescing, B16 FLV chunk performance, B17 missing mp4-join test) were worked on. Notes from the fixers, for your judgement:
+
+- A2: http/https open directly; file/content/javascript/data/blob/about/filesystem stay hard-blocked; every OTHER scheme now goes through a confirmation dialog naming scheme + target before reaching the OS (a deliberate design choice, not an oversight — custom app schemes are legitimate on these pages).
+- A12: `onLogoutMain` now calls `clearWebCookies()` then `setAnonymousWebCookie()` on all platforms; the Linux early-return in `setAnonymousWebCookie` is documented as a correct no-op because desktop_webview_window exposes no set-cookie API and `WebviewPage.openLinux` injects the anonymous buvid3 at documentStart for every window.
+- A30: new `parseBlockServer` requires http(s) + host, rejects userinfo and the bilibili domain family; `_isBlockServer` matches scheme+host+port+path-prefix and returns false when the saved value is rejected.
+- A31: the retry path ends in `handler.next(error)`, with a `finish()` helper so a failure is delivered once rather than once per retry level (the fixer measured 3 deliveries with retryCount=2 before adding it).
+- A37: refresh coalescing.
+- B16: the fixer first argued grouping was impossible, then measured: a synthetic 10-minute FLV (41,087 samples) took 49,570 ms to remux; after buffered I/O plus ~1 s chunk grouping it takes 185 ms, chunks 41,087 -> 1,193, stco 164,380 -> 4,804 B, moov -45%. Both changes are in the shared writer, so the DASH path benefits too. Judge the correctness of the buffering/window and grouping logic, not the intent.
+- B17: a join test was added to test/utils/flv_demux_test.dart.
+
+Incremental diff (this refinement only):
+
+```diff
+diff --git a/lib/http/retry_interceptor.dart b/lib/http/retry_interceptor.dart
+index b255c587f..638712de2 100644
+--- a/lib/http/retry_interceptor.dart
++++ b/lib/http/retry_interceptor.dart
+@@ -35,10 +35,17 @@ class RetryInterceptor extends Interceptor {
+               // carries its own
+               options
+                 ..queryParameters = {}
+-                ..headers.remove('cookie')
+-                ..headers.remove('authorization')
+-                ..headers.remove('x-bili-mid')
+-                ..headers.remove('x-bili-aurora-eid')
++                // every gRPC header too: x-bili-metadata-bin starts with the
++                // accessKey, x-bili-device-bin/buvid carry the persistent
++                // device id, and the referer names where we came from
++                ..headers.removeWhere((key, _) {
++                  final name = key.toLowerCase();
++                  return name.startsWith('x-bili-') ||
++                      name == 'cookie' ||
++                      name == 'authorization' ||
++                      name == 'buvid' ||
++                      name == 'referer';
++                })
+                 ..extra['account'] = const NoAccount();
+               // 307/308 (and a POST this interceptor follows itself) keep
+               // the body: take the account's secrets out of it too
+@@ -76,22 +83,29 @@ class RetryInterceptor extends Interceptor {
+           // only idempotent reads are re-sent: a POST (like, coin, comment,
+           // follow...) may already have been applied by the server
+           final method = err.requestOptions.method.toUpperCase();
++          final extra = err.requestOptions.extra;
++          // a retry re-enters this interceptor through `_client.fetch`, so
++          // onError runs once per attempt on the same RequestOptions. Only
++          // the attempt the caller made (no `_rt` yet) passes the final
++          // error on, so the interceptors after this one — AccountManager's
++          // toast and cookie save — run exactly once, not once per retry.
++          final isRetryAttempt = extra.containsKey('_rt');
++          void finish(DioException error) =>
++              isRetryAttempt ? handler.reject(error) : handler.next(error);
+           if ((method == 'GET' || method == 'HEAD') &&
+-              (err.requestOptions.extra['_rt'] ??= 0) < _count &&
++              (extra['_rt'] ??= 0) < _count &&
+               err.error
+                   is! TransportConnectionException // 网络中断, 此时请求可能已经被服务器所接收
+                   ) {
+             Future.delayed(
+-              Duration(
+-                milliseconds: ++err.requestOptions.extra['_rt'] * _delay,
+-              ),
++              Duration(milliseconds: ++extra['_rt'] * _delay),
+               () => _client
+                   .fetch(err.requestOptions)
+                   .then(handler.resolve)
+-                  .onError<DioException>((error, _) => handler.reject(error)),
++                  .onError<DioException>((error, _) => finish(error)),
+             );
+           } else {
+-            handler.next(err);
++            finish(err);
+           }
+           return;
+         default:
+diff --git a/lib/pages/common/common_list_controller.dart b/lib/pages/common/common_list_controller.dart
+index 0b6e39e4c..92cf17294 100644
+--- a/lib/pages/common/common_list_controller.dart
++++ b/lib/pages/common/common_list_controller.dart
+@@ -24,8 +24,37 @@ abstract class CommonListController<R, T> extends CommonController<R, T> {
+   // the new list nor advance [page]
+   int _generation = 0;
+ 
++  // A refresh already in flight is shared instead of raced: a fast second
++  // pull would otherwise send a second request only to throw one away.
++  // [_generation] still drops a stale response when a new request *is* made.
++  Future<void>? _refreshing;
++
++  // Set by [markRefreshStale]: the request parameters changed, so attaching
++  // to the refresh in flight would answer with data fetched for the old ones.
++  bool _refreshIsStale = false;
++
++  /// Call before [onRefresh] when the next request differs from the one that
++  /// may still be in flight (a new search keyword, a sort order, a different
++  /// account): that one must not be attached to, it is answering the old
++  /// parameters. [onReload] does this itself.
++  void markRefreshStale() => _refreshIsStale = true;
++
+   @override
+-  Future<void> queryData([bool isRefresh = true]) async {
++  Future<void> queryData([bool isRefresh = true]) {
++    if (!isRefresh) return _queryData(false);
++    final stale = _refreshIsStale;
++    _refreshIsStale = false;
++    final refreshing = _refreshing;
++    if (!stale && refreshing != null) return refreshing;
++    final future = _queryData(true);
++    _refreshing = future;
++    return future.whenComplete(() {
++      // a stale refresh that replaced this one owns the slot now
++      if (identical(_refreshing, future)) _refreshing = null;
++    });
++  }
++
++  Future<void> _queryData(bool isRefresh) async {
+     if (!isRefresh && (isLoading || isEnd)) return;
+     final generation = isRefresh ? ++_generation : _generation;
+     isLoading = true;
+@@ -72,6 +101,7 @@ abstract class CommonListController<R, T> extends CommonController<R, T> {
+ 
+   @override
+   Future<void> onReload() {
++    markRefreshStale();
+     loadingState.value = LoadingState<List<T>?>.loading();
+     return super.onReload();
+   }
+diff --git a/lib/pages/sponsor_block/view.dart b/lib/pages/sponsor_block/view.dart
+index ddb34f4a0..4fbed0903 100644
+--- a/lib/pages/sponsor_block/view.dart
++++ b/lib/pages/sponsor_block/view.dart
+@@ -175,7 +175,10 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
+                     onPressed: () {
+                       Get.back();
+                       _userId = Digest(
+-                        List.generate(16, (_) => Utils.random.nextInt(256)),
++                        List.generate(
++                          16,
++                          (_) => Utils.secureRandom.nextInt(256),
++                        ),
+                       ).toString();
+                       setting.put(SettingBoxKey.blockUserID, _userId);
+                       (context as Element).markNeedsBuild();
+@@ -346,11 +349,13 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
+                 TextButton(
+                   onPressed: () {
+                     final text = _textController.text.trim();
+-                    final uri = Uri.tryParse(text);
+-                    if (uri == null ||
+-                        !(uri.isScheme('http') || uri.isScheme('https')) ||
+-                        uri.host.isEmpty) {
+-                      SmartDialog.showToast('请输入有效的 http(s) 地址');
++                    // same rule the request path uses, so the two cannot
++                    // disagree: a bilibili host here would take the account
++                    // off every API request
++                    if (AccountManager.parseBlockServer(text) == null) {
++                      SmartDialog.showToast(
++                        '请输入有效的 http(s) 地址（不能是 bilibili 的域名）',
++                      );
+                       return;
+                     }
+                     Get.back();
+diff --git a/lib/utils/accounts/account_manager/account_mgr.dart b/lib/utils/accounts/account_manager/account_mgr.dart
+index 4064b4950..f60a2738f 100644
+--- a/lib/utils/accounts/account_manager/account_mgr.dart
++++ b/lib/utils/accounts/account_manager/account_mgr.dart
+@@ -225,13 +225,57 @@ class AccountManager extends Interceptor {
+     await account.onChange();
+   }
+ 
++  /// Hosts a block server may never be set to: matching one would make
++  /// [_skipCookie] true for the API itself and strip the account off every
++  /// request (the U5 catastrophe). Suffix-matched, so subdomains count.
++  static const _reservedHosts = [
++    'bilibili.com',
++    'bilibili.cn',
++    'bilibili.tv',
++    'bilivideo.com',
++    'bilivideo.cn',
++    'hdslb.com',
++    'biliimg.com',
++    'b23.tv',
++  ];
++
++  /// The parsed [blockServer] when it is usable, else null. A block server is
++  /// `http(s)://host[:port][/prefix]` on a host that is not bilibili's.
++  /// Anything else is refused here *and* by the settings dialog, so
++  /// [_isBlockServer] can never degrade into "matches everything".
++  static Uri? parseBlockServer(String value) {
++    final uri = Uri.tryParse(value.trim());
++    if (uri == null ||
++        !(uri.isScheme('http') || uri.isScheme('https')) ||
++        uri.host.isEmpty ||
++        uri.userInfo.isNotEmpty) {
++      return null;
++    }
++    final host = uri.host.toLowerCase();
++    for (final reserved in _reservedHosts) {
++      if (host == reserved || host.endsWith('.$reserved')) return null;
++    }
++    return uri;
++  }
++
+   static bool _isBlockServer(String path) {
+-    // match the host: a raw prefix match would skip every request when the
+-    // saved address is empty or too short
+-    final host = Uri.tryParse(blockServer)?.host;
+-    return host != null &&
+-        host.isNotEmpty &&
+-        Uri.tryParse(path)?.host.toLowerCase() == host.toLowerCase();
++    // scheme + host + port + path prefix, and never a bilibili host: a
++    // host-only match on `https://api.bilibili.com/sb` would strip the
++    // cookies off every API request, and a raw prefix match would match
++    // everything when the saved address is empty or too short.
++    final server = parseBlockServer(blockServer);
++    if (server == null) return false;
++    final uri = Uri.tryParse(path);
++    if (uri == null ||
++        uri.scheme.toLowerCase() != server.scheme ||
++        uri.host.toLowerCase() != server.host.toLowerCase() ||
++        uri.port != server.port) {
++      return false;
++    }
++    final prefix = server.path.replaceAll(RegExp(r'/+$'), '');
++    return prefix.isEmpty ||
++        uri.path == prefix ||
++        uri.path.startsWith('$prefix/');
+   }
+ 
+   static bool _skipCookie(String path) {
+diff --git a/lib/utils/flv_demux.dart b/lib/utils/flv_demux.dart
+index 2e5e4064f..002d636eb 100644
+--- a/lib/utils/flv_demux.dart
++++ b/lib/utils/flv_demux.dart
+@@ -271,23 +271,40 @@ class _FlvTrackBuilder {
+     final ts = t.timescale;
+     final first = times.first;
+     final dts = [for (final ms in times) _scale(ms - first, 1000, ts)];
++    // Samples are grouped into chunks of about a second, the way the
++    // fragmented-MP4 path does, so the sample tables stay small (one `stco`
++    // entry per chunk, not per sample). FLV samples are payloads of separate
++    // tags with the other track's tags in between, so a chunk lists its
++    // samples' ranges one by one: what has to be contiguous is the chunk's
++    // place in the *output* file, not in its source.
++    final maxChunk = (Mp4Remuxer._maxChunkSeconds * ts).round();
++    _Chunk? chunk;
+     for (var i = 0; i < dts.length; i++) {
+       final dur = i + 1 < dts.length
+           ? dts[i + 1] - dts[i]
+           : (i > 0
+                 ? dts[i] - dts[i - 1]
+                 : _scale(_defaultDurationMs, 1000, ts));
++      final descIndex = configIndex[i] + 1;
++      // a chunk holds one sample description and comes from one file
++      if (chunk == null ||
++          chunk.descIndex != descIndex ||
++          chunk.sourcePath != paths[i] ||
++          dts[i] - chunk.startDts >= maxChunk) {
++        chunk = _Chunk(t, offsets[i], i, dts[i], paths[i])
++          ..descIndex = descIndex
++          ..ranges = <(int, int)>[];
++        t.chunks.add(chunk);
++      }
++      chunk
++        ..ranges!.add((offsets[i], sizes[i]))
++        ..length += sizes[i]
++        ..sampleCount += 1;
+       t
+         ..durations.add(dur)
+         ..sizes.add(sizes[i])
+         ..ctos.add(_scale(ctsMs[i], 1000, ts))
+-        ..syncs.add(keys[i])
+-        ..chunks.add(
+-          _Chunk(t, offsets[i], i, dts[i], paths[i])
+-            ..length = sizes[i]
+-            ..sampleCount = 1
+-            ..descIndex = configIndex[i] + 1,
+-        );
++        ..syncs.add(keys[i]);
+     }
+     if (first > baseMs) {
+       t.edits
+diff --git a/lib/utils/login_utils.dart b/lib/utils/login_utils.dart
+index faee948ed..3fe68a714 100644
+--- a/lib/utils/login_utils.dart
++++ b/lib/utils/login_utils.dart
+@@ -47,6 +47,11 @@ abstract final class LoginUtils {
+   /// anonymous jar; account cookies go in only for explicit account flows
+   /// (the "reset cookie" menu, taking notes).
+   static FutureOr setAnonymousWebCookie() async {
++    // Linux (WebKitGTK via desktop_webview_window) has no set-cookie API and
++    // no jar to seed between windows: [clearWebCookies] drops the shared
++    // store, and every window opened afterwards injects the anonymous buvid3
++    // itself at documentStart (WebviewPage.openLinux ->
++    // LinuxCookieManager.generateCookieInjectionJs with AnonymousAccount).
+     if (Platform.isLinux) return null;
+     final webManager = web.CookieManager.instance(
+       webViewEnvironment: webViewEnvironment,
+@@ -123,12 +128,14 @@ abstract final class LoginUtils {
+       ..isLogin.value = false;
+ 
+     return Future.wait([
+-      if (Platform.isLinux)
+-        LinuxCookieManager.deleteAllCookies()
+-      else
+-        web.CookieManager.instance(
+-          webViewEnvironment: webViewEnvironment,
+-        ).deleteAllCookies(),
++      // an empty jar is not anonymous: drop the account's cookies and put the
++      // anonymous buvid3 back, or every WebView page for the rest of the
++      // session looks like a bot. Both platforms take the same two steps;
++      // see [setAnonymousWebCookie] for how Linux reinstates it.
++      () async {
++        await clearWebCookies();
++        await setAnonymousWebCookie();
++      }(),
+       GStorage.userInfo.delete('userInfoCache'),
+     ]);
+   }
+diff --git a/lib/utils/mp4_remux.dart b/lib/utils/mp4_remux.dart
+index 7c1089655..e11b2965c 100644
+--- a/lib/utils/mp4_remux.dart
++++ b/lib/utils/mp4_remux.dart
+@@ -17,6 +17,7 @@ abstract final class Mp4Remuxer {
+   static const _movieTimescale = 1000;
+   static const _maxChunkSeconds = 1.0;
+   static const _copyBufferSize = 4 << 20;
++  static const _readWindowSize = 1 << 20;
+ 
+   static Future<void> remux({
+     required List<String> inputs,
+@@ -41,7 +42,14 @@ abstract final class Mp4Remuxer {
+   static bool isMp4(String path) => _hasMagic(path, 4, 'ftyp');
+ 
+   static bool _hasMagic(String path, int offset, String magic) {
+-    final raf = File(path).openSync();
++    final RandomAccessFile raf;
++    try {
++      raf = File(path).openSync();
++    } on FileSystemException {
++      // missing or unreadable: not this format (the caller reports the file
++      // itself as damaged)
++      return false;
++    }
+     try {
+       raf.setPositionSync(offset);
+       return String.fromCharCodes(raf.readSync(magic.length)) == magic;
+@@ -128,6 +136,8 @@ abstract final class Mp4Remuxer {
+         'stsd': t.stsdBox,
+         'sampleEntries': t.sampleEntries?.length ?? 1,
+         'descIndexes': [for (final c in t.chunks) c.descIndex],
++        'sampleCounts': [for (final c in t.chunks) c.sampleCount],
++        'chunkOffsets': [for (final c in t.chunks) c.sourceOffset],
+         'tkhdTail': t.tkhdTail,
+         'edits': [
+           for (final e in t.edits) [e.segmentDuration, e.mediaTime],
+@@ -166,6 +176,7 @@ abstract final class Mp4Remuxer {
+     final tmp = File('$output.part');
+     final out = await tmp.open(mode: FileMode.write);
+     final sources = <String, RandomAccessFile>{};
++    final windows = <String, _ReadWindow>{};
+     try {
+       await out.writeFrom(ftyp);
+       await out.writeFrom(moov);
+@@ -182,34 +193,98 @@ abstract final class Mp4Remuxer {
+       }
+       await out.writeFrom(mdatHeader.bytes);
+ 
+-      final buffer = Uint8List(_copyBufferSize);
++      // Sample bytes go through buffers on both sides: a chunk is one sample
++      // in an FLV, so a read and a write per chunk is hundreds of thousands
++      // of round-trips for a long video. Chunks run forward through each
++      // source, so a window that slides forward serves nearly all of them
++      // from memory.
++      final outBuf = Uint8List(_copyBufferSize);
++      var outLen = 0;
+       var copied = 0;
++
++      Future<void> flushOut() async {
++        if (outLen > 0) {
++          await out.writeFrom(outBuf, 0, outLen);
++          outLen = 0;
++        }
++      }
++
++      Future<void> putBytes(Uint8List bytes, int start, int end) async {
++        var i = start;
++        while (i < end) {
++          if (outLen == outBuf.length) await flushOut();
++          final n = min(end - i, outBuf.length - outLen);
++          outBuf.setRange(outLen, outLen + n, bytes, i);
++          outLen += n;
++          i += n;
++          copied += n;
++        }
++      }
++
++      Future<void> copyRange(
++        RandomAccessFile src,
++        _ReadWindow win,
++        String from,
++        int offset,
++        int length,
++      ) async {
++        if (length <= 0) return;
++        if (length >= win.buf.length) {
++          // bigger than the window: stream it straight through
++          await flushOut();
++          await src.setPosition(offset);
++          win.length = 0; // the window's bytes are no longer what it says
++          var left = length;
++          while (left > 0) {
++            final n = await src.readInto(
++              win.buf,
++              0,
++              left < win.buf.length ? left : win.buf.length,
++            );
++            if (n <= 0) throw FormatException('unexpected EOF in $from');
++            await out.writeFrom(win.buf, 0, n);
++            left -= n;
++            copied += n;
++          }
++          return;
++        }
++        if (offset < win.start || offset + length > win.start + win.length) {
++          await src.setPosition(offset);
++          final n = await src.readInto(win.buf);
++          if (n < length) throw FormatException('unexpected EOF in $from');
++          win
++            ..start = offset
++            ..length = n;
++        }
++        final at = offset - win.start;
++        await putBytes(win.buf, at, at + length);
++      }
++
+       for (final c in chunks) {
+         final src = sources[c.sourcePath] ??= await File(
+           c.sourcePath,
+         ).open();
+-        await src.setPosition(c.sourceOffset);
+-        var remaining = c.length;
+-        if (c.prefix case final prefix?) {
+-          await out.writeFrom(prefix);
+-          remaining -= prefix.length;
+-          copied += prefix.length;
++        final win = windows[c.sourcePath] ??= _ReadWindow();
++        final prefix = c.prefix;
++        if (prefix != null) {
++          await putBytes(prefix, 0, prefix.length);
+         }
+-        while (remaining > 0) {
+-          final n = await src.readInto(
+-            buffer,
+-            0,
+-            remaining < buffer.length ? remaining : buffer.length,
+-          );
+-          if (n <= 0) {
+-            throw FormatException('unexpected EOF in ${c.sourcePath}');
++        if (c.ranges case final ranges?) {
++          for (final (offset, length) in ranges) {
++            await copyRange(src, win, c.sourcePath, offset, length);
+           }
+-          await out.writeFrom(buffer, 0, n);
+-          remaining -= n;
+-          copied += n;
++        } else {
++          await copyRange(
++            src,
++            win,
++            c.sourcePath,
++            c.sourceOffset,
++            c.length - (prefix?.length ?? 0),
++          );
+         }
+         onProgress?.call(copied, payloadSize);
+       }
++      await flushOut();
+     } catch (_) {
+       await out.close();
+       for (final s in sources.values) {
+@@ -304,6 +379,14 @@ class _Chunk {
+   int sampleCount = 0;
+   int outputOffset = 0;
+ 
++  /// `(offset, length)` of this chunk's sample bytes in [sourcePath], in
++  /// output order. Null when the samples are one contiguous run starting at
++  /// [sourceOffset], as in a fragmented MP4. An FLV's samples are payloads
++  /// of separate tags with the other track's tags in between, so they are
++  /// listed one by one: a chunk has to be contiguous in the *output* file
++  /// (`stco` names one offset for it), not in its source.
++  List<(int, int)>? ranges;
++
+   /// 1-based index of the sample entry (in `stsd`) its samples use.
+   int descIndex = 1;
+ 
+@@ -313,6 +396,17 @@ class _Chunk {
+   double get startSeconds => startDts / track.timescale;
+ }
+ 
++/// A block of one source file held in memory, so the many small reads a
++/// chunk list makes (one sample each, in increasing offset order) mostly
++/// come out of it instead of hitting the file.
++class _ReadWindow {
++  final Uint8List buf = Uint8List(Mp4Remuxer._readWindowSize);
++
++  /// Offset in the source [buf] starts at, and how much of it is filled.
++  int start = 0;
++  int length = 0;
++}
++
+ class _EditEntry {
+   _EditEntry(this.segmentDuration, this.mediaTime, this.rate);
+   int segmentDuration; // in source movie timescale; 0 = until end
+@@ -452,6 +546,10 @@ class _Track {
+         final type = String.fromCharCodes(header, 4, 8);
+         var headerSize = 8;
+         if (size == 1) {
++          // 64-bit size: the header must be there in full
++          if (header.length < 16) {
++            throw FormatException('truncated box $type at $pos in $path');
++          }
+           size = hd.getUint64(8);
+           headerSize = 16;
+         } else if (size == 0) {
+diff --git a/lib/utils/page_utils.dart b/lib/utils/page_utils.dart
+index 4ffdb8840..2e998b2ea 100644
+--- a/lib/utils/page_utils.dart
++++ b/lib/utils/page_utils.dart
+@@ -1,5 +1,6 @@
+ import 'dart:math';
+ 
++import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+ import 'package:PiliPlus/common/widgets/fractionally_sized_box.dart';
+ import 'package:PiliPlus/common/widgets/image_viewer/gallery_viewer.dart';
+ import 'package:PiliPlus/common/widgets/image_viewer/hero_dialog_route.dart';
+@@ -430,12 +431,47 @@ abstract final class PageUtils {
+     }
+   }
+ 
++  /// Schemes that read local content or run script: a url from a deep link /
++  /// a web page must never make the OS open `file:///…/hive/account.hive`.
++  /// Blocked outright, not confirmable.
++  static const _localSchemes = {
++    'file',
++    'content',
++    'javascript',
++    'data',
++    'blob',
++    'about',
++    'filesystem',
++  };
++
++  /// Opens [url] with the OS. `http(s)` goes straight out; every other
++  /// scheme is attacker-reachable (a video description, a comment, a deep
++  /// link) and hands control to whichever app claims it, so it is named to
++  /// the user first. [_localSchemes] are refused either way.
+   static Future<void> launchURL(
+     String url, {
+     LaunchMode mode = LaunchMode.externalApplication,
+   }) async {
+     try {
+       final uri = Uri.parse(url);
++      final scheme = uri.scheme.toLowerCase();
++      if (_localSchemes.contains(scheme)) {
++        SmartDialog.showToast('已拦截: $url');
++        return;
++      }
++      if (scheme != 'http' && scheme != 'https') {
++        final context = Get.context;
++        if (context == null) return;
++        final confirmed = await showConfirmDialog(
++          context: context,
++          title: const Text('用其他应用打开？'),
++          content: Text(
++            '这个链接不是网页，它会交给系统上注册了 '
++            '「$scheme」 的应用打开：\n\n$url',
++          ),
++        );
++        if (!confirmed) return;
++      }
+       if (!await launchUrl(uri, mode: mode)) {
+         SmartDialog.showToast('Could not launch $url');
+       }
+diff --git a/test/utils/flv_demux_test.dart b/test/utils/flv_demux_test.dart
+index 19d2238da..254f557f6 100644
+--- a/test/utils/flv_demux_test.dart
++++ b/test/utils/flv_demux_test.dart
+@@ -355,6 +355,96 @@ void main() {
+       expect(second, greaterThan(first));
+     });
+ 
++    test('joined segments: every sample lies where its table says', () async {
++      final s1 = await mp4Segment('p1', 1);
++      final s2 = await mp4Segment('p2', 2);
++      final output = '${dir.path}/placed.mp4';
++      await Mp4Remuxer.joinMp4(inputs: [s1, s2], output: output);
++      final mp4 = File(output).readAsBytesSync();
++      final tracks = Mp4Remuxer.debugMp4JoinTracks([output]);
++
++      // the sample the segment built, per track, in timeline order
++      final expected = {
++        0: [
++          for (final fill in [1, 2]) ...[
++            _nal(100, fill),
++            _nal(50, fill),
++            _nal(60, fill),
++          ],
++        ],
++        1: [
++          for (final fill in [1, 2]) ...[
++            List.filled(30, fill),
++            List.filled(31, fill),
++            List.filled(32, fill),
++          ],
++        ],
++      };
++
++      for (final ti in [0, 1]) {
++        final t = tracks[ti];
++        final sizes = t['sizes']! as List<int>;
++        final counts = t['sampleCounts']! as List<int>;
++        final offsets = t['chunkOffsets']! as List<int>;
++        final want = expected[ti]!;
++
++        expect(sizes, hasLength(want.length), reason: 'sample count (t$ti)');
++        expect(
++          counts.reduce((a, b) => a + b),
++          want.length,
++          reason: 'samples across chunks (t$ti)',
++        );
++        expect(offsets, hasLength(counts.length));
++
++        // walk the chunks: every sample's bytes must be at chunk offset plus
++        // the sizes of the samples before it in that chunk
++        var s = 0;
++        for (var ci = 0; ci < counts.length; ci++) {
++          var at = offsets[ci];
++          for (var k = 0; k < counts[ci]; k++, s++) {
++            expect(
++              sizes[s],
++              want[s].length,
++              reason: 'size of sample $s (t$ti)',
++            );
++            expect(
++              mp4.sublist(at, at + sizes[s]),
++              want[s],
++              reason: 'bytes of sample $s (t$ti)',
++            );
++            at += sizes[s];
++          }
++        }
++        expect(s, want.length);
++      }
++
++      // timing carried over for both segments
++      expect(tracks[0]['durations'], [40, 40, 40, 40, 40, 40]);
++      expect(tracks[0]['ctos'], [0, 80, 0, 0, 80, 0]);
++      expect(tracks[0]['syncs'], [true, false, false, true, false, false]);
++    });
++
++    test('segments whose track sets differ are not joined', () async {
++      final s1 = await mp4Segment('t1', 1);
++      // video only: no aacHeader, no audio tags
++      final videoOnly = _Flv()
++        ..avcHeader(_avcC(_sps(20, 15)))
++        ..video(0, _nal(100, 2), key: true)
++        ..video(40, _nal(50, 2));
++      final s2 = '${dir.path}/t2.mp4';
++      await Mp4Remuxer.remuxFlv(
++        inputs: [write('t2.flv', videoOnly.bytes)],
++        output: s2,
++      );
++      expect(
++        () => Mp4Remuxer.joinMp4(
++          inputs: [s1, s2],
++          output: '${dir.path}/never2.mp4',
++        ),
++        throwsUnsupportedError,
++      );
++    });
++
+     test('differing codec configuration: one sample entry each', () async {
+       final s1 = await mp4Segment('c1', 1);
+       final s2 = await mp4Segment('c2', 2, sps: _sps(120, 68, cropBottom: 4));
+@@ -435,7 +525,10 @@ void main() {
+         ..video(120, _nal(10, 3), key: true);
+       final v = Mp4Remuxer.debugFlvTracks([write('mid.flv', flv.bytes)]).single;
+       expect(v['sampleEntries'], 2);
+-      expect(v['descIndexes'], [1, 1, 2, 1]);
++      // samples are grouped into chunks, and a chunk holds one description:
++      // 2 samples on entry 1, then one each on 2 and 1
++      expect(v['descIndexes'], [1, 2, 1]);
++      expect(v['sampleCounts'], [2, 1, 1]);
+       final stsd = v['stsd']! as Uint8List;
+       expect(_u32(stsd, 12), 2);
+       // the track header keeps the first configuration's size
+@@ -457,7 +550,9 @@ void main() {
+         write('a2.flv', s2.bytes),
+       ]).single;
+       expect(a['sampleEntries'], 2);
+-      expect(a['descIndexes'], [1, 1, 2, 2]);
++      // one chunk per segment: both its samples on that segment's entry
++      expect(a['descIndexes'], [1, 2]);
++      expect(a['sampleCounts'], [2, 2]);
+       expect(a['timescale'], 44100);
+     });
+ 
+@@ -558,6 +653,12 @@ void main() {
+       );
+       expect(Mp4Remuxer.checkSegment(cut), isFalse);
+     });
++
++    test('a missing file is neither format (and does not throw)', () {
++      final missing = '${dir.path}/gone.mp4';
++      expect(Mp4Remuxer.isMp4(missing), isFalse);
++      expect(Mp4Remuxer.isFlv(missing), isFalse);
++    });
+   });
+ 
+   group('HEVC parameter sets', () {
+@@ -596,7 +697,9 @@ void main() {
+       final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
+       // hev1: parameter sets may also be in-band
+       expect(v['type'], 'hev1');
+-      expect(v['descIndexes'], [1, 1, 2, 2]);
++      // one chunk per segment (2 samples each), on its own sample entry
++      expect(v['descIndexes'], [1, 2]);
++      expect(v['sampleCounts'], [2, 2]);
+       // the first sample after the switch grew by one length-prefixed SPS
+       final inband = [0, 0, 0, _spsHevc320.length, ..._spsHevc320];
+       expect(v['sizes'], [15, 15, 15 + inband.length, 15]);
+
+```
+
+Reply one entry per item (A2, A12, A30, A31, A37, B16, B17):
+
+  [RESOLVED] / [PARTIAL] / [REGRESSED] / [OVER-ENG]
+  - [<label>] <id> — <one-line status>
+    <1-3 sentence justification, citing file:line>
+
+Append any NEW problem this refinement introduced in first-round format. Pay particular attention to the buffered writer and chunk grouping (data-loss risk if the buffering or the source-range bookkeeping is wrong). Final line exactly `TOTAL: ROUND-OK` or `TOTAL: ROUND-NEEDS-FIX`.
+
+
+codex
+I’ll focus only on the seven previously partial items and the FLV/MP4 writer correctness, especially whether grouped chunks still write sample bytes at the offsets the tables advertise. No re-litigation of already resolved items.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class _Chunk|outputOffset|payloadSize|sourceOffset|ranges|startDts|stco|co64|stsc|sampleCount|length \\+=\" lib\\utils\\mp4_remux.dart lib\\utils\\mp4_join.dart lib\\utils\\flv_demux.dart" in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$files=@('"'lib/utils/page_utils.dart','lib/utils/login_utils.dart','lib/utils/accounts/account_manager/account_mgr.dart','lib/http/retry_interceptor.dart','lib/pages/common/common_list_controller.dart'); foreach("'$f in $files){ Write-Output "--- $f"; $i=1; Get-Content $f | ForEach-Object { if(($i -ge 420 -and $i -le 490) -or ($i -ge 40 -and $i -le 150) -or ($i -ge 220 -and $i -le 285) -or ($i -ge 80 -and $i -le 115) -or ($i -ge 20 -and $i -le 115)){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ } }' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$files=@('"'lib/utils/flv_demux.dart','lib/utils/mp4_remux.dart','test/utils/flv_demux_test.dart'); foreach("'$f in $files){ Write-Output "--- $f"; $i=1; Get-Content $f | ForEach-Object { if(($i -ge 250 -and $i -le 325) -or ($i -ge 1 -and $i -le 35) -or ($i -ge 170 -and $i -le 240) -or ($i -ge 360 -and $i -le 420) -or ($i -ge 350 -and $i -le 455)){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ } }' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1624ms:
+lib\utils\flv_demux.dart:275:    // fragmented-MP4 path does, so the sample tables stay small (one `stco`
+lib\utils\flv_demux.dart:278:    // samples' ranges one by one: what has to be contiguous is the chunk's
+lib\utils\flv_demux.dart:293:          dts[i] - chunk.startDts >= maxChunk) {
+lib\utils\flv_demux.dart:296:          ..ranges = <(int, int)>[];
+lib\utils\flv_demux.dart:300:        ..ranges!.add((offsets[i], sizes[i]))
+lib\utils\flv_demux.dart:301:        ..length += sizes[i]
+lib\utils\flv_demux.dart:302:        ..sampleCount += 1;
+lib\utils\mp4_join.dart:6:/// stss, stsc, stsz/stz2, stco/co64) and copied byte-for-byte.
+lib\utils\mp4_join.dart:58:                c.sourceOffset,
+lib\utils\mp4_join.dart:60:                c.startDts + dts,
+lib\utils\mp4_join.dart:64:              ..sampleCount = c.sampleCount
+lib\utils\mp4_join.dart:108:              c.sourceOffset,
+lib\utils\mp4_join.dart:114:            ..sampleCount = c.sampleCount
+lib\utils\mp4_join.dart:295:    if (stbl['stco'] case final body?) {
+lib\utils\mp4_join.dart:301:    } else if (stbl['co64'] case final body?) {
+lib\utils\mp4_join.dart:309:    final stsc = <(int, int, int)>[];
+lib\utils\mp4_join.dart:310:    if (stbl['stsc'] case final body?) {
+lib\utils\mp4_join.dart:314:        stsc.add((b.u32() - 1, b.u32(), max(1, b.u32())));
+lib\utils\mp4_join.dart:317:    if (offsets.isEmpty || stsc.isEmpty) {
+lib\utils\mp4_join.dart:325:      while (entry + 1 < stsc.length && stsc[entry + 1].$1 <= c) {
+lib\utils\mp4_join.dart:329:        ..descIndex = stsc[entry].$3;
+lib\utils\mp4_join.dart:330:      for (var j = 0; j < stsc[entry].$2 && sample < n; j++) {
+lib\utils\mp4_join.dart:332:          ..length += sizes[sample]
+lib\utils\mp4_join.dart:333:          ..sampleCount += 1;
+lib\utils\mp4_remux.dart:103:            if (c.sourceOffset + c.length > length) return false;
+lib\utils\mp4_remux.dart:139:        'sampleCounts': [for (final c in t.chunks) c.sampleCount],
+lib\utils\mp4_remux.dart:140:        'chunkOffsets': [for (final c in t.chunks) c.sourceOffset],
+lib\utils\mp4_remux.dart:162:    final payloadSize = chunks.fold<int>(0, (s, c) => s + c.length);
+lib\utils\mp4_remux.dart:164:    // Size of moov does not depend on offset values, only on stco vs co64.
+lib\utils\mp4_remux.dart:165:    final useCo64 = payloadSize + ftyp.length + (64 << 20) > 0xFFFFFFFF;
+lib\utils\mp4_remux.dart:166:    final mdatHeaderSize = payloadSize + 8 > 0xFFFFFFFF ? 16 : 8;
+lib\utils\mp4_remux.dart:170:      c.outputOffset = offset;
+lib\utils\mp4_remux.dart:188:          ..u64(payloadSize + 16);
+lib\utils\mp4_remux.dart:191:          ..u32(payloadSize + 8)
+lib\utils\mp4_remux.dart:272:        if (c.ranges case final ranges?) {
+lib\utils\mp4_remux.dart:273:          for (final (offset, length) in ranges) {
+lib\utils\mp4_remux.dart:281:            c.sourceOffset,
+lib\utils\mp4_remux.dart:285:        onProgress?.call(copied, payloadSize);
+lib\utils\mp4_remux.dart:363:class _Chunk {
+lib\utils\mp4_remux.dart:366:    this.sourceOffset,
+lib\utils\mp4_remux.dart:368:    this.startDts, [
+lib\utils\mp4_remux.dart:375:  final int sourceOffset;
+lib\utils\mp4_remux.dart:377:  final int startDts;
+lib\utils\mp4_remux.dart:379:  int sampleCount = 0;
+lib\utils\mp4_remux.dart:380:  int outputOffset = 0;
+lib\utils\mp4_remux.dart:384:  /// [sourceOffset], as in a fragmented MP4. An FLV's samples are payloads
+lib\utils\mp4_remux.dart:387:  /// (`stco` names one offset for it), not in its source.
+lib\utils\mp4_remux.dart:388:  List<(int, int)>? ranges;
+lib\utils\mp4_remux.dart:396:  double get startSeconds => startDts / track.timescale;
+lib\utils\mp4_remux.dart:467:        ..length += prefix.length;
+lib\utils\mp4_remux.dart:727:                ..length += size
+lib\utils\mp4_remux.dart:728:                ..sampleCount += 1;
+lib\utils\mp4_remux.dart:818:        _stsc(),
+lib\utils\mp4_remux.dart:819:        _stco(useCo64),
+lib\utils\mp4_remux.dart:898:  Uint8List _stsc() {
+lib\utils\mp4_remux.dart:901:      final n = chunks[i].sampleCount;
+lib\utils\mp4_remux.dart:916:    return _box('stsc', w.bytes);
+lib\utils\mp4_remux.dart:919:  Uint8List _stco(bool co64) {
+lib\utils\mp4_remux.dart:924:      co64 ? w.u64(c.outputOffset) : w.u32(c.outputOffset);
+lib\utils\mp4_remux.dart:926:    return _box(co64 ? 'co64' : 'stco', w.bytes);
+
+ succeeded in 1787ms:
+--- lib/utils/page_utils.dart
+   20: import 'package:PiliPlus/pages/fav_panel/view.dart';
+   21: import 'package:PiliPlus/pages/share/view.dart';
+   22: import 'package:PiliPlus/utils/android/android_helper.dart';
+   23: import 'package:PiliPlus/utils/app_scheme.dart';
+   24: import 'package:PiliPlus/utils/extension/context_ext.dart';
+   25: import 'package:PiliPlus/utils/extension/get_ext.dart';
+   26: import 'package:PiliPlus/utils/extension/size_ext.dart';
+   27: import 'package:PiliPlus/utils/extension/string_ext.dart';
+   28: import 'package:PiliPlus/utils/feed_back.dart';
+   29: import 'package:PiliPlus/utils/global_data.dart';
+   30: import 'package:PiliPlus/utils/id_utils.dart';
+   31: import 'package:PiliPlus/utils/platform_utils.dart';
+   32: import 'package:PiliPlus/utils/storage_pref.dart';
+   33: import 'package:PiliPlus/utils/url_utils.dart';
+   34: import 'package:PiliPlus/utils/utils.dart';
+   35: import 'package:collection/collection.dart';
+   36: import 'package:flutter/foundation.dart' show kDebugMode;
+   37: import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+   38: import 'package:get/get.dart';
+   39: import 'package:material_ui/material_ui.dart';
+   40: import 'package:url_launcher/url_launcher.dart';
+   41: 
+   42: abstract final class PageUtils {
+   43:   static RelativeRect menuPosition(Offset offset) {
+   44:     return .fromLTRB(offset.dx, offset.dy, offset.dx, 0);
+   45:   }
+   46: 
+   47:   static Future<void> imageView({
+   48:     int initialPage = 0,
+   49:     required List<SourceModel> imgList,
+   50:     int? quality,
+   51:     ValueChanged<int>? onPageChanged,
+   52:     String tag = '',
+   53:   }) {
+   54:     return Get.key.currentState!.push<void>(
+   55:       HeroDialogRoute(
+   56:         pageBuilder: (context, animation, secondaryAnimation) => GalleryViewer(
+   57:           sources: imgList,
+   58:           initIndex: initialPage,
+   59:           quality: quality ?? GlobalData().imgQuality,
+   60:           onPageChanged: onPageChanged,
+   61:           tag: tag,
+   62:         ),
+   63:       ),
+   64:     );
+   65:   }
+   66: 
+   67:   static Future<void> pmShare(
+   68:     BuildContext context, {
+   69:     required Map content,
+   70:   }) async {
+   71:     // if (kDebugMode) debugPrint(content.toString());
+   72: 
+   73:     List<UserModel> userList = <UserModel>[];
+   74: 
+   75:     final res = await ImGrpc.shareList(size: 5);
+   76:     if (res case Success(:final response)) {
+   77:       if (response.sessionList.isNotEmpty) {
+   78:         userList.addAll(
+   79:           response.sessionList.map<UserModel>(
+   80:             (item) => UserModel(
+   81:               mid: item.talkerId.toInt(),
+   82:               name: item.talkerUname,
+   83:               avatar: item.talkerIcon,
+   84:             ),
+   85:           ),
+   86:         );
+   87:       }
+   88:     }
+   89: 
+   90:     if (userList.isEmpty && context.mounted) {
+   91:       final UserModel? userModel = await Navigator.of(context).push(
+   92:         GetPageRoute(page: () => const ContactPage()),
+   93:       );
+   94:       if (userModel != null) {
+   95:         userList.add(userModel);
+   96:       }
+   97:     }
+   98: 
+   99:     if (context.mounted) {
+  100:       showModalBottomSheet(
+  101:         context: context,
+  102:         builder: (context) => SharePanel(
+  103:           content: content,
+  104:           userList: userList,
+  105:         ),
+  106:         useSafeArea: true,
+  107:         enableDrag: false,
+  108:         isScrollControlled: true,
+  109:       );
+  110:     }
+  111:   }
+  112: 
+  113:   static Future<void> pushDynFromId({
+  114:     String? id,
+  115:     Object? rid,
+  116:     bool off = false,
+  117:     Object? type,
+  118:   }) async {
+  119:     assert(id != null || rid != null);
+  120:     SmartDialog.showLoading();
+  121:     final res = await DynamicsHttp.dynamicDetail(
+  122:       id: id,
+  123:       rid: rid,
+  124:       type: rid != null ? 2 : null,
+  125:     );
+  126:     SmartDialog.dismiss();
+  127:     if (res case Success(:final response)) {
+  128:       if (response.basic?.commentType == 12) {
+  129:         toDupNamed(
+  130:           '/articlePage',
+  131:           parameters: {
+  132:             'id': id!,
+  133:             'type': 'opus',
+  134:           },
+  135:           off: off,
+  136:         );
+  137:       } else {
+  138:         toDupNamed(
+  139:           '/dynamicDetail',
+  140:           arguments: {
+  141:             'item': response,
+  142:           },
+  143:           off: off,
+  144:         );
+  145:       }
+  146:     } else {
+  147:       SmartDialog.showToast('${type != null ? 'type: $type ' : ''}$res');
+  148:     }
+  149:   }
+  150: 
+  220:       autoEnter: autoEnter,
+  221:       isLive: isLive,
+  222:       isPlaying: isPlaying,
+  223:     );
+  224:   }
+  225: 
+  226:   static Future<void> pushDynDetail(
+  227:     DynamicItemModel item, {
+  228:     bool isPush = false,
+  229:     bool viewComment = false,
+  230:   }) async {
+  231:     feedBack();
+  232: 
+  233:     void push() {
+  234:       if (item.basic?.commentType == 12) {
+  235:         toDupNamed(
+  236:           '/articlePage',
+  237:           parameters: {
+  238:             'id': item.idStr,
+  239:             'type': 'opus',
+  240:           },
+  241:         );
+  242:       } else {
+  243:         if (item.linkFolded) {
+  244:           pushDynFromId(id: item.idStr);
+  245:           return;
+  246:         }
+  247:         toDupNamed(
+  248:           '/dynamicDetail',
+  249:           arguments: {
+  250:             'item': item,
+  251:             if (viewComment) 'viewComment': true,
+  252:           },
+  253:         );
+  254:       }
+  255:     }
+  256: 
+  257:     /// 点击评论action 直接查看评论
+  258:     if (isPush) {
+  259:       push();
+  260:       return;
+  261:     }
+  262: 
+  263:     // if (kDebugMode) debugPrint('pushDynDetail: ${item.type}');
+  264: 
+  265:     switch (item.type) {
+  266:       case 'DYNAMIC_TYPE_AV':
+  267:         final archive = item.modules.moduleDynamic!.major!.archive!;
+  268:         // pgc
+  269:         if (archive.type == 2) {
+  270:           // jumpUrl
+  271:           if (archive.jumpUrl case final jumpUrl?) {
+  272:             if (viewPgcFromUri(jumpUrl)) {
+  273:               return;
+  274:             }
+  275:           }
+  276:           // redirectUrl from intro
+  277:           final res = await VideoHttp.videoIntro(bvid: archive.bvid!);
+  278:           if (res.dataOrNull?.redirectUrl case final redirectUrl?) {
+  279:             if (viewPgcFromUri(redirectUrl)) {
+  280:               return;
+  281:             }
+  282:           }
+  283:           // redirectUrl from jumpUrl
+  284:           if (await UrlUtils.parseRedirectUrl(archive.jumpUrl.http2https, false)
+  285:               case final redirectUrl?) {
+  420:     bool off = false,
+  421:   }) {
+  422:     if (Pref.openInBrowser) {
+  423:       launchURL(url);
+  424:     } else {
+  425:       Get.offOrToNamed(
+  426:         '/webview',
+  427:         parameters: {'url': url},
+  428:         arguments: const {'inApp': true},
+  429:         off: off,
+  430:       );
+  431:     }
+  432:   }
+  433: 
+  434:   /// Schemes that read local content or run script: a url from a deep link /
+  435:   /// a web page must never make the OS open `file:///…/hive/account.hive`.
+  436:   /// Blocked outright, not confirmable.
+  437:   static const _localSchemes = {
+  438:     'file',
+  439:     'content',
+  440:     'javascript',
+  441:     'data',
+  442:     'blob',
+  443:     'about',
+  444:     'filesystem',
+  445:   };
+  446: 
+  447:   /// Opens [url] with the OS. `http(s)` goes straight out; every other
+  448:   /// scheme is attacker-reachable (a video description, a comment, a deep
+  449:   /// link) and hands control to whichever app claims it, so it is named to
+  450:   /// the user first. [_localSchemes] are refused either way.
+  451:   static Future<void> launchURL(
+  452:     String url, {
+  453:     LaunchMode mode = LaunchMode.externalApplication,
+  454:   }) async {
+  455:     try {
+  456:       final uri = Uri.parse(url);
+  457:       final scheme = uri.scheme.toLowerCase();
+  458:       if (_localSchemes.contains(scheme)) {
+  459:         SmartDialog.showToast('已拦截: $url');
+  460:         return;
+  461:       }
+  462:       if (scheme != 'http' && scheme != 'https') {
+  463:         final context = Get.context;
+  464:         if (context == null) return;
+  465:         final confirmed = await showConfirmDialog(
+  466:           context: context,
+  467:           title: const Text('用其他应用打开？'),
+  468:           content: Text(
+  469:             '这个链接不是网页，它会交给系统上注册了 '
+  470:             '「$scheme」 的应用打开：\n\n$url',
+  471:           ),
+  472:         );
+  473:         if (!confirmed) return;
+  474:       }
+  475:       if (!await launchUrl(uri, mode: mode)) {
+  476:         SmartDialog.showToast('Could not launch $url');
+  477:       }
+  478:     } catch (e) {
+  479:       SmartDialog.showToast(e.toString());
+  480:     }
+  481:   }
+  482: 
+  483:   static Future<void> handleWebview(
+  484:     String url, {
+  485:     bool inApp = false,
+  486:     Map? parameters,
+  487:   }) async {
+  488:     if (!inApp && Pref.openInBrowser) {
+  489:       if (!await PiliScheme.routePushFromUrl(url, selfHandle: true)) {
+  490:         launchURL(url);
+--- lib/utils/login_utils.dart
+   20: 
+   21: abstract final class LoginUtils {
+   22:   static FutureOr setWebCookie([Account? account]) {
+   23:     if (Platform.isLinux) return null;
+   24:     final cookies = (account ?? Accounts.main).cookieJar.toList();
+   25:     final webManager = web.CookieManager.instance(
+   26:       webViewEnvironment: webViewEnvironment,
+   27:     );
+   28:     return Future.wait(
+   29:       cookies.map(
+   30:         (cookie) => webManager.setCookie(
+   31:           url: web.WebUri(
+   32:             '${Platform.isWindows ? 'https://' : ''}${cookie.domain}',
+   33:           ),
+   34:           name: cookie.name,
+   35:           value: cookie.value,
+   36:           path: cookie.path ?? '/',
+   37:           domain: cookie.domain,
+   38:           isSecure: cookie.secure,
+   39:           isHttpOnly: cookie.httpOnly,
+   40:         ),
+   41:       ),
+   42:     );
+   43:   }
+   44: 
+   45:   /// LibrePili: pages in the in-app WebView are anonymous. Removes the stored
+   46:   /// accounts' cookies (e.g. installed by an older build) and installs the
+   47:   /// anonymous jar; account cookies go in only for explicit account flows
+   48:   /// (the "reset cookie" menu, taking notes).
+   49:   static FutureOr setAnonymousWebCookie() async {
+   50:     // Linux (WebKitGTK via desktop_webview_window) has no set-cookie API and
+   51:     // no jar to seed between windows: [clearWebCookies] drops the shared
+   52:     // store, and every window opened afterwards injects the anonymous buvid3
+   53:     // itself at documentStart (WebviewPage.openLinux ->
+   54:     // LinuxCookieManager.generateCookieInjectionJs with AnonymousAccount).
+   55:     if (Platform.isLinux) return null;
+   56:     final webManager = web.CookieManager.instance(
+   57:       webViewEnvironment: webViewEnvironment,
+   58:     );
+   59:     await Future.wait([
+   60:       for (final account in Accounts.account.values)
+   61:         for (final cookie in account.cookieJar.toList())
+   62:           webManager.deleteCookie(
+   63:             url: web.WebUri(
+   64:               '${Platform.isWindows ? 'https://' : ''}${cookie.domain}',
+   65:             ),
+   66:             name: cookie.name,
+   67:             path: cookie.path ?? '/',
+   68:             domain: cookie.domain,
+   69:           ),
+   70:     ]);
+   71:     return setWebCookie(AnonymousAccount());
+   72:   }
+   73: 
+   74:   /// Removes every cookie from the in-app WebView store (used when all data
+   75:   /// is reset, so a deleted account's session does not survive there).
+   76:   static Future<void> clearWebCookies() async {
+   77:     try {
+   78:       if (Platform.isLinux) {
+   79:         await LinuxCookieManager.deleteAllCookies();
+   80:       } else {
+   81:         await web.CookieManager.instance(
+   82:           webViewEnvironment: webViewEnvironment,
+   83:         ).deleteAllCookies();
+   84:       }
+   85:     } catch (_) {}
+   86:   }
+   87: 
+   88:   static Future<void> onLoginMain() async {
+   89:     final account = Accounts.main;
+   90:     final res = await UserHttp.userInfo();
+   91:     if (res case Success(:final response)) {
+   92:       setAnonymousWebCookie();
+   93:       RequestUtils.syncHistoryStatus();
+   94:       if (response.isLogin == true) {
+   95:         final accountService = Get.find<AccountService>()
+   96:           ..face.value = response.face!;
+   97: 
+   98:         if (accountService.isLogin.value) {
+   99:           accountService.isLogin.refresh();
+  100:         } else {
+  101:           accountService.isLogin.value = true;
+  102:         }
+  103: 
+  104:         SmartDialog.showToast('main登录成功');
+  105:         if (response != Pref.userInfoCache) {
+  106:           await GStorage.userInfo.put('userInfoCache', response);
+  107:         }
+  108:       }
+  109:     } else {
+  110:       // 获取用户信息失败
+  111:       final errMsg = res.toString();
+  112:       if (errMsg == '账号未登录') {
+  113:         // kept (marked expired), so one bad answer cannot delete it
+  114:         if (account is LoginAccount) await Accounts.markExpired({account});
+  115:         SmartDialog.showNotify(
+  116:           msg: '账号登录已失效（$errMsg），可在「账号切换」中重新登录或删除',
+  117:           notifyType: .warning,
+  118:         );
+  119:       } else {
+  120:         SmartDialog.showToast(errMsg);
+  121:       }
+  122:     }
+  123:   }
+  124: 
+  125:   static Future<void> onLogoutMain() {
+  126:     Get.find<AccountService>()
+  127:       ..face.value = ''
+  128:       ..isLogin.value = false;
+  129: 
+  130:     return Future.wait([
+  131:       // an empty jar is not anonymous: drop the account's cookies and put the
+  132:       // anonymous buvid3 back, or every WebView page for the rest of the
+  133:       // session looks like a bot. Both platforms take the same two steps;
+  134:       // see [setAnonymousWebCookie] for how Linux reinstates it.
+  135:       () async {
+  136:         await clearWebCookies();
+  137:         await setAnonymousWebCookie();
+  138:       }(),
+  139:       GStorage.userInfo.delete('userInfoCache'),
+  140:     ]);
+  141:   }
+  142: 
+  143:   static String generateBuvid() {
+  144:     final md5Str = Digest(
+  145:       List.generate(16, (_) => Utils.random.nextInt(256)),
+  146:     ).toString();
+  147:     return 'XY${md5Str[2]}${md5Str[12]}${md5Str[22]}$md5Str';
+  148:   }
+  149: 
+  150:   /// Persistent device id: only for requests that carry the account.
+--- lib/utils/accounts/account_manager/account_mgr.dart
+   20: 
+   21: final _setCookieReg = RegExp('(?<=)(,)(?=[^;]+?=)');
+   22: 
+   23: class AccountManager extends Interceptor {
+   24:   AccountManager();
+   25: 
+   26:   static String blockServer = Pref.blockServer;
+   27: 
+   28:   static String getCookies(List<Cookie> cookies) {
+   29:     // Sort cookies by path (longer path first).
+   30:     cookies.sort((a, b) {
+   31:       if (a.path == null && b.path == null) {
+   32:         return 0;
+   33:       } else if (a.path == null) {
+   34:         return -1;
+   35:       } else if (b.path == null) {
+   36:         return 1;
+   37:       } else {
+   38:         return b.path!.length.compareTo(a.path!.length);
+   39:       }
+   40:     });
+   41:     return cookies.map((cookie) => '${cookie.name}=${cookie.value}').join('; ');
+   42:   }
+   43: 
+   44:   @override
+   45:   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+   46:     final path = options.path;
+   47: 
+   48:     final account = _bindRequestAccount(options);
+   49: 
+   50:     // call sites may have put the account's access_key / csrf in the params
+   51:     // before the policy anonymized the request: scrub them (and re-sign) so the
+   52:     // anonymous request cannot be tied to the account
+   53:     if (account is! LoginAccount) _scrubAccessKey(options);
+   54: 
+   55:     if (account is NoAccount || _skipCookie(path)) return handler.next(options);
+   56: 
+   57:     if (!account.isLogin && path == Api.heartBeat) {
+   58:       return handler.reject(
+   59:         DioException.requestCancelled(requestOptions: options, reason: null),
+   60:         false,
+   61:       );
+   62:     }
+   63: 
+   64:     final isApp = path.startsWith(HttpString.appBaseUrl);
+   65: 
+   66:     if (isApp && options.responseType == ResponseType.bytes) {
+   67:       options.headers.addAll(account.grpcHeaders);
+   68:       return handler.next(options);
+   69:     }
+   70: 
+   71:     options.headers
+   72:       ..addAll(account.headers)
+   73:       ..['referer'] ??= HttpString.baseUrl;
+   74: 
+   75:     // app端不需要管理cookie
+   76:     if (isApp) {
+   77:       // if (kDebugMode) debugPrint('is app: ${options.path}');
+   78:       final dataPtr = (options.method == 'POST' && options.data is Map
+   79:           ? (options.data as Map).cast<String, dynamic>()
+   80:           : options.queryParameters);
+   81:       if (dataPtr.isNotEmpty) {
+   82:         if (!account.accessKey.isNullOrEmpty) {
+   83:           dataPtr['access_key'] = account.accessKey!;
+   84:         }
+   85:         AppSign.appSign(dataPtr..remove('sign'));
+   86:         // if (kDebugMode) debugPrint(dataPtr.toString());
+   87:       }
+   88:       return handler.next(options);
+   89:     } else {
+   90:       account.cookieJar
+   91:           .loadForRequest(options.uri)
+   92:           .then((cookies) {
+   93:             final previousCookies =
+   94:                 options.headers[HttpHeaders.cookieHeader] as String?;
+   95:             final newCookies = getCookies([
+   96:               ...?previousCookies
+   97:                   ?.split(';')
+   98:                   .where((e) => e.isNotEmpty)
+   99:                   .map(Cookie.fromSetCookieValue),
+  100:               ...cookies,
+  101:             ]);
+  102:             options.headers[HttpHeaders.cookieHeader] = newCookies.isNotEmpty
+  103:                 ? newCookies
+  104:                 : '';
+  105:             handler.next(options);
+  106:           })
+  107:           .catchError((Object e, StackTrace s) {
+  108:             final err = DioException(
+  109:               requestOptions: options,
+  110:               error: e,
+  111:               stackTrace: s,
+  112:             );
+  113:             handler.reject(err, true);
+  114:           });
+  115:     }
+  116:   }
+  117: 
+  118:   @override
+  119:   void onResponse(Response response, ResponseInterceptorHandler handler) {
+  120:     if (_boundRequestAccount(response.requestOptions) case final account?) {
+  121:       final future = _saveCookies(
+  122:         account,
+  123:         response,
+  124:       ).whenComplete(() => handler.next(response));
+  125:       assert(() {
+  126:         future.catchError(
+  127:           (Object e, StackTrace s) {
+  128:             throw DioException(
+  129:               requestOptions: response.requestOptions,
+  130:               error: e,
+  131:               stackTrace: s,
+  132:             );
+  133:           },
+  134:         );
+  135:         return true;
+  136:       }());
+  137:     } else {
+  138:       return handler.next(response);
+  139:     }
+  140:   }
+  141: 
+  142:   @override
+  143:   void onError(DioException err, ErrorInterceptorHandler handler) {
+  144:     final options = err.requestOptions;
+  145:     if (options.responseType == ResponseType.stream) {
+  146:       return handler.next(err);
+  147:     }
+  148: 
+  149:     if (options.method != 'POST') toast(err);
+  150: 
+  220:             cookies,
+  221:           ),
+  222:         ),
+  223:       );
+  224:     }
+  225:     await account.onChange();
+  226:   }
+  227: 
+  228:   /// Hosts a block server may never be set to: matching one would make
+  229:   /// [_skipCookie] true for the API itself and strip the account off every
+  230:   /// request (the U5 catastrophe). Suffix-matched, so subdomains count.
+  231:   static const _reservedHosts = [
+  232:     'bilibili.com',
+  233:     'bilibili.cn',
+  234:     'bilibili.tv',
+  235:     'bilivideo.com',
+  236:     'bilivideo.cn',
+  237:     'hdslb.com',
+  238:     'biliimg.com',
+  239:     'b23.tv',
+  240:   ];
+  241: 
+  242:   /// The parsed [blockServer] when it is usable, else null. A block server is
+  243:   /// `http(s)://host[:port][/prefix]` on a host that is not bilibili's.
+  244:   /// Anything else is refused here *and* by the settings dialog, so
+  245:   /// [_isBlockServer] can never degrade into "matches everything".
+  246:   static Uri? parseBlockServer(String value) {
+  247:     final uri = Uri.tryParse(value.trim());
+  248:     if (uri == null ||
+  249:         !(uri.isScheme('http') || uri.isScheme('https')) ||
+  250:         uri.host.isEmpty ||
+  251:         uri.userInfo.isNotEmpty) {
+  252:       return null;
+  253:     }
+  254:     final host = uri.host.toLowerCase();
+  255:     for (final reserved in _reservedHosts) {
+  256:       if (host == reserved || host.endsWith('.$reserved')) return null;
+  257:     }
+  258:     return uri;
+  259:   }
+  260: 
+  261:   static bool _isBlockServer(String path) {
+  262:     // scheme + host + port + path prefix, and never a bilibili host: a
+  263:     // host-only match on `https://api.bilibili.com/sb` would strip the
+  264:     // cookies off every API request, and a raw prefix match would match
+  265:     // everything when the saved address is empty or too short.
+  266:     final server = parseBlockServer(blockServer);
+  267:     if (server == null) return false;
+  268:     final uri = Uri.tryParse(path);
+  269:     if (uri == null ||
+  270:         uri.scheme.toLowerCase() != server.scheme ||
+  271:         uri.host.toLowerCase() != server.host.toLowerCase() ||
+  272:         uri.port != server.port) {
+  273:       return false;
+  274:     }
+  275:     final prefix = server.path.replaceAll(RegExp(r'/+$'), '');
+  276:     return prefix.isEmpty ||
+  277:         uri.path == prefix ||
+  278:         uri.path.startsWith('$prefix/');
+  279:   }
+  280: 
+  281:   static bool _skipCookie(String path) {
+  282:     return _isBlockServer(path) ||
+  283:         path.contains('hdslb.com') ||
+  284:         path.contains('biliimg.com');
+  285:   }
+--- lib/http/retry_interceptor.dart
+   20:         final status = err.response!.statusCode;
+   21:         if (status != null && 300 <= status && status < 400) {
+   22:           var redirectUrl = err.response!.headers.value('location');
+   23:           if (redirectUrl != null) {
+   24:             final oldUri = options.uri;
+   25:             var uri = Uri.parse(redirectUrl);
+   26:             if (!uri.hasScheme) {
+   27:               uri = oldUri.resolveUri(uri);
+   28:               redirectUrl = uri.toString();
+   29:             }
+   30:             if (uri.scheme != oldUri.scheme ||
+   31:                 uri.host != oldUri.host ||
+   32:                 uri.port != oldUri.port) {
+   33:               // another origin gets neither the account's cookies nor its
+   34:               // headers, nor the old query (access_key...): the location
+   35:               // carries its own
+   36:               options
+   37:                 ..queryParameters = {}
+   38:                 // every gRPC header too: x-bili-metadata-bin starts with the
+   39:                 // accessKey, x-bili-device-bin/buvid carry the persistent
+   40:                 // device id, and the referer names where we came from
+   41:                 ..headers.removeWhere((key, _) {
+   42:                   final name = key.toLowerCase();
+   43:                   return name.startsWith('x-bili-') ||
+   44:                       name == 'cookie' ||
+   45:                       name == 'authorization' ||
+   46:                       name == 'buvid' ||
+   47:                       name == 'referer';
+   48:                 })
+   49:                 ..extra['account'] = const NoAccount();
+   50:               // 307/308 (and a POST this interceptor follows itself) keep
+   51:               // the body: take the account's secrets out of it too
+   52:               _scrubBody(options);
+   53:             }
+   54:             (options..path = redirectUrl).maxRedirects--;
+   55:             if (status == 303) {
+   56:               options
+   57:                 ..data = null
+   58:                 ..method = 'GET';
+   59:             }
+   60:             _client
+   61:                 .fetch(options)
+   62:                 .then(
+   63:                   (i) => handler.resolve(
+   64:                     i
+   65:                       ..redirects.add(
+   66:                         RedirectRecord(status, options.method, uri),
+   67:                       )
+   68:                       ..isRedirect = true,
+   69:                   ),
+   70:                 )
+   71:                 .onError<DioException>((error, _) => handler.next(error));
+   72:             return;
+   73:           }
+   74:         }
+   75:       }
+   76:       return handler.next(err);
+   77:     } else {
+   78:       switch (err.type) {
+   79:         case DioExceptionType.connectionError:
+   80:         case DioExceptionType.connectionTimeout:
+   81:         case DioExceptionType.sendTimeout:
+   82:         case DioExceptionType.unknown:
+   83:           // only idempotent reads are re-sent: a POST (like, coin, comment,
+   84:           // follow...) may already have been applied by the server
+   85:           final method = err.requestOptions.method.toUpperCase();
+   86:           final extra = err.requestOptions.extra;
+   87:           // a retry re-enters this interceptor through `_client.fetch`, so
+   88:           // onError runs once per attempt on the same RequestOptions. Only
+   89:           // the attempt the caller made (no `_rt` yet) passes the final
+   90:           // error on, so the interceptors after this one — AccountManager's
+   91:           // toast and cookie save — run exactly once, not once per retry.
+   92:           final isRetryAttempt = extra.containsKey('_rt');
+   93:           void finish(DioException error) =>
+   94:               isRetryAttempt ? handler.reject(error) : handler.next(error);
+   95:           if ((method == 'GET' || method == 'HEAD') &&
+   96:               (extra['_rt'] ??= 0) < _count &&
+   97:               err.error
+   98:                   is! TransportConnectionException // 网络中断, 此时请求可能已经被服务器所接收
+   99:                   ) {
+  100:             Future.delayed(
+  101:               Duration(milliseconds: ++extra['_rt'] * _delay),
+  102:               () => _client
+  103:                   .fetch(err.requestOptions)
+  104:                   .then(handler.resolve)
+  105:                   .onError<DioException>((error, _) => finish(error)),
+  106:             );
+  107:           } else {
+  108:             finish(err);
+  109:           }
+  110:           return;
+  111:         default:
+  112:           return handler.next(err);
+  113:       }
+  114:     }
+  115:   }
+  116: 
+  117:   /// Account secrets a body may carry (see AccountManager) and the
+  118:   /// signatures computed over them: worthless at another origin, and the
+  119:   /// account's to keep.
+  120:   static const _bodySecrets = [
+  121:     'access_key',
+  122:     'mobile_access_key',
+  123:     'csrf',
+  124:     'csrf_token',
+  125:     'biliCSRF',
+  126:     'sign',
+  127:     'w_rid',
+  128:   ];
+  129: 
+  130:   static void _scrubBody(RequestOptions options) {
+  131:     switch (options.data) {
+  132:       case final Map data:
+  133:         data.removeWhere((key, _) => _bodySecrets.contains(key));
+  134:       case final FormData data:
+  135:         data.fields.removeWhere((e) => _bodySecrets.contains(e.key));
+  136:     }
+  137:   }
+  138: 
+  139:   RetryInterceptor copyWith({Dio? client, int? count, int? delay}) =>
+  140:       .new(client ?? _client, count ?? _count, delay ?? _delay);
+  141: }
+--- lib/pages/common/common_list_controller.dart
+   20:   void checkIsEnd(int length) {}
+   21: 
+   22:   // bumped by every refresh: a response of an older request (a load-more or
+   23:   // refresh still in flight) is dropped, so it can neither append a page to
+   24:   // the new list nor advance [page]
+   25:   int _generation = 0;
+   26: 
+   27:   // A refresh already in flight is shared instead of raced: a fast second
+   28:   // pull would otherwise send a second request only to throw one away.
+   29:   // [_generation] still drops a stale response when a new request *is* made.
+   30:   Future<void>? _refreshing;
+   31: 
+   32:   // Set by [markRefreshStale]: the request parameters changed, so attaching
+   33:   // to the refresh in flight would answer with data fetched for the old ones.
+   34:   bool _refreshIsStale = false;
+   35: 
+   36:   /// Call before [onRefresh] when the next request differs from the one that
+   37:   /// may still be in flight (a new search keyword, a sort order, a different
+   38:   /// account): that one must not be attached to, it is answering the old
+   39:   /// parameters. [onReload] does this itself.
+   40:   void markRefreshStale() => _refreshIsStale = true;
+   41: 
+   42:   @override
+   43:   Future<void> queryData([bool isRefresh = true]) {
+   44:     if (!isRefresh) return _queryData(false);
+   45:     final stale = _refreshIsStale;
+   46:     _refreshIsStale = false;
+   47:     final refreshing = _refreshing;
+   48:     if (!stale && refreshing != null) return refreshing;
+   49:     final future = _queryData(true);
+   50:     _refreshing = future;
+   51:     return future.whenComplete(() {
+   52:       // a stale refresh that replaced this one owns the slot now
+   53:       if (identical(_refreshing, future)) _refreshing = null;
+   54:     });
+   55:   }
+   56: 
+   57:   Future<void> _queryData(bool isRefresh) async {
+   58:     if (!isRefresh && (isLoading || isEnd)) return;
+   59:     final generation = isRefresh ? ++_generation : _generation;
+   60:     isLoading = true;
+   61:     final LoadingState<R> res = await customGetData();
+   62:     if (generation != _generation) return;
+   63:     if (res case Success(:final response)) {
+   64:       if (!customHandleResponse(isRefresh, res)) {
+   65:         final dataList = getDataList(response);
+   66:         if (dataList == null || dataList.isEmpty) {
+   67:           isEnd = true;
+   68:           if (isRefresh) {
+   69:             loadingState.value = Success(dataList);
+   70:           } else if (hasFooter == true) {
+   71:             loadingState.refresh();
+   72:           }
+   73:           isLoading = false;
+   74:           return;
+   75:         }
+   76:         handleListResponse(dataList);
+   77:         if (isRefresh) {
+   78:           checkIsEnd(dataList.length);
+   79:           loadingState.value = Success(dataList);
+   80:         } else if (loadingState.value case Success(:final response)) {
+   81:           response!.addAll(dataList);
+   82:           checkIsEnd(response.length);
+   83:           loadingState.refresh();
+   84:         }
+   85:       }
+   86:       page++;
+   87:     } else {
+   88:       if (isRefresh && !handleError(res is Error ? res.errMsg : null)) {
+   89:         loadingState.value = res as Error;
+   90:       }
+   91:     }
+   92:     isLoading = false;
+   93:   }
+   94: 
+   95:   @override
+   96:   Future<void> onRefresh() {
+   97:     page = 1;
+   98:     isEnd = false;
+   99:     return super.onRefresh();
+  100:   }
+  101: 
+  102:   @override
+  103:   Future<void> onReload() {
+  104:     markRefreshStale();
+  105:     loadingState.value = LoadingState<List<T>?>.loading();
+  106:     return super.onReload();
+  107:   }
+  108: }
+
+ succeeded in 1859ms:
+--- lib/utils/flv_demux.dart
+    1: part of 'mp4_remux.dart';
+    2: 
+    3: /// LibrePili: pure-Dart FLV demuxer feeding [Mp4Remuxer]'s progressive MP4
+    4: /// writer, for the old single-URL (durl) downloads.
+    5: ///
+    6: /// FLV AVC payloads are already length-prefixed NAL units and AAC payloads
+    7: /// raw frames, which is exactly what MP4 samples hold, so sample bytes are
+    8: /// never decoded: every sample becomes a chunk pointing into its FLV file and
+    9: /// is copied byte-for-byte. H.264 / HEVC video (legacy codec id 7 / 12, or
+   10: /// enhanced FLV with the `avc1` / `hvc1` FourCC) and AAC audio are
+   11: /// supported; a codec configuration that changes mid-stream or between
+   12: /// segments becomes another sample entry. Anything else throws
+   13: /// [UnsupportedError].
+   14: abstract final class _FlvDemuxer {
+   15:   /// A segment starting more than this before the end of what came earlier
+   16:   /// restarted its clock and is placed after it; a continuing segment starts
+   17:   /// within about a frame of that end.
+   18:   static const _restartToleranceMs = 100;
+   19: 
+   20:   /// [strict]: a tag cut off by the end of the file throws
+   21:   /// [FormatException] (a damaged download) instead of being dropped.
+   22:   static List<_Track> demux(List<String> inputs, {bool strict = false}) {
+   23:     final video = _FlvTrackBuilder(isVideo: true);
+   24:     final audio = _FlvTrackBuilder(isVideo: false);
+   25:     for (final input in inputs) {
+   26:       final raf = File(input).openSync();
+   27:       try {
+   28:         final r = _FileReader(raf);
+   29:         final header = r.read(0, 9);
+   30:         if (String.fromCharCodes(header, 0, 3) != 'FLV') {
+   31:           throw FormatException('not an FLV file: $input');
+   32:         }
+   33:         // header, then PreviousTagSize0
+   34:         var pos = ByteData.sublistView(header).getUint32(5) + 4;
+   35:         int? offset; // ms added to this segment's timestamps
+  170:     // one track holds one codec (players switch configuration, not codec)
+  171:     if (codec != c) {
+  172:       throw UnsupportedError('FLV video codec changes ($codec -> $c)');
+  173:     }
+  174:   }
+  175: 
+  176:   void addAudioTag(
+  177:     String path,
+  178:     int dataPos,
+  179:     int dataSize,
+  180:     Uint8List head,
+  181:     int time,
+  182:     _FileReader r,
+  183:   ) {
+  184:     final format = head[0] >> 4;
+  185:     if (format != 10) {
+  186:       throw UnsupportedError('FLV audio codec $format (only AAC)');
+  187:     }
+  188:     if (dataSize <= 2) return;
+  189:     switch (head[1]) {
+  190:       case 0: // AudioSpecificConfig
+  191:         _setConfig(r.read(dataPos + 2, dataSize - 2));
+  192:       case 1: // raw frame
+  193:         _add(path, dataPos + 2, dataSize - 2, time, 0, true);
+  194:     }
+  195:   }
+  196: 
+  197:   /// Repeated at segment starts (same bytes: nothing changes); a different
+  198:   /// configuration (resolution / profile / sample rate change) becomes a
+  199:   /// new sample entry for the samples that follow.
+  200:   void _setConfig(Uint8List c) {
+  201:     for (var i = 0; i < configs.length; i++) {
+  202:       if (_sameBytes(configs[i], c)) {
+  203:         _current = i;
+  204:         return;
+  205:       }
+  206:     }
+  207:     configs.add(Uint8List.fromList(c));
+  208:     _current = configs.length - 1;
+  209:   }
+  210: 
+  211:   void _add(String path, int offset, int size, int time, int cts, bool key) {
+  212:     if (_current < 0) return; // undecodable before the sequence header
+  213:     if (times.isNotEmpty && time <= times.last) time = times.last + 1;
+  214:     configIndex.add(_current);
+  215:     times.add(time);
+  216:     ctsMs.add(cts);
+  217:     keys.add(key);
+  218:     paths.add(path);
+  219:     offsets.add(offset);
+  220:     sizes.add(size);
+  221:   }
+  222: 
+  223:   /// [baseMs]: earliest start of all tracks; a later start becomes an empty
+  224:   /// edit so audio and video stay in sync.
+  225:   _Track? build(int baseMs) {
+  226:     if (configs.isEmpty || sizes.isEmpty) return null;
+  227:     final config = configs.first;
+  228:     final t = _Track(paths.first)
+  229:       ..sourceMovieTimescale = 1000
+  230:       ..tkhdFlags = 0
+  231:       ..mdhdLanguage =
+  232:           Uint8List.fromList([0x55, 0xC4]) // und
+  233:       ..dinf = _box(
+  234:         'dinf',
+  235:         _box(
+  236:           'dref',
+  237:           (_W()
+  238:                 ..u32(0)
+  239:                 ..u32(1)
+  240:                 ..bytes_(_box('url ', (_W()..u32(1)).bytes)))
+  250:         ..mediaHeader = _box(
+  251:           'vmhd',
+  252:           (_W()
+  253:                 ..u32(1)
+  254:                 ..zeros(8))
+  255:               .bytes,
+  256:         )
+  257:         ..tkhdTail = _tkhdTail(0, width, height);
+  258:     } else {
+  259:       final (rate, _) = _aacFormat(config);
+  260:       t
+  261:         ..timescale = rate
+  262:         ..sampleEntryType = 'mp4a'
+  263:         ..hdlr = _hdlr('soun', 'SoundHandler')
+  264:         ..mediaHeader = _box('smhd', (_W()..zeros(8)).bytes)
+  265:         ..tkhdTail = _tkhdTail(0x0100, 0, 0);
+  266:     }
+  267:     final entries = [for (final c in configs) _sampleEntry(c)];
+  268:     t.stsd = _stsdOf(entries);
+  269:     if (entries.length > 1) t.sampleEntries = entries;
+  270: 
+  271:     final ts = t.timescale;
+  272:     final first = times.first;
+  273:     final dts = [for (final ms in times) _scale(ms - first, 1000, ts)];
+  274:     // Samples are grouped into chunks of about a second, the way the
+  275:     // fragmented-MP4 path does, so the sample tables stay small (one `stco`
+  276:     // entry per chunk, not per sample). FLV samples are payloads of separate
+  277:     // tags with the other track's tags in between, so a chunk lists its
+  278:     // samples' ranges one by one: what has to be contiguous is the chunk's
+  279:     // place in the *output* file, not in its source.
+  280:     final maxChunk = (Mp4Remuxer._maxChunkSeconds * ts).round();
+  281:     _Chunk? chunk;
+  282:     for (var i = 0; i < dts.length; i++) {
+  283:       final dur = i + 1 < dts.length
+  284:           ? dts[i + 1] - dts[i]
+  285:           : (i > 0
+  286:                 ? dts[i] - dts[i - 1]
+  287:                 : _scale(_defaultDurationMs, 1000, ts));
+  288:       final descIndex = configIndex[i] + 1;
+  289:       // a chunk holds one sample description and comes from one file
+  290:       if (chunk == null ||
+  291:           chunk.descIndex != descIndex ||
+  292:           chunk.sourcePath != paths[i] ||
+  293:           dts[i] - chunk.startDts >= maxChunk) {
+  294:         chunk = _Chunk(t, offsets[i], i, dts[i], paths[i])
+  295:           ..descIndex = descIndex
+  296:           ..ranges = <(int, int)>[];
+  297:         t.chunks.add(chunk);
+  298:       }
+  299:       chunk
+  300:         ..ranges!.add((offsets[i], sizes[i]))
+  301:         ..length += sizes[i]
+  302:         ..sampleCount += 1;
+  303:       t
+  304:         ..durations.add(dur)
+  305:         ..sizes.add(sizes[i])
+  306:         ..ctos.add(_scale(ctsMs[i], 1000, ts))
+  307:         ..syncs.add(keys[i]);
+  308:     }
+  309:     if (first > baseMs) {
+  310:       t.edits
+  311:         ..add(_EditEntry(first - baseMs, -1, 0x10000))
+  312:         ..add(_EditEntry(0, 0, 0x10000));
+  313:     }
+  314:     return t;
+  315:   }
+  316: 
+  317:   /// The sample entry for one codec configuration of this track.
+  318:   Uint8List _sampleEntry(Uint8List config) {
+  319:     if (isVideo) {
+  320:       final (width, height) = _videoDimensions(config);
+  321:       final hevc = codec == 'hvc1';
+  322:       return _box(
+  323:         codec!,
+  324:         (_W()
+  325:               ..zeros(6)
+  350:             ..zeros(4)
+  351:             ..u32(rate <= 0xFFFF ? rate << 16 : 0)
+  352:             ..bytes_(_esds(config)))
+  353:           .bytes,
+  354:     );
+  355:   }
+  356: 
+  357:   /// Picture size for the sample entry and track header; (0, 0) when it
+  358:   /// cannot be read.
+  359:   (int, int) _videoDimensions(Uint8List config) =>
+  360:       codec == 'hvc1' ? _hevcDimensions(config) : _avcDimensions(config);
+  361: 
+  362:   /// Conformance-window size from the first SPS of an HEVC configuration
+  363:   /// record (H.265 7.3.2.2.1); (0, 0) if it cannot be read.
+  364:   static (int, int) _hevcDimensions(Uint8List hvcC) {
+  365:     try {
+  366:       var p = 23;
+  367:       for (var a = 0; a < hvcC[22]; a++) {
+  368:         final type = hvcC[p] & 0x3F;
+  369:         final n = (hvcC[p + 1] << 8) | hvcC[p + 2];
+  370:         p += 3;
+  371:         for (var i = 0; i < n; i++) {
+  372:           final len = (hvcC[p] << 8) | hvcC[p + 1];
+  373:           if (type == 33) {
+  374:             return _hevcSpsDimensions(
+  375:               Uint8List.sublistView(hvcC, p + 2, p + 2 + len),
+  376:             );
+  377:           }
+  378:           p += 2 + len;
+  379:         }
+  380:       }
+  381:     } catch (_) {}
+  382:     return (0, 0);
+  383:   }
+  384: 
+  385:   static (int, int) _hevcSpsDimensions(Uint8List nal) {
+  386:     // skip sps_video_parameter_set_id (4 bits)
+  387:     final b = _BitReader(_rbsp(nal, 2))..bits(4);
+  388:     final maxSubLayersMinus1 = b.bits(3);
+  389:     b
+  390:       ..bit() // temporal_id_nesting
+  391:       ..bits(32) // general profile space / tier / idc + 24 compat bits
+  392:       ..bits(8) // rest of the compatibility flags
+  393:       ..bits(32) // source / constraint flags ...
+  394:       ..bits(16) // ... (48 bits in all)
+  395:       ..bits(8); // general_level_idc
+  396:     final profilePresent = <bool>[];
+  397:     final levelPresent = <bool>[];
+  398:     for (var i = 0; i < maxSubLayersMinus1; i++) {
+  399:       profilePresent.add(b.bit() == 1);
+  400:       levelPresent.add(b.bit() == 1);
+  401:     }
+  402:     if (maxSubLayersMinus1 > 0) {
+  403:       for (var i = maxSubLayersMinus1; i < 8; i++) {
+  404:         b.bits(2);
+  405:       }
+  406:     }
+  407:     for (var i = 0; i < maxSubLayersMinus1; i++) {
+  408:       if (profilePresent[i]) {
+  409:         b
+  410:           ..bits(32)
+  411:           ..bits(32)
+  412:           ..bits(24); // 88 bits
+  413:       }
+  414:       if (levelPresent[i]) b.bits(8);
+  415:     }
+  416:     b.ue(); // sps_seq_parameter_set_id
+  417:     final chroma = b.ue();
+  418:     final separate = chroma == 3 && b.bit() == 1;
+  419:     var width = b.ue();
+  420:     var height = b.ue();
+  421:     if (b.bit() == 1) {
+  422:       final left = b.ue();
+  423:       final right = b.ue();
+  424:       final top = b.ue();
+  425:       final bottom = b.ue();
+  426:       final subW = !separate && (chroma == 1 || chroma == 2) ? 2 : 1;
+  427:       final subH = !separate && chroma == 1 ? 2 : 1;
+  428:       width -= subW * (left + right);
+  429:       height -= subH * (top + bottom);
+  430:     }
+  431:     return (width, height);
+  432:   }
+  433: 
+  434:   /// RBSP of a NAL unit: without its [headerBytes] and the emulation
+  435:   /// prevention bytes (00 00 03).
+  436:   static Uint8List _rbsp(Uint8List nal, int headerBytes) {
+  437:     final rbsp = <int>[];
+  438:     var zeros = 0;
+  439:     for (var i = headerBytes; i < nal.length; i++) {
+  440:       final v = nal[i];
+  441:       if (zeros >= 2 && v == 3) {
+  442:         zeros = 0;
+  443:         continue;
+  444:       }
+  445:       zeros = v == 0 ? zeros + 1 : 0;
+  446:       rbsp.add(v);
+  447:     }
+  448:     return Uint8List.fromList(rbsp);
+  449:   }
+  450: 
+  451:   static Uint8List _tkhdTail(int volume, int width, int height) {
+  452:     final w = _W()
+  453:       ..zeros(8)
+  454:       ..u16(0) // layer
+  455:       ..u16(0) // alternate group
+--- lib/utils/mp4_remux.dart
+    1: import 'dart:io';
+    2: import 'dart:math' show max, min;
+    3: import 'dart:typed_data';
+    4: 
+    5: part 'flv_demux.dart';
+    6: part 'mp4_join.dart';
+    7: 
+    8: /// Losslessly merges single-track fragmented MP4 inputs (bilibili DASH
+    9: /// `video.m4s` / `audio.m4s`) into one progressive MP4 with `moov` placed
+   10: /// before `mdat` (fast start).
+   11: ///
+   12: /// Sample data is copied byte-for-byte, codec configuration (`stsd`) and edit
+   13: /// lists are carried over, so any codec the inputs carry (AVC / HEVC / AV1 /
+   14: /// AAC ...) is supported. Pure Dart, no Flutter dependency: safe to run inside
+   15: /// `Isolate.run`.
+   16: abstract final class Mp4Remuxer {
+   17:   static const _movieTimescale = 1000;
+   18:   static const _maxChunkSeconds = 1.0;
+   19:   static const _copyBufferSize = 4 << 20;
+   20:   static const _readWindowSize = 1 << 20;
+   21: 
+   22:   static Future<void> remux({
+   23:     required List<String> inputs,
+   24:     required String output,
+   25:     void Function(int copied, int total)? onProgress,
+   26:   }) async {
+   27:     if (inputs.isEmpty) throw ArgumentError('no input');
+   28:     final tracks = <_Track>[];
+   29:     for (final input in inputs) {
+   30:       tracks.add(
+   31:         await _Track.parse(input)
+   32:           ..index = tracks.length,
+   33:       );
+   34:     }
+   35:     await _write(tracks, output, onProgress);
+  170:       c.outputOffset = offset;
+  171:       offset += c.length;
+  172:     }
+  173:     final moov = _moov(tracks, useCo64);
+  174:     assert(moov.length == moovSize);
+  175: 
+  176:     final tmp = File('$output.part');
+  177:     final out = await tmp.open(mode: FileMode.write);
+  178:     final sources = <String, RandomAccessFile>{};
+  179:     final windows = <String, _ReadWindow>{};
+  180:     try {
+  181:       await out.writeFrom(ftyp);
+  182:       await out.writeFrom(moov);
+  183:       final mdatHeader = _W();
+  184:       if (mdatHeaderSize == 16) {
+  185:         mdatHeader
+  186:           ..u32(1)
+  187:           ..fourcc('mdat')
+  188:           ..u64(payloadSize + 16);
+  189:       } else {
+  190:         mdatHeader
+  191:           ..u32(payloadSize + 8)
+  192:           ..fourcc('mdat');
+  193:       }
+  194:       await out.writeFrom(mdatHeader.bytes);
+  195: 
+  196:       // Sample bytes go through buffers on both sides: a chunk is one sample
+  197:       // in an FLV, so a read and a write per chunk is hundreds of thousands
+  198:       // of round-trips for a long video. Chunks run forward through each
+  199:       // source, so a window that slides forward serves nearly all of them
+  200:       // from memory.
+  201:       final outBuf = Uint8List(_copyBufferSize);
+  202:       var outLen = 0;
+  203:       var copied = 0;
+  204: 
+  205:       Future<void> flushOut() async {
+  206:         if (outLen > 0) {
+  207:           await out.writeFrom(outBuf, 0, outLen);
+  208:           outLen = 0;
+  209:         }
+  210:       }
+  211: 
+  212:       Future<void> putBytes(Uint8List bytes, int start, int end) async {
+  213:         var i = start;
+  214:         while (i < end) {
+  215:           if (outLen == outBuf.length) await flushOut();
+  216:           final n = min(end - i, outBuf.length - outLen);
+  217:           outBuf.setRange(outLen, outLen + n, bytes, i);
+  218:           outLen += n;
+  219:           i += n;
+  220:           copied += n;
+  221:         }
+  222:       }
+  223: 
+  224:       Future<void> copyRange(
+  225:         RandomAccessFile src,
+  226:         _ReadWindow win,
+  227:         String from,
+  228:         int offset,
+  229:         int length,
+  230:       ) async {
+  231:         if (length <= 0) return;
+  232:         if (length >= win.buf.length) {
+  233:           // bigger than the window: stream it straight through
+  234:           await flushOut();
+  235:           await src.setPosition(offset);
+  236:           win.length = 0; // the window's bytes are no longer what it says
+  237:           var left = length;
+  238:           while (left > 0) {
+  239:             final n = await src.readInto(
+  240:               win.buf,
+  250:         }
+  251:         if (offset < win.start || offset + length > win.start + win.length) {
+  252:           await src.setPosition(offset);
+  253:           final n = await src.readInto(win.buf);
+  254:           if (n < length) throw FormatException('unexpected EOF in $from');
+  255:           win
+  256:             ..start = offset
+  257:             ..length = n;
+  258:         }
+  259:         final at = offset - win.start;
+  260:         await putBytes(win.buf, at, at + length);
+  261:       }
+  262: 
+  263:       for (final c in chunks) {
+  264:         final src = sources[c.sourcePath] ??= await File(
+  265:           c.sourcePath,
+  266:         ).open();
+  267:         final win = windows[c.sourcePath] ??= _ReadWindow();
+  268:         final prefix = c.prefix;
+  269:         if (prefix != null) {
+  270:           await putBytes(prefix, 0, prefix.length);
+  271:         }
+  272:         if (c.ranges case final ranges?) {
+  273:           for (final (offset, length) in ranges) {
+  274:             await copyRange(src, win, c.sourcePath, offset, length);
+  275:           }
+  276:         } else {
+  277:           await copyRange(
+  278:             src,
+  279:             win,
+  280:             c.sourcePath,
+  281:             c.sourceOffset,
+  282:             c.length - (prefix?.length ?? 0),
+  283:           );
+  284:         }
+  285:         onProgress?.call(copied, payloadSize);
+  286:       }
+  287:       await flushOut();
+  288:     } catch (_) {
+  289:       await out.close();
+  290:       for (final s in sources.values) {
+  291:         await s.close();
+  292:       }
+  293:       if (tmp.existsSync()) await tmp.delete();
+  294:       rethrow;
+  295:     }
+  296:     await out.close();
+  297:     for (final s in sources.values) {
+  298:       await s.close();
+  299:     }
+  300:     final dest = File(output);
+  301:     if (dest.existsSync()) await dest.delete();
+  302:     await tmp.rename(output);
+  303:   }
+  304: 
+  305:   static Uint8List _ftyp(List<_Track> tracks) {
+  306:     final brands = <String>{'isom', 'iso2', 'mp41'};
+  307:     for (final t in tracks) {
+  308:       final fmt = t.sampleEntryType;
+  309:       if (fmt == 'avc1' || fmt == 'avc3') brands.add('avc1');
+  310:       if (fmt == 'av01') brands.add('av01');
+  311:     }
+  312:     final w = _W()
+  313:       ..fourcc('isom')
+  314:       ..u32(0x200);
+  315:     brands.forEach(w.fourcc);
+  316:     return _box('ftyp', w.bytes);
+  317:   }
+  318: 
+  319:   static Uint8List _moov(List<_Track> tracks, bool useCo64) {
+  320:     final traks = <Uint8List>[];
+  321:     var movieDuration = 0;
+  322:     for (var i = 0; i < tracks.length; i++) {
+  323:       final t = tracks[i];
+  324:       final trackDuration = t.movieDuration;
+  325:       movieDuration = max(movieDuration, trackDuration);
+  350:       ..u32(tracks.length + 1);
+  351:     return _box('moov', _concat([_box('mvhd', mvhd.bytes), ...traks]));
+  352:   }
+  353: }
+  354: 
+  355: final _unityMatrix = () {
+  356:   final w = _W();
+  357:   for (final v in [0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000]) {
+  358:     w.u32(v);
+  359:   }
+  360:   return w.bytes;
+  361: }();
+  362: 
+  363: class _Chunk {
+  364:   _Chunk(
+  365:     this.track,
+  366:     this.sourceOffset,
+  367:     this.firstSample,
+  368:     this.startDts, [
+  369:     String? sourcePath,
+  370:   ]) : sourcePath = sourcePath ?? track.path;
+  371:   final _Track track;
+  372: 
+  373:   /// File the chunk's bytes are read from (FLV input: one per segment).
+  374:   final String sourcePath;
+  375:   final int sourceOffset;
+  376:   final int firstSample;
+  377:   final int startDts;
+  378:   int length = 0;
+  379:   int sampleCount = 0;
+  380:   int outputOffset = 0;
+  381: 
+  382:   /// `(offset, length)` of this chunk's sample bytes in [sourcePath], in
+  383:   /// output order. Null when the samples are one contiguous run starting at
+  384:   /// [sourceOffset], as in a fragmented MP4. An FLV's samples are payloads
+  385:   /// of separate tags with the other track's tags in between, so they are
+  386:   /// listed one by one: a chunk has to be contiguous in the *output* file
+  387:   /// (`stco` names one offset for it), not in its source.
+  388:   List<(int, int)>? ranges;
+  389: 
+  390:   /// 1-based index of the sample entry (in `stsd`) its samples use.
+  391:   int descIndex = 1;
+  392: 
+  393:   /// Bytes written before the source bytes (counted in [length] and in the
+  394:   /// first sample's size): in-band parameter sets at a configuration switch.
+  395:   Uint8List? prefix;
+  396:   double get startSeconds => startDts / track.timescale;
+  397: }
+  398: 
+  399: /// A block of one source file held in memory, so the many small reads a
+  400: /// chunk list makes (one sample each, in increasing offset order) mostly
+  401: /// come out of it instead of hitting the file.
+  402: class _ReadWindow {
+  403:   final Uint8List buf = Uint8List(Mp4Remuxer._readWindowSize);
+  404: 
+  405:   /// Offset in the source [buf] starts at, and how much of it is filled.
+  406:   int start = 0;
+  407:   int length = 0;
+  408: }
+  409: 
+  410: class _EditEntry {
+  411:   _EditEntry(this.segmentDuration, this.mediaTime, this.rate);
+  412:   int segmentDuration; // in source movie timescale; 0 = until end
+  413:   final int mediaTime; // in media timescale; -1 = empty edit
+  414:   final int rate;
+  415: }
+  416: 
+  417: class _Track {
+  418:   _Track(this.path);
+  419:   final String path;
+  420:   int index = 0;
+  421: 
+  422:   late int timescale;
+  423:   late int sourceMovieTimescale;
+  424:   late String sampleEntryType;
+  425:   late Uint8List tkhdTail; // layer .. height, copied verbatim
+  426:   late int tkhdFlags;
+  427:   late Uint8List mdhdLanguage;
+  428:   late Uint8List hdlr;
+  429:   late Uint8List mediaHeader; // vmhd / smhd / nmhd
+  430:   late Uint8List dinf;
+  431:   late Uint8List stsd;
+  432: 
+  433:   /// Set when the track carries several codec configurations (segments /
+  434:   /// a stream whose configuration changes): `stsd` is then built from these
+  435:   /// sample entries and each chunk points at its own with
+  436:   /// [_Chunk.descIndex].
+  437:   List<Uint8List>? sampleEntries;
+  438: 
+  439:   /// The `stsd` box written to the output.
+  440:   Uint8List get stsdBox =>
+  441:       sampleEntries == null ? stsd : _stsdOf(sampleEntries!);
+  442: 
+  443:   bool _inlined = false;
+  444: 
+  445:   /// HEVC with several configurations: the switch to another sample entry
+  446:   /// is only signalled through the container, which FFmpeg's
+  447:   /// `hevc_mp4toannexb` (the MediaCodec path) ignores, so the new frames
+  448:   /// would be decoded with the first VPS/SPS/PPS. The first sample after
+  449:   /// each switch therefore also carries its configuration's parameter sets
+  450:   /// in-band, and the entries become `hev1` (parameter sets may be in-band).
+  451:   void _inlineParameterSets() {
+  452:     final entries = sampleEntries;
+  453:     if (_inlined || entries == null || entries.length < 2) return;
+  454:     if (sampleEntryType != 'hvc1' && sampleEntryType != 'hev1') return;
+  455:     _inlined = true;
+--- test/utils/flv_demux_test.dart
+    1: import 'dart:io';
+    2: import 'dart:typed_data';
+    3: 
+    4: import 'package:PiliPlus/utils/mp4_remux.dart';
+    5: import 'package:flutter_test/flutter_test.dart';
+    6: 
+    7: /// Writes bits MSB first, with Exp-Golomb helpers (for building an SPS).
+    8: class _Bits {
+    9:   final _out = <int>[];
+   10:   int _cur = 0;
+   11:   int _n = 0;
+   12: 
+   13:   void bit(int b) {
+   14:     _cur = (_cur << 1) | (b & 1);
+   15:     if (++_n == 8) {
+   16:       _out.add(_cur);
+   17:       _cur = 0;
+   18:       _n = 0;
+   19:     }
+   20:   }
+   21: 
+   22:   void bits(int v, int n) {
+   23:     for (var i = n - 1; i >= 0; i--) {
+   24:       bit((v >> i) & 1);
+   25:     }
+   26:   }
+   27: 
+   28:   void ue(int v) {
+   29:     final x = v + 1;
+   30:     final len = x.bitLength;
+   31:     bits(0, len - 1);
+   32:     bits(x, len);
+   33:   }
+   34: 
+   35:   List<int> rbsp() {
+  170:     final flv = _Flv()
+  171:       ..script()
+  172:       ..avcHeader(_avcC(_sps(20, 15))) // 320x240
+  173:       ..aacHeader()
+  174:       ..video(0, _nal(100, 1), key: true)
+  175:       ..audio(0, List.filled(30, 7))
+  176:       ..audio(23, List.filled(31, 8))
+  177:       ..video(40, _nal(50, 2), cts: 80)
+  178:       ..audio(46, List.filled(32, 9))
+  179:       ..video(80, _nal(60, 3));
+  180:     return flv.bytes;
+  181:   }
+  182: 
+  183:   test('demuxes H.264 + AAC samples, timing and sync flags', () {
+  184:     final tracks = Mp4Remuxer.debugFlvTracks([write('a.flv', basicFlv())]);
+  185:     expect(tracks, hasLength(2));
+  186: 
+  187:     final v = tracks[0];
+  188:     expect(v['type'], 'avc1');
+  189:     expect(v['timescale'], 1000);
+  190:     expect(v['sizes'], [105, 55, 65]); // payload after the 5-byte tag header
+  191:     expect(v['durations'], [40, 40, 40]);
+  192:     expect(v['ctos'], [0, 80, 0]);
+  193:     expect(v['syncs'], [true, false, false]);
+  194:     final tail = v['tkhdTail']! as Uint8List;
+  195:     expect(_u32(tail, tail.length - 8) >> 16, 320);
+  196:     expect(_u32(tail, tail.length - 4) >> 16, 240);
+  197:     expect(_contains(v['stsd']! as Uint8List, 'avcC'.codeUnits), isTrue);
+  198: 
+  199:     final a = tracks[1];
+  200:     expect(a['type'], 'mp4a');
+  201:     expect(a['timescale'], 44100);
+  202:     expect(a['sizes'], [30, 31, 32]);
+  203:     // 23 ms steps in the 44100 Hz timescale
+  204:     expect((a['durations']! as List).first, 1014);
+  205:     expect(_contains(a['stsd']! as Uint8List, 'esds'.codeUnits), isTrue);
+  206:     expect(v['edits'], isEmpty);
+  207:     expect(a['edits'], isEmpty);
+  208:   });
+  209: 
+  210:   test('SPS frame cropping gives 1920x1080', () {
+  211:     final flv = _Flv()
+  212:       ..avcHeader(_avcC(_sps(120, 68, cropBottom: 4)))
+  213:       ..video(0, _nal(10, 1), key: true);
+  214:     final v = Mp4Remuxer.debugFlvTracks([write('c.flv', flv.bytes)]).single;
+  215:     final tail = v['tkhdTail']! as Uint8List;
+  216:     expect(_u32(tail, tail.length - 8) >> 16, 1920);
+  217:     expect(_u32(tail, tail.length - 4) >> 16, 1080);
+  218:   });
+  219: 
+  220:   test('joins segments in timeline order when timestamps restart', () {
+  221:     List<int> seg(int fill) {
+  222:       final flv = _Flv()
+  223:         ..avcHeader(_avcC(_sps(20, 15)))
+  224:         ..video(0, _nal(10, fill), key: true)
+  225:         ..video(40, _nal(10, fill))
+  226:         ..video(80, _nal(10, fill));
+  227:       return flv.bytes;
+  228:     }
+  229: 
+  230:     final v = Mp4Remuxer.debugFlvTracks([
+  231:       write('s1.flv', Uint8List.fromList(seg(1))),
+  232:       write('s2.flv', Uint8List.fromList(seg(2))),
+  233:     ]).single;
+  234:     expect(v['sizes'], hasLength(6));
+  235:     // second segment placed right after the first: no jump back, no gap
+  236:     expect(v['durations'], [40, 40, 40, 40, 40, 40]);
+  237:   });
+  238: 
+  239:   test('a later video start becomes an empty edit (A/V sync)', () {
+  240:     final flv = _Flv()
+  250:       [0, 0],
+  251:     ]);
+  252:     expect(tracks[1]['edits'], isEmpty);
+  253:   });
+  254: 
+  255:   test('unsupported codecs throw UnsupportedError', () {
+  256:     final h263 = _Flv()..tag(9, 0, [0x12, 1, 2, 3]);
+  257:     expect(
+  258:       () => Mp4Remuxer.debugFlvTracks([write('h.flv', h263.bytes)]),
+  259:       throwsUnsupportedError,
+  260:     );
+  261:     final mp3 = _Flv()..tag(8, 0, [0x2F, 1, 2, 3]);
+  262:     expect(
+  263:       () => Mp4Remuxer.debugFlvTracks([write('m.flv', mp3.bytes)]),
+  264:       throwsUnsupportedError,
+  265:     );
+  266:   });
+  267: 
+  268:   test('remuxFlv writes a progressive mp4 holding every sample', () async {
+  269:     final input = write('in.flv', basicFlv());
+  270:     final output = '${dir.path}/out.mp4';
+  271:     expect(Mp4Remuxer.isFlv(input), isTrue);
+  272:     await Mp4Remuxer.remuxFlv(inputs: [input], output: output);
+  273:     final mp4 = File(output).readAsBytesSync();
+  274:     expect(Mp4Remuxer.isMp4(output), isTrue);
+  275: 
+  276:     final boxes = _boxes(mp4);
+  277:     expect(boxes.map((e) => e.$1), ['ftyp', 'moov', 'mdat']);
+  278:     final (_, mdatAt, mdatSize) = boxes[2];
+  279:     // video 105 + 55 + 65, audio 30 + 31 + 32
+  280:     expect(mdatSize - 8, 105 + 55 + 65 + 30 + 31 + 32);
+  281:     final mdat = Uint8List.sublistView(mp4, mdatAt + 8, mdatAt + mdatSize);
+  282:     expect(_contains(mdat, _nal(100, 1)), isTrue);
+  283:     expect(_contains(mdat, List.filled(32, 9)), isTrue);
+  284: 
+  285:     final moov = Uint8List.sublistView(
+  286:       mp4,
+  287:       boxes[1].$2,
+  288:       boxes[1].$2 + boxes[1].$3,
+  289:     );
+  290:     for (final box in ['avcC', 'esds', 'ctts', 'stss', 'stco']) {
+  291:       expect(_contains(moov, box.codeUnits), isTrue, reason: box);
+  292:     }
+  293:     expect(File('$output.part').existsSync(), isFalse);
+  294:   });
+  295: 
+  296:   group('joinMp4 (multi-segment progressive MP4)', () {
+  297:     /// A progressive MP4 segment (H.264 + AAC), built via remuxFlv.
+  298:     Future<String> mp4Segment(String name, int fill, {List<int>? sps}) async {
+  299:       final flv = _Flv()
+  300:         ..avcHeader(_avcC(sps ?? _sps(20, 15)))
+  301:         ..aacHeader()
+  302:         ..video(0, _nal(100, fill), key: true)
+  303:         ..audio(0, List.filled(30, fill))
+  304:         ..audio(23, List.filled(31, fill))
+  305:         ..video(40, _nal(50, fill), cts: 80)
+  306:         ..audio(46, List.filled(32, fill))
+  307:         ..video(80, _nal(60, fill));
+  308:       final out = '${dir.path}/$name.mp4';
+  309:       await Mp4Remuxer.remuxFlv(
+  310:         inputs: [write('$name.flv', flv.bytes)],
+  311:         output: out,
+  312:       );
+  313:       return out;
+  314:     }
+  315: 
+  316:     test('reads a progressive mp4 back sample for sample', () async {
+  317:       final seg = await mp4Segment('one', 1);
+  318:       final tracks = Mp4Remuxer.debugMp4JoinTracks([seg]);
+  319:       expect(tracks.map((t) => t['type']), ['avc1', 'mp4a']);
+  320:       expect(tracks[0]['sizes'], [105, 55, 65]);
+  321:       expect(tracks[0]['durations'], [40, 40, 40]);
+  322:       expect(tracks[0]['ctos'], [0, 80, 0]);
+  323:       expect(tracks[0]['syncs'], [true, false, false]);
+  324:       expect(tracks[1]['sizes'], [30, 31, 32]);
+  325:     });
+  350:       expect(size - 8, 2 * (105 + 55 + 65 + 30 + 31 + 32));
+  351:       // segment 1's samples come before segment 2's
+  352:       final first = _indexOf(mdat, _nal(100, 1));
+  353:       final second = _indexOf(mdat, _nal(100, 2));
+  354:       expect(first, isNot(-1));
+  355:       expect(second, greaterThan(first));
+  356:     });
+  357: 
+  358:     test('joined segments: every sample lies where its table says', () async {
+  359:       final s1 = await mp4Segment('p1', 1);
+  360:       final s2 = await mp4Segment('p2', 2);
+  361:       final output = '${dir.path}/placed.mp4';
+  362:       await Mp4Remuxer.joinMp4(inputs: [s1, s2], output: output);
+  363:       final mp4 = File(output).readAsBytesSync();
+  364:       final tracks = Mp4Remuxer.debugMp4JoinTracks([output]);
+  365: 
+  366:       // the sample the segment built, per track, in timeline order
+  367:       final expected = {
+  368:         0: [
+  369:           for (final fill in [1, 2]) ...[
+  370:             _nal(100, fill),
+  371:             _nal(50, fill),
+  372:             _nal(60, fill),
+  373:           ],
+  374:         ],
+  375:         1: [
+  376:           for (final fill in [1, 2]) ...[
+  377:             List.filled(30, fill),
+  378:             List.filled(31, fill),
+  379:             List.filled(32, fill),
+  380:           ],
+  381:         ],
+  382:       };
+  383: 
+  384:       for (final ti in [0, 1]) {
+  385:         final t = tracks[ti];
+  386:         final sizes = t['sizes']! as List<int>;
+  387:         final counts = t['sampleCounts']! as List<int>;
+  388:         final offsets = t['chunkOffsets']! as List<int>;
+  389:         final want = expected[ti]!;
+  390: 
+  391:         expect(sizes, hasLength(want.length), reason: 'sample count (t$ti)');
+  392:         expect(
+  393:           counts.reduce((a, b) => a + b),
+  394:           want.length,
+  395:           reason: 'samples across chunks (t$ti)',
+  396:         );
+  397:         expect(offsets, hasLength(counts.length));
+  398: 
+  399:         // walk the chunks: every sample's bytes must be at chunk offset plus
+  400:         // the sizes of the samples before it in that chunk
+  401:         var s = 0;
+  402:         for (var ci = 0; ci < counts.length; ci++) {
+  403:           var at = offsets[ci];
+  404:           for (var k = 0; k < counts[ci]; k++, s++) {
+  405:             expect(
+  406:               sizes[s],
+  407:               want[s].length,
+  408:               reason: 'size of sample $s (t$ti)',
+  409:             );
+  410:             expect(
+  411:               mp4.sublist(at, at + sizes[s]),
+  412:               want[s],
+  413:               reason: 'bytes of sample $s (t$ti)',
+  414:             );
+  415:             at += sizes[s];
+  416:           }
+  417:         }
+  418:         expect(s, want.length);
+  419:       }
+  420: 
+  421:       // timing carried over for both segments
+  422:       expect(tracks[0]['durations'], [40, 40, 40, 40, 40, 40]);
+  423:       expect(tracks[0]['ctos'], [0, 80, 0, 0, 80, 0]);
+  424:       expect(tracks[0]['syncs'], [true, false, false, true, false, false]);
+  425:     });
+  426: 
+  427:     test('segments whose track sets differ are not joined', () async {
+  428:       final s1 = await mp4Segment('t1', 1);
+  429:       // video only: no aacHeader, no audio tags
+  430:       final videoOnly = _Flv()
+  431:         ..avcHeader(_avcC(_sps(20, 15)))
+  432:         ..video(0, _nal(100, 2), key: true)
+  433:         ..video(40, _nal(50, 2));
+  434:       final s2 = '${dir.path}/t2.mp4';
+  435:       await Mp4Remuxer.remuxFlv(
+  436:         inputs: [write('t2.flv', videoOnly.bytes)],
+  437:         output: s2,
+  438:       );
+  439:       expect(
+  440:         () => Mp4Remuxer.joinMp4(
+  441:           inputs: [s1, s2],
+  442:           output: '${dir.path}/never2.mp4',
+  443:         ),
+  444:         throwsUnsupportedError,
+  445:       );
+  446:     });
+  447: 
+  448:     test('differing codec configuration: one sample entry each', () async {
+  449:       final s1 = await mp4Segment('c1', 1);
+  450:       final s2 = await mp4Segment('c2', 2, sps: _sps(120, 68, cropBottom: 4));
+  451:       final s3 = await mp4Segment('c3', 3); // back to the first config
+  452:       final output = '${dir.path}/multi.mp4';
+  453:       await Mp4Remuxer.joinMp4(inputs: [s1, s2, s3], output: output);
+  454: 
+  455:       final v = Mp4Remuxer.debugMp4JoinTracks([output])[0];
+
+codex
+The chunk writer’s core looks internally consistent for FLV: grouped chunks use explicit source ranges and output offsets are based on total grouped length. I’m checking the HEVC parameter-set prefix path now, since prefixes change sample sizes and chunk lengths and are exactly where table/data drift can hide.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"markRefreshStale\\(\" lib test" in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content lib'"\\utils\\mp4_remux.dart | ForEach-Object { if(("'$i -ge 445 -and $i -le 485) -or ($i -ge 700 -and $i -le 735) -or ($i -ge 880 -and $i -le 930) -or ($i -ge 90 -and $i -le 110)){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content lib'"\\utils\\mp4_join.dart | ForEach-Object { if(("'$i -ge 45 -and $i -le 72) -or ($i -ge 96 -and $i -le 118) -or ($i -ge 286 -and $i -le 337)){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1607ms:
+   45:         // this segment's sample entries, as indexes into the joined stsd
+   46:         final entries = t.sampleEntries ??= _sampleEntriesOf(t.stsd);
+   47:         final descIndex = [
+   48:           for (final e in _sampleEntriesOf(s.stsd)) _entryIndex(entries, e),
+   49:         ];
+   50:         final gap = (start * t.timescale).round() - t.mediaDuration;
+   51:         if (gap > 0) t.durations.last += gap;
+   52:         final firstSample = t.sizes.length;
+   53:         final dts = t.mediaDuration;
+   54:         for (final c in s.chunks) {
+   55:           t.chunks.add(
+   56:             _Chunk(
+   57:                 t,
+   58:                 c.sourceOffset,
+   59:                 c.firstSample + firstSample,
+   60:                 c.startDts + dts,
+   61:                 c.sourcePath,
+   62:               )
+   63:               ..length = c.length
+   64:               ..sampleCount = c.sampleCount
+   65:               ..descIndex = c.descIndex <= descIndex.length
+   66:                   ? descIndex[c.descIndex - 1]
+   67:                   : descIndex.first,
+   68:           );
+   69:         }
+   70:         t
+   71:           ..durations.addAll(s.durations)
+   72:           ..sizes.addAll(s.sizes)
+   96:       starts.add(dst);
+   97:       src += s.durations[i];
+   98:       final end = _scale(src, from, timescale);
+   99:       s.durations[i] = end - dst;
+  100:       s.ctos[i] = _scale(s.ctos[i], from, timescale);
+  101:       dst = end;
+  102:     }
+  103:     for (var i = 0; i < s.chunks.length; i++) {
+  104:       final c = s.chunks[i];
+  105:       s.chunks[i] =
+  106:           _Chunk(
+  107:               s,
+  108:               c.sourceOffset,
+  109:               c.firstSample,
+  110:               starts[c.firstSample],
+  111:               c.sourcePath,
+  112:             )
+  113:             ..length = c.length
+  114:             ..sampleCount = c.sampleCount
+  115:             ..descIndex = c.descIndex;
+  116:     }
+  117:     s.timescale = timescale;
+  118:   }
+  286:       final entries = b.u32();
+  287:       for (var i = 0; i < entries; i++) {
+  288:         final s = b.u32() - 1;
+  289:         if (s >= 0 && s < n) syncs[s] = true;
+  290:       }
+  291:     }
+  292: 
+  293:     // chunk offsets and samples per chunk
+  294:     final offsets = <int>[];
+  295:     if (stbl['stco'] case final body?) {
+  296:       final b = _R(body)..skip(4);
+  297:       final entries = b.u32();
+  298:       for (var i = 0; i < entries; i++) {
+  299:         offsets.add(b.u32());
+  300:       }
+  301:     } else if (stbl['co64'] case final body?) {
+  302:       final b = _R(body)..skip(4);
+  303:       final entries = b.u32();
+  304:       for (var i = 0; i < entries; i++) {
+  305:         offsets.add(b.u64());
+  306:       }
+  307:     }
+  308:     // (first chunk, 0-based; samples per chunk; sample description index)
+  309:     final stsc = <(int, int, int)>[];
+  310:     if (stbl['stsc'] case final body?) {
+  311:       final b = _R(body)..skip(4);
+  312:       final entries = b.u32();
+  313:       for (var i = 0; i < entries; i++) {
+  314:         stsc.add((b.u32() - 1, b.u32(), max(1, b.u32())));
+  315:       }
+  316:     }
+  317:     if (offsets.isEmpty || stsc.isEmpty) {
+  318:       throw FormatException('missing chunk tables in ${t.path}');
+  319:     }
+  320: 
+  321:     var sample = 0;
+  322:     var dts = 0;
+  323:     var entry = 0;
+  324:     for (var c = 0; c < offsets.length && sample < n; c++) {
+  325:       while (entry + 1 < stsc.length && stsc[entry + 1].$1 <= c) {
+  326:         entry++;
+  327:       }
+  328:       final chunk = _Chunk(t, offsets[c], sample, dts)
+  329:         ..descIndex = stsc[entry].$3;
+  330:       for (var j = 0; j < stsc[entry].$2 && sample < n; j++) {
+  331:         chunk
+  332:           ..length += sizes[sample]
+  333:           ..sampleCount += 1;
+  334:         dts += durations[sample];
+  335:         sample++;
+  336:       }
+  337:       t.chunks.add(chunk);
+
+ succeeded in 1676ms:
+   90:   /// complete; MP4: sample tables inside the file). False means the data is
+   91:   /// damaged (e.g. a truncated transfer) and the segment should be
+   92:   /// downloaded again; formats it cannot check count as fine.
+   93:   static bool checkSegment(String path) {
+   94:     try {
+   95:       if (isFlv(path)) {
+   96:         _FlvDemuxer.demux([path], strict: true);
+   97:         return true;
+   98:       }
+   99:       if (isMp4(path)) {
+  100:         final length = File(path).lengthSync();
+  101:         for (final t in _Mp4Joiner._readProgressive(path)) {
+  102:           for (final c in t.chunks) {
+  103:             if (c.sourceOffset + c.length > length) return false;
+  104:           }
+  105:         }
+  106:       }
+  107:       return true;
+  108:     } on FormatException {
+  109:       return false;
+  110:     } on RangeError {
+  445:   /// HEVC with several configurations: the switch to another sample entry
+  446:   /// is only signalled through the container, which FFmpeg's
+  447:   /// `hevc_mp4toannexb` (the MediaCodec path) ignores, so the new frames
+  448:   /// would be decoded with the first VPS/SPS/PPS. The first sample after
+  449:   /// each switch therefore also carries its configuration's parameter sets
+  450:   /// in-band, and the entries become `hev1` (parameter sets may be in-band).
+  451:   void _inlineParameterSets() {
+  452:     final entries = sampleEntries;
+  453:     if (_inlined || entries == null || entries.length < 2) return;
+  454:     if (sampleEntryType != 'hvc1' && sampleEntryType != 'hev1') return;
+  455:     _inlined = true;
+  456:     for (final e in entries) {
+  457:       e.setAll(4, 'hev1'.codeUnits);
+  458:     }
+  459:     sampleEntryType = 'hev1';
+  460:     for (var i = 1; i < chunks.length; i++) {
+  461:       final c = chunks[i];
+  462:       if (c.descIndex == chunks[i - 1].descIndex) continue;
+  463:       final prefix = _hevcParameterSets(entries[c.descIndex - 1]);
+  464:       if (prefix == null || prefix.isEmpty) continue;
+  465:       c
+  466:         ..prefix = prefix
+  467:         ..length += prefix.length;
+  468:       sizes[c.firstSample] += prefix.length;
+  469:     }
+  470:   }
+  471: 
+  472:   final edits = <_EditEntry>[];
+  473: 
+  474:   // trex defaults
+  475:   int _trexDuration = 0;
+  476:   int _trexSize = 0;
+  477:   int _trexFlags = 0;
+  478: 
+  479:   final durations = <int>[];
+  480:   final sizes = <int>[];
+  481:   final ctos = <int>[];
+  482:   final syncs = <bool>[];
+  483:   final chunks = <_Chunk>[];
+  484: 
+  485:   int get mediaDuration => durations.fold(0, (s, d) => s + d);
+  700:             var dataOffset = nextDataOffset ?? baseOffset;
+  701:             if (flags & 0x1 != 0) dataOffset = baseOffset + b.i32();
+  702:             int? firstFlags;
+  703:             if (flags & 0x4 != 0) firstFlags = b.u32();
+  704:             _Chunk? chunk;
+  705:             var chunkDuration = 0;
+  706:             final maxChunk = (Mp4Remuxer._maxChunkSeconds * timescale).round();
+  707:             for (var i = 0; i < n; i++) {
+  708:               final dur = flags & 0x100 != 0 ? b.u32() : defDuration;
+  709:               final size = flags & 0x200 != 0 ? b.u32() : defSize;
+  710:               final sFlags = flags & 0x400 != 0
+  711:                   ? b.u32()
+  712:                   : (i == 0 && firstFlags != null ? firstFlags : defFlags);
+  713:               final cto = flags & 0x800 != 0
+  714:                   ? (version == 0 ? b.u32() : b.i32())
+  715:                   : 0;
+  716:               if (chunk == null || chunkDuration >= maxChunk) {
+  717:                 chunk = _Chunk(this, dataOffset, sizes.length, dts);
+  718:                 chunks.add(chunk);
+  719:                 chunkDuration = 0;
+  720:               }
+  721:               durations.add(dur);
+  722:               sizes.add(size);
+  723:               ctos.add(cto);
+  724:               // sample_is_non_sync_sample
+  725:               syncs.add(sFlags & 0x10000 == 0);
+  726:               chunk
+  727:                 ..length += size
+  728:                 ..sampleCount += 1;
+  729:               chunkDuration += dur;
+  730:               dataOffset += size;
+  731:               dts += dur;
+  732:             }
+  733:             nextDataOffset = dataOffset;
+  734:         }
+  735:       }
+  880:   }
+  881: 
+  882:   Uint8List _stsz() {
+  883:     final w = _W()..u32(0);
+  884:     final first = sizes.first;
+  885:     if (sizes.every((e) => e == first)) {
+  886:       w
+  887:         ..u32(first)
+  888:         ..u32(sizes.length);
+  889:     } else {
+  890:       w
+  891:         ..u32(0)
+  892:         ..u32(sizes.length);
+  893:       sizes.forEach(w.u32);
+  894:     }
+  895:     return _box('stsz', w.bytes);
+  896:   }
+  897: 
+  898:   Uint8List _stsc() {
+  899:     final entries = <(int, int, int)>[];
+  900:     for (var i = 0; i < chunks.length; i++) {
+  901:       final n = chunks[i].sampleCount;
+  902:       final desc = chunks[i].descIndex;
+  903:       if (entries.isEmpty || entries.last.$2 != n || entries.last.$3 != desc) {
+  904:         entries.add((i + 1, n, desc));
+  905:       }
+  906:     }
+  907:     final w = _W()
+  908:       ..u32(0)
+  909:       ..u32(entries.length);
+  910:     for (final (firstChunk, perChunk, desc) in entries) {
+  911:       w
+  912:         ..u32(firstChunk)
+  913:         ..u32(perChunk)
+  914:         ..u32(desc);
+  915:     }
+  916:     return _box('stsc', w.bytes);
+  917:   }
+  918: 
+  919:   Uint8List _stco(bool co64) {
+  920:     final w = _W()
+  921:       ..u32(0)
+  922:       ..u32(chunks.length);
+  923:     for (final c in chunks) {
+  924:       co64 ? w.u64(c.outputOffset) : w.u32(c.outputOffset);
+  925:     }
+  926:     return _box(co64 ? 'co64' : 'stco', w.bytes);
+  927:   }
+  928: }
+  929: 
+  930: int _scale(int value, int from, int to) =>
+
+ succeeded in 1948ms:
+test\utils\refresh_coalescing_test.dart:48:    ctr.markRefreshStale();
+test\utils\refresh_coalescing_test.dart:68:    ctr.markRefreshStale();
+lib\pages\dynamics_select_topic\controller.dart:34:    markRefreshStale();
+lib\pages\dynamics_mention\controller.dart:35:    markRefreshStale();
+lib\pages\common\search\common_search_controller.dart:24:    markRefreshStale();
+lib\pages\common\common_list_controller.dart:40:  void markRefreshStale() => _refreshIsStale = true;
+lib\pages\common\common_list_controller.dart:104:    markRefreshStale();
+
+codex
+The HEVC prefix path also preserves accounting: prefixes increase the chunk length and first sample size before offsets are assigned, so the tables and bytes stay aligned. I found no new data-loss issue in the buffering/window logic from the code paths visible here.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "with path prefix|parseBlockServer|blockServer" test lib/pages/sponsor_block lib/utils/accounts/account_manager/account_mgr.dart' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content test'"\\utils\\flv_demux_test.dart | ForEach-Object { if(("'$i -ge 520 -and $i -le 710)){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content test'"\\utils\\refresh_coalescing_test.dart | ForEach-Object { if("'$i -le 120){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1546ms:
+lib/utils/accounts/account_manager/account_mgr.dart:26:  static String blockServer = Pref.blockServer;
+lib/utils/accounts/account_manager/account_mgr.dart:242:  /// The parsed [blockServer] when it is usable, else null. A block server is
+lib/utils/accounts/account_manager/account_mgr.dart:246:  static Uri? parseBlockServer(String value) {
+lib/utils/accounts/account_manager/account_mgr.dart:266:    final server = parseBlockServer(blockServer);
+lib/pages/sponsor_block\view.dart:40:  String _blockServer = Pref.blockServer;
+lib/pages/sponsor_block\view.dart:310:  Widget _blockServerItem(
+lib/pages/sponsor_block\view.dart:319:          _textController.text = _blockServer;
+lib/pages/sponsor_block\view.dart:333:                    _blockServer = HttpString.sponsorBlockBaseUrl;
+lib/pages/sponsor_block\view.dart:334:                    setting.put(SettingBoxKey.blockServer, _blockServer);
+lib/pages/sponsor_block\view.dart:335:                    AccountManager.blockServer = _blockServer;
+lib/pages/sponsor_block\view.dart:355:                    if (AccountManager.parseBlockServer(text) == null) {
+lib/pages/sponsor_block\view.dart:362:                    _blockServer = text;
+lib/pages/sponsor_block\view.dart:363:                    setting.put(SettingBoxKey.blockServer, _blockServer);
+lib/pages/sponsor_block\view.dart:364:                    AccountManager.blockServer = _blockServer;
+lib/pages/sponsor_block\view.dart:380:          _blockServer,
+lib/pages/sponsor_block\view.dart:527:            child: _blockServerItem(theme, titleStyle, subTitleStyle),
+test\utils\block_server_test.dart:5:  test('parseBlockServer accepts a real block server', () {
+test\utils\block_server_test.dart:6:    expect(AccountManager.parseBlockServer('https://www.bsbsb.top'), isNotNull);
+test\utils\block_server_test.dart:8:      AccountManager.parseBlockServer('https://sb.example.com:8443/api-root'),
+test\utils\block_server_test.dart:13:  test('parseBlockServer refuses bilibili hosts and junk', () {
+test\utils\block_server_test.dart:31:        AccountManager.parseBlockServer(bad),
+
+ succeeded in 1564ms:
+    1: import 'dart:async';
+    2: 
+    3: import 'package:PiliPlus/http/loading_state.dart';
+    4: import 'package:PiliPlus/pages/common/common_list_controller.dart';
+    5: import 'package:flutter_test/flutter_test.dart';
+    6: 
+    7: class _Ctr extends CommonListController<List<int>?, int> {
+    8:   int calls = 0;
+    9:   final pending = <Completer<LoadingState<List<int>?>>>[];
+   10: 
+   11:   @override
+   12:   Future<LoadingState<List<int>?>> customGetData() {
+   13:     calls++;
+   14:     final c = Completer<LoadingState<List<int>?>>();
+   15:     pending.add(c);
+   16:     return c.future;
+   17:   }
+   18: 
+   19:   void completeAll(List<int> data) {
+   20:     for (final c in List.of(pending)) {
+   21:       if (!c.isCompleted) c.complete(Success(data));
+   22:     }
+   23:     pending.clear();
+   24:   }
+   25: }
+   26: 
+   27: void main() {
+   28:   test('a refresh while one is in flight attaches instead of re-requesting',
+   29:       () async {
+   30:     final ctr = _Ctr();
+   31:     final a = ctr.queryData();
+   32:     final b = ctr.queryData();
+   33:     expect(ctr.calls, 1, reason: 'coalesced into the in-flight refresh');
+   34:     ctr.completeAll([1, 2]);
+   35:     await Future.wait([a, b]);
+   36:     expect(ctr.calls, 1);
+   37:     // and a later refresh, once nothing is in flight, does request again
+   38:     final c = ctr.queryData();
+   39:     expect(ctr.calls, 2);
+   40:     ctr.completeAll([3]);
+   41:     await c;
+   42:   });
+   43: 
+   44:   test('markRefreshStale re-issues instead of attaching', () async {
+   45:     final ctr = _Ctr();
+   46:     final a = ctr.queryData();
+   47:     expect(ctr.calls, 1);
+   48:     ctr.markRefreshStale();
+   49:     final b = ctr.queryData();
+   50:     expect(ctr.calls, 2, reason: 'parameters changed: a real second request');
+   51:     ctr.completeAll([9]);
+   52:     await Future.wait([a, b]);
+   53:   });
+   54: 
+   55:   test('onReload marks stale', () async {
+   56:     final ctr = _Ctr();
+   57:     final a = ctr.queryData();
+   58:     expect(ctr.calls, 1);
+   59:     final b = ctr.onReload();
+   60:     expect(ctr.calls, 2);
+   61:     ctr.completeAll([9]);
+   62:     await Future.wait([a, b]);
+   63:   });
+   64: 
+   65:   test('the newest refresh wins: the older response is dropped', () async {
+   66:     final ctr = _Ctr();
+   67:     final a = ctr.queryData();
+   68:     ctr.markRefreshStale();
+   69:     final b = ctr.queryData();
+   70:     expect(ctr.calls, 2);
+   71:     // complete the *older* request first with its own data
+   72:     ctr.pending[0].complete(const Success<List<int>?>([111]));
+   73:     await Future.delayed(Duration.zero);
+   74:     ctr.pending[1].complete(const Success<List<int>?>([222]));
+   75:     await Future.wait([a, b]);
+   76:     expect(
+   77:       (ctr.loadingState.value as Success<List<int>?>).response,
+   78:       [222],
+   79:       reason: 'generation counter still discards the superseded response',
+   80:     );
+   81:   });
+   82: }
+
+ succeeded in 1649ms:
+  520:         ..video(0, _nal(10, 1), key: true)
+  521:         ..video(40, _nal(10, 1))
+  522:         ..avcHeader(_avcC(_sps(120, 68, cropBottom: 4)))
+  523:         ..video(80, _nal(10, 2), key: true)
+  524:         ..avcHeader(_avcC(_sps(20, 15))) // back: reuses entry 1
+  525:         ..video(120, _nal(10, 3), key: true);
+  526:       final v = Mp4Remuxer.debugFlvTracks([write('mid.flv', flv.bytes)]).single;
+  527:       expect(v['sampleEntries'], 2);
+  528:       // samples are grouped into chunks, and a chunk holds one description:
+  529:       // 2 samples on entry 1, then one each on 2 and 1
+  530:       expect(v['descIndexes'], [1, 2, 1]);
+  531:       expect(v['sampleCounts'], [2, 1, 1]);
+  532:       final stsd = v['stsd']! as Uint8List;
+  533:       expect(_u32(stsd, 12), 2);
+  534:       // the track header keeps the first configuration's size
+  535:       final tail = v['tkhdTail']! as Uint8List;
+  536:       expect(_u32(tail, tail.length - 8) >> 16, 320);
+  537:     });
+  538: 
+  539:     test('segments with different AAC configs: two entries', () {
+  540:       final s1 = _Flv()
+  541:         ..aacHeader()
+  542:         ..audio(0, List.filled(10, 1))
+  543:         ..audio(23, List.filled(10, 1));
+  544:       final s2 = _Flv()
+  545:         ..tag(8, 0, [0xAF, 0, ..._asc48k])
+  546:         ..audio(0, List.filled(10, 2))
+  547:         ..audio(21, List.filled(10, 2));
+  548:       final a = Mp4Remuxer.debugFlvTracks([
+  549:         write('a1.flv', s1.bytes),
+  550:         write('a2.flv', s2.bytes),
+  551:       ]).single;
+  552:       expect(a['sampleEntries'], 2);
+  553:       // one chunk per segment: both its samples on that segment's entry
+  554:       expect(a['descIndexes'], [1, 2]);
+  555:       expect(a['sampleCounts'], [2, 2]);
+  556:       expect(a['timescale'], 44100);
+  557:     });
+  558: 
+  559:     test('remuxFlv writes both entries and the stsc indexes', () async {
+  560:       final flv = _Flv()
+  561:         ..avcHeader(_avcC(_sps(20, 15)))
+  562:         ..video(0, _nal(10, 1), key: true)
+  563:         ..avcHeader(_avcC(_sps(40, 30)))
+  564:         ..video(40, _nal(10, 2), key: true);
+  565:       final output = '${dir.path}/two.mp4';
+  566:       await Mp4Remuxer.remuxFlv(
+  567:         inputs: [write('two.flv', flv.bytes)],
+  568:         output: output,
+  569:       );
+  570:       // read back by the MP4 joiner: the stsc sample description indexes
+  571:       final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
+  572:       expect(v['sampleEntries'], 1); // single file: stsd kept verbatim
+  573:       expect(v['descIndexes'], [1, 2]);
+  574:       expect(_u32(v['stsd']! as Uint8List, 12), 2);
+  575:     });
+  576:   });
+  577: 
+  578:   group('HEVC in FLV', () {
+  579:     test('legacy codec id 12', () {
+  580:       final flv = _Flv()
+  581:         ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcC])
+  582:         ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)])
+  583:         ..tag(9, 40, [0x2C, 1, 0, 0, 40, ..._nal(20, 2)]);
+  584:       final v = Mp4Remuxer.debugFlvTracks([write('h12.flv', flv.bytes)]).single;
+  585:       expect(v['type'], 'hvc1');
+  586:       expect(v['sizes'], [15, 25]);
+  587:       expect(v['ctos'], [0, 40]);
+  588:       expect(v['syncs'], [true, false]);
+  589:       expect(_contains(v['stsd']! as Uint8List, 'hvcC'.codeUnits), isTrue);
+  590:       expect(_contains(v['stsd']! as Uint8List, _hvcC), isTrue);
+  591:     });
+  592: 
+  593:     test('enhanced FLV (hvc1 FourCC): CodedFrames and CodedFramesX', () {
+  594:       final fourcc = 'hvc1'.codeUnits;
+  595:       final flv = _Flv()
+  596:         ..tag(9, 0, [0x90, ...fourcc, ..._hvcC]) // key, SequenceStart
+  597:         ..tag(9, 0, [0x91, ...fourcc, 0, 0, 80, ..._nal(10, 1)])
+  598:         ..tag(9, 40, [0xA3, ...fourcc, ..._nal(20, 2)]) // inter, X
+  599:         ..tag(9, 80, [0xA2, ...fourcc]); // SequenceEnd
+  600:       final v = Mp4Remuxer.debugFlvTracks([write('eh.flv', flv.bytes)]).single;
+  601:       expect(v['type'], 'hvc1');
+  602:       expect(v['sizes'], [15, 25]);
+  603:       expect(v['ctos'], [80, 0]);
+  604:       expect(v['syncs'], [true, false]);
+  605:     });
+  606: 
+  607:     test('enhanced FLV with an unmapped codec (av01) is unsupported', () {
+  608:       final flv = _Flv()..tag(9, 0, [0x90, ...'av01'.codeUnits, 1, 2, 3]);
+  609:       expect(
+  610:         () => Mp4Remuxer.debugFlvTracks([write('av1.flv', flv.bytes)]),
+  611:         throwsUnsupportedError,
+  612:       );
+  613:     });
+  614:   });
+  615: 
+  616:   group('checkSegment (damaged downloads)', () {
+  617:     test('complete FLV is fine, a cut-off tag is not', () {
+  618:       final bytes = basicFlv();
+  619:       expect(Mp4Remuxer.checkSegment(write('ok.flv', bytes)), isTrue);
+  620:       final cut = Uint8List.sublistView(bytes, 0, bytes.length - 20);
+  621:       expect(Mp4Remuxer.checkSegment(write('cut.flv', cut)), isFalse);
+  622:     });
+  623: 
+  624:     test('MP4 whose samples run past the end is not fine', () async {
+  625:       final input = write('m.flv', basicFlv());
+  626:       final output = '${dir.path}/m.mp4';
+  627:       await Mp4Remuxer.remuxFlv(inputs: [input], output: output);
+  628:       expect(Mp4Remuxer.checkSegment(output), isTrue);
+  629:       final bytes = File(output).readAsBytesSync();
+  630:       final cut = write(
+  631:         'mcut.mp4',
+  632:         Uint8List.sublistView(bytes, 0, bytes.length - 40),
+  633:       );
+  634:       expect(Mp4Remuxer.checkSegment(cut), isFalse);
+  635:     });
+  636: 
+  637:     test('FLV cut inside a tag header is not fine', () {
+  638:       final bytes = basicFlv();
+  639:       // whole file plus the first 6 bytes of another tag header
+  640:       final cut = Uint8List.fromList([...bytes, 9, 0, 0, 10, 0, 0]);
+  641:       expect(Mp4Remuxer.checkSegment(write('hdr.flv', cut)), isFalse);
+  642:     });
+  643: 
+  644:     test('MP4 ending in a cut 64-bit box header is not fine', () async {
+  645:       final input = write('b.flv', basicFlv());
+  646:       final output = '${dir.path}/b.mp4';
+  647:       await Mp4Remuxer.remuxFlv(inputs: [input], output: output);
+  648:       final bytes = File(output).readAsBytesSync();
+  649:       // size == 1 (64-bit size follows), but only 4 of its 8 bytes arrived
+  650:       final cut = write(
+  651:         'bcut.mp4',
+  652:         Uint8List.fromList([...bytes, 0, 0, 0, 1, ...'free'.codeUnits, 0, 0]),
+  653:       );
+  654:       expect(Mp4Remuxer.checkSegment(cut), isFalse);
+  655:     });
+  656: 
+  657:     test('a missing file is neither format (and does not throw)', () {
+  658:       final missing = '${dir.path}/gone.mp4';
+  659:       expect(Mp4Remuxer.isMp4(missing), isFalse);
+  660:       expect(Mp4Remuxer.isFlv(missing), isFalse);
+  661:     });
+  662:   });
+  663: 
+  664:   group('HEVC parameter sets', () {
+  665:     test('picture size comes from the SPS in the hvcC', () {
+  666:       final flv = _Flv()
+  667:         ..tag(9, 0, [0x1C, 0, 0, 0, 0, ..._hvcCWith(_spsHevc320)])
+  668:         ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, 1)]);
+  669:       final v = Mp4Remuxer.debugFlvTracks([write('hs.flv', flv.bytes)]).single;
+  670:       final tail = v['tkhdTail']! as Uint8List;
+  671:       expect(_u32(tail, tail.length - 8) >> 16, 320);
+  672:       expect(_u32(tail, tail.length - 4) >> 16, 240);
+  673:     });
+  674: 
+  675:     test('a configuration switch carries its parameter sets in-band', () async {
+  676:       List<int> seg(int level, int fill) =>
+  677:           (_Flv()
+  678:                 ..tag(9, 0, [
+  679:                   0x1C,
+  680:                   0,
+  681:                   0,
+  682:                   0,
+  683:                   0,
+  684:                   ..._hvcCWith(_spsHevc320, level: level),
+  685:                 ])
+  686:                 ..tag(9, 0, [0x1C, 1, 0, 0, 0, ..._nal(10, fill)])
+  687:                 ..tag(9, 40, [0x2C, 1, 0, 0, 0, ..._nal(10, fill)]))
+  688:               .bytes;
+  689:       final output = '${dir.path}/switch.mp4';
+  690:       await Mp4Remuxer.remuxFlv(
+  691:         inputs: [
+  692:           write('h1.flv', Uint8List.fromList(seg(0x3c, 1))),
+  693:           write('h2.flv', Uint8List.fromList(seg(0x5d, 2))),
+  694:         ],
+  695:         output: output,
+  696:       );
+  697:       final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
+  698:       // hev1: parameter sets may also be in-band
+  699:       expect(v['type'], 'hev1');
+  700:       // one chunk per segment (2 samples each), on its own sample entry
+  701:       expect(v['descIndexes'], [1, 2]);
+  702:       expect(v['sampleCounts'], [2, 2]);
+  703:       // the first sample after the switch grew by one length-prefixed SPS
+  704:       final inband = [0, 0, 0, _spsHevc320.length, ..._spsHevc320];
+  705:       expect(v['sizes'], [15, 15, 15 + inband.length, 15]);
+  706:       final mp4 = File(output).readAsBytesSync();
+  707:       final at = _indexOf(mp4, [...inband, ..._nal(10, 2)]);
+  708:       expect(at, isNot(-1));
+  709:     });
+  710: 
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content lib'"\\utils\\mp4_remux.dart | ForEach-Object { if("'$i -ge 145 -and $i -le 170){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1279ms:
+  145:       },
+  146:   ];
+  147: 
+  148:   static Future<void> _write(
+  149:     List<_Track> tracks,
+  150:     String output,
+  151:     void Function(int copied, int total)? onProgress,
+  152:   ) async {
+  153:     for (final t in tracks) {
+  154:       t._inlineParameterSets();
+  155:     }
+  156:     final chunks = [for (final t in tracks) ...t.chunks]
+  157:       ..sort((a, b) {
+  158:         final c = a.startSeconds.compareTo(b.startSeconds);
+  159:         return c != 0 ? c : a.track.index.compareTo(b.track.index);
+  160:       });
+  161: 
+  162:     final payloadSize = chunks.fold<int>(0, (s, c) => s + c.length);
+  163:     final ftyp = _ftyp(tracks);
+  164:     // Size of moov does not depend on offset values, only on stco vs co64.
+  165:     final useCo64 = payloadSize + ftyp.length + (64 << 20) > 0xFFFFFFFF;
+  166:     final mdatHeaderSize = payloadSize + 8 > 0xFFFFFFFF ? 16 : 8;
+  167:     final moovSize = _moov(tracks, useCo64).length;
+  168:     var offset = ftyp.length + moovSize + mdatHeaderSize;
+  169:     for (final c in chunks) {
+  170:       c.outputOffset = offset;
+
+codex
+The cross-track interleaving also checks out: each source has its own read window, and `copyRange` handles backward jumps by refilling, so grouped video/audio chunks from the same FLV do not corrupt each other. I’ll do a last quick search for the new tests and then close this as structured statuses.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "flutter test test\\utils\\flv_demux_test.dart test\\utils\\refresh_coalescing_test.dart test\\utils\\block_server_test.dart" in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"retry|RetryInterceptor|handler.next\\(error\\)|finish\\(DioException|launchURL\\(|parseBlockServer|markRefreshStale|sampleCounts|joined segments\" test lib\\http lib\\utils lib\\pages\\common" in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1345ms:
+test\utils\block_server_test.dart:5:  test('parseBlockServer accepts a real block server', () {
+test\utils\block_server_test.dart:6:    expect(AccountManager.parseBlockServer('https://www.bsbsb.top'), isNotNull);
+test\utils\block_server_test.dart:8:      AccountManager.parseBlockServer('https://sb.example.com:8443/api-root'),
+test\utils\block_server_test.dart:13:  test('parseBlockServer refuses bilibili hosts and junk', () {
+test\utils\block_server_test.dart:31:        AccountManager.parseBlockServer(bad),
+lib\utils\app_scheme.dart:527:    void launchURL() {
+lib\utils\app_scheme.dart:534:      launchURL();
+lib\utils\app_scheme.dart:548:      launchURL();
+lib\utils\app_scheme.dart:570:      launchURL();
+lib\utils\app_scheme.dart:580:      launchURL();
+lib\utils\app_scheme.dart:630:      launchURL();
+lib\utils\app_scheme.dart:642:      launchURL();
+lib\utils\app_scheme.dart:657:      launchURL();
+lib\utils\app_scheme.dart:663:      launchURL();
+lib\utils\app_scheme.dart:685:        launchURL();
+lib\utils\app_scheme.dart:690:          launchURL();
+lib\utils\app_scheme.dart:726:        launchURL();
+lib\utils\app_scheme.dart:738:        launchURL();
+lib\utils\app_scheme.dart:769:        launchURL();
+lib\utils\app_scheme.dart:785:          launchURL();
+lib\utils\app_scheme.dart:804:        launchURL();
+lib\utils\app_scheme.dart:816:        launchURL();
+lib\utils\app_scheme.dart:831:        launchURL();
+lib\utils\app_scheme.dart:843:        launchURL();
+lib\utils\app_scheme.dart:862:        launchURL();
+lib\utils\app_scheme.dart:877:        launchURL();
+lib\utils\app_scheme.dart:885:        launchURL();
+lib\utils\app_scheme.dart:901:        launchURL();
+lib\utils\app_scheme.dart:910:        launchURL();
+lib\utils\app_scheme.dart:922:        launchURL();
+test\utils\retry_interceptor_test.dart:1:import 'package:PiliPlus/http/retry_interceptor.dart';
+test\utils\retry_interceptor_test.dart:33:  test('a retried GET reaches the interceptors after RetryInterceptor exactly '
+test\utils\retry_interceptor_test.dart:39:    dio.interceptors.add(RetryInterceptor(dio, 2, 1));
+test\utils\retry_interceptor_test.dart:49:    expect(counter.errors, 1, reason: 'exactly one delivery, not one per retry');
+test\utils\retry_interceptor_test.dart:58:    dio.interceptors.add(RetryInterceptor(dio, 2, 1));
+lib\utils\app_sign.dart:12:    // retry error
+test\utils\refresh_coalescing_test.dart:44:  test('markRefreshStale re-issues instead of attaching', () async {
+test\utils\refresh_coalescing_test.dart:48:    ctr.markRefreshStale();
+test\utils\refresh_coalescing_test.dart:68:    ctr.markRefreshStale();
+lib\pages\common\common_list_controller.dart:32:  // Set by [markRefreshStale]: the request parameters changed, so attaching
+lib\pages\common\common_list_controller.dart:40:  void markRefreshStale() => _refreshIsStale = true;
+lib\pages\common\common_list_controller.dart:104:    markRefreshStale();
+lib\utils\android\android_helper.dart:128:      PageUtils.launchURL(url);
+lib\utils\android\android_helper.dart:141:        PageUtils.launchURL(url);
+test\utils\flv_demux_test.dart:358:    test('joined segments: every sample lies where its table says', () async {
+test\utils\flv_demux_test.dart:387:        final counts = t['sampleCounts']! as List<int>;
+test\utils\flv_demux_test.dart:531:      expect(v['sampleCounts'], [2, 1, 1]);
+test\utils\flv_demux_test.dart:555:      expect(a['sampleCounts'], [2, 2]);
+test\utils\flv_demux_test.dart:702:      expect(v['sampleCounts'], [2, 2]);
+lib\utils\accounts\account_manager\account_mgr.dart:246:  static Uri? parseBlockServer(String value) {
+lib\utils\accounts\account_manager\account_mgr.dart:266:    final server = parseBlockServer(blockServer);
+lib\http\retry_interceptor.dart:5:class RetryInterceptor extends Interceptor {
+lib\http\retry_interceptor.dart:10:  RetryInterceptor(this._client, this._count, this._delay);
+lib\http\retry_interceptor.dart:71:                .onError<DioException>((error, _) => handler.next(error));
+lib\http\retry_interceptor.dart:87:          // a retry re-enters this interceptor through `_client.fetch`, so
+lib\http\retry_interceptor.dart:91:          // toast and cookie save — run exactly once, not once per retry.
+lib\http\retry_interceptor.dart:93:          void finish(DioException error) =>
+lib\http\retry_interceptor.dart:94:              isRetryAttempt ? handler.reject(error) : handler.next(error);
+lib\http\retry_interceptor.dart:139:  RetryInterceptor copyWith({Dio? client, int? count, int? delay}) =>
+lib\http\init.dart:8:import 'package:PiliPlus/http/retry_interceptor.dart';
+lib\http\init.dart:111:      if (elem is RetryInterceptor) {
+lib\http\init.dart:232:    if (Pref.retryCount != 0) {
+lib\http\init.dart:234:        RetryInterceptor(dio, Pref.retryCount, Pref.retryDelay),
+lib\pages\common\search\common_search_controller.dart:24:    markRefreshStale();
+lib\utils\mp4_remux.dart:139:        'sampleCounts': [for (final c in t.chunks) c.sampleCount],
+lib\utils\page_utils.dart:423:      launchURL(url);
+lib\utils\page_utils.dart:451:  static Future<void> launchURL(
+lib\utils\page_utils.dart:490:        launchURL(url);
+lib\utils\storage_key.dart:136:      retryCount = 'retryCount',
+lib\utils\storage_key.dart:137:      retryDelay = 'retryDelay',
+lib\utils\storage_pref.dart:585:  static int get retryCount =>
+lib\utils\storage_pref.dart:586:      _setting.get(SettingBoxKey.retryCount, defaultValue: 2);
+lib\utils\storage_pref.dart:588:  static int get retryDelay =>
+lib\utils\storage_pref.dart:589:      _setting.get(SettingBoxKey.retryDelay, defaultValue: 500);
+lib\utils\update.dart:68:                        onPressed: () => PageUtils.launchURL(
+lib\utils\update.dart:128:              PageUtils.launchURL(i['browser_download_url']);
+lib\utils\update.dart:146:      PageUtils.launchURL('${Constants.sourceCodeUrl}/releases/latest');
+
+2026-09-20T03:08:43.257843Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+flutter: 
+Line |
+   2 |  flutter test test\utils\flv_demux_test.dart test\utils\refresh_coales …
+     |  ~~~~~~~
+     | The term 'flutter' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+
+ exited 1 in 1784ms:
+flutter: 
+Line |
+   2 |  flutter test test\utils\flv_demux_test.dart test\utils\refresh_coales …
+     |  ~~~~~~~
+     | The term 'flutter' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+
+codex
+I couldn’t execute the tests because `flutter` is not on PATH in this sandbox, but the targeted tests are present for block-server parsing, retry delivery, refresh coalescing, and MP4 join/sample placement. I’m ready to classify the seven items.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content test'"\\utils\\retry_interceptor_test.dart | ForEach-Object { if("'$i -le 90){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content test'"\\utils\\block_server_test.dart | ForEach-Object { if("'$i -le 80){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content lib'"\\pages\\common\\search\\common_search_controller.dart | ForEach-Object { if("'$i -le 45){ '"'{0,5}: {1}' -f "'$i,$_}; $i++ }' in C:\Users\Z14\Documents\Coding\Piliplus
+ succeeded in 1590ms:
+    1: import 'package:PiliPlus/pages/common/common_list_controller.dart';
+    2: import 'package:get/get.dart';
+    3: import 'package:material_ui/material_ui.dart';
+    4: 
+    5: abstract class CommonSearchController<R, T> extends CommonListController<R, T> {
+    6:   final editController = TextEditingController();
+    7:   final focusNode = FocusNode();
+    8: 
+    9:   void onClear() {
+   10:     if (editController.text.isNotEmpty) {
+   11:       editController.clear();
+   12:     } else {
+   13:       Get.back();
+   14:     }
+   15:   }
+   16: 
+   17:   @override
+   18:   Future<void> onRefresh() {
+   19:     if (editController.value.text.isEmpty) {
+   20:       return Future.syncValue(null);
+   21:     }
+   22:     // the keyword can have changed since a refresh started (submitting a new
+   23:     // query calls this): that one is searching for the old one
+   24:     markRefreshStale();
+   25:     return super.onRefresh();
+   26:   }
+   27: 
+   28:   @override
+   29:   void onClose() {
+   30:     editController.dispose();
+   31:     focusNode.dispose();
+   32:     super.onClose();
+   33:   }
+   34: }
+
+ succeeded in 1670ms:
+    1: import 'package:PiliPlus/http/retry_interceptor.dart';
+    2: import 'package:dio/dio.dart';
+    3: import 'package:flutter_test/flutter_test.dart';
+    4: 
+    5: class _CountingInterceptor extends Interceptor {
+    6:   int errors = 0;
+    7:   @override
+    8:   void onError(DioException err, ErrorInterceptorHandler handler) {
+    9:     errors++;
+   10:     handler.next(err);
+   11:   }
+   12: }
+   13: 
+   14: class _AlwaysFailAdapter implements HttpClientAdapter {
+   15:   int calls = 0;
+   16:   @override
+   17:   void close({bool force = false}) {}
+   18:   @override
+   19:   Future<ResponseBody> fetch(
+   20:     RequestOptions options,
+   21:     Stream<List<int>>? requestStream,
+   22:     Future<void>? cancelFuture,
+   23:   ) {
+   24:     calls++;
+   25:     throw DioException.connectionError(
+   26:       requestOptions: options,
+   27:       reason: 'probe',
+   28:     );
+   29:   }
+   30: }
+   31: 
+   32: void main() {
+   33:   test('a retried GET reaches the interceptors after RetryInterceptor exactly '
+   34:       'once, and the request still fails', () async {
+   35:     final dio = Dio();
+   36:     final adapter = _AlwaysFailAdapter();
+   37:     dio.httpClientAdapter = adapter;
+   38:     final counter = _CountingInterceptor();
+   39:     dio.interceptors.add(RetryInterceptor(dio, 2, 1));
+   40:     dio.interceptors.add(counter);
+   41: 
+   42:     Object? thrown;
+   43:     try {
+   44:       await dio.get('http://127.0.0.1:1/probe');
+   45:     } catch (e) {
+   46:       thrown = e;
+   47:     }
+   48:     expect(adapter.calls, 3, reason: 'initial attempt + 2 retries');
+   49:     expect(counter.errors, 1, reason: 'exactly one delivery, not one per retry');
+   50:     expect(thrown, isA<DioException>());
+   51:   });
+   52: 
+   53:   test('a POST is not retried and still reaches later interceptors', () async {
+   54:     final dio = Dio();
+   55:     final adapter = _AlwaysFailAdapter();
+   56:     dio.httpClientAdapter = adapter;
+   57:     final counter = _CountingInterceptor();
+   58:     dio.interceptors.add(RetryInterceptor(dio, 2, 1));
+   59:     dio.interceptors.add(counter);
+   60: 
+   61:     try {
+   62:       await dio.post('http://127.0.0.1:1/probe');
+   63:     } catch (_) {}
+   64:     expect(adapter.calls, 1);
+   65:     expect(counter.errors, 1);
+   66:   });
+   67: }
+
+ succeeded in 1695ms:
+    1: import 'package:PiliPlus/utils/accounts/account_manager/account_mgr.dart';
+    2: import 'package:flutter_test/flutter_test.dart';
+    3: 
+    4: void main() {
+    5:   test('parseBlockServer accepts a real block server', () {
+    6:     expect(AccountManager.parseBlockServer('https://www.bsbsb.top'), isNotNull);
+    7:     expect(
+    8:       AccountManager.parseBlockServer('https://sb.example.com:8443/api-root'),
+    9:       isNotNull,
+   10:     );
+   11:   });
+   12: 
+   13:   test('parseBlockServer refuses bilibili hosts and junk', () {
+   14:     for (final bad in [
+   15:       '',
+   16:       '   ',
+   17:       '/',
+   18:       'bsbsb.top', // no scheme
+   19:       'ftp://sb.example.com',
+   20:       'javascript:alert(1)',
+   21:       'https://api.bilibili.com/sb',
+   22:       'https://bilibili.com',
+   23:       'https://WWW.BILIBILI.COM/x',
+   24:       'https://live.bilibili.com',
+   25:       'https://i0.hdslb.com',
+   26:       'https://b23.tv',
+   27:       'https://bilibili.tv',
+   28:       'https://user:pw@sb.example.com',
+   29:     ]) {
+   30:       expect(
+   31:         AccountManager.parseBlockServer(bad),
+   32:         isNull,
+   33:         reason: 'must be refused: "$bad"',
+   34:       );
+   35:     }
+   36:   });
+   37: }
+
+codex
+[RESOLVED]
+- [i2] A2 — custom schemes are now consent-gated, local/script schemes blocked  
+  `file/content/javascript/data/blob/about/filesystem` are hard-blocked, `http(s)` opens directly, and other schemes require a dialog naming the scheme and URL before OS handoff: lib/utils/page_utils.dart:437, lib/utils/page_utils.dart:462.
+
+[RESOLVED]
+- [i2] A12 — logout uses one cleanup path on all platforms  
+  `onLogoutMain()` now calls `clearWebCookies()` then `setAnonymousWebCookie()`; Linux’s no-op is documented because WebKitGTK cookies are injected per window at documentStart: lib/utils/login_utils.dart:49, lib/utils/login_utils.dart:135.
+
+[RESOLVED]
+- [i2] A30 — block server parsing now rejects Bilibili-family hosts  
+  `parseBlockServer` requires http(s), host, no userinfo, and rejects reserved Bilibili/CDN domains; `_isBlockServer` matches scheme/host/port/path-prefix only after successful parse: lib/utils/accounts/account_manager/account_mgr.dart:231, lib/utils/accounts/account_manager/account_mgr.dart:246.
+
+[RESOLVED]
+- [i2] A31 — retried failures now reach later interceptors once  
+  Retry failure delivery uses `finish()` so nested retry attempts reject internally while the original attempt calls `handler.next(error)`: lib/http/retry_interceptor.dart:86, lib/http/retry_interceptor.dart:93.
+
+[RESOLVED]
+- [i2] A37 — concurrent refreshes are coalesced  
+  `_refreshing` shares an in-flight refresh, while `markRefreshStale()` forces a new generation when parameters change: lib/pages/common/common_list_controller.dart:30, lib/pages/common/common_list_controller.dart:40.
+
+[RESOLVED]
+- [i2] B16 — FLV/MP4 writer now groups chunks without table drift  
+  FLV chunks carry explicit `(offset,length)` ranges, chunk lengths/sample counts are updated from those ranges, and `_write` copies each range into one contiguous output chunk before offsets are assigned: lib/utils/flv_demux.dart:280, lib/utils/mp4_remux.dart:272.
+
+[RESOLVED]
+- [i2] B17 — mp4-join coverage added  
+  The added test verifies joined samples live exactly at the offsets advertised by the sample tables, plus rejects mismatched track sets: test/utils/flv_demux_test.dart:358, test/utils/flv_demux_test.dart:427.
+
+TOTAL: ROUND-OK
+tokens used
+684,894
+[RESOLVED]
+- [i2] A2 — custom schemes are now consent-gated, local/script schemes blocked  
+  `file/content/javascript/data/blob/about/filesystem` are hard-blocked, `http(s)` opens directly, and other schemes require a dialog naming the scheme and URL before OS handoff: lib/utils/page_utils.dart:437, lib/utils/page_utils.dart:462.
+
+[RESOLVED]
+- [i2] A12 — logout uses one cleanup path on all platforms  
+  `onLogoutMain()` now calls `clearWebCookies()` then `setAnonymousWebCookie()`; Linux’s no-op is documented because WebKitGTK cookies are injected per window at documentStart: lib/utils/login_utils.dart:49, lib/utils/login_utils.dart:135.
+
+[RESOLVED]
+- [i2] A30 — block server parsing now rejects Bilibili-family hosts  
+  `parseBlockServer` requires http(s), host, no userinfo, and rejects reserved Bilibili/CDN domains; `_isBlockServer` matches scheme/host/port/path-prefix only after successful parse: lib/utils/accounts/account_manager/account_mgr.dart:231, lib/utils/accounts/account_manager/account_mgr.dart:246.
+
+[RESOLVED]
+- [i2] A31 — retried failures now reach later interceptors once  
+  Retry failure delivery uses `finish()` so nested retry attempts reject internally while the original attempt calls `handler.next(error)`: lib/http/retry_interceptor.dart:86, lib/http/retry_interceptor.dart:93.
+
+[RESOLVED]
+- [i2] A37 — concurrent refreshes are coalesced  
+  `_refreshing` shares an in-flight refresh, while `markRefreshStale()` forces a new generation when parameters change: lib/pages/common/common_list_controller.dart:30, lib/pages/common/common_list_controller.dart:40.
+
+[RESOLVED]
+- [i2] B16 — FLV/MP4 writer now groups chunks without table drift  
+  FLV chunks carry explicit `(offset,length)` ranges, chunk lengths/sample counts are updated from those ranges, and `_write` copies each range into one contiguous output chunk before offsets are assigned: lib/utils/flv_demux.dart:280, lib/utils/mp4_remux.dart:272.
+
+[RESOLVED]
+- [i2] B17 — mp4-join coverage added  
+  The added test verifies joined samples live exactly at the offsets advertised by the sample tables, plus rejects mismatched track sets: test/utils/flv_demux_test.dart:358, test/utils/flv_demux_test.dart:427.
+
+TOTAL: ROUND-OK

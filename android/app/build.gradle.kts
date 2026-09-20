@@ -44,6 +44,14 @@ android {
     }
 
     val config = keyProperties.getProperty("storeFile")?.let {
+        // a half-configured keystore would silently produce a release the
+        // installed builds cannot be updated from: fail instead
+        val missing = listOf("storePassword", "keyAlias", "keyPassword")
+            .filter { key -> keyProperties.getProperty(key).isNullOrEmpty() }
+        if (missing.isNotEmpty())
+            throw GradleException(
+                "android/key.properties has storeFile but no ${missing.joinToString()}"
+            )
         signingConfigs.create("release") {
             storeFile = file(it)
             storePassword = keyProperties.getProperty("storePassword")

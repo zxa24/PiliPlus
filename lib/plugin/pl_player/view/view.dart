@@ -2246,13 +2246,18 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     );
   }
 
-  static final _timeRegExp = RegExp(r'(?:\d+[:：])?\d+[:：][0-5]?\d(?!\d)');
+  // the digit groups are bounded: an unbounded `\d+` lets a danmaku carry a
+  // number too large to parse, and this runs inside build
+  static final _timeRegExp = RegExp(
+    r'(?:\d{1,4}[:：])?\d{1,4}[:：][0-5]?\d(?!\d)',
+  );
 
   int? _getValidOffset(String data) {
+    final timeLength = videoDetailController.data.timeLength;
+    if (timeLength == null) return null;
     if (_timeRegExp.firstMatch(data) case final timeStr?) {
       final offset = DurationUtils.parseDuration(timeStr.group(0));
-      if (0 < offset &&
-          offset * 1000 < videoDetailController.data.timeLength!) {
+      if (0 < offset && offset * 1000 < timeLength) {
         return offset;
       }
     }

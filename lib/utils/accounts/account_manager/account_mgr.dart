@@ -225,13 +225,57 @@ class AccountManager extends Interceptor {
     await account.onChange();
   }
 
+  /// Hosts a block server may never be set to: matching one would make
+  /// [_skipCookie] true for the API itself and strip the account off every
+  /// request (the U5 catastrophe). Suffix-matched, so subdomains count.
+  static const _reservedHosts = [
+    'bilibili.com',
+    'bilibili.cn',
+    'bilibili.tv',
+    'bilivideo.com',
+    'bilivideo.cn',
+    'hdslb.com',
+    'biliimg.com',
+    'b23.tv',
+  ];
+
+  /// The parsed [blockServer] when it is usable, else null. A block server is
+  /// `http(s)://host[:port][/prefix]` on a host that is not bilibili's.
+  /// Anything else is refused here *and* by the settings dialog, so
+  /// [_isBlockServer] can never degrade into "matches everything".
+  static Uri? parseBlockServer(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        !(uri.isScheme('http') || uri.isScheme('https')) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      return null;
+    }
+    final host = uri.host.toLowerCase();
+    for (final reserved in _reservedHosts) {
+      if (host == reserved || host.endsWith('.$reserved')) return null;
+    }
+    return uri;
+  }
+
   static bool _isBlockServer(String path) {
-    // match the host: a raw prefix match would skip every request when the
-    // saved address is empty or too short
-    final host = Uri.tryParse(blockServer)?.host;
-    return host != null &&
-        host.isNotEmpty &&
-        Uri.tryParse(path)?.host.toLowerCase() == host.toLowerCase();
+    // scheme + host + port + path prefix, and never a bilibili host: a
+    // host-only match on `https://api.bilibili.com/sb` would strip the
+    // cookies off every API request, and a raw prefix match would match
+    // everything when the saved address is empty or too short.
+    final server = parseBlockServer(blockServer);
+    if (server == null) return false;
+    final uri = Uri.tryParse(path);
+    if (uri == null ||
+        uri.scheme.toLowerCase() != server.scheme ||
+        uri.host.toLowerCase() != server.host.toLowerCase() ||
+        uri.port != server.port) {
+      return false;
+    }
+    final prefix = server.path.replaceAll(RegExp(r'/+$'), '');
+    return prefix.isEmpty ||
+        uri.path == prefix ||
+        uri.path.startsWith('$prefix/');
   }
 
   static bool _skipCookie(String path) {

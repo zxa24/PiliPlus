@@ -249,10 +249,25 @@ SettingsModel getBanWordModel({
             TextButton(
               child: const Text('保存'),
               onPressed: () {
+                // build (and check) the pattern before anything is changed:
+                // an invalid one must not be reported as saved
+                final RegExp regExp;
+                try {
+                  regExp = RegExp(editValue, caseSensitive: false);
+                } catch (e) {
+                  SmartDialog.showToast('无效的过滤规则: $e');
+                  return;
+                }
+                // `测试|` is valid but matches everything (empty alternative),
+                // which would silently empty the whole list
+                if (editValue.isNotEmpty && regExp.hasMatch('')) {
+                  SmartDialog.showToast('过滤规则匹配空内容（多余的「|」？），会过滤掉全部内容');
+                  return;
+                }
                 Get.back();
                 banWord = editValue;
                 setState();
-                onChanged(RegExp(banWord, caseSensitive: false));
+                onChanged(regExp);
                 SmartDialog.showToast('已保存');
                 GStorage.setting.put(key, banWord);
               },

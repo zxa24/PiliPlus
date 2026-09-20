@@ -47,10 +47,10 @@ class LoginAccount extends Account {
   final DefaultCookieJar cookieJar;
   @override
   @HiveField(1)
-  final String? accessKey;
+  String? accessKey;
   @override
   @HiveField(2)
-  final String? refresh;
+  String? refresh;
   @override
   @HiveField(3)
   final Set<AccountType> type;
@@ -80,8 +80,27 @@ class LoginAccount extends Account {
   );
 
   @override
+  // empty once [dropCredentials] ran (the session is dead anyway)
   late final String csrf =
-      cookieJar.domainCookies['bilibili.com']!['/']!['bili_jct']!.cookie.value;
+      cookieJar
+          .domainCookies['bilibili.com']?['/']?['bili_jct']
+          ?.cookie
+          .value ??
+      '';
+
+  /// The stored credentials are dead (see [Accounts.markExpired]): drop them
+  /// so they do not stay in `hive/account.hive`. Only what identifies the
+  /// record in the account list is kept, so the user can re-login or remove
+  /// it. Call [onChange] to persist.
+  void dropCredentials() {
+    // [_midStr] / the account list need DedeUserID; buvid3 is not a secret
+    const keep = {'DedeUserID', 'buvid3'};
+    cookieJar.domainCookies['bilibili.com']?['/']?.removeWhere(
+      (name, _) => !keep.contains(name),
+    );
+    accessKey = null;
+    refresh = null;
+  }
 
   bool _hasDelete = false;
 
@@ -164,6 +183,8 @@ class AnonymousAccount extends Account {
   @override
   Future<void> delete() {
     grpcHeaders['x-bili-fawkes-req-bin'] = GrpcHeaders.fawkes;
+    // the regenerated buvid3 is a new device id: it has to be activated again
+    activated = false;
     return cookieJar.deleteAll().whenComplete(cookieJar.setBuvid3);
   }
 

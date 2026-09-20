@@ -160,7 +160,16 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
 
   /// Toggles between incognito (default, login mode off) and login mode.
   static Future<void> onChangeAnonymity() async {
+    // without an account there is nothing login mode could turn on, but a
+    // leftover `loginMode: true` must still be turned off — otherwise the
+    // toast asserts a privacy posture the app is not in
     if (Accounts.account.isEmpty) {
+      if (LoginPolicy.loginMode) {
+        await GStorage.setting.put(SettingBoxKey.loginMode, false);
+        await Accounts.refresh();
+        anonymity.value = true;
+        await LoginUtils.onLogoutMain();
+      }
       SmartDialog.showToast('当前为无痕模式（默认）。需要账号功能时，请先在设置中登录');
       return;
     }

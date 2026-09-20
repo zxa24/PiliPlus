@@ -212,3 +212,27 @@
 - deferred_at: 2026-09-19T20:15:39+00:00
 - resolved_at: 2026-09-19T21:06:21+00:00 — user picked B (ask before including secrets)
 
+## pass4 D1 - pubspec/Debian package still identify as upstream PiliPlus
+- tag: `pass4-D1`
+- codex_bullet: |
+    - [P3] [D] The package still identifies as upstream — pubspec.yaml:1-2; assets/linux/DEBIAN/control:11
+      `name: PiliPlus`, `description: A new Flutter project.`, and the Debian `Homepage:` points at `github.com/zxa24/PiliPlus` while the app id is `com.zxa24.librepili`. Cosmetic, but it is what shows up in crash reports, `dpkg -s` output and the `PiliPlus/...` import prefix throughout `lib/`.
+- routes:
+    - rename package name/description to LibrePili
+    - keep the upstream identifiers
+- deferred_at: 2026-09-19T23:17:46+00:00
+- resolved_at: 2026-09-19T23:20:35+00:00 — user picked A (rename package identity to LibrePili)
+
+## pass4 D2 - iOS registers http/https as app URL schemes; macOS registers no scheme and no document types
+- tag: `pass4-D2`
+- codex_bullet: |
+    - [P3] [D] iOS registers `http`/`https` as app URL schemes and carries a nested, ignored `CFBundleURLTypes` that lists hosts as schemes — ios/Runner/Info.plist:85-127
+      The first `CFBundleURLTypes` entry declares `CFBundleURLSchemes = [http, https]` (reserved by the system, and an App Store review trigger), and inside that same dict a second `CFBundleURLTypes` key holds `m.bilibili.com`, `bilibili.com`, … as “schemes”. `CFBundleURLTypes` is not a valid key at that nesting level, so the whole block is dead config inherited from upstream. Fix: delete the nested block and the `http`/`https` scheme registration; use Universal Links if those hosts are wanted.
+    - [P3] [A] macOS registers no URL scheme and no document types, so `bilibili://` links and “Open with LibrePili” never reach the app — macos/Runner/Info.plist:1-41; lib/utils/app_scheme.dart:43-66,87-97
+      The plist has no `CFBundleURLTypes` and no `CFBundleDocumentTypes`, while Windows (`windows/runner/main.cpp:63-68`) and Linux (`assets/linux/com.zxa24.librepili.desktop:11`) both wire up the scheme and the video MIME types. `PiliScheme.init()`’s listener therefore never fires on macOS, and the fork’s local-player “open with” entry point is missing on that platform.
+- routes:
+    - drop the iOS http/https scheme registration and register bilibili:// + video document types on macOS
+    - leave platform URL/document registration as it is
+- deferred_at: 2026-09-19T23:17:46+00:00
+- resolved_at: 2026-09-19T23:20:35+00:00 — user picked A (drop iOS http/https scheme registration; register bilibili:// + video document types on macOS)
+

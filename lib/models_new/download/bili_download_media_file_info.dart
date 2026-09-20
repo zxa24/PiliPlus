@@ -1,5 +1,3 @@
-import 'package:PiliPlus/utils/extension/iterable_ext.dart';
-
 sealed class BiliDownloadMediaInfo {
   const BiliDownloadMediaInfo();
 
@@ -61,34 +59,6 @@ class Type1 extends BiliDownloadMediaInfo {
     required this.videoProject,
   });
 
-  factory Type1.fromJson(Map<String, dynamic> json) => Type1(
-    availablePeriodMilli: json['available_period_milli'] as int,
-    description: json['description'] as String,
-    format: json['format'] as String,
-    from: json['from'] as String?,
-    intact: json['intact'] as bool,
-    isDownloaded: json['is_downloaded'] as bool,
-    isResolved: json['is_resolved'] as bool,
-    marlinToken: json['marlin_token'] as String,
-    needLogin: json['need_login'] as bool,
-    needVip: json['need_vip'] as bool,
-    parseTimestampMilli: json['parse_timestamp_milli'] as int,
-    playerCodecConfigList: (json['player_codec_config_list'] as List<dynamic>)
-        .map((e) => Type1PlayerCodecConfig.fromJson(e as Map<String, dynamic>))
-        .toList(),
-    playerError: json['player_error'] as int,
-    quality: json['quality'] as int,
-    segmentList: (json['segment_list'] as List<dynamic>)
-        .map((e) => Type1Segment.fromJson(e as Map<String, dynamic>))
-        .toList(),
-    timeLength: json['time_length'] as int,
-    typeTag: json['type_tag'] as String?,
-    userAgent: json['user_agent'] as String?,
-    referer: json['referer'] as String?,
-    videoCodecId: json['video_codec_id'] as int,
-    videoProject: json['video_project'] as bool,
-  );
-
   @override
   Map<String, dynamic> toJson() => <String, dynamic>{
     'available_period_milli': availablePeriodMilli,
@@ -125,12 +95,6 @@ class Type1PlayerCodecConfig {
     required this.player,
     required this.useIjkMediaCodec,
   });
-
-  factory Type1PlayerCodecConfig.fromJson(Map<String, dynamic> json) =>
-      Type1PlayerCodecConfig(
-        player: json['player'] as String,
-        useIjkMediaCodec: json['use_ijk_media_codec'] as bool,
-      );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'player': player,
@@ -199,18 +163,6 @@ class Type2 extends BiliDownloadMediaInfo {
     if (userAgent?.isNotEmpty ?? false) 'user-agent': userAgent!,
   };
 
-  factory Type2.fromJson(Map<String, dynamic> json) => Type2(
-    duration: json['duration'] as int,
-    video: (json['video'] as List<dynamic>)
-        .map((e) => Type2File.fromJson(e as Map<String, dynamic>))
-        .toList(),
-    audio: (json['audio'] as List<dynamic>?)
-        ?.map((e) => Type2File.fromJson(e as Map<String, dynamic>))
-        .toList(),
-    userAgent: json['user_agent'] as String?,
-    referer: json['referer'] as String?,
-  );
-
   @override
   Map<String, dynamic> toJson() => <String, dynamic>{
     'duration': duration,
@@ -249,21 +201,6 @@ class Type2File {
     this.height = 1,
     this.dashDrmType = 0,
   });
-
-  factory Type2File.fromJson(Map<String, dynamic> json) => Type2File(
-    id: json['id'] as int,
-    baseUrl: json['base_url'] as String,
-    backupUrl: (json['backup_url'] as List<dynamic>?)?.fromCast(),
-    bandwidth: json['bandwidth'] as int,
-    codecid: json['codecid'] as int,
-    size: json['size'] as int,
-    md5: json['md5'] as String,
-    noRexcode: json['no_rexcode'] as bool,
-    frameRate: json['frame_rate'] as String? ?? '',
-    width: json['width'] as int,
-    height: json['height'] as int,
-    dashDrmType: json['dash_drm_type'] as int,
-  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'id': id,

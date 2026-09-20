@@ -210,8 +210,9 @@ Future<void> showImportExportDialog<T>(
   required ValueGetter<String> onExport,
   required FutureOr<void> Function(T json) onImport,
   required ValueGetter<String> localFileName,
-  // runs before either export, e.g. to ask what to include
-  Future<void> Function()? beforeExport,
+  // runs before either export, e.g. to ask what to include or to confirm;
+  // returning false cancels the export
+  Future<bool> Function()? beforeExport,
 }) => showDialog(
   context: context,
   // note: the outer [context] is used for what runs after this dialog is
@@ -226,7 +227,7 @@ Future<void> showImportExportDialog<T>(
           child: const Text('导出至剪贴板', style: style),
           onPressed: () async {
             Get.back();
-            await beforeExport?.call();
+            if (await beforeExport?.call() == false) return;
             exportToClipBoard(onExport: onExport);
           },
         ),
@@ -234,7 +235,7 @@ Future<void> showImportExportDialog<T>(
           child: const Text('导出文件至本地', style: style),
           onPressed: () async {
             Get.back();
-            await beforeExport?.call();
+            if (await beforeExport?.call() == false) return;
             exportToLocalFile(onExport: onExport, localFileName: localFileName);
           },
         ),

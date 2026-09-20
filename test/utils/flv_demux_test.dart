@@ -355,6 +355,96 @@ void main() {
       expect(second, greaterThan(first));
     });
 
+    test('joined segments: every sample lies where its table says', () async {
+      final s1 = await mp4Segment('p1', 1);
+      final s2 = await mp4Segment('p2', 2);
+      final output = '${dir.path}/placed.mp4';
+      await Mp4Remuxer.joinMp4(inputs: [s1, s2], output: output);
+      final mp4 = File(output).readAsBytesSync();
+      final tracks = Mp4Remuxer.debugMp4JoinTracks([output]);
+
+      // the sample the segment built, per track, in timeline order
+      final expected = {
+        0: [
+          for (final fill in [1, 2]) ...[
+            _nal(100, fill),
+            _nal(50, fill),
+            _nal(60, fill),
+          ],
+        ],
+        1: [
+          for (final fill in [1, 2]) ...[
+            List.filled(30, fill),
+            List.filled(31, fill),
+            List.filled(32, fill),
+          ],
+        ],
+      };
+
+      for (final ti in [0, 1]) {
+        final t = tracks[ti];
+        final sizes = t['sizes']! as List<int>;
+        final counts = t['sampleCounts']! as List<int>;
+        final offsets = t['chunkOffsets']! as List<int>;
+        final want = expected[ti]!;
+
+        expect(sizes, hasLength(want.length), reason: 'sample count (t$ti)');
+        expect(
+          counts.reduce((a, b) => a + b),
+          want.length,
+          reason: 'samples across chunks (t$ti)',
+        );
+        expect(offsets, hasLength(counts.length));
+
+        // walk the chunks: every sample's bytes must be at chunk offset plus
+        // the sizes of the samples before it in that chunk
+        var s = 0;
+        for (var ci = 0; ci < counts.length; ci++) {
+          var at = offsets[ci];
+          for (var k = 0; k < counts[ci]; k++, s++) {
+            expect(
+              sizes[s],
+              want[s].length,
+              reason: 'size of sample $s (t$ti)',
+            );
+            expect(
+              mp4.sublist(at, at + sizes[s]),
+              want[s],
+              reason: 'bytes of sample $s (t$ti)',
+            );
+            at += sizes[s];
+          }
+        }
+        expect(s, want.length);
+      }
+
+      // timing carried over for both segments
+      expect(tracks[0]['durations'], [40, 40, 40, 40, 40, 40]);
+      expect(tracks[0]['ctos'], [0, 80, 0, 0, 80, 0]);
+      expect(tracks[0]['syncs'], [true, false, false, true, false, false]);
+    });
+
+    test('segments whose track sets differ are not joined', () async {
+      final s1 = await mp4Segment('t1', 1);
+      // video only: no aacHeader, no audio tags
+      final videoOnly = _Flv()
+        ..avcHeader(_avcC(_sps(20, 15)))
+        ..video(0, _nal(100, 2), key: true)
+        ..video(40, _nal(50, 2));
+      final s2 = '${dir.path}/t2.mp4';
+      await Mp4Remuxer.remuxFlv(
+        inputs: [write('t2.flv', videoOnly.bytes)],
+        output: s2,
+      );
+      expect(
+        () => Mp4Remuxer.joinMp4(
+          inputs: [s1, s2],
+          output: '${dir.path}/never2.mp4',
+        ),
+        throwsUnsupportedError,
+      );
+    });
+
     test('differing codec configuration: one sample entry each', () async {
       final s1 = await mp4Segment('c1', 1);
       final s2 = await mp4Segment('c2', 2, sps: _sps(120, 68, cropBottom: 4));
@@ -435,7 +525,10 @@ void main() {
         ..video(120, _nal(10, 3), key: true);
       final v = Mp4Remuxer.debugFlvTracks([write('mid.flv', flv.bytes)]).single;
       expect(v['sampleEntries'], 2);
-      expect(v['descIndexes'], [1, 1, 2, 1]);
+      // samples are grouped into chunks, and a chunk holds one description:
+      // 2 samples on entry 1, then one each on 2 and 1
+      expect(v['descIndexes'], [1, 2, 1]);
+      expect(v['sampleCounts'], [2, 1, 1]);
       final stsd = v['stsd']! as Uint8List;
       expect(_u32(stsd, 12), 2);
       // the track header keeps the first configuration's size
@@ -457,7 +550,9 @@ void main() {
         write('a2.flv', s2.bytes),
       ]).single;
       expect(a['sampleEntries'], 2);
-      expect(a['descIndexes'], [1, 1, 2, 2]);
+      // one chunk per segment: both its samples on that segment's entry
+      expect(a['descIndexes'], [1, 2]);
+      expect(a['sampleCounts'], [2, 2]);
       expect(a['timescale'], 44100);
     });
 
@@ -558,6 +653,12 @@ void main() {
       );
       expect(Mp4Remuxer.checkSegment(cut), isFalse);
     });
+
+    test('a missing file is neither format (and does not throw)', () {
+      final missing = '${dir.path}/gone.mp4';
+      expect(Mp4Remuxer.isMp4(missing), isFalse);
+      expect(Mp4Remuxer.isFlv(missing), isFalse);
+    });
   });
 
   group('HEVC parameter sets', () {
@@ -596,7 +697,9 @@ void main() {
       final v = Mp4Remuxer.debugMp4JoinTracks([output]).single;
       // hev1: parameter sets may also be in-band
       expect(v['type'], 'hev1');
-      expect(v['descIndexes'], [1, 1, 2, 2]);
+      // one chunk per segment (2 samples each), on its own sample entry
+      expect(v['descIndexes'], [1, 2]);
+      expect(v['sampleCounts'], [2, 2]);
       // the first sample after the switch grew by one length-prefixed SPS
       final inband = [0, 0, 0, _spsHevc320.length, ..._spsHevc320];
       expect(v['sizes'], [15, 15, 15 + inband.length, 15]);

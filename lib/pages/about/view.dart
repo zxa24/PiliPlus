@@ -243,6 +243,15 @@ Commit Hash: ${BuildConfig.commitHash}''',
               context,
               title: '登录信息',
               localFileName: () => 'account',
+              // the export is every account's full Cookie + access_key
+              beforeExport: () => showConfirmDialog(
+                context: context,
+                title: const Text('导出登录信息？'),
+                content: const Text(
+                  '导出内容含账号的全部 Cookie（SESSDATA、bili_jct）与 access_key，'
+                  '拿到它即可登录你的账号。剪贴板可被其他应用读取，建议导出文件至本地',
+                ),
+              ),
               onExport: () =>
                   Utils.jsonEncoder.convert(Accounts.account.toMap()),
               onImport: (json) async {
@@ -278,6 +287,7 @@ Commit Hash: ${BuildConfig.commitHash}''',
                       'WebDAV 用户名/密码、空降助手用户 ID。点「取消」则不包含（推荐）',
                     ),
                   );
+                  return true;
                 },
                 onExport: () => GStorage.exportAllSettings(
                   includeCredentials: includeCredentials,
@@ -293,12 +303,33 @@ Commit Hash: ${BuildConfig.commitHash}''',
                           '备份含有 WebDAV 用户名/密码或空降助手用户 ID。点「取消」保留本机的',
                         ),
                       );
-                  await GStorage.importAllJsonSettings(
+                  final snapshot = await GStorage.importAllJsonSettings(
                     json,
                     importCredentials: importCredentials,
                   );
+                  // tell the user the undo exists, like the WebDAV restore
+                  SmartDialog.showToast('导入成功，导入前的数据已保存至 $snapshot');
                 },
               );
+            },
+          ),
+          ListTile(
+            title: const Text('恢复到导入前'),
+            leading: const Icon(Icons.undo_outlined),
+            subtitle: Text('撤回最近一次导入/恢复', style: subTitleStyle),
+            onTap: () async {
+              final confirmed = await showConfirmDialog(
+                context: context,
+                title: const Text('恢复到导入前'),
+                content: const Text('撤回最近一次恢复/导入，回到那之前的设置、本地关注和本地收藏'),
+              );
+              if (!confirmed) return;
+              try {
+                await GStorage.restoreLatestSnapshot();
+                SmartDialog.showToast('已恢复到导入前');
+              } catch (e) {
+                SmartDialog.showToast('恢复失败: $e');
+              }
             },
           ),
           ListTile(

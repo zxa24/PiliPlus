@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/fractionally_sized_box.dart';
 import 'package:PiliPlus/common/widgets/image_viewer/gallery_viewer.dart';
 import 'package:PiliPlus/common/widgets/image_viewer/hero_dialog_route.dart';
@@ -430,12 +431,47 @@ abstract final class PageUtils {
     }
   }
 
+  /// Schemes that read local content or run script: a url from a deep link /
+  /// a web page must never make the OS open `file:///…/hive/account.hive`.
+  /// Blocked outright, not confirmable.
+  static const _localSchemes = {
+    'file',
+    'content',
+    'javascript',
+    'data',
+    'blob',
+    'about',
+    'filesystem',
+  };
+
+  /// Opens [url] with the OS. `http(s)` goes straight out; every other
+  /// scheme is attacker-reachable (a video description, a comment, a deep
+  /// link) and hands control to whichever app claims it, so it is named to
+  /// the user first. [_localSchemes] are refused either way.
   static Future<void> launchURL(
     String url, {
     LaunchMode mode = LaunchMode.externalApplication,
   }) async {
     try {
       final uri = Uri.parse(url);
+      final scheme = uri.scheme.toLowerCase();
+      if (_localSchemes.contains(scheme)) {
+        SmartDialog.showToast('已拦截: $url');
+        return;
+      }
+      if (scheme != 'http' && scheme != 'https') {
+        final context = Get.context;
+        if (context == null) return;
+        final confirmed = await showConfirmDialog(
+          context: context,
+          title: const Text('用其他应用打开？'),
+          content: Text(
+            '这个链接不是网页，它会交给系统上注册了 '
+            '「$scheme」 的应用打开：\n\n$url',
+          ),
+        );
+        if (!confirmed) return;
+      }
       if (!await launchUrl(uri, mode: mode)) {
         SmartDialog.showToast('Could not launch $url');
       }

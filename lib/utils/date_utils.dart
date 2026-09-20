@@ -19,6 +19,14 @@ abstract final class DateFormatUtils {
     final now = DateTime.now();
     final date = DateTime.fromMillisecondsSinceEpoch(time * 1000);
     final diff = now.difference(date);
+    // a scheduled/pinned item or a skewed server clock is in the future:
+    // every `< n` below would otherwise be true and say 刚刚
+    if (diff.isNegative) {
+      final sdf = now.year == date.year
+          ? short ?? shortFormat
+          : long ?? longFormat;
+      return sdf.format(date);
+    }
 
     final diffInMins = diff.inMinutes;
     if (diffInMins < 1) return '刚刚';

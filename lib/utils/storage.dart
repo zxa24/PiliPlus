@@ -99,7 +99,10 @@ abstract final class GStorage {
     return Utils.jsonEncoder.convert({
       setting.name: {
         for (final e in setting.toMap().entries)
-          if (includeCredentials || !credentialKeys.contains(e.key))
+          // login mode is a per-device opt-in, never part of a backup
+          // (see [importAllJsonSettings])
+          if (e.key != SettingBoxKey.loginMode &&
+              (includeCredentials || !credentialKeys.contains(e.key)))
             e.key: e.value,
       },
       video.name: video.toMap(),
@@ -120,9 +123,11 @@ abstract final class GStorage {
   static const _snapshotPrefix = 'before_import_';
   static const _maxSnapshots = 5;
 
-  /// Saves the current settings and local library (credentials included:
-  /// the file stays in the app's own data dir) before an import replaces
-  /// them. Returns the file path; only the newest [_maxSnapshots] are kept.
+  /// Saves the current settings and local library before an import replaces
+  /// them. [credentialKeys] stay out of the file — the app's own data dir is
+  /// what the optional Documents provider serves — an undo restores them
+  /// from the live box instead (see [importAllJsonSettings]).
+  /// Returns the file path; only the newest [_maxSnapshots] are kept.
   static Future<String> _saveSnapshot() async {
     final dir = Directory(_snapshotDir);
     await dir.create(recursive: true);
@@ -132,7 +137,7 @@ abstract final class GStorage {
         '$_snapshotPrefix${now.year}${two(now.month)}${two(now.day)}_'
         '${two(now.hour)}${two(now.minute)}${two(now.second)}.json';
     final file = File(path.join(dir.path, name));
-    await file.writeAsString(exportAllSettings(includeCredentials: true));
+    await file.writeAsString(exportAllSettings());
     final old = await _snapshots();
     for (final f in old.skip(_maxSnapshots)) {
       try {
@@ -157,15 +162,16 @@ abstract final class GStorage {
   static Future<File?> latestSnapshot() async =>
       (await _snapshots()).firstOrNull;
 
-  /// Undoes the last import: restores [latestSnapshot] (with its
-  /// credentials, they were this device's) and removes it.
+  /// Undoes the last import: restores [latestSnapshot] (it carries no
+  /// credentials, so this device's stay as they are) and removes it.
   static Future<void> restoreLatestSnapshot() async {
     final file = await latestSnapshot();
     if (file == null) throw const FormatException('没有导入前的快照');
+    // the state being replaced is snapshotted too, so the undo can itself
+    // be undone instead of destroying what it replaces
     await importAllJsonSettings(
       jsonDecode(await file.readAsString()),
       importCredentials: true,
-      snapshot: false,
     );
     await file.delete();
   }
@@ -274,7 +280,16 @@ abstract final class GStorage {
       watchProgress.clear(),
       LocalLibrary.clear(),
       ?reply?.clear(),
+      // "reset all data" must not leave the pre-import snapshots behind
+      _clearSnapshots(),
     ]);
+  }
+
+  static Future<void> _clearSnapshots() async {
+    try {
+      final dir = Directory(_snapshotDir);
+      if (dir.existsSync()) await dir.delete(recursive: true);
+    } catch (_) {}
   }
 
   static int _intStrDescKeyComparator(dynamic k1, dynamic k2) {

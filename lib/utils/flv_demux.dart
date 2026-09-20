@@ -271,23 +271,40 @@ class _FlvTrackBuilder {
     final ts = t.timescale;
     final first = times.first;
     final dts = [for (final ms in times) _scale(ms - first, 1000, ts)];
+    // Samples are grouped into chunks of about a second, the way the
+    // fragmented-MP4 path does, so the sample tables stay small (one `stco`
+    // entry per chunk, not per sample). FLV samples are payloads of separate
+    // tags with the other track's tags in between, so a chunk lists its
+    // samples' ranges one by one: what has to be contiguous is the chunk's
+    // place in the *output* file, not in its source.
+    final maxChunk = (Mp4Remuxer._maxChunkSeconds * ts).round();
+    _Chunk? chunk;
     for (var i = 0; i < dts.length; i++) {
       final dur = i + 1 < dts.length
           ? dts[i + 1] - dts[i]
           : (i > 0
                 ? dts[i] - dts[i - 1]
                 : _scale(_defaultDurationMs, 1000, ts));
+      final descIndex = configIndex[i] + 1;
+      // a chunk holds one sample description and comes from one file
+      if (chunk == null ||
+          chunk.descIndex != descIndex ||
+          chunk.sourcePath != paths[i] ||
+          dts[i] - chunk.startDts >= maxChunk) {
+        chunk = _Chunk(t, offsets[i], i, dts[i], paths[i])
+          ..descIndex = descIndex
+          ..ranges = <(int, int)>[];
+        t.chunks.add(chunk);
+      }
+      chunk
+        ..ranges!.add((offsets[i], sizes[i]))
+        ..length += sizes[i]
+        ..sampleCount += 1;
       t
         ..durations.add(dur)
         ..sizes.add(sizes[i])
         ..ctos.add(_scale(ctsMs[i], 1000, ts))
-        ..syncs.add(keys[i])
-        ..chunks.add(
-          _Chunk(t, offsets[i], i, dts[i], paths[i])
-            ..length = sizes[i]
-            ..sampleCount = 1
-            ..descIndex = configIndex[i] + 1,
-        );
+        ..syncs.add(keys[i]);
     }
     if (first > baseMs) {
       t.edits

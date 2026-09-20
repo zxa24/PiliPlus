@@ -521,7 +521,9 @@ class _CreateDynPanelState extends CommonRichTextPubPageState<CreateDynPanel> {
                       ),
                     );
                     if (selectedTime != null) {
-                      if (selectedDate.day == nowDate.day) {
+                      // the day of month alone would treat 20 Sep and 20 Oct
+                      // as the same day
+                      if (DateUtils.isSameDay(selectedDate, nowDate)) {
                         // in minutes: an hour later can still be < 6 min away
                         final selected =
                             selectedTime.hour * 60 + selectedTime.minute;

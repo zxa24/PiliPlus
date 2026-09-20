@@ -1,0 +1,14 @@
+[Route picks for pass 4 — follow-up turn, same fixer session]
+
+Your pass-4 batch-A fixes are in the working tree; keep them. The user decided the two deferred items. Implement both.
+
+## R1 (pass4-D1) — package identity still says upstream
+Finding: `pubspec.yaml:1-2` (name/description) and `assets/linux/DEBIAN/control` still identify the app as upstream PiliPlus, although the app, ids and artifacts are LibrePili.
+User's pick: A — rename them to LibrePili.
+Careful: the pubspec `name:` is the Dart package name — every `package:PiliPlus/...` import in lib/ and test/ resolves through it. Either rename it and update every import consistently (make sure `dart analyze lib test` is clean and `flutter test` passes), or, if you judge the churn disproportionate, rename only the user-visible fields (description, Debian control Package/Description/Maintainer/Homepage) and say explicitly in your report that the Dart package name was left as PiliPlus and why. State which you chose.
+
+## R2 (pass4-D2) — platform URL/document registration
+Findings: iOS registers `http`/`https` as app URL schemes and carries a nested, ignored `CFBundleURLTypes` (ios/Runner/Info.plist); macOS registers no URL scheme and no document types, so `bilibili://` links and "Open with" do not reach the app (macos/Runner/Info.plist).
+User's pick: A — drop the iOS `http`/`https` scheme registration (keep `bilibili`), clean up the nested/ignored entry, and register on macOS: the `bilibili` URL scheme plus document types for the video extensions the local player supports (mp4, mkv, webm, mov, m4v, flv, avi, ts, wmv), so the app appears in "Open with". Match how the Dart side already handles launch arguments and links (lib/main.dart, lib/utils/app_scheme.dart) — if macOS needs an `application:openURLs:`/`openFile` bridge that does not exist yet, say so rather than silently registering something that cannot work.
+
+Then run `dart analyze lib test` (exit 0) and `flutter test`, and report per item what you changed, the diff summary, an uncertainty list and the TEST RESULTS block. iOS/macOS cannot be built here; say what you checked by reading.

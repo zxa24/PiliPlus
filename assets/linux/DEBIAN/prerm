@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
-    echo "Stopping LibrePili if running..."
-    pkill -x librepili || true
-fi
+# Running instances belong to the users' sessions (playback, downloads,
+# pending writes); do not kill other users' processes from here. The binary is
+# replaced/removed underneath them, which is safe on Linux.
 
 exit 0

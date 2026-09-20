@@ -175,6 +175,8 @@ class LoginPageController extends GetxController
       );
       if (result.data['code'] == 0) {
         try {
+          // LibrePili: finishing a login is the explicit opt-in to login mode
+          await GStorage.setting.put(SettingBoxKey.loginMode, true);
           await LoginAccount(
             BiliCookieJar.fromJson(
               Map.fromEntries(
@@ -195,7 +197,14 @@ class LoginPageController extends GetxController
             null,
             null,
           ).onChange();
-          if (!Accounts.main.isLogin) await switchAccountDialog(Get.context!);
+          // login mode was just turned on: activate the saved roles
+          await Accounts.refresh();
+          MineController.anonymity.value = false;
+          if (Accounts.main.isLogin) {
+            await LoginUtils.onLoginMain();
+          } else {
+            await switchAccountDialog(Get.context!);
+          }
           SmartDialog.showToast('登录成功');
           Get.back();
         } catch (e) {
@@ -777,16 +786,24 @@ class LoginPageController extends GetxController
             child: Text('取消', style: TextStyle(color: colorScheme.outline)),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Get.back();
+              // the synchronous part of `set` already ran in order by the
+              // time it suspends, so waiting on them together is safe
+              final futures = <Future<void>>[];
               for (final type in AccountType.values) {
                 final index = type.index;
                 final account = quickSelect
                     ? selectAccount.first
                     : selectAccount[index];
                 if (account != savedMode[index]) {
-                  Accounts.set(type, account);
+                  futures.add(Accounts.set(type, account));
                 }
+              }
+              try {
+                await Future.wait(futures);
+              } catch (e) {
+                SmartDialog.showToast('账号模式保存失败: $e');
               }
             },
             child: const Text('确定'),

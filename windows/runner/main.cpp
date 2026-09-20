@@ -65,7 +65,14 @@ static bool SendFileToInstance() {
   cds.dwData = WM_USER + 2;  // app_links' APPLINK_MSG_ID
   cds.cbData = static_cast<DWORD>(link.size() + 1);
   cds.lpData = (PVOID)link.c_str();
-  ::SendMessage(s.found, WM_COPYDATA, (WPARAM)s.found, (LPARAM)(LPVOID)&cds);
+  // with a plain SendMessage this process would hang (invisibly) until the
+  // running instance pumps its message queue: give up and start normally
+  DWORD_PTR result = 0;
+  if (!::SendMessageTimeoutW(s.found, WM_COPYDATA, (WPARAM)s.found,
+                             (LPARAM)(LPVOID)&cds, SMTO_ABORTIFHUNG, 3000,
+                             &result)) {
+    return false;
+  }
 
   WINDOWPLACEMENT place = {sizeof(WINDOWPLACEMENT)};
   ::GetWindowPlacement(s.found, &place);

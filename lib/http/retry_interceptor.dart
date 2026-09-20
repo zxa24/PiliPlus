@@ -35,10 +35,17 @@ class RetryInterceptor extends Interceptor {
               // carries its own
               options
                 ..queryParameters = {}
-                ..headers.remove('cookie')
-                ..headers.remove('authorization')
-                ..headers.remove('x-bili-mid')
-                ..headers.remove('x-bili-aurora-eid')
+                // every gRPC header too: x-bili-metadata-bin starts with the
+                // accessKey, x-bili-device-bin/buvid carry the persistent
+                // device id, and the referer names where we came from
+                ..headers.removeWhere((key, _) {
+                  final name = key.toLowerCase();
+                  return name.startsWith('x-bili-') ||
+                      name == 'cookie' ||
+                      name == 'authorization' ||
+                      name == 'buvid' ||
+                      name == 'referer';
+                })
                 ..extra['account'] = const NoAccount();
               // 307/308 (and a POST this interceptor follows itself) keep
               // the body: take the account's secrets out of it too
@@ -76,22 +83,29 @@ class RetryInterceptor extends Interceptor {
           // only idempotent reads are re-sent: a POST (like, coin, comment,
           // follow...) may already have been applied by the server
           final method = err.requestOptions.method.toUpperCase();
+          final extra = err.requestOptions.extra;
+          // a retry re-enters this interceptor through `_client.fetch`, so
+          // onError runs once per attempt on the same RequestOptions. Only
+          // the attempt the caller made (no `_rt` yet) passes the final
+          // error on, so the interceptors after this one — AccountManager's
+          // toast and cookie save — run exactly once, not once per retry.
+          final isRetryAttempt = extra.containsKey('_rt');
+          void finish(DioException error) =>
+              isRetryAttempt ? handler.reject(error) : handler.next(error);
           if ((method == 'GET' || method == 'HEAD') &&
-              (err.requestOptions.extra['_rt'] ??= 0) < _count &&
+              (extra['_rt'] ??= 0) < _count &&
               err.error
                   is! TransportConnectionException // 网络中断, 此时请求可能已经被服务器所接收
                   ) {
             Future.delayed(
-              Duration(
-                milliseconds: ++err.requestOptions.extra['_rt'] * _delay,
-              ),
+              Duration(milliseconds: ++extra['_rt'] * _delay),
               () => _client
                   .fetch(err.requestOptions)
                   .then(handler.resolve)
-                  .onError<DioException>((error, _) => handler.reject(error)),
+                  .onError<DioException>((error, _) => finish(error)),
             );
           } else {
-            handler.next(err);
+            finish(err);
           }
           return;
         default:

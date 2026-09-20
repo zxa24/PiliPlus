@@ -43,12 +43,22 @@ abstract final class IdUtils {
   }
 
   /// bv转av
-  static int bv2av(String bvid) {
+  static int bv2av(String bvid) => bv2avOrNull(bvid)!;
+
+  /// [bv2av], null when [bvid] is not a real BV id: [bvRegex] accepts
+  /// `0`/`I`/`O`/`l`, which are not in the [data] alphabet.
+  static int? bv2avOrNull(String bvid) {
+    if (bvid.length < 12) return null;
     final bvidArr = bvid.codeUnits.sublist(3)
       ..swap(0, 6)
       ..swap(1, 4);
 
-    final tmp = bvidArr.fold(0, (pre, char) => pre * BASE + invData[char]!);
+    int tmp = 0;
+    for (final char in bvidArr) {
+      final index = invData[char];
+      if (index == null) return null;
+      tmp = tmp * BASE + index;
+    }
     return (tmp & MASK_CODE) ^ XOR_CODE;
   }
 

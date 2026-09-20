@@ -30,6 +30,9 @@ class DynMentionController
   Future<void> onRefresh() {
     mentionList?.clear();
     showBtn.value = false;
+    // [customGetData] reads the live keyword: a refresh in flight is for the
+    // previous one, so it must not be attached to
+    markRefreshStale();
     return super.onRefresh();
   }
 

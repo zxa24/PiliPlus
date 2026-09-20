@@ -19,18 +19,17 @@ bool isSelfTestProfile = false;
 String get defDownloadPath =>
     path.join(appSupportDirPath, PathUtils.downloadDir);
 
-/// Temp directory owned by this app. On desktop the system temp dir is
-/// shared by every app, so use a per-app subfolder: otherwise caches that
-/// hold file locks (e.g. the image cache's Hive box) collide with the
-/// original PiliPlus when both run at once.
+/// Temp directory owned by this app, a named subfolder of the system one.
+/// On desktop the system temp dir is shared by every app: otherwise caches
+/// that hold file locks (e.g. the image cache's Hive box) collide with the
+/// original PiliPlus when both run at once. On mobile the app has the temp
+/// dir to itself, but "clear cache" empties it, so the app's own scratch
+/// (share / export / remux files, local video side files) lives here where
+/// clearing can skip it.
 /// The self test gets its own subfolder, so it does not share the temp dir
 /// (and the image cache's locked Hive box) with a running normal instance.
 Future<Directory> appTempDirectory() async {
   final dir = await getTemporaryDirectory();
-  if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    if (!isSelfTestProfile) return dir;
-    return Directory(path.join(dir.path, 'selftest')).create(recursive: true);
-  }
   return Directory(
     path.joinAll([
       dir.path,

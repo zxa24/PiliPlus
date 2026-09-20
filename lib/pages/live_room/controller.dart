@@ -523,8 +523,9 @@ class LiveRoomController extends GetxController {
       if (isClosed || gen != _dmGen || _msgStream != null) return;
       if (res case Success(:final response)) {
         initDm(dmInfo = response);
-      } else if (_dmRetryCount > 0) {
-        // reconnecting: keep trying
+      } else {
+        // also on the very first try: nothing else re-drives startLiveMsg,
+        // so without this live chat stays dead for the whole visit
         _scheduleDmReconnect();
       }
     });

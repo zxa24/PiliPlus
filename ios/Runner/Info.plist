@@ -82,39 +82,15 @@
 			<string>http</string>
 		</array>
 		<!-- Add Scheme related information -->
+		<!--
+			Only `bilibili`. `http`/`https` are NOT app URL schemes: claiming
+			them makes the app a handler for every web link (and the entry
+			that did carried a nested CFBundleURLTypes with bilibili.com
+			hostnames in a CFBundleURLSchemes array, which iOS ignores —
+			hostname matching is what Universal Links are for).
+		-->
 		<key>CFBundleURLTypes</key>
 		<array>
-			<dict>
-				<key>CFBundleURLName</key>
-				<string></string>
-				<key>CFBundleURLSchemes</key>
-				<array>
-					<string>http</string>
-					<string>https</string>
-				</array>
-				<key>CFBundleURLTypes</key>
-				<array>
-					<dict>
-						<key>CFBundleURLName</key>
-						<string></string>
-						<key>CFBundleURLSchemes</key>
-						<array>
-							<string>m.bilibili.com</string>
-							<string>bilibili.com</string>
-							<string>www.bilibili.com</string>
-							<string>bangumi.bilibili.com</string>
-							<string>bilibili.cn</string>
-							<string>www.bilibili.cn</string>
-							<string>bangumi.bilibili.cn</string>
-							<string>bilibili.tv</string>
-							<string>www.bilibili.tv</string>
-							<string>bangumi.bilibili.tv</string>
-							<string>miniapp.bilibili.com</string>
-							<string>live.bilibili.com</string>
-						</array>
-					</dict>
-				</array>
-			</dict>
 			<!-- 当其他应用程序或系统通过 bilibili -->
 			<dict>
 				<key>CFBundleURLName</key>

@@ -55,8 +55,18 @@ abstract final class LocalLibrary {
     await _ensureDefaultFolder();
   }
 
-  /// Checks that every box in [map] parses the way the app reads it.
+  /// Checks that every box in [map] parses the way the app reads it, and
+  /// that no two follows share a mid: [importAll] keys follows by their own
+  /// mid, so duplicates would be dropped without the user noticing.
   static void checkImport(Map<String, dynamic> map) {
+    if (map[_follows.name] case final Map data) {
+      final mids = <Object?>{};
+      for (final v in data.values) {
+        if (v is Map && !mids.add(v['mid'])) {
+          throw FormatException('本地关注数据有重复的 mid: ${v['mid']}');
+        }
+      }
+    }
     final parsers = <String, Object Function(Map)>{
       _follows.name: LocalFollow.fromJson,
       _folders.name: LocalFavFolder.fromJson,

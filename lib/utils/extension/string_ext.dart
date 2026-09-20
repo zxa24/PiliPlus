@@ -7,6 +7,15 @@ extension NullableStringExt on String? {
 }
 
 extension StringExt on String {
+  /// Whether this may be opened in the in-app WebView / handed to the OS.
+  /// A deep link (`bilibili://browser/?url=…`) is attacker-controlled, and
+  /// `file:` / `content:` would render app-private files (hive/account.hive),
+  /// `javascript:` would run in the page that is already loaded.
+  bool get isHttpUrl {
+    final scheme = Uri.tryParse(this)?.scheme.toLowerCase();
+    return scheme == 'http' || scheme == 'https';
+  }
+
   String subLength(int length) {
     if (this.length < length) return this;
     return substring(0, length);

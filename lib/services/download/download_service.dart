@@ -42,6 +42,13 @@ class DownloadService extends GetxService {
   static const _indexFile = 'index.json';
   static const _maxDanmakuConcurrency = 4;
 
+  /// Stream folder of [entry]. [BiliDownloadEntryInfo.typeTag] is nullable
+  /// (an `entry.json` written by another client may have no `type_tag`) and
+  /// `path.join` drops a null part, so joining it directly would give the
+  /// entry folder itself — which is deleted recursively below.
+  static String _streamDirPath(BiliDownloadEntryInfo entry) =>
+      path.join(entry.entryDirPath, entry.typeTag ?? '0');
+
   final _lock = Lock();
 
   final flagNotifier = SetNotifier();
@@ -126,7 +133,12 @@ class DownloadService extends GetxService {
             } else {
               waitDownloadQueue.add(entry..status = DownloadStatus.wait);
             }
-          } catch (_) {}
+          } catch (e) {
+            // a record this build cannot read: left out of the list, its
+            // files stay on disk
+            lastError = 'entry.json (${entryDir.path}): $e';
+            debugPrint('skipped download entry: $lastError');
+          }
         }
       }
     }
@@ -455,12 +467,14 @@ class DownloadService extends GetxService {
       // the stream is picked again on every start (codec / login / quality
       // settings may have changed): partial files of another stream must
       // not be resumed, or two streams end up in one file
-      if (oldTypeTag != entry.typeTag) {
+      if (oldTypeTag != null &&
+          oldTypeTag.isNotEmpty &&
+          oldTypeTag != entry.typeTag) {
         await Directory(
           path.join(entry.entryDirPath, oldTypeTag),
         ).tryDel(recursive: true);
       }
-      final videoDir = Directory(path.join(entry.entryDirPath, entry.typeTag));
+      final videoDir = Directory(_streamDirPath(entry));
       final mediaJsonFile = File(path.join(videoDir.path, _indexFile));
       if (videoDir.existsSync()) {
         String? oldKey;
@@ -495,6 +509,9 @@ class DownloadService extends GetxService {
             path: path.join(videoDir.path, PathUtils.videoNameType2),
             onReceiveProgress: _onReceive,
             onDone: _onDone,
+            // the size the saved partial was written for ([_streamKey] only
+            // compares id / codec / resolution)
+            expectedTotal: entry.totalBytes,
           );
           final audio = mediaFileInfo.audio;
           if (audio != null && audio.isNotEmpty) {
@@ -527,7 +544,10 @@ class DownloadService extends GetxService {
   }
 
   /// What identifies the bytes of a saved stream ([_indexFile] json): the
-  /// dash video / audio stream picked, or the durl segment sizes.
+  /// dash video / audio stream picked (id / codec / resolution — its size
+  /// is still 0 when this runs, so a stream of the same id and codec but
+  /// another length is caught when a resume compares the `Content-Range`
+  /// total, see [DownloadManager.expectedTotal]), or the durl segment sizes.
   static String? _streamKey(Object? json) {
     if (json is! Map) return null;
     String file(Object? list) {
@@ -557,6 +577,7 @@ class DownloadService extends GetxService {
       url: segment.url,
       backupUrls: segment.backupUrls,
       path: path.join(dir, PathUtils.segmentNameType1(index)),
+      expectedTotal: segment.bytes,
       onReceiveProgress: segments.length == 1 || total <= 0
           ? _onReceive
           : (received, _) => _onReceive(done + received, total),
@@ -579,7 +600,9 @@ class DownloadService extends GetxService {
 
   void _onReceive(int progress, int total) {
     if (curDownload.value case final entry?) {
-      if (progress == 0 && total != 0) {
+      // the size is known from the response headers, also when the transfer
+      // resumed at an offset; an unknown size (-1) is never recorded
+      if (total > 0 && entry.totalBytes != total) {
         _updateBiliDownloadEntryJson(entry..totalBytes = total);
       }
       entry
@@ -598,6 +621,9 @@ class DownloadService extends GetxService {
       debugPrint('download failed: $lastError');
     }
     if (error != null) {
+      // the entry has failed: stop the audio stream too (its bytes are kept
+      // for the resume), instead of letting it download and retry on its own
+      _audioDownloadManager?.cancel(isDelete: false);
       _updateCurStatus(_downloadManager?.status ?? DownloadStatus.pause);
       return;
     }
@@ -687,7 +713,13 @@ class DownloadService extends GetxService {
       }
     }
     waitDownloadQueue.remove(entry);
-    downloadList.insert(0, entry);
+    // the download folder can change while a merge runs (the merge is left
+    // to finish): the list was re-read from the new root, so an entry of the
+    // old one must not join it — deleting it later would remove a folder
+    // outside the configured root
+    if (path.isWithin(downloadPath, entry.entryDirPath)) {
+      downloadList.insert(0, entry);
+    }
     flagNotifier.refresh();
     if (curDownload.value?.cid == entry.cid) {
       _curCid = null;
@@ -766,7 +798,7 @@ class DownloadService extends GetxService {
   Future<({String? output, List<String> inputs, bool damaged})> _mergeDownload(
     BiliDownloadEntryInfo entry,
   ) async {
-    final videoDir = path.join(entry.entryDirPath, entry.typeTag);
+    final videoDir = _streamDirPath(entry);
     final List<String> inputs;
     // durl segments of the play URL this download used (for re-downloading
     // a damaged one); segments on disk beyond them are left over from an
@@ -840,10 +872,19 @@ class DownloadService extends GetxService {
           await folder.tryDel();
         }
       }
-      final damaged = entry.mediaType == 1 && e is FormatException;
+      // damaged bytes ([FormatException] / [RangeError] out of the remuxers)
+      // or a missing / unreadable stream file ([FileSystemException]): the
+      // entry is not complete whatever its mediaType is, it stays in the
+      // queue so starting it again re-downloads and merges it
+      final damaged =
+          e is FormatException || e is RangeError || e is FileSystemException;
       entry.status = DownloadStatus.failMerge;
       SmartDialog.showToast(
-        damaged ? '视频分段已损坏且重新下载失败，可稍后重新开始该下载' : '合并音视频失败，已保留分离的音视频文件',
+        damaged
+            ? (entry.mediaType == 1
+                  ? '视频分段已损坏且重新下载失败，可稍后重新开始该下载'
+                  : '音视频文件已损坏或丢失，可稍后重新开始该下载')
+            : '合并音视频失败，已保留分离的音视频文件',
       );
       if (kDebugMode) debugPrint('merge download error: $e');
       return (output: null, inputs: inputs, damaged: damaged);
@@ -918,6 +959,7 @@ class DownloadService extends GetxService {
       url: segment.url,
       backupUrls: segment.backupUrls,
       path: target,
+      expectedTotal: segment.bytes,
       onReceiveProgress: null,
       onDone: ([error]) {
         if (!done.isCompleted) done.complete(error);
@@ -1254,11 +1296,21 @@ class DownloadService extends GetxService {
     bool refresh = true,
     bool deleteExported = false,
   }) async {
-    for (final entry in downloadList.toList()) {
+    // pages of one video share the folder: a page still downloading or
+    // merging must be stopped first, or it recreates what is deleted here
+    for (final entry in [...downloadList, ...waitDownloadQueue]) {
       if (entry.pageDirPath != pageDirPath) continue;
+      if (_mergingCids.contains(entry.cid)) {
+        _mergeDeletedCids.add(entry.cid);
+      }
+      await _repairManagers[entry.cid]?.cancel(isDelete: true);
+      if (curDownload.value?.cid == entry.cid) {
+        await cancelDownload(isDelete: true, downloadNext: false);
+      }
       await _cancelExtras(entry.cid);
       if (deleteExported) await _deleteMerged(entry);
     }
+    waitDownloadQueue.removeWhere((e) => e.pageDirPath == pageDirPath);
     final pageDir = Directory(pageDirPath);
     if (pageDir.existsSync() && _isForeignFolder(pageDir)) {
       // also an export folder: remove only the downloads inside it
@@ -1272,6 +1324,7 @@ class DownloadService extends GetxService {
       await pageDir.tryDel(recursive: true);
     }
     downloadList.removeWhere((e) => e.pageDirPath == pageDirPath);
+    if (curDownload.value == null) nextDownload();
     if (refresh) {
       flagNotifier.refresh();
     }
