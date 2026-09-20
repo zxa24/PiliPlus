@@ -84,7 +84,7 @@ abstract final class AsrAudioExtractor {
         userAgent: userAgent,
         timeoutSeconds: timeout.inSeconds,
       );
-      final bytes = await Isolate.run(() => _extract(args));
+      final bytes = await _spawn(args);
       if (bytes <= 0) {
         throw const AsrExtractException('没有解出音频');
       }
@@ -93,6 +93,18 @@ abstract final class AsrAudioExtractor {
       ticker?.cancel();
     }
   }
+
+  /// Spawns the isolate from a scope that holds nothing but [args].
+  ///
+  /// `Isolate.run` sends the closure together with the whole context object
+  /// of its enclosing scope, not only the variables it reads. Calling it
+  /// directly from [extract] dragged that method's progress `Timer` along,
+  /// and a Timer cannot cross an isolate boundary: every run failed before
+  /// decoding started with "object is unsendable - Class: _Timer". It never
+  /// showed on the desktop because the self-test passes no progress callback,
+  /// so no Timer existed there.
+  static Future<int> _spawn(_ExtractArgs args) =>
+      Isolate.run(() => _extract(args));
 
   /// Runs entirely inside the spawned isolate.
   static int _extract(_ExtractArgs args) {
