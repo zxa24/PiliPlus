@@ -9,6 +9,7 @@ import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models_new/history/list.dart';
 import 'package:PiliPlus/models_new/video/video_detail/dimension.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
+import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
@@ -234,7 +235,8 @@ class HistoryItem extends StatelessWidget {
                       item.badge != '番剧' &&
                       item.tagName?.contains('动画') != true &&
                       business != 'live' &&
-                      business?.contains('article') != true)
+                      business?.contains('article') != true &&
+                      Accounts.main.isLogin)
                     PopupMenuItem(
                       onTap: () =>
                           UserHttp.toViewLater(bvid: item.history.bvid),

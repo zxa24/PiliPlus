@@ -377,15 +377,16 @@ class HeaderControlState extends State<HeaderControl>
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 14),
               children: [
-                ListTile(
-                  dense: true,
-                  onTap: () {
-                    Get.back();
-                    introController.viewLater();
-                  },
-                  leading: const Icon(Icons.watch_later_outlined, size: 20),
-                  title: const Text('添加至「稍后再看」', style: titleStyle),
-                ),
+                if (Accounts.main.isLogin)
+                  ListTile(
+                    dense: true,
+                    onTap: () {
+                      Get.back();
+                      introController.viewLater();
+                    },
+                    leading: const Icon(Icons.watch_later_outlined, size: 20),
+                    title: const Text('添加至「稍后再看」', style: titleStyle),
+                  ),
                 if (videoDetailCtr.epId == null)
                   ListTile(
                     dense: true,

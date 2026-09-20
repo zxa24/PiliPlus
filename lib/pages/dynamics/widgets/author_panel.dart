@@ -292,7 +292,7 @@ class AuthorPanel extends StatelessWidget {
                   ),
                 ),
               ),
-              if (bvid != null)
+              if (bvid != null && Accounts.main.isLogin)
                 ListTile(
                   onTap: () {
                     Get.back();
