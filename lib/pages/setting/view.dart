@@ -79,6 +79,11 @@ class _SettingPageState extends State<SettingPage> {
       icon: Icon(Icons.download_outlined),
     ),
     _SettingsModel(
+      type: SettingType.asrSetting,
+      subtitle: '端侧语音识别字幕：何时自动转录、模型下载与占用',
+      icon: Icon(Icons.record_voice_over_outlined),
+    ),
+    _SettingsModel(
       type: SettingType.webdavSetting,
       icon: Icon(MdiIcons.databaseCogOutline),
     ),
@@ -125,7 +130,8 @@ class _SettingPageState extends State<SettingPage> {
                       .playSetting ||
                       .styleSetting ||
                       .extraSetting ||
-                      .downloadSetting => CommonSetting(
+                      .downloadSetting ||
+                      .asrSetting => CommonSetting(
                         settingType: _type,
                         showAppBar: false,
                       ),
@@ -157,7 +163,8 @@ class _SettingPageState extends State<SettingPage> {
           .playSetting ||
           .styleSetting ||
           .extraSetting ||
-          .downloadSetting => CommonSetting(settingType: type),
+          .downloadSetting ||
+          .asrSetting => CommonSetting(settingType: type),
           .webdavSetting => const WebDavSettingPage(),
           .about => const AboutPage(),
         },

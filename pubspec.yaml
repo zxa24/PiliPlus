@@ -180,6 +180,10 @@ dependencies:
       path: packages/window_manager
       ref: ac535d09a5850279e6591a9bdd285f9a3edeebf8 # main
   desktop_drop: ^0.8.4
+  # LibrePili: on-device speech recognition for auto-generated subtitles.
+  # Prebuilt binaries per platform; the models themselves are downloaded at
+  # runtime (see lib/services/asr/model_catalog.dart), never bundled.
+  sherpa_onnx: 1.13.8
 
 dependency_overrides:
   flutter_inappwebview_android:

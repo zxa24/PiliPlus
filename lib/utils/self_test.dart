@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:PiliPlus/http/browser_ua.dart';
+import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/member.dart';
 import 'package:PiliPlus/http/video.dart';
@@ -19,6 +21,12 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/audio_extract.dart';
+import 'package:PiliPlus/services/asr/model_catalog.dart';
+import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/services/asr/transcriber.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:collection/collection.dart';
@@ -132,6 +140,16 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--asr') case final source?) {
+      await scenario(
+        'asr',
+        () => _asr(
+          source,
+          modelDir: _arg(args, '--asr-models'),
+          srtOut: _arg(args, '--asr-srt'),
+        ),
+      );
+    }
 
     report
       ..['pass'] = ok
@@ -143,6 +161,104 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: end-to-end on-device transcription over a real file or URL —
+  /// libmpv audio extraction, Silero VAD, SenseVoice — with the timings the
+  /// benchmarks are compared against.
+  static Future<Map<String, dynamic>> _asr(
+    String source, {
+    String? modelDir,
+    String? srtOut,
+  }) async {
+    final store = AsrModelStore(
+      root: modelDir == null ? null : Directory(modelDir),
+    );
+    if (!store.isReady) {
+      return {
+        'pass': false,
+        'error': 'models missing under ${store.root.path}',
+        'missing': [for (final m in store.missing) m.id],
+      };
+    }
+
+    final pcm = path.join(tmpDirPath, 'asr', 'selftest.pcm');
+    final extractStarted = DateTime.now();
+    final audio = await AsrAudioExtractor.extract(
+      source: source,
+      output: pcm,
+      referer: HttpString.baseUrl,
+      userAgent: BrowserUa.pc,
+    );
+    final extractMs = DateTime.now().difference(extractStarted).inMilliseconds;
+
+    final transcribeStarted = DateTime.now();
+    final cues = <AsrCue>[];
+    String? language;
+    String? error;
+    final transcriber = await AsrTranscriber.start((
+      pcmPath: audio.path,
+      modelPath: store
+          .fileOf(
+            AsrModelCatalog.senseVoice,
+            AsrModelCatalog.senseVoice.files[0],
+          )
+          .path,
+      tokensPath: store
+          .fileOf(
+            AsrModelCatalog.senseVoice,
+            AsrModelCatalog.senseVoice.files[1],
+          )
+          .path,
+      vadPath: store
+          .fileOf(AsrModelCatalog.vad, AsrModelCatalog.vad.files.first)
+          .path,
+      threads: Pref.asrThreads,
+      language: '',
+    ));
+    await for (final event in transcriber.events) {
+      switch (event) {
+        case AsrCuesEvent(cues: final batch):
+          cues.addAll(batch);
+        case AsrLanguageEvent(language: final lang):
+          language ??= lang;
+        case AsrErrorEvent(message: final message):
+          error = message;
+        case AsrProgressUpdate():
+          break;
+      }
+    }
+    final transcribeMs = DateTime.now()
+        .difference(transcribeStarted)
+        .inMilliseconds;
+    if (srtOut != null && cues.isNotEmpty) {
+      await File(srtOut).writeAsString(cues.toSrt());
+    }
+    try {
+      await File(pcm).delete();
+    } catch (_) {}
+
+    return {
+      'pass': error == null && cues.isNotEmpty,
+      'error': ?error,
+      'source': source,
+      'audioSeconds': audio.durationSeconds,
+      'extractMs': extractMs,
+      'transcribeMs': transcribeMs,
+      'rtf': audio.durationSeconds == 0
+          ? null
+          : (extractMs + transcribeMs) / 1000 / audio.durationSeconds,
+      'language': language,
+      'cueCount': cues.length,
+      'cues': [
+        for (final cue in cues.take(40))
+          {
+            'from': cue.from,
+            'to': cue.to,
+            'content': cue.content,
+          },
+      ],
+    };
+  }
 
   /// Opens a video file / folder with the local player, optionally starts
   /// playback, and reports position, duration and loaded danmaku.

@@ -1,3 +1,4 @@
+import 'package:PiliPlus/pages/setting/models/asr_settings.dart';
 import 'package:PiliPlus/pages/setting/models/download_settings.dart';
 import 'package:PiliPlus/pages/setting/models/extra_settings.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
@@ -15,6 +16,7 @@ enum SettingType {
   styleSetting('外观设置'),
   extraSetting('其它设置'),
   downloadSetting('下载设置'),
+  asrSetting('语音转录'),
   webdavSetting('WebDAV 设置'),
   about('关于'),
   ;
@@ -30,6 +32,7 @@ enum SettingType {
     .styleSetting => styleSettings,
     .extraSetting => extraSettings,
     .downloadSetting => downloadSettings,
+    .asrSetting => asrSettings,
     _ => throw UnimplementedError(),
   };
 }

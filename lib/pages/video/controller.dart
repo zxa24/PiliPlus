@@ -11,6 +11,7 @@ import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
 import 'package:PiliPlus/grpc/bilibili/app/listener/v1.pbenum.dart'
     show PlaylistSource;
 import 'package:PiliPlus/grpc/dm.dart';
+import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/init.dart';
@@ -53,6 +54,8 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -1189,6 +1192,95 @@ class VideoDetailController extends GetxController
     await setSub(subtitle);
   }
 
+  // ---------------------------------------------------- LibrePili: 自动转录
+
+  /// The transcription running for this part, if any.
+  AsrSession? asrSession;
+  StreamSubscription<void>? _asrCueSub;
+  Worker? _asrStateWorker;
+  int? _asrTrackIndex;
+  Timer? _asrRefresh;
+
+  /// What libmpv should decode for transcription. The audio stream on its own
+  /// where there is one — feeding it the player's `edl://` would pull video
+  /// headers as well for no benefit.
+  String? get _asrSource {
+    if (isFileSource) return entry.mergedPath;
+    if (audioUrl case final audio? when audio.isNotEmpty) return audio;
+    return videoUrl;
+  }
+
+  bool get canTranscribe => _asrSource?.isNotEmpty == true;
+
+  Future<void> startAsr({bool auto = false}) async {
+    final source = _asrSource;
+    if (source == null || source.isEmpty) {
+      SmartDialog.showToast('没有可转录的音频');
+      return;
+    }
+    await stopAsr();
+    final service = AsrService.to;
+    final session = await service.start(
+      key: '$cid',
+      source: source,
+      referer: isFileSource ? null : HttpString.baseUrl,
+      userAgent: isFileSource ? null : BrowserUa.pc,
+      auto: auto,
+    );
+    asrSession = session;
+
+    // cues stream in; rebuilding the track on every batch would restart the
+    // renderer constantly, so coalesce into one refresh a few seconds
+    _asrRefresh = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _publishAsrSubtitle(),
+    );
+    _asrCueSub = session.cues.listen((_) {});
+    _asrStateWorker = ever(session.state, (state) {
+      if (state.stage == AsrStage.done) {
+        _publishAsrSubtitle(select: true);
+      } else if (state.stage == AsrStage.failed) {
+        SmartDialog.showToast('转录失败：${state.message ?? ''}');
+      }
+    });
+  }
+
+  Future<void> stopAsr() async {
+    _asrRefresh?.cancel();
+    _asrRefresh = null;
+    _asrStateWorker?.dispose();
+    _asrStateWorker = null;
+    await _asrCueSub?.cancel();
+    _asrCueSub = null;
+    asrSession = null;
+    _asrTrackIndex = null;
+    if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
+  }
+
+  /// Puts what has been recognised so far into the subtitle list, adding the
+  /// track the first time and replacing its data afterwards.
+  void _publishAsrSubtitle({bool select = false}) {
+    final session = asrSession;
+    if (session == null || isClosed) return;
+    final cues = session.cues;
+    if (cues.isEmpty) return;
+    final vtt = cues.toVtt();
+
+    var index = _asrTrackIndex;
+    if (index == null) {
+      index = subtitles.length;
+      _asrTrackIndex = index;
+      subtitles.add(Subtitle(lan: 'asr', lanDoc: '自动转录'));
+      select = true;
+    }
+    vttSubtitles[index] = (isData: true, id: vtt);
+    // reselect so mpv picks up the longer text; only when this track is the
+    // one being shown, otherwise the user's choice would be overridden
+    if (select || vttSubtitlesIndex.value == index + 1) {
+      setSubtitle(index + 1);
+    }
+  }
+
   // interactive video
   int? graphVersion;
   EdgeInfoData? steinEdgeInfo;
@@ -1375,6 +1467,7 @@ class VideoDetailController extends GetxController
       ..dispose();
     subtitles.clear();
     vttSubtitles.clear();
+    stopAsr();
     super.onClose();
   }
 
@@ -1396,6 +1489,8 @@ class VideoDetailController extends GetxController
     subtitles.clear();
     vttSubtitlesIndex.value = -1;
     vttSubtitles.clear();
+    // a transcription belongs to the part it was started for
+    stopAsr();
 
     if (!isFileSource) {
       // language

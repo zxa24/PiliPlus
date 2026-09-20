@@ -28,6 +28,7 @@ import 'package:PiliPlus/pages/setting/models/play_settings.dart'
     show showPlayerVolumeDialog;
 import 'package:PiliPlus/pages/setting/widgets/popup_item.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
+import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
@@ -765,6 +766,38 @@ class HeaderControlState extends State<HeaderControl>
                   leading: const Icon(Icons.file_open_outlined, size: 20),
                   title: const Text('加载字幕', style: titleStyle),
                 ),
+                // LibrePili: on-device transcription for videos with no
+                // subtitles of their own
+                if (videoDetailCtr.canTranscribe)
+                  Obx(() {
+                    final session = videoDetailCtr.asrSession;
+                    final state = session?.state.value;
+                    final running = state?.isBusy ?? false;
+                    return ListTile(
+                      dense: true,
+                      onTap: () {
+                        Get.back();
+                        if (running) {
+                          videoDetailCtr.stopAsr();
+                        } else {
+                          AsrEntry.start(context, videoDetailCtr);
+                        }
+                      },
+                      leading: Icon(
+                        running
+                            ? Icons.stop_circle_outlined
+                            : Icons.record_voice_over_outlined,
+                        size: 20,
+                      ),
+                      title: Text(
+                        running ? '停止转录（${state!.label}）' : '自动转录字幕',
+                        style: titleStyle,
+                      ),
+                      subtitle: running && state!.progress != null
+                          ? LinearProgressIndicator(value: state.progress)
+                          : null,
+                    );
+                  }),
                 if (!videoDetailCtr.isFileSource &&
                     videoDetailCtr.subtitles.isNotEmpty)
                   ListTile(

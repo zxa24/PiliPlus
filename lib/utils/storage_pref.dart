@@ -4,6 +4,7 @@ import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recogniz
     show deviceTouchSlop;
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/http/constants.dart';
+import 'package:PiliPlus/models/common/asr_mode.dart';
 import 'package:PiliPlus/models/common/bar_hide_type.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamic_badge_mode.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamics_type.dart';
@@ -425,6 +426,29 @@ abstract final class Pref {
       _setting.get(SettingBoxKey.dlCommentCount, defaultValue: 200);
   static int get dlReplyCount =>
       _setting.get(SettingBoxKey.dlReplyCount, defaultValue: 10);
+
+  // LibrePili: on-device transcription. Off by default in the sense that
+  // nothing runs until the user answers the one-time prompt ([asrAsked]).
+  static AsrMode get asrMode => _enumAt(
+    AsrMode.values,
+    _setting.get(SettingBoxKey.asrMode),
+    AsrMode.manual,
+  );
+
+  static bool get asrAsked =>
+      _setting.get(SettingBoxKey.asrAsked, defaultValue: false);
+
+  /// Empty lets SenseVoice detect the language, which is what it is good at.
+  static String get asrLanguage =>
+      _setting.get(SettingBoxKey.asrLanguage, defaultValue: '');
+
+  /// Decoding threads. Half the cores keeps the UI responsive on the phones
+  /// this was measured on, and never fewer than two.
+  static int get asrThreads {
+    final stored = _setting.get(SettingBoxKey.asrThreads);
+    if (stored is int && stored > 0) return stored;
+    return (Platform.numberOfProcessors ~/ 2).clamp(2, 8);
+  }
 
   /// Opt-in login mode (LibrePili). Off: all requests are anonymous and
   /// stored accounts stay dormant.
