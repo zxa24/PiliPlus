@@ -55,6 +55,7 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -1210,7 +1211,7 @@ class VideoDetailController extends GetxController
   /// where there is one — feeding it the player's `edl://` would pull video
   /// headers as well for no benefit.
   String? get _asrSource {
-    if (isFileSource) return entry.mergedPath;
+    if (isFileSource) return entry.mergedPath ?? entry.playUri;
     if (audioUrl case final audio? when audio.isNotEmpty) return audio;
     return videoUrl;
   }
@@ -1218,10 +1219,21 @@ class VideoDetailController extends GetxController
   bool get canTranscribe => _asrSource?.isNotEmpty == true;
 
   Future<void> startAsr({bool auto = false}) async {
-    final source = _asrSource;
+    var source = _asrSource;
     if (source == null || source.isEmpty) {
       SmartDialog.showToast('没有可转录的音频');
       return;
+    }
+    // a document opened through Android's picker has no path, only a content
+    // URI, and the descriptor the player holds is its own — transcription
+    // needs a second one, which mpv closes itself via `fdclose://`
+    if (source.startsWith('content://')) {
+      final fd = await LocalDocuments.openFd(source);
+      if (fd == null) {
+        SmartDialog.showToast('无法读取该视频文件');
+        return;
+      }
+      source = 'fdclose://$fd';
     }
     await stopAsr();
     final service = AsrService.to;
