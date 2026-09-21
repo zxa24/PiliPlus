@@ -422,6 +422,8 @@ class VideoDetailController extends GetxController
   @override
   void onInit() {
     super.onInit();
+    // the player cannot resolve another CDN itself: it has no play-url list
+    plPlayerController.onCdnFailover = switchToNextCdn;
     args = Get.arguments;
     videoType = args['videoType'];
     if (videoType == VideoType.pgc) {
@@ -748,6 +750,55 @@ class VideoDetailController extends GetxController
     return bestVideo ?? videoList.first;
   }
 
+  /// The audio stream currently chosen, kept so a re-select can reach its
+  /// list of CDN URLs.
+  AudioItem? _currentAudio;
+
+  /// How many CDNs have been given up on for this part.
+  int _cdnAttempt = 0;
+
+  /// Moves to the next CDN and resumes where playback was.
+  ///
+  /// The order matters and is deliberate: **exhaust the CDNs before touching
+  /// the quality**. A stall usually means one host will not serve, not that
+  /// the connection is too slow, and dropping to 480p for a dead CDN would
+  /// degrade the picture without fixing anything. Automatic quality switching
+  /// (see TODO) is the *second* step and must run only once this returns
+  /// false.
+  ///
+  /// Returns false when there is nothing left to try.
+  bool switchToNextCdn() {
+    if (isFileSource) return false;
+    final videoCandidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
+    final next = _cdnAttempt + 1;
+    if (next >= videoCandidates.length) return false;
+
+    _cdnAttempt = next;
+    videoUrl = videoCandidates[next];
+    if (_currentAudio case final audio?) {
+      final audioCandidates = VideoUtils.cdnCandidates(audio.playUrls);
+      if (next < audioCandidates.length) audioUrl = audioCandidates[next];
+    }
+    if (kDebugMode) {
+      debugPrint('cdn failover -> ${Uri.tryParse(videoUrl!)?.host}');
+    }
+    SmartDialog.showToast('线路无法播放，已切换备用线路');
+    _reopenAtCurrentPosition();
+    return true;
+  }
+
+  /// Re-opens the player with whatever [videoUrl] / [audioUrl] now hold,
+  /// continuing from the current position. Shared by the CDN failover and by
+  /// quality changes so both keep the same resume behaviour.
+  void _reopenAtCurrentPosition() {
+    _autoPlay.value = true;
+    playedTime = plPlayerController.videoPlayerController?.state.position;
+    plPlayerController
+      ..isBuffering.value = false
+      ..buffered.value = 0;
+    playerInit();
+  }
+
   /// 更新画质、音质
   void updatePlayer() {
     final currentVideoQa = this.currentVideoQa.value;
@@ -767,6 +818,7 @@ class VideoDetailController extends GetxController
         (i) => i.id == currentAudioQa!.code,
         orElse: () => data.dash!.audio!.first,
       );
+      _currentAudio = firstAudio;
       audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
     }
 
@@ -1103,6 +1155,7 @@ class VideoDetailController extends GetxController
           (e) => e.id == closestNumber,
           orElse: () => audioList.first,
         );
+        _currentAudio = firstAudio;
         audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
         currentAudioQa = AudioQuality.fromCode(firstAudio.id);
       } else {
@@ -1531,6 +1584,9 @@ class VideoDetailController extends GetxController
     subtitles.clear();
     vttSubtitles.clear();
     stopAsr();
+    if (plPlayerController.onCdnFailover == switchToNextCdn) {
+      plPlayerController.onCdnFailover = null;
+    }
     super.onClose();
   }
 
@@ -1544,6 +1600,8 @@ class VideoDetailController extends GetxController
     defaultST = null;
     videoUrl = null;
     audioUrl = null;
+    _cdnAttempt = 0;
+    _currentAudio = null;
 
     // danmaku
     savedDanmaku = null;

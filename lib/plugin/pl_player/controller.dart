@@ -67,6 +67,23 @@ import 'package:window_manager/window_manager.dart';
 
 typedef PlayCallback = Future<void>? Function();
 
+/// What to do about a source that will not deliver.
+///
+/// The order is deliberate: **exhaust the CDNs before touching the quality**.
+/// A stall usually means one host is not serving, not that the link is too
+/// slow, and dropping to 480p for a dead CDN degrades the picture without
+/// fixing anything. Automatic quality switching (still a TODO) belongs after
+/// [switchCdn] has run out of hosts, never before it.
+enum TransportRecovery {
+  /// Most failures are one dropped or expired connection; re-open the same
+  /// URL once.
+  retrySameUrl,
+
+  /// The same host failed twice. Retrying it again is what left a phone on
+  /// "加载中..." for ever.
+  switchCdn,
+}
+
 class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Player? _videoPlayerController;
   VideoController? _videoController;
@@ -1047,18 +1064,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             const Duration(milliseconds: 10000),
             () {
               Future.delayed(const Duration(milliseconds: 3000), () {
-                // if (kDebugMode) {
-                //   debugPrint("isBuffering.value: ${isBuffering.value}");
-                // }
-                // if (kDebugMode) {
-                //   debugPrint("_buffered.value: ${_buffered.value}");
-                // }
-                if (isBuffering.value && buffered.value == 0) {
-                  SmartDialog.showToast(
-                    '视频链接打开失败，重试中',
-                    displayTime: const Duration(milliseconds: 500),
-                  );
-                  refreshPlayer();
+                if (!isBuffering.value || buffered.value != 0) return;
+                switch (transportRecovery(_transportFailures++)) {
+                  case TransportRecovery.retrySameUrl:
+                    SmartDialog.showToast(
+                      '视频链接打开失败，重试中',
+                      displayTime: const Duration(milliseconds: 500),
+                    );
+                    refreshPlayer();
+                  case TransportRecovery.switchCdn:
+                    if (onCdnFailover?.call() ?? false) {
+                      _transportFailures = 0;
+                    } else {
+                      SmartDialog.showToast('视频加载失败，请检查网络或切换线路');
+                    }
                 }
               });
             },
@@ -1081,6 +1100,24 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     ];
   }
 
+
+  /// Consecutive transport failures on the current source.
+  int _transportFailures = 0;
+
+  /// The policy, kept apart from the stream plumbing so it can be tested.
+  @visibleForTesting
+  static TransportRecovery transportRecovery(int previousFailures) =>
+      previousFailures == 0
+      ? TransportRecovery.retrySameUrl
+      : TransportRecovery.switchCdn;
+
+  /// Asks the owner to move to another CDN; false when there is none left.
+  ///
+  /// Retrying a URL whose host will not serve is what left a phone on
+  /// "加载中..." indefinitely, silently. The downloader has rotated through
+  /// the backup URLs since the first audit round; the player only ever had a
+  /// manual switch.
+  bool Function()? onCdnFailover;
 
   /// mpv could not get the bytes: the URL, the connection or the TLS session
   /// failed. All of these are worth one re-open — unlike a decoder error,

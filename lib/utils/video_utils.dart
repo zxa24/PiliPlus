@@ -20,6 +20,25 @@ abstract final class VideoUtils {
     r'^https?://(?:(?:(?:\d{1,3}\.){3}\d{1,3}|[^/]+\.mcdn\.bilivideo\.(?:com|cn|net))(?:\:\d{1,5})?/v\d/resource)',
   );
 
+  /// The play URLs with one entry per host, in the order Bilibili gives them
+  /// (`baseUrl` first, then `backupUrl`).
+  ///
+  /// Used to move off a CDN that will not serve: the downloader has rotated
+  /// through these since the first audit round, while the player stayed on
+  /// whichever URL it picked first and only offered a manual switch. A phone
+  /// whose network had gone stale sat on "加载中..." for ever as a result.
+  static List<String> cdnCandidates(Iterable<String> urls) {
+    final seen = <String>{};
+    final candidates = <String>[];
+    for (final url in urls) {
+      if (url.isEmpty) continue;
+      final host = Uri.tryParse(url)?.host;
+      if (host == null || host.isEmpty) continue;
+      if (seen.add(host)) candidates.add(url);
+    }
+    return candidates;
+  }
+
   static String getCdnUrl(
     Iterable<String> urls, {
     CDNService? defaultCDNService,

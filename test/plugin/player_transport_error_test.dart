@@ -40,4 +40,31 @@ void main() {
       });
     }
   });
+
+  group('what to do about a source that will not deliver', () {
+    test('the first failure re-opens the same URL', () {
+      expect(
+        PlPlayerController.transportRecovery(0),
+        TransportRecovery.retrySameUrl,
+      );
+    });
+
+    test('a second failure on the same host moves to another CDN', () {
+      expect(
+        PlPlayerController.transportRecovery(1),
+        TransportRecovery.switchCdn,
+      );
+      expect(
+        PlPlayerController.transportRecovery(5),
+        TransportRecovery.switchCdn,
+      );
+    });
+
+    test('quality is never the first answer to a stall', () {
+      // the enum has no "drop quality" case on purpose: automatic quality
+      // switching belongs after the CDNs run out, and a dead host must not
+      // cost the user their resolution
+      expect(TransportRecovery.values, hasLength(2));
+    });
+  });
 }
