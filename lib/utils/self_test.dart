@@ -757,6 +757,9 @@ abstract final class SelfTest {
     var channelUploads = 0;
     var subscribeToggled = false;
     var threadsWithReplies = 0;
+    String? publishedDate;
+    String? exactViews;
+    String? subscribers;
     var replyCount = 0;
     var repliesShown = false;
     var visibleComments = 0;
@@ -790,6 +793,12 @@ abstract final class SelfTest {
       // the rest of the page: related shelf, comments, and a subscription
       await Future.delayed(const Duration(seconds: 3));
       relatedCount = controller.related.length;
+      // the publish date and the exact view count arrive with the related
+      // shelf now, in place of the channel request that used to fetch the
+      // avatar on its own
+      publishedDate = controller.extra.value?.dateText;
+      exactViews = controller.extra.value?.viewCountText;
+      subscribers = controller.extra.value?.subscriberText;
       controller.ensureCommentsStarted();
       for (var i = 0; i < 10 && controller.comments.isEmpty; i++) {
         await Future.delayed(const Duration(seconds: 1));
@@ -911,6 +920,8 @@ abstract final class SelfTest {
           items.isNotEmpty &&
           played &&
           relatedCount > 0 &&
+          publishedDate != null &&
+          subscribers != null &&
           commentCount > 0 &&
           subscribeToggled &&
           channelUploads > 0 &&
@@ -931,6 +942,9 @@ abstract final class SelfTest {
       'buffer': openedBuffer,
       'isLive': openedLive,
       'related': relatedCount,
+      'publishedDate': publishedDate,
+      'exactViews': exactViews,
+      'subscribers': subscribers,
       'comments': commentCount,
       'firstComment': firstComment,
       'threadsWithReplies': threadsWithReplies,

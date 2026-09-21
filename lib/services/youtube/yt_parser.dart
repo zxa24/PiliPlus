@@ -126,6 +126,29 @@ Map<String, String> _replyTokensByComment(Object? root) {
   return out;
 }
 
+/// The watch page's own metadata, out of the `next` response.
+///
+/// Read from `videoPrimaryInfoRenderer` (date, exact view count) and
+/// `videoOwnerRenderer` (avatar, subscribers). Both are looked up by key
+/// anywhere in the tree rather than by path: the watch page's layout moves
+/// between A/B buckets and a fixed path is the thing that breaks silently.
+YtVideoExtra parseVideoExtra(Object? root) {
+  final primary = collectObjects(root, 'videoPrimaryInfoRenderer').firstOrNull;
+  final owner = collectObjects(root, 'videoOwnerRenderer').firstOrNull;
+  final viewCount = collectObjects(root, 'videoViewCountRenderer').firstOrNull;
+  return YtVideoExtra(
+    dateText: _orNull(readText(primary?['dateText'])),
+    relativeDateText: _orNull(readText(primary?['relativeDateText'])),
+    viewCountText: _orNull(readText(viewCount?['viewCount'])),
+    ownerName: _orNull(readText(owner?['title'])),
+    ownerAvatar: mapList(
+      (owner?['thumbnail'] as Map?)?['thumbnails'],
+      YtThumbnail.fromJson,
+    ).lastOrNull,
+    subscriberText: _orNull(readText(owner?['subscriberCountText'])),
+  );
+}
+
 /// The "load the next page" token of a list response.
 ///
 /// It lives in a `continuationItemRenderer` with

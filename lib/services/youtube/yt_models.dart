@@ -436,3 +436,49 @@ class YtChannelInfo {
   @override
   String toString() => 'YtChannelInfo($name, $subscriberText)';
 }
+
+/// What the watch page knows about a video that its *player* response does
+/// not: when it was published, how many times it has been seen in full, and
+/// the channel's avatar and subscriber count.
+///
+/// All of it comes out of the `next` response the related shelf already
+/// needs, so it costs no request. It replaced a separate channel `browse`
+/// call that had been made for the avatar alone.
+class YtVideoExtra {
+  const YtVideoExtra({
+    this.dateText,
+    this.relativeDateText,
+    this.viewCountText,
+    this.ownerName,
+    this.ownerAvatar,
+    this.subscriberText,
+  });
+
+  /// '25 Oct 2009' — an absolute date, as YouTube formats it for the locale
+  /// the request asked for.
+  final String? dateText;
+
+  /// '16 years ago'.
+  final String? relativeDateText;
+
+  /// '1,818,000,663 views' — the exact figure, not the abbreviated one the
+  /// search results carry.
+  final String? viewCountText;
+
+  final String? ownerName;
+  final YtThumbnail? ownerAvatar;
+
+  /// '4.54m subscribers'.
+  final String? subscriberText;
+
+  bool get isEmpty =>
+      dateText == null &&
+      relativeDateText == null &&
+      viewCountText == null &&
+      ownerAvatar == null &&
+      subscriberText == null;
+
+  @override
+  String toString() =>
+      'YtVideoExtra($dateText, $viewCountText, $subscriberText)';
+}

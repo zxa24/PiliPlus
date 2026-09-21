@@ -228,6 +228,7 @@ class YtDirectSource implements YouTubeVideoSource {
       YtRelatedAndComments(
         parseRelatedVideos(r.json),
         parseCommentsContinuationToken(r.json),
+        parseVideoExtra(r.json),
       ),
     );
   }
@@ -292,7 +293,7 @@ class YtChannelPage {
 
 /// What a `next` call yields: the related shelf, and the door to the comments.
 class YtRelatedAndComments {
-  const YtRelatedAndComments(this.related, this.commentsToken);
+  const YtRelatedAndComments(this.related, this.commentsToken, this.extra);
 
   final List<YtSearchItem> related;
 
@@ -301,8 +302,13 @@ class YtRelatedAndComments {
   /// response; a caller that sees it null on every video should suspect (d).
   final String? commentsToken;
 
+  /// Publish date, exact view count, channel avatar and subscriber count —
+  /// everything the player response leaves out, in the response the related
+  /// shelf was already fetching.
+  final YtVideoExtra extra;
+
   @override
   String toString() =>
       'YtRelatedAndComments(${related.length} related, '
-      'comments=${commentsToken != null})';
+      'comments=${commentsToken != null}, $extra)';
 }

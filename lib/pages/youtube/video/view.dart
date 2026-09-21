@@ -257,7 +257,7 @@ class _YtVideoPageState extends State<YtVideoPage>
             Obx(() {
               // the player response has no avatar; the channel request that
               // follows the video fills it in
-              final avatar = controller.channel.value?.avatar?.url;
+              final avatar = controller.extra.value?.ownerAvatar?.url;
               return GestureDetector(
                 onTap: _openChannel,
                 child: avatar == null
@@ -293,13 +293,10 @@ class _YtVideoPageState extends State<YtVideoPage>
                       style: theme.textTheme.bodyMedium,
                     ),
                     Obx(() {
-                      final info = controller.channel.value;
-                      if (info == null) return const SizedBox.shrink();
+                      final subscribers = controller.extra.value?.subscriberText;
+                      if (subscribers == null) return const SizedBox.shrink();
                       return Text(
-                        [
-                          ?info.subscriberText,
-                          ?info.videoCountText,
-                        ].join('    '),
+                        subscribers,
                         style: TextStyle(
                           fontSize: 11,
                           color: theme.colorScheme.outline,
@@ -346,31 +343,50 @@ class _YtVideoPageState extends State<YtVideoPage>
         const SizedBox(height: 14),
         Text(detail.title, style: theme.textTheme.titleMedium),
         const SizedBox(height: 6),
-        Row(
-          children: [
-            Icon(
-              Icons.play_circle_outline,
-              size: 13,
-              color: theme.colorScheme.outline,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              detail.viewCount == null ? '-' : '${detail.viewCount}',
-              style: TextStyle(
-                fontSize: 12,
+        // 播放量 · 发布时间, the line the bilibili page puts under the title.
+        // The date is not in the player response at all; it arrives with the
+        // related shelf, so it appears a moment after the rest.
+        Obx(() {
+          final info = controller.extra.value;
+          final views =
+              info?.viewCountText ??
+              (detail.viewCount == null ? null : '${detail.viewCount} views');
+          final date = info?.dateText ?? info?.relativeDateText;
+          final style = TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.outline,
+          );
+          return Row(
+            children: [
+              Icon(
+                Icons.play_circle_outline,
+                size: 13,
                 color: theme.colorScheme.outline,
               ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              detail.videoId,
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.outline,
+              const SizedBox(width: 4),
+              Text(views ?? '-', style: style),
+              if (date != null) ...[
+                const SizedBox(width: 12),
+                Icon(
+                  Icons.schedule_outlined,
+                  size: 13,
+                  color: theme.colorScheme.outline,
+                ),
+                const SizedBox(width: 4),
+                Text(date, style: style),
+              ],
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  detail.videoId,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: style,
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          );
+        }),
         if (controller.streams case final pair?) ...[
           const SizedBox(height: 4),
           Text(

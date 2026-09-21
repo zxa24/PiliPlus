@@ -73,7 +73,6 @@ class YtVideoController extends GetxController {
     _streams = streams.value;
     await _open(streams.value!);
     unawaited(_loadRelated());
-    unawaited(_loadChannel());
   }
 
   Future<void> _open(YtStreamPair pair, {Duration? seekTo}) async {
@@ -153,21 +152,15 @@ class YtVideoController extends GetxController {
     captionIndex.value = index;
   }
 
-  // -------------------------------------------------------- channel header
+  // -------------------------------------------------------- page metadata
 
-  /// Avatar, subscriber count — none of which the player response carries.
-  /// One extra request, made after the video is already playing.
-  final channel = Rxn<YtChannelInfo>();
-
-  Future<void> _loadChannel() async {
-    final channelId = detail.value?.channelId;
-    if (channelId == null || channelId.isEmpty) return;
-    final result = await router.run(
-      (s) => (s as YtDirectSource).channelPage(channelId),
-    );
-    if (isClosed || !result.ok) return;
-    channel.value = result.value?.info;
-  }
+  /// Publish date, exact view count, channel avatar and subscriber count.
+  ///
+  /// These used to cost a separate channel `browse` request, made after the
+  /// video was already playing. They are all in the `next` response that the
+  /// related shelf fetches anyway — so the request is gone, and the page
+  /// gained the publish date it never had.
+  final extra = Rxn<YtVideoExtra>();
 
   // ------------------------------------------------------------- quality
 
@@ -283,6 +276,8 @@ class YtVideoController extends GetxController {
     if (isClosed || !result.ok || result.value == null) return;
     related.value = result.value!.related;
     _commentsToken = result.value!.commentsToken;
+    final info = result.value!.extra;
+    if (!info.isEmpty) extra.value = info;
   }
 
   /// Fetches one page. The first call happens when the comments tab is first

@@ -221,10 +221,45 @@ void main() {
       final bundle = YtRelatedAndComments(
         related,
         parseCommentsContinuationToken(root),
+        parseVideoExtra(root),
       );
       expect(bundle.related, isNotEmpty);
       expect(bundle.commentsToken, isNotNull);
       expect(bundle.toString(), contains('comments=true'));
+      // one response, three things: the shelf, the comments door, and the
+      // metadata that used to cost a second request
+      expect(bundle.extra.dateText, isNotNull);
+    });
+  });
+
+  group('the watch page metadata in the RECORDED next response', () {
+    late YtVideoExtra extra;
+
+    setUp(() => extra = parseVideoExtra(loadYtFixture(YtFixtures.next)));
+
+    test('the publish date is read, which the player response lacks', () {
+      expect(extra.dateText, '25 Oct 2009');
+      expect(extra.relativeDateText, '16 years ago');
+    });
+
+    test('the view count is the exact figure, not the abbreviated one', () {
+      // the search results carry '1.8bn'; this is what the watch page shows
+      expect(extra.viewCountText, '1,818,000,663 views');
+    });
+
+    test('the channel avatar and subscriber count come from here too', () {
+      // this is what replaced a separate browse request made for the avatar
+      expect(extra.ownerName, 'Rick Astley');
+      expect(extra.subscriberText, '4.54m subscribers');
+      expect(extra.ownerAvatar!.url, startsWith('https://'));
+      expect(extra.isEmpty, isFalse);
+    });
+
+    test('a response without any of it reports empty rather than blanks', () {
+      final none = parseVideoExtra(const {'contents': []});
+      expect(none.isEmpty, isTrue);
+      expect(none.dateText, isNull);
+      expect(none.subscriberText, isNull);
     });
   });
 
