@@ -319,10 +319,22 @@ class YtVideoController extends GetxController {
 
   /// Null means "no more": either the video has comments off, or the last
   /// page was the last one.
-  String? _commentsToken;
+  ///
+  /// Observable, because the list's footer reads it: while it was a plain
+  /// field, nothing told the footer's Obx to rebuild when a page turned out
+  /// to be the last one, and the trailing spinner had no reason to go away.
+  final _commentsToken = RxnString();
   var _commentsStarted = false;
 
-  bool get hasMoreComments => _commentsToken != null;
+  /// Why the comments are not here, when they are not.
+  ///
+  /// Without it a failed request emptied into 「暂无评论」, which is what a
+  /// video with comments turned off says — the two were indistinguishable,
+  /// and since the attempt had already been marked as made, nothing ever
+  /// tried again.
+  final commentsError = RxnString();
+
+  bool get hasMoreComments => _commentsToken.value != null;
 
   Future<void> _loadRelated() async {
     final result = await router.run(
@@ -330,7 +342,7 @@ class YtVideoController extends GetxController {
     );
     if (isClosed || !result.ok || result.value == null) return;
     related.value = result.value!.related;
-    _commentsToken = result.value!.commentsToken;
+    _commentsToken.value = result.value!.commentsToken;
     final info = result.value!.extra;
     if (!info.isEmpty) extra.value = info;
     // Comments start with the video rather than with the tab: the bilibili
@@ -347,7 +359,7 @@ class YtVideoController extends GetxController {
   /// Fetches one page. The first call is made as soon as the token exists,
   /// so the tab is already populated when it is opened.
   Future<void> loadMoreComments() async {
-    final token = _commentsToken;
+    final token = _commentsToken.value;
     if (token == null || commentsLoading.value) return;
     commentsLoading.value = true;
     final result = await router.run(
@@ -357,9 +369,11 @@ class YtVideoController extends GetxController {
     commentsLoading.value = false;
     if (result.ok && result.value != null) {
       comments.addAll(result.value!.items);
-      _commentsToken = result.value!.continuation;
+      _commentsToken.value = result.value!.continuation;
+      commentsError.value = null;
     } else {
-      _commentsToken = null;
+      // the token is kept: the page that failed is the page to retry
+      commentsError.value = _messageFor(result.verdict);
     }
   }
 
@@ -367,6 +381,38 @@ class YtVideoController extends GetxController {
     if (_commentsStarted) return;
     _commentsStarted = true;
     loadMoreComments();
+  }
+
+  /// Retries the page that failed, without losing the ones that did not.
+  Future<void> retryComments() {
+    commentsError.value = null;
+    return loadMoreComments();
+  }
+
+  /// Pull to refresh: back to the first page, which means a fresh bootstrap
+  /// token — the one this page holds belongs to a position in a list that is
+  /// about to be thrown away.
+  Future<void> refreshComments() async {
+    if (commentsLoading.value) return;
+    commentsLoading.value = true;
+    final result = await router.run(
+      (s) => (s as YtDirectSource).related(videoId),
+    );
+    if (isClosed) {
+      return;
+    }
+    commentsLoading.value = false;
+    if (!result.ok || result.value == null) {
+      commentsError.value = _messageFor(result.verdict);
+      return;
+    }
+    comments.clear();
+    replies.clear();
+    repliesLoading.clear();
+    _moreReplies.clear();
+    commentsError.value = null;
+    _commentsToken.value = result.value!.commentsToken;
+    await loadMoreComments();
   }
 
   // ------------------------------------------------------------- replies
@@ -378,14 +424,10 @@ class YtVideoController extends GetxController {
 
   final replies = <String, RxList<YtComment>>{}.obs;
   final repliesLoading = <String>{}.obs;
-  final expandedThreads = <String>{}.obs;
   final _moreReplies = <String, String?>{};
 
   bool hasMoreReplies(String commentId) => _moreReplies[commentId] != null;
 
-  /// Opens a thread, fetching its first page of replies if this is the first
-  /// time. A second call closes it again — the replies stay, so reopening
-  /// costs nothing.
   /// Fetches the first page of a thread's replies so the list can show a
   /// preview of them, the way the bilibili one does.
   ///
@@ -407,17 +449,6 @@ class YtVideoController extends GetxController {
       if (replies.containsKey(id) || repliesLoading.contains(id)) return;
       unawaited(_fetchReplies(id, comment.replyToken));
     });
-  }
-
-  Future<void> toggleReplies(YtComment comment) async {
-    final id = comment.commentId;
-    if (expandedThreads.contains(id)) {
-      expandedThreads.remove(id);
-      return;
-    }
-    expandedThreads.add(id);
-    if (replies.containsKey(id)) return;
-    await _fetchReplies(id, comment.replyToken);
   }
 
   Future<void> loadMoreReplies(String commentId) =>

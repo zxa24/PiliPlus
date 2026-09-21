@@ -8,7 +8,12 @@ library;
 
 import 'dart:math' as math;
 
+import 'package:PiliPlus/common/skeleton/video_reply.dart';
+import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
+import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
+import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
@@ -25,6 +30,7 @@ import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/grid.dart';
+import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -322,15 +328,14 @@ class _YtVideoPageState extends State<YtVideoPage>
                 child: Text(controller.subscribed.value ? '已订阅' : '订阅'),
               ),
             ),
+            // 收藏 / 下载 / 分享 share this row with 订阅: bilibili gives the
+            // actions a row of their own because it has five of them and
+            // three carry counts. Three unlabelled ones on their own line
+            // is a line of empty space.
+            _actionRow(theme),
           ],
         ),
-        const SizedBox(height: 6),
-        // 收藏 / 下载 / 分享, in the row the bilibili page puts under the
-        // video and with the same ActionItem it uses. 点赞 / 投币 / 再看 are
-        // not here because a logged-out YouTube has no such thing — the row
-        // holds what this platform can actually do, in that platform's order.
-        _actionRow(theme),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Text(detail.title, style: theme.textTheme.titleMedium),
         const SizedBox(height: 6),
         // 播放量 · 发布时间, the line the bilibili page puts under the title.
@@ -429,8 +434,11 @@ class _YtVideoPageState extends State<YtVideoPage>
     Get.toNamed('/ytChannel', parameters: {'id': channelId});
   }
 
+  /// The three actions, sized to what they need rather than to the row:
+  /// they sit next to the channel name, which must keep the rest.
   Widget _actionRow(ThemeData theme) => SizedBox(
     height: 48,
+    width: 3 * 52,
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -524,69 +532,187 @@ class _YtVideoPageState extends State<YtVideoPage>
 
   Widget _comments(ThemeData theme) => Obx(() {
     final items = controller.comments;
+    final error = controller.commentsError.value;
+
     if (items.isEmpty) {
+      if (error != null) {
+        // a failed request used to empty into 「暂无评论」, which is what a
+        // video with comments turned off says: the two were the same screen
+        return HttpError(errMsg: error, onReload: controller.retryComments);
+      }
+      if (controller.commentsLoading.value) {
+        // the same skeleton the bilibili list uses, rather than a spinner in
+        // the middle of an empty page
+        return ListView.builder(
+          padding: EdgeInsets.zero,
+          itemCount: 5,
+          itemBuilder: (_, _) => const VideoReplySkeleton(),
+        );
+      }
       return Center(
-        child: controller.commentsLoading.value
-            ? const CircularProgressIndicator()
-            : Text(
-                '暂无评论',
-                style: TextStyle(color: theme.colorScheme.outline),
-              ),
+        child: Text(
+          '暂无评论',
+          style: TextStyle(color: theme.colorScheme.outline),
+        ),
       );
     }
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        if (notification.metrics.extentAfter < 300) {
-          controller.loadMoreComments();
-        }
-        return false;
-      },
+
+    return refreshIndicator(
+      onRefresh: controller.refreshComments,
       child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length + (controller.hasMoreComments ? 1 : 0),
-        separatorBuilder: (_, _) => const Divider(height: 20),
+        padding: EdgeInsets.zero,
+        itemCount: items.length + 1,
+        separatorBuilder: (_, _) => Divider(
+          // indented past the avatar, as on the bilibili list
+          indent: 55,
+          endIndent: 15,
+          height: 0.3,
+          color: theme.colorScheme.outline.withValues(alpha: 0.08),
+        ),
         itemBuilder: (context, index) {
-          if (index >= items.length) {
-            return const Padding(
-              padding: EdgeInsets.all(12),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
+          if (index == items.length) return _commentsFooter(theme);
           return _thread(theme, items[index]);
         },
       ),
     );
   });
 
+  /// What the bilibili list puts at the bottom: loading, the end, or the
+  /// reason the next page did not arrive.
+  Widget _commentsFooter(ThemeData theme) => Obx(() {
+    final error = controller.commentsError.value;
+    final Widget child;
+    if (error != null) {
+      child = TextButton(
+        onPressed: controller.retryComments,
+        child: Text('加载失败，点击重试（$error）'),
+      );
+    } else if (controller.commentsLoading.value ||
+        controller.hasMoreComments) {
+      child = Text(
+        '加载中...',
+        style: TextStyle(color: theme.colorScheme.outline),
+      );
+    } else {
+      child = Text(
+        '没有更多了',
+        style: TextStyle(color: theme.colorScheme.outline),
+      );
+    }
+    return Container(
+      height: 100,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: child,
+    );
+  });
+
   /// A top-level comment with a preview of its replies under it, the way
   /// the bilibili page shows them: a rounded block, the first few replies as
-  /// `name: text`, then 「共 N 条回复」. Tapping anywhere in it opens the
-  /// whole thread.
+  /// `name: text`, then 「共 N 条回复」. Tapping anywhere opens the thread.
   Widget _thread(ThemeData theme, YtComment comment) {
     // asking here means asking when the row is built, which is when it is
     // about to be seen — YouTube sends no replies with the comments, so a
     // preview costs one request per thread and twenty at once is not a page
     // opening, it is a page hanging
     controller.ensureRepliesPreview(comment);
-    return Obx(() {
-      final id = comment.commentId;
-      final loaded = controller.replies[id];
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _comment(theme, comment),
-          if (comment.hasReplies)
-            Padding(
-              padding: const EdgeInsets.only(top: 5, bottom: 4),
-              child: _replyPreview(theme, comment, loaded),
-            ),
-        ],
-      );
-    });
+    void more() => _commentMenu(comment);
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        // the whole row opens the thread and long-press opens the menu,
+        // exactly as on the bilibili item — a comment used to be inert
+        // unless it happened to have replies
+        onTap: () => _openThread(comment),
+        onLongPress: more,
+        onSecondaryTap: PlatformUtils.isMobile ? null : more,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 14, 8, 5),
+          child: Obx(() {
+            final loaded = controller.replies[comment.commentId];
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _comment(theme, comment),
+                if (comment.hasReplies)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5, bottom: 12),
+                    child: _replyPreview(theme, comment, loaded),
+                  ),
+              ],
+            );
+          }),
+        ),
+      ),
+    );
   }
 
+  /// 复制全部 / 自由复制 — what the bilibili long-press menu offers that a
+  /// logged-out YouTube can also do. 删除 / 举报 / 置顶 need an account.
+  void _commentMenu(YtComment comment) {
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      constraints: BoxConstraints(
+        maxWidth: math.min(640, MediaQuery.sizeOf(context).shortestSide),
+      ),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              minLeadingWidth: 0,
+              leading: const Icon(Icons.copy_all_outlined, size: 19),
+              title: const Text('复制全部', style: TextStyle(fontSize: 14)),
+              onTap: () {
+                Get.back();
+                Utils.copyText(comment.content);
+              },
+            ),
+            ListTile(
+              minLeadingWidth: 0,
+              leading: const Icon(Icons.copy_outlined, size: 19),
+              title: const Text('自由复制', style: TextStyle(fontSize: 14)),
+              onTap: () {
+                Get.back();
+                _freeCopy(comment.content);
+              },
+            ),
+            if (comment.authorChannelId?.isNotEmpty == true)
+              ListTile(
+                minLeadingWidth: 0,
+                leading: const Icon(Icons.person_outline, size: 19),
+                title: const Text('查看频道', style: TextStyle(fontSize: 14)),
+                onTap: () {
+                  Get
+                    ..back()
+                    ..toNamed(
+                      '/ytChannel',
+                      parameters: {'id': comment.authorChannelId!},
+                    );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _freeCopy(String message) => showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      constraints: const BoxConstraints.tightFor(width: 380),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: SelectionArea(
+          child: SingleChildScrollView(child: Text(message)),
+        ),
+      ),
+    ),
+  );
+
   /// bilibili's preview block: same indent, same rounded surface, same
-  /// one-line-per-reply shape.
+  /// one-line-per-reply shape, and each row its own tap target.
   Widget _replyPreview(
     ThemeData theme,
     YtComment comment,
@@ -600,37 +726,42 @@ class _YtVideoPageState extends State<YtVideoPage>
     // which is not this interface's. The number is the part worth keeping —
     // including when it is abbreviated ('1.2K'), which is exactly the case
     // the numeric replyCount reports as 0 rather than inventing a figure.
-    final counted =
-        comment.replyCountText == null
+    final counted = comment.replyCountText == null
         ? null
-        : RegExp(r'[\d][\d.,]*\s*[KMB]?', caseSensitive: false)
-              .firstMatch(comment.replyCountText!)
-              ?.group(0);
+        : RegExp(
+            r'[\d][\d.,]*\s*[KMB]?',
+            caseSensitive: false,
+          ).firstMatch(comment.replyCountText!)?.group(0);
     final label = counted != null
         ? '共 $counted 条回复'
         : comment.replyCount > 0
         ? '共 ${comment.replyCount} 条回复'
         : '查看回复';
+    // the count row is bilibili's "there are more than these" row: it is not
+    // shown when the preview already is the whole thread
+    final loading =
+        loaded == null && controller.repliesLoading.contains(comment.commentId);
+    final extraRow =
+        loaded == null ||
+        loading ||
+        loaded.length > shown.length ||
+        controller.hasMoreReplies(comment.commentId);
+    final length = shown.length + (extraRow ? 1 : 0);
     return Padding(
       padding: const EdgeInsets.only(left: 42, right: 4),
       child: Material(
         animationDuration: Duration.zero,
         color: theme.colorScheme.onInverseSurface,
         borderRadius: const BorderRadius.all(Radius.circular(6)),
-        child: InkWell(
-          borderRadius: const BorderRadius.all(Radius.circular(6)),
-          onTap: () => _openThread(comment),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final (index, reply) in shown.indexed)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    8,
-                    index == 0 ? 8 : 4,
-                    8,
-                    4,
-                  ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final (index, reply) in shown.indexed)
+              InkWell(
+                borderRadius: _previewRadius(index, length),
+                onTap: () => _openThread(comment),
+                child: Padding(
+                  padding: _previewPadding(index, length),
                   child: Text.rich(
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -647,51 +778,84 @@ class _YtVideoPageState extends State<YtVideoPage>
                           text: reply.author,
                           style: TextStyle(color: theme.colorScheme.primary),
                         ),
+                        if (reply.authorIsUploader) ...[
+                          const TextSpan(text: ' '),
+                          const WidgetSpan(
+                            alignment: PlaceholderAlignment.middle,
+                            child: PBadge(
+                              text: 'UP',
+                              size: PBadgeSize.small,
+                              isStack: false,
+                              fontSize: 9,
+                              textScaleFactor: 1,
+                            ),
+                          ),
+                        ],
                         const TextSpan(text: ': '),
                         TextSpan(text: reply.content),
                       ],
                     ),
                   ),
                 ),
-              // the count row, which is also what stands in for the whole
-              // block while the replies are still on their way
-              Padding(
-                padding: EdgeInsets.fromLTRB(8, shown.isEmpty ? 6 : 2, 8, 7),
-                child: Row(
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.primary,
+              ),
+            if (extraRow)
+              InkWell(
+                borderRadius: _previewRadius(length - 1, length),
+                onTap: () => _openThread(comment),
+                child: Padding(
+                  padding: _previewPadding(length - 1, length),
+                  child: Row(
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
-                    ),
-                    if (loaded == null &&
-                        controller.repliesLoading.contains(
-                          comment.commentId,
-                        )) ...[
-                      const SizedBox(width: 8),
-                      const SizedBox(
-                        width: 10,
-                        height: 10,
-                        child: CircularProgressIndicator(strokeWidth: 1.5),
-                      ),
+                      if (loading) ...[
+                        const SizedBox(width: 8),
+                        const SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(strokeWidth: 1.5),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );
   }
 
+  /// The corner radii and paddings the bilibili block gives a row depending
+  /// on where in the block it sits.
+  static BorderRadius? _previewRadius(int index, int length) {
+    if (length == 1) return const BorderRadius.all(Radius.circular(6));
+    if (index == 0) {
+      return const BorderRadius.vertical(top: Radius.circular(6));
+    }
+    if (index == length - 1) {
+      return const BorderRadius.vertical(bottom: Radius.circular(6));
+    }
+    return null;
+  }
+
+  static EdgeInsets _previewPadding(int index, int length) {
+    if (length == 1) return const EdgeInsets.fromLTRB(8, 5, 8, 5);
+    if (index == 0) return const EdgeInsets.fromLTRB(8, 8, 8, 4);
+    if (index == length - 1) return const EdgeInsets.fromLTRB(8, 4, 8, 8);
+    return const EdgeInsets.fromLTRB(8, 4, 8, 4);
+  }
+
   /// The whole thread, as a sheet — the bilibili page pushes a panel for
-  /// this, and the sheet is where this app puts panels over the player.
+  /// this, with a title and a close button, and so does this.
   void _openThread(YtComment comment) {
     final id = comment.commentId;
-    controller.expandedThreads.add(id);
+    controller.ensureRepliesPreview(comment);
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
@@ -706,47 +870,90 @@ class _YtVideoPageState extends State<YtVideoPage>
           maxChildSize: 0.95,
           minChildSize: 0.4,
           expand: false,
-          builder: (context, scrollController) => Obx(() {
-            final loaded = controller.replies[id] ?? const <YtComment>[];
-            final loading = controller.repliesLoading.contains(id);
-            return ListView.separated(
-              controller: scrollController,
-              padding: const EdgeInsets.all(16),
-              itemCount: 1 + loaded.length + 1,
-              separatorBuilder: (_, _) => const Divider(height: 20),
-              itemBuilder: (context, index) {
-                if (index == 0) return _comment(theme, comment);
-                if (index <= loaded.length) {
-                  return Padding(
-                    padding: const EdgeInsets.only(left: 26),
-                    child: _comment(theme, loaded[index - 1], avatar: 26),
-                  );
-                }
-                if (loading) {
-                  return const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (controller.hasMoreReplies(id)) {
-                  return Center(
-                    child: TextButton(
-                      onPressed: () => controller.loadMoreReplies(id),
-                      child: const Text('展开更多回复'),
+          builder: (context, scrollController) => Column(
+            children: [
+              SizedBox(
+                height: 45,
+                child: Row(
+                  children: [
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Obx(() {
+                        final count = controller.replies[id]?.length ?? 0;
+                        return Text(
+                          count == 0 ? '评论详情' : '评论详情  共 $count 条回复',
+                          style: theme.textTheme.titleSmall,
+                        );
+                      }),
                     ),
-                  );
-                }
-                return loaded.isEmpty
-                    ? Center(
+                    IconButton(
+                      tooltip: '关闭',
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: Get.back,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ),
+              ),
+              Divider(
+                height: 6,
+                thickness: 6,
+                color: theme.colorScheme.outline.withValues(alpha: 0.08),
+              ),
+              Expanded(
+                child: Obx(() {
+                  final loaded = controller.replies[id] ?? const <YtComment>[];
+                  final loading = controller.repliesLoading.contains(id);
+                  return ListView.separated(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 8, 16),
+                    itemCount: 1 + loaded.length + 1,
+                    separatorBuilder: (_, _) => Divider(
+                      indent: 55,
+                      endIndent: 15,
+                      height: 0.3,
+                      color: theme.colorScheme.outline.withValues(alpha: 0.08),
+                    ),
+                    itemBuilder: (context, index) {
+                      if (index == 0) return _comment(theme, comment);
+                      if (index <= loaded.length) {
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 26),
+                          child: _comment(
+                            theme,
+                            loaded[index - 1],
+                            avatar: 26,
+                          ),
+                        );
+                      }
+                      if (loading) {
+                        return const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      if (controller.hasMoreReplies(id)) {
+                        return Center(
+                          child: TextButton(
+                            onPressed: () => controller.loadMoreReplies(id),
+                            child: const Text('展开更多回复'),
+                          ),
+                        );
+                      }
+                      return Container(
+                        height: 80,
+                        alignment: Alignment.center,
                         child: Text(
-                          '没有取到回复',
+                          loaded.isEmpty ? '没有取到回复' : '没有更多了',
                           style: TextStyle(color: theme.colorScheme.outline),
                         ),
-                      )
-                    : const SizedBox.shrink();
-              },
-            );
-          }),
+                      );
+                    },
+                  );
+                }),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -755,88 +962,117 @@ class _YtVideoPageState extends State<YtVideoPage>
   Widget _comment(
     ThemeData theme,
     YtComment comment, {
-    double avatar = 32,
-  }) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      NetworkImgLayer(
-        type: ImageType.avatar,
-        width: avatar,
-        height: avatar,
-        src: comment.authorAvatar?.url,
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    comment.author,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: comment.authorIsUploader
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.outline,
-                    ),
-                  ),
-                ),
-                if (comment.isPinned) ...[
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.push_pin_outlined,
-                    size: 12,
-                    color: theme.colorScheme.outline,
-                  ),
-                ],
-                if (comment.publishedText case final posted?) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    posted,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            SelectableText(
-              comment.content,
-              style: theme.textTheme.bodyMedium,
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: [
-                  if (comment.likeCountText case final likes?) ...[
-                    Icon(
-                      Icons.thumb_up_outlined,
-                      size: 12,
-                      color: theme.colorScheme.outline,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      likes,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: theme.colorScheme.outline,
+    double avatar = 34,
+  }) {
+    void openChannel() {
+      final channelId = comment.authorChannelId;
+      if (channelId == null || channelId.isEmpty) return;
+      feedBack();
+      Get.toNamed('/ytChannel', parameters: {'id': channelId});
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: openChannel,
+          child: NetworkImgLayer(
+            type: ImageType.avatar,
+            width: avatar,
+            height: avatar,
+            src: comment.authorAvatar?.url,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: openChannel,
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        comment.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: comment.authorIsUploader
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outline,
+                        ),
                       ),
                     ),
+                    if (comment.authorIsUploader) ...[
+                      const SizedBox(width: 6),
+                      const PBadge(
+                        text: 'UP',
+                        size: PBadgeSize.small,
+                        isStack: false,
+                        fontSize: 9,
+                        textScaleFactor: 1,
+                      ),
+                    ],
+                    if (comment.isPinned) ...[
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.push_pin_outlined,
+                        size: 12,
+                        color: theme.colorScheme.outline,
+                      ),
+                    ],
+                    if (comment.publishedText case final posted?) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        posted,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              // not selectable: the row's own tap opens the thread and its
+              // long-press opens 复制全部 / 自由复制, which is how the
+              // bilibili item does copying. A SelectableText here would eat
+              // both gestures.
+              Text(
+                comment.content,
+                style: const TextStyle(fontSize: 14, height: 1.75),
+              ),
+              if (comment.likeCountText case final likes?)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.thumb_up_outlined,
+                        size: 14,
+                        color: theme.colorScheme.outline,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        likes,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 
   /// The bottom bar, carrying what the bilibili one carries and in the same
   /// order: play, time — then 画面比例, 字幕, 倍速, 画质, 全屏. The CC button

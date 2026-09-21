@@ -53,6 +53,7 @@ import 'package:material_ui/material_ui.dart'
     show IconButton, PopupMenuButton, Tooltip;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
+import 'package:window_manager/window_manager.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
 ///
@@ -222,6 +223,37 @@ abstract final class SelfTest {
   }
 
   static var _mouseAdded = false;
+
+  /// Renders the current page at [width] logical pixels for [hold], and
+  /// returns any framework errors that appeared while it was that narrow.
+  ///
+  /// Desktop probes run in a wide window, so a layout that only breaks at
+  /// phone width never got built. The errors are taken out of [uiErrors] and
+  /// returned rather than left there, so the caller can say *where* they
+  /// happened instead of just that the run failed.
+  /// The width the app was actually laid out at during the last [_atWidth].
+  static double? narrowLogicalWidth;
+
+  static Future<List<String>> _atWidth(double width, Duration hold) async {
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+      return const [];
+    }
+    final before = await windowManager.getSize();
+    final seen = uiErrors.length;
+    try {
+      await windowManager.setSize(Size(width, before.height));
+      await Future.delayed(hold);
+      // what the app actually laid out at, so a resize that silently did
+      // nothing cannot read as "no overflow at phone width"
+      final view = WidgetsBinding.instance.platformDispatcher.views.first;
+      narrowLogicalWidth = view.physicalSize.width / view.devicePixelRatio;
+      return uiErrors.sublist(seen).toList();
+    } finally {
+      uiErrors.removeRange(seen, uiErrors.length);
+      await windowManager.setSize(before);
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+  }
 
   static int _countElements(bool Function(Element) test) {
     var count = 0;
@@ -869,6 +901,8 @@ abstract final class SelfTest {
     var commentsTabOpened = false;
     var commentsAutoLoaded = false;
     var previewEntries = 0;
+    var narrowErrors = const <String>[];
+    var threadSheetOpened = false;
     var previewNonEmpty = 0;
     String? firstReply;
     // did the panels the user complained about actually open?
@@ -921,6 +955,11 @@ abstract final class SelfTest {
       // open the tab first: loading comments and showing them are different
       // things, and the first version of this asserted on a list that was
       // never on screen (visibleComments read 0 while replyCount read 9)
+      // Phone width, which is where a row that grew a new button overflows.
+      // Every probe so far ran in a wide desktop window, so the narrow
+      // layout — the one most people use — was never rendered at all.
+      narrowErrors = await _atWidth(400, const Duration(seconds: 3));
+
       commentsTabOpened = await _tapText('评论');
       await Future.delayed(const Duration(milliseconds: 800));
 
@@ -964,6 +1003,17 @@ abstract final class SelfTest {
         // count row, which would render even if the block came up empty
         // the author of a reply appears inside the preview's rich text, so
         // this only finds it if the block itself rendered with content
+        // tapping a comment must open the thread: the row used to be inert
+        // unless it happened to carry a reply preview
+        final head = controller.comments.first;
+        if (await _tapText(head.content)) {
+          threadSheetOpened = _seesText('评论详情') || _seesLabel('评论详情');
+          if (threadSheetOpened) {
+            Get.back();
+            await Future.delayed(const Duration(milliseconds: 700));
+          }
+        }
+
         repliesShown =
             first != null &&
             _findElement(
@@ -1053,6 +1103,10 @@ abstract final class SelfTest {
           repliesShown &&
           anyReplyButton &&
           commentsAutoLoaded &&
+          narrowErrors.isEmpty &&
+          threadSheetOpened &&
+          // the resize has to have happened for its result to mean anything
+          (narrowLogicalWidth ?? 9999) < 500 &&
           settingsSheet &&
           subtitlePanel &&
           captionMenu &&
@@ -1081,6 +1135,9 @@ abstract final class SelfTest {
       'commentsTabOpened': commentsTabOpened,
       'commentsAutoLoaded': commentsAutoLoaded,
       'previewEntries': previewEntries,
+      'narrowErrors': narrowErrors,
+      'threadSheetOpened': threadSheetOpened,
+      'narrowWidth': narrowLogicalWidth,
       'previewNonEmpty': previewNonEmpty,
       'firstReply': firstReply,
       'subscribeToggled': subscribeToggled,
