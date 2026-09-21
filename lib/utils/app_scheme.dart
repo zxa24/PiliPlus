@@ -20,6 +20,7 @@ import 'package:PiliPlus/pages/rank/view.dart';
 import 'package:PiliPlus/pages/subscription_detail/view.dart';
 import 'package:PiliPlus/pages/video/reply_reply/view.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/services/youtube/yt_video_id.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
@@ -156,6 +157,12 @@ abstract final class PiliScheme {
     final String scheme = uri.scheme;
     final String host = uri.host;
     final String path = uri.path;
+
+    // LibrePili: a YouTube link opens the YouTube page, never the bilibili one
+    if (tryParseYouTubeVideoId(uri.toString()) case final videoId?) {
+      Get.toNamed('/ytVideo', parameters: {'id': videoId});
+      return true;
+    }
 
     switch (scheme) {
       case 'bilibili':

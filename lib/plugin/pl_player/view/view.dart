@@ -212,8 +212,12 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   void _onControlChanged(bool val) {
     final visible = val && !plPlayerController.controlsLock.value;
 
-    if ((widget.headerControl.key as GlobalKey<TimeBatteryMixin>).currentState
-        case final state?) {
+    // the header need not be the bilibili one: a page that embeds this player
+    // with a plain header has no such key, and an unchecked cast made that a
+    // crash rather than a no-op
+    if (widget.headerControl.key case final GlobalKey<TimeBatteryMixin> key
+        when key.currentState != null) {
+      final state = key.currentState!;
       if (state.mounted) {
         state.getBatteryLevelIfNeeded();
         state.provider

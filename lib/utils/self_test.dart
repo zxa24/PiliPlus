@@ -17,11 +17,13 @@ import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/pages/danmaku/controller.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
+import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
@@ -141,6 +143,13 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--open-yt') case final video?) {
+      final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
+      await scenario('openYouTube', () => _openYouTube(video, hold));
+    }
+    if (_arg(args, '--yt') case final video?) {
+      await scenario('youtube', () => _youtube(video));
+    }
     if (_arg(args, '--probe-playback') case final url?) {
       final seconds = int.tryParse(_arg(args, '--probe-secs') ?? '') ?? 20;
       await scenario('probePlayback', () => _probePlayback(url, seconds));
@@ -170,6 +179,155 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: opens the YouTube watch page for real and reports whether the
+  /// player actually advanced — resolving a URL is not the same as playing it.
+  static Future<Map<String, dynamic>> _openYouTube(
+    String input,
+    int holdSeconds,
+  ) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    // NOT awaited: Get.toNamed completes when the page is popped
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 4));
+
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < holdSeconds && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final player = controller.plPlayerController;
+    // autoplay is a user setting; the probe presses play itself so a paused
+    // preference cannot be mistaken for a stream that will not run
+    await player.play();
+    await Future.delayed(const Duration(seconds: 2));
+    final first = player.videoPlayerController?.state.position;
+    await Future.delayed(Duration(seconds: holdSeconds));
+    final second = player.videoPlayerController?.state.position;
+
+    // captions are the half that the Invidious route could never deliver
+    var captionOk = false;
+    if (controller.captions.isNotEmpty) {
+      await controller.setCaption(0);
+      captionOk = controller.captionIndex.value == 0;
+    }
+
+    final advanced =
+        first != null && second != null && second > first + const Duration(seconds: 1);
+    return {
+      'pass': controller.stage.value == YtPageStage.ready && advanced,
+      'stage': controller.stage.value.name,
+      'message': controller.message.value,
+      'title': controller.detail.value?.title,
+      'positionBefore': first?.inMilliseconds,
+      'positionAfter': second?.inMilliseconds,
+      'advanced': advanced,
+      'buffer': player.videoPlayerController?.state.buffer.inMilliseconds,
+      'captionTracks': controller.captions.length,
+      'captionShown': captionOk,
+      'via': controller.streams?.sourceId,
+    };
+  }
+
+  /// LibrePili: drives the YouTube data layer against the live service.
+  ///
+  /// The client identities in `yt_identity.dart` are documented as rotting:
+  /// the offline fixture tests cannot notice when YouTube changes its mind,
+  /// so this asks the real thing before the layer is wired to the player.
+  static Future<Map<String, dynamic>> _youtube(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final source = YtDirectSource.create();
+    final router = YtSourceRouter(source);
+    final result = <String, dynamic>{'videoId': videoId};
+    try {
+      final detail = await router.run((s) => s.detail(videoId));
+      result['detailOk'] = detail.ok;
+      result['detailVerdict'] = detail.verdict.toString();
+      if (detail.value case final d?) {
+        result
+          ..['title'] = d.title
+          ..['author'] = d.author
+          ..['durationSec'] = d.duration.inSeconds
+          ..['formats'] = d.formats.length
+          ..['captionTracks'] = [
+            for (final c in d.captionTracks) c.languageCode,
+          ]
+          ..['isLive'] = d.isLive;
+      }
+
+      final streams = await router.run((s) => s.streams(videoId));
+      result['streamsOk'] = streams.ok;
+      result['streamsVerdict'] = streams.verdict.toString();
+      if (streams.value case final pair?) {
+        result
+          ..['via'] = pair.sourceId
+          ..['expiresInMin'] = pair.expiresIn.inMinutes
+          ..['videoHost'] = Uri.tryParse(pair.videoUrl)?.host
+          ..['audioHost'] = Uri.tryParse(pair.audioUrl)?.host
+          ..['videoItag'] = pair.video?.itag
+          ..['audioItag'] = pair.audio?.itag
+          ..['edlLength'] = pair.edl.length;
+        // the streams are only useful if they actually serve bytes
+        result['videoServes'] = await _headOk(pair.videoUrl);
+        result['audioServes'] = await _headOk(pair.audioUrl);
+        // the player carries bilibili's Referer/UA globally; googlevideo has
+        // to tolerate them or the YouTube path needs per-source headers
+        result['videoServesWithBiliHeaders'] = await _headOk(
+          pair.videoUrl,
+          referer: HttpString.baseUrl,
+          userAgent: BrowserUa.pc,
+        );
+      }
+
+      final captions = await router.run((s) => s.captionTracks(videoId));
+      result['captionsOk'] = captions.ok;
+      if (captions.value case final tracks? when tracks.isNotEmpty) {
+        final content = await router.run(
+          (s) => s.captionContent(tracks.first),
+        );
+        result
+          ..['captionLang'] = tracks.first.languageCode
+          ..['captionOk'] = content.ok
+          ..['captionBytes'] = content.value?.length ?? 0;
+      }
+      result['pass'] =
+          detail.ok &&
+          streams.ok &&
+          result['videoServes'] == true &&
+          result['audioServes'] == true;
+    } catch (e, stack) {
+      result
+        ..['pass'] = false
+        ..['error'] = '$e'
+        ..['stack'] = '$stack';
+    }
+    return result;
+  }
+
+  /// A range request for the first bytes: a signed URL that parses but does
+  /// not serve is the failure worth catching here.
+  static Future<bool> _headOk(
+    String url, {
+    String? referer,
+    String? userAgent,
+  }) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15);
+    if (userAgent != null) client.userAgent = userAgent;
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1024');
+      if (referer != null) {
+        request.headers.set(HttpHeaders.refererHeader, referer);
+      }
+      final response = await request.close();
+      await response.drain<void>();
+      return response.statusCode == 206 || response.statusCode == 200;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
 
   /// LibrePili: what the player can actually tell us about how the stream is
   /// arriving, sampled once a second against a real source.
