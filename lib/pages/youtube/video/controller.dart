@@ -285,6 +285,58 @@ class YtVideoController extends GetxController {
     loadMoreComments();
   }
 
+  // ------------------------------------------------------------- replies
+  //
+  // A thread's replies are another page from the same endpoint, reached by
+  // the token that came with the comment. They are kept per comment rather
+  // than spliced into `comments`: a reply is not a comment that happens to
+  // be lower down, and the list has to be able to collapse again.
+
+  final replies = <String, RxList<YtComment>>{}.obs;
+  final repliesLoading = <String>{}.obs;
+  final expandedThreads = <String>{}.obs;
+  final _moreReplies = <String, String?>{};
+
+  bool hasMoreReplies(String commentId) => _moreReplies[commentId] != null;
+
+  /// Opens a thread, fetching its first page of replies if this is the first
+  /// time. A second call closes it again — the replies stay, so reopening
+  /// costs nothing.
+  Future<void> toggleReplies(YtComment comment) async {
+    final id = comment.commentId;
+    if (expandedThreads.contains(id)) {
+      expandedThreads.remove(id);
+      return;
+    }
+    expandedThreads.add(id);
+    if (replies.containsKey(id)) return;
+    await _fetchReplies(id, comment.replyToken);
+  }
+
+  Future<void> loadMoreReplies(String commentId) =>
+      _fetchReplies(commentId, _moreReplies[commentId]);
+
+  Future<void> _fetchReplies(String commentId, String? token) async {
+    if (token == null || repliesLoading.contains(commentId)) return;
+    repliesLoading.add(commentId);
+    final result = await router.run(
+      (s) => (s as YtDirectSource).comments(token),
+    );
+    if (isClosed) return;
+    repliesLoading.remove(commentId);
+    if (result.ok && result.value != null) {
+      (replies[commentId] ??= <YtComment>[].obs).addAll(result.value!.items);
+      replies.refresh();
+      _moreReplies[commentId] = result.value!.continuation;
+    } else {
+      // an empty list rather than nothing: the thread is open and has to say
+      // something, and "nothing loaded" must not look like "not tried yet"
+      replies[commentId] ??= <YtComment>[].obs;
+      replies.refresh();
+      _moreReplies[commentId] = null;
+    }
+  }
+
   // ------------------------------------------------- on-device transcription
 
   /// A YouTube video that carries no captions of its own is exactly what the

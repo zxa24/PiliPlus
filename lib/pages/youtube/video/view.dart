@@ -454,19 +454,112 @@ class _YtVideoPageState extends State<YtVideoPage>
               child: Center(child: CircularProgressIndicator()),
             );
           }
-          return _comment(theme, items[index]);
+          return _thread(theme, items[index]);
         },
       ),
     );
   });
 
-  Widget _comment(ThemeData theme, YtComment comment) => Row(
+  /// A top-level comment and, when it is open, its replies.
+  Widget _thread(ThemeData theme, YtComment comment) => Obx(() {
+    final id = comment.commentId;
+    final open = controller.expandedThreads.contains(id);
+    final loaded = controller.replies[id];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _comment(theme, comment),
+        if (comment.hasReplies)
+          Padding(
+            padding: const EdgeInsets.only(left: 42, top: 2),
+            child: TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => controller.toggleReplies(comment),
+              child: Text(
+                open
+                    ? '收起回复'
+                    // the count is not always a number: YouTube abbreviates
+                    // it ("1.2K") and the parser reports 0 rather than
+                    // inventing one, so the button says what it can
+                    : comment.replyCount > 0
+                    ? '查看 ${comment.replyCount} 条回复'
+                    : '查看回复',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ),
+        if (open) ...[
+          if (loaded == null && controller.repliesLoading.contains(id))
+            const Padding(
+              padding: EdgeInsets.only(left: 42, top: 6),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          if (loaded != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 42, top: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (loaded.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        '没有取到回复',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  for (final reply in loaded)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _comment(theme, reply, avatar: 26),
+                    ),
+                  if (controller.hasMoreReplies(id))
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => controller.loadMoreReplies(id),
+                      child: Text(
+                        controller.repliesLoading.contains(id)
+                            ? '加载中…'
+                            : '展开更多回复',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ],
+    );
+  });
+
+  Widget _comment(
+    ThemeData theme,
+    YtComment comment, {
+    double avatar = 32,
+  }) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       NetworkImgLayer(
         type: ImageType.avatar,
-        width: 32,
-        height: 32,
+        width: avatar,
+        height: avatar,
         src: comment.authorAvatar?.url,
       ),
       const SizedBox(width: 10),
@@ -527,16 +620,6 @@ class _YtVideoPageState extends State<YtVideoPage>
                     const SizedBox(width: 4),
                     Text(
                       likes,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: theme.colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                  if (comment.replyCount > 0) ...[
-                    const SizedBox(width: 12),
-                    Text(
-                      '${comment.replyCount} 条回复',
                       style: TextStyle(
                         fontSize: 11,
                         color: theme.colorScheme.outline,

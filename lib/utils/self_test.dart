@@ -652,6 +652,13 @@ abstract final class SelfTest {
     var commentCount = 0;
     var channelUploads = 0;
     var subscribeToggled = false;
+    var threadsWithReplies = 0;
+    var replyCount = 0;
+    var repliesShown = false;
+    var visibleComments = 0;
+    var anyReplyButton = false;
+    var commentsTabOpened = false;
+    String? firstReply;
     // did the panels the user complained about actually open?
     var settingsSheet = false;
     var subtitlePanel = false;
@@ -687,6 +694,48 @@ abstract final class SelfTest {
       firstComment = controller.comments.isEmpty
           ? null
           : controller.comments.first.author;
+
+      // replies: a thread the page says has some, opened the way the button
+      // opens it. The count in the UI can be 0 (YouTube abbreviates it), so
+      // the thread is picked by having a token, not by the number.
+      // open the tab first: loading comments and showing them are different
+      // things, and the first version of this asserted on a list that was
+      // never on screen (visibleComments read 0 while replyCount read 9)
+      commentsTabOpened = await _tapText('评论');
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      final thread = controller.comments.firstWhereOrNull((c) => c.hasReplies);
+      threadsWithReplies = controller.comments
+          .where((c) => c.hasReplies)
+          .length;
+      if (thread != null) {
+        await controller.toggleReplies(thread);
+        for (var i = 0; i < 10; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+          replyCount = controller.replies[thread.commentId]?.length ?? 0;
+          if (replyCount > 0) break;
+        }
+        // and they have to be rendered, not merely fetched
+        await Future.delayed(const Duration(milliseconds: 600));
+        repliesShown = _seesText('收起回复');
+        // If nothing of the comment list is on screen the tab was never
+        // shown, which is a different failure from "the thread is below the
+        // fold" and from "the button says something else".
+        visibleComments = controller.comments
+            .where((c) => _seesText(c.author))
+            .length;
+        anyReplyButton = _findElement(
+              (e) =>
+                  e.widget is Text &&
+                  ((e.widget as Text).data ?? '').startsWith('查看'),
+            ) !=
+            null;
+        final first = controller.replies[thread.commentId]?.firstOrNull;
+        firstReply = first == null
+            ? null
+            : '${first.author}: ${first.content.length > 30 ? '${first.content.substring(0, 30)}…' : first.content}';
+        await controller.toggleReplies(thread);
+      }
 
       final wasSubscribed = controller.subscribed.value;
       await controller.toggleSubscribe();
@@ -761,6 +810,8 @@ abstract final class SelfTest {
           commentCount > 0 &&
           subscribeToggled &&
           channelUploads > 0 &&
+          replyCount > 0 &&
+          repliesShown &&
           settingsSheet &&
           subtitlePanel &&
           captionMenu &&
@@ -778,6 +829,13 @@ abstract final class SelfTest {
       'related': relatedCount,
       'comments': commentCount,
       'firstComment': firstComment,
+      'threadsWithReplies': threadsWithReplies,
+      'replyCount': replyCount,
+      'repliesShown': repliesShown,
+      'visibleComments': visibleComments,
+      'anyReplyButton': anyReplyButton,
+      'commentsTabOpened': commentsTabOpened,
+      'firstReply': firstReply,
       'subscribeToggled': subscribeToggled,
       'settingsSheet': settingsSheet,
       'subtitlePanel': subtitlePanel,

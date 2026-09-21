@@ -279,6 +279,84 @@ void main() {
       },
     );
 
+    test('a thread with replies carries the token that loads them', () {
+      final withReplies = page.items.where((c) => c.hasReplies).toList();
+      expect(
+        withReplies,
+        isNotEmpty,
+        reason: 'the recorded page has threads with replies',
+      );
+      final threadTokens = {
+        for (final t in collectObjects(root, 'commentThreadRenderer'))
+          ...collectContinuationTokens(t),
+      };
+      for (final c in withReplies) {
+        // every reply token must be one of the thread-scoped ones, never the
+        // page token — serving the page token here would silently reload the
+        // whole comment list as if it were a thread
+        expect(threadTokens, contains(c.replyToken));
+        expect(c.replyToken, isNot(page.continuation));
+      }
+    });
+
+    test('the token is paired with its own comment, not by position', () {
+      // Two things this guards. First, a thread holds two commentViewModels
+      // and the first one has no commentId at all, so "the first view model"
+      // is not the comment. Second, this page carries 20 threads but only 6
+      // comment payloads — the recording is trimmed — so a pairing done by
+      // index across the two lists would be wrong for every one of them.
+      final byId = {for (final c in page.items) c.commentId: c};
+      var checked = 0;
+      for (final thread in collectObjects(root, 'commentThreadRenderer')) {
+        final tokens = collectContinuationTokens(thread);
+        if (tokens.isEmpty) continue;
+        for (final vm in collectObjects(thread, 'commentViewModel')) {
+          if (vm['commentId'] case final String id when byId.containsKey(id)) {
+            expect(byId[id]!.replyToken, tokens.first);
+            checked++;
+          }
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'nothing was actually paired');
+    });
+
+    test('a comment whose thread has no token has no replies', () {
+      // Synthesised rather than read off the fixture: every thread there has
+      // replies, so a fixture-driven version of this test would pass without
+      // asserting anything.
+      final parsed = parseComments({
+        'contents': [
+          {
+            'commentThreadRenderer': {
+              'commentViewModel': {
+                'commentViewModel': {'commentId': 'no-replies'},
+              },
+            },
+          },
+        ],
+        'frameworkUpdates': {
+          'entityBatchUpdate': {
+            'mutations': [
+              {
+                'payload': {
+                  'commentEntityPayload': {
+                    'properties': {
+                      'commentId': 'no-replies',
+                      'content': {'content': 'hi'},
+                    },
+                    'author': {'displayName': '@someone'},
+                  },
+                },
+              },
+            ],
+          },
+        },
+      });
+      expect(parsed.items.single.commentId, 'no-replies');
+      expect(parsed.items.single.hasReplies, isFalse);
+      expect(parsed.items.single.replyToken, isNull);
+    });
+
     test('the legacy commentRenderer form is still read', () {
       final legacy = parseComments({
         'contents': [

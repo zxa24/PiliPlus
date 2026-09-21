@@ -353,6 +353,7 @@ class YtComment {
     this.replyCount = 0,
     this.isPinned = false,
     this.authorIsUploader = false,
+    this.replyToken,
   });
 
   final String commentId;
@@ -365,6 +366,29 @@ class YtComment {
   final int replyCount;
   final bool isPinned;
   final bool authorIsUploader;
+
+  /// The continuation that loads this thread's replies, when it has any.
+  ///
+  /// It is the token the comments page already had to identify in order to
+  /// subtract it from the page-level one — this just keeps it instead of
+  /// throwing it away.
+  final String? replyToken;
+
+  bool get hasReplies => replyToken != null;
+
+  YtComment copyWith({String? replyToken}) => YtComment(
+    commentId: commentId,
+    author: author,
+    authorChannelId: authorChannelId,
+    authorAvatar: authorAvatar,
+    content: content,
+    likeCountText: likeCountText,
+    publishedText: publishedText,
+    replyCount: replyCount,
+    isPinned: isPinned,
+    authorIsUploader: authorIsUploader,
+    replyToken: replyToken ?? this.replyToken,
+  );
 
   @override
   String toString() =>

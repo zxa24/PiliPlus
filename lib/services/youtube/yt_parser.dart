@@ -74,19 +74,56 @@ YtPage<YtComment> parseComments(Object? root) {
     final id = vm['commentId'];
     if (id is String) viewModels[id] = vm;
   }
+  final replyTokens = _replyTokensByComment(root);
 
   final out = <YtComment>[];
   final seen = <String>{};
   for (final p in collectObjects(root, 'commentEntityPayload')) {
     final c = _fromCommentEntityPayload(p, viewModels);
-    if (c != null && seen.add(c.commentId)) out.add(c);
+    if (c != null && seen.add(c.commentId)) {
+      out.add(c.copyWith(replyToken: replyTokens[c.commentId]));
+    }
   }
   // Legacy form, for the day YouTube serves it again (or an A/B bucket does).
   for (final p in collectObjects(root, 'commentRenderer')) {
     final c = _fromLegacyCommentRenderer(p);
-    if (c != null && seen.add(c.commentId)) out.add(c);
+    if (c != null && seen.add(c.commentId)) {
+      out.add(c.copyWith(replyToken: replyTokens[c.commentId]));
+    }
   }
   return YtPage(out, commentsPageContinuationToken(root));
+}
+
+/// Which comment each thread-scoped continuation belongs to.
+///
+/// A `commentThreadRenderer` holds one top-level comment and, when it has
+/// replies, the token that loads them. Both are inside the same object, so
+/// the pairing is structural rather than positional — the order comments
+/// arrive in is not the order the tokens do.
+Map<String, String> _replyTokensByComment(Object? root) {
+  final out = <String, String>{};
+  for (final thread in collectObjects(root, 'commentThreadRenderer')) {
+    final tokens = collectContinuationTokens(thread);
+    if (tokens.isEmpty) continue;
+    String? id;
+    for (final vm in collectObjects(thread, 'commentViewModel')) {
+      if (vm['commentId'] case final String value when value.isNotEmpty) {
+        id = value;
+        break;
+      }
+    }
+    // the legacy shape carries the id on the renderer itself
+    if (id == null) {
+      for (final c in collectObjects(thread, 'commentRenderer')) {
+        if (c['commentId'] case final String value when value.isNotEmpty) {
+          id = value;
+          break;
+        }
+      }
+    }
+    if (id != null) out[id] = tokens.first;
+  }
+  return out;
 }
 
 /// The "load the next page" token of a list response.
