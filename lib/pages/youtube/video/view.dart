@@ -10,11 +10,11 @@ import 'dart:math' as math;
 
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
-import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/header_control.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/models/video_fit_type.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/bottom_control.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
@@ -315,12 +315,9 @@ class _YtVideoPageState extends State<YtVideoPage>
               ),
             ),
             const SizedBox(width: 12),
-            _action(
-              theme,
-              icon: Icons.closed_caption_outlined,
-              label: '字幕',
-              onTap: _pickCaption,
-            ),
+            // no 字幕 button here: it is on the player's bar, where the
+            // bilibili page keeps it, and having it in three places at once
+            // was the reason the same sheet kept opening from everywhere
             _action(
               theme,
               icon: Icons.link,
@@ -548,98 +545,151 @@ class _YtVideoPageState extends State<YtVideoPage>
     ],
   );
 
+  /// The bottom bar, carrying what the bilibili one carries and in the same
+  /// order: play, time — then 画面比例, 字幕, 倍速, 画质, 全屏. The CC button
+  /// lists the tracks and nothing else, exactly as it does there; loading a
+  /// file, styling the text and transcribing all live in 更多设置.
+  ///
   /// A fixed height: the bar sits in a Column the player sizes tightly, and
   /// an intrinsically taller row overflowed it.
-  Widget _controls(PlPlayerController player) => SizedBox(
-    height: 30,
-    child: Row(
-      children: [
-        PlayOrPauseButton(plPlayerController: player),
-        const SizedBox(width: 8),
-        Obx(
-          () => Text(
-            '${DurationUtils.formatDuration(player.position.value)}'
-            ' / '
-            '${DurationUtils.formatDuration(player.duration.value)}',
-            style: const TextStyle(color: Colors.white, fontSize: 12),
+  Widget _controls(PlPlayerController player) {
+    final isFullScreen = player.isFullScreen.value;
+    final width = isFullScreen ? 42.0 : 35.0;
+    return SizedBox(
+      height: 30,
+      child: Row(
+        children: [
+          PlayOrPauseButton(plPlayerController: player),
+          const SizedBox(width: 8),
+          Obx(
+            () => Text(
+              '${DurationUtils.formatDuration(player.position.value)}'
+              ' / '
+              '${DurationUtils.formatDuration(player.duration.value)}',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
           ),
-        ),
-        const Spacer(),
-        ComBtn(
-          width: 35,
-          height: 30,
-          tooltip: '字幕',
-          icon: Obx(
-            () => Icon(
-              controller.captionIndex.value == -1
-                  ? Icons.closed_caption_off_outlined
-                  : Icons.closed_caption,
-              size: 20,
+          const Spacer(),
+          Obx(() {
+            final fit = player.videoFit.value;
+            return _popup<VideoFitType>(
+              tooltip: '画面比例',
+              initialValue: fit,
+              items: [
+                for (final value in VideoFitType.values)
+                  (value: value, label: value.desc, enabled: true),
+              ],
+              onSelected: player.toggleVideoFit,
+              child: _popupLabel(fit.desc),
+            );
+          }),
+          Obx(() {
+            final captions = controller.captions;
+            if (captions.isEmpty) return const SizedBox.shrink();
+            final index = controller.captionIndex.value;
+            return _popup<int>(
+              tooltip: '字幕',
+              initialValue: index,
+              items: [
+                (value: -1, label: '关闭字幕', enabled: true),
+                for (final (i, track) in captions.indexed)
+                  (value: i, label: _label(track), enabled: true),
+              ],
+              onSelected: controller.setCaption,
+              child: SizedBox(
+                width: width,
+                height: 30,
+                child: Icon(
+                  index == -1
+                      ? Icons.closed_caption_off_outlined
+                      : Icons.closed_caption_off_rounded,
+                  size: 22,
+                  color: Colors.white,
+                ),
+              ),
+            );
+          }),
+          Obx(
+            () => _popup<double>(
+              tooltip: '倍速',
+              initialValue: player.playbackSpeed,
+              items: [
+                for (final speed in player.speedList)
+                  (value: speed, label: '${speed}X', enabled: true),
+              ],
+              onSelected: player.setPlaybackSpeed,
+              child: _popupLabel('${player.playbackSpeed}X'),
+            ),
+          ),
+          Obx(() {
+            final heights = controller.availableHeights;
+            if (heights.isEmpty) return const SizedBox.shrink();
+            final current = controller.maxHeight.value;
+            return _popup<int>(
+              tooltip: '画质',
+              initialValue: current,
+              items: [
+                for (final height in heights)
+                  (value: height, label: '${height}P', enabled: true),
+              ],
+              onSelected: controller.setMaxHeight,
+              child: _popupLabel(current == 0 ? '自动' : '${current}P'),
+            );
+          }),
+          ComBtn(
+            width: width,
+            height: 30,
+            tooltip: isFullScreen ? '退出全屏' : '全屏',
+            icon: Icon(
+              isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
+              size: 24,
               color: Colors.white,
             ),
+            onTap: () => player.triggerFullScreen(status: !isFullScreen),
           ),
-          onTap: () =>
-              YtHeaderControl(controller: controller).showCaptions(context),
-        ),
-        ComBtn(
-          width: 35,
-          height: 30,
-          tooltip: '全屏',
-          icon: Obx(
-            () => Icon(
-              player.isFullScreen.value
-                  ? Icons.fullscreen_exit
-                  : Icons.fullscreen,
-              size: 22,
-              color: Colors.white,
-            ),
-          ),
-          onTap: () =>
-              player.triggerFullScreen(status: !player.isFullScreen.value),
-        ),
-      ],
-    ),
-  );
-
-  Future<void> _pickCaption() async {
-    final chosen = await showModalBottomSheet<Object>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              dense: true,
-              title: const Text('关闭字幕'),
-              selected: controller.captionIndex.value == -1,
-              onTap: () => Get.back(result: -1),
-            ),
-            // on-device transcription, for a video that offers no captions
-            if (controller.canTranscribe)
-              AsrMenuTile(
-                session: controller.asrSession,
-                onStart: () {
-                  Get.back();
-                  AsrEntry.startFor(context, controller.startAsr);
-                },
-                onStop: () {
-                  Get.back();
-                  controller.stopAsr();
-                },
-              ),
-            for (final (index, track) in controller.captions.indexed)
-              ListTile(
-                dense: true,
-                title: Text(_label(track)),
-                selected: controller.captionIndex.value == index,
-                onTap: () => Get.back(result: index),
-              ),
-          ],
-        ),
+        ],
       ),
     );
-    if (chosen is int) await controller.setCaption(chosen);
   }
+
+  /// The dark popup the bilibili bar uses for every one of these buttons.
+  Widget _popup<T>({
+    required String tooltip,
+    required T initialValue,
+    required List<({T value, String label, bool enabled})> items,
+    required ValueChanged<T> onSelected,
+    required Widget child,
+  }) => PopupMenuButton<T>(
+    tooltip: tooltip,
+    requestFocus: false,
+    initialValue: initialValue,
+    color: Colors.black.withValues(alpha: 0.8),
+    onSelected: onSelected,
+    itemBuilder: (context) => [
+      for (final item in items)
+        PopupMenuItem<T>(
+          height: 35,
+          padding: const EdgeInsets.only(left: 30, right: 10),
+          value: item.value,
+          enabled: item.enabled,
+          child: Text(
+            item.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+          ),
+        ),
+    ],
+    child: child,
+  );
+
+  static Widget _popupLabel(String text) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    child: Text(
+      text,
+      style: const TextStyle(color: Colors.white, fontSize: 13),
+    ),
+  );
 
   static String _label(YtCaptionTrack track) =>
       track.name.isEmpty ? track.languageCode : track.name;

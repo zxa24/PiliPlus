@@ -50,6 +50,244 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
     );
   }
 
+  double get subtitleFontScale => plPlayerController.subtitleFontScale;
+  double get subtitleFontScaleFS => plPlayerController.subtitleFontScaleFS;
+  int get subtitlePaddingH => plPlayerController.subtitlePaddingH;
+  int get subtitlePaddingB => plPlayerController.subtitlePaddingB;
+  double get subtitleBgOpacity => plPlayerController.subtitleBgOpacity;
+  double get subtitleStrokeWidth => plPlayerController.subtitleStrokeWidth;
+  int get subtitleFontWeight => plPlayerController.subtitleFontWeight;
+
+  /// 字幕设置。LibrePili: it lives here rather than in the bilibili header so
+  /// the YouTube player can open the very same panel — it only ever touches
+  /// the player, never the bilibili page's data.
+  void showSetSubtitle() {
+    showBottomSheet(
+      padding: () => isFullScreen ? const .only(bottom: 70) : .zero,
+      (context, setState) {
+        final theme = Theme.of(context);
+
+        const EdgeInsets sliderPadding = .symmetric(vertical: 16);
+
+        final sliderTheme = SliderThemeData(
+          trackHeight: 10,
+          padding: const .symmetric(horizontal: 6),
+          trackShape: const MSliderTrackShape(),
+          thumbColor: theme.colorScheme.primary,
+          activeTrackColor: theme.colorScheme.primary,
+          inactiveTrackColor: theme.colorScheme.onInverseSurface,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+        );
+
+        void updateStrokeWidth(double val) {
+          plPlayerController
+            ..subtitleStrokeWidth = val
+            ..updateSubtitleStyle();
+          setState(() {});
+        }
+
+        void updateOpacity(double val) {
+          plPlayerController
+            ..subtitleBgOpacity = val.toPrecision(2)
+            ..updateSubtitleStyle();
+          setState(() {});
+        }
+
+        void updateBottomPadding(double val) {
+          plPlayerController
+            ..subtitlePaddingB = val.round()
+            ..updateSubtitleStyle();
+          setState(() {});
+        }
+
+        void updateHorizontalPadding(double val) {
+          plPlayerController
+            ..subtitlePaddingH = val.round()
+            ..updateSubtitleStyle();
+          setState(() {});
+        }
+
+        void updateFontScaleFS(double val) {
+          plPlayerController
+            ..subtitleFontScaleFS = val.toPrecision(2)
+            ..updateSubtitleStyle();
+          setState(() {});
+        }
+
+        void updateFontScale(double val) {
+          plPlayerController
+            ..subtitleFontScale = val.toPrecision(2)
+            ..updateSubtitleStyle();
+          setState(() {});
+        }
+
+        void updateFontWeight(double val) {
+          plPlayerController
+            ..subtitleFontWeight = val.toInt()
+            ..updateSubtitleStyle();
+          setState(() {});
+        }
+
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Material(
+            clipBehavior: Clip.hardEdge,
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.all(Radius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: SliderTheme(
+                data: sliderTheme,
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    const SizedBox(
+                      height: 45,
+                      child: Center(child: Text('字幕设置', style: TextStyle(fontSize: 14))),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '字体大小 ${(subtitleFontScale * 100).toStringAsFixed(1)}%',
+                        ),
+                        resetBtn(theme, '100.0%', () => updateFontScale(1.0)),
+                      ],
+                    ),
+                    Padding(
+                      padding: sliderPadding,
+                      child: Slider(
+                        min: 0.5,
+                        max: 2.5,
+                        value: subtitleFontScale,
+                        divisions: 200,
+                        label:
+                            '${(subtitleFontScale * 100).toStringAsFixed(1)}%',
+                        onChanged: updateFontScale,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '全屏字体大小 ${(subtitleFontScaleFS * 100).toStringAsFixed(1)}%',
+                        ),
+                        resetBtn(theme, '150.0%', () => updateFontScaleFS(1.5)),
+                      ],
+                    ),
+                    Padding(
+                      padding: sliderPadding,
+                      child: Slider(
+                        min: 0.5,
+                        max: 2.5,
+                        value: subtitleFontScaleFS,
+                        divisions: 200,
+                        label:
+                            '${(subtitleFontScaleFS * 100).toStringAsFixed(1)}%',
+                        onChanged: updateFontScaleFS,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('字体粗细 ${subtitleFontWeight + 1}（可能无法精确调节）'),
+                        resetBtn(theme, 6, () => updateFontWeight(5)),
+                      ],
+                    ),
+                    Padding(
+                      padding: sliderPadding,
+                      child: Slider(
+                        min: 0,
+                        max: 8,
+                        value: subtitleFontWeight.toDouble(),
+                        divisions: 8,
+                        label: '${subtitleFontWeight + 1}',
+                        onChanged: updateFontWeight,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('描边粗细 $subtitleStrokeWidth'),
+                        resetBtn(theme, 2.0, () => updateStrokeWidth(2.0)),
+                      ],
+                    ),
+                    Padding(
+                      padding: sliderPadding,
+                      child: Slider(
+                        min: 0,
+                        max: 5,
+                        value: subtitleStrokeWidth,
+                        divisions: 10,
+                        label: '$subtitleStrokeWidth',
+                        onChanged: updateStrokeWidth,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('左右边距 $subtitlePaddingH'),
+                        resetBtn(theme, 24, () => updateHorizontalPadding(24)),
+                      ],
+                    ),
+                    Padding(
+                      padding: sliderPadding,
+                      child: Slider(
+                        min: 0,
+                        max: 100,
+                        value: subtitlePaddingH.toDouble(),
+                        divisions: 100,
+                        label: '$subtitlePaddingH',
+                        onChanged: updateHorizontalPadding,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('底部边距 $subtitlePaddingB'),
+                        resetBtn(theme, 24, () => updateBottomPadding(24)),
+                      ],
+                    ),
+                    Padding(
+                      padding: sliderPadding,
+                      child: Slider(
+                        min: 0,
+                        max: 200,
+                        value: subtitlePaddingB.toDouble(),
+                        divisions: 200,
+                        label: '$subtitlePaddingB',
+                        onChanged: updateBottomPadding,
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '背景不透明度 ${(subtitleBgOpacity * 100).toStringAsFixed(1)}%',
+                        ),
+                        resetBtn(theme, '67%', () => updateOpacity(0.67)),
+                      ],
+                    ),
+                    Padding(
+                      padding: sliderPadding,
+                      child: Slider(
+                        min: 0,
+                        max: 1,
+                        divisions: 100,
+                        value: subtitleBgOpacity,
+                        onChanged: updateOpacity,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    )?.whenComplete(plPlayerController.putSubtitleSettings);
+  }
   /// 弹幕功能
   void showSetDanmaku({bool isLive = false}) {
     // 屏蔽类型

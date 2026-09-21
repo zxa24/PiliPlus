@@ -36,7 +36,11 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:collection/collection.dart';
+import 'package:flutter/gestures.dart'
+    show GestureBinding, PointerDownEvent, PointerUpEvent;
 import 'package:flutter/widgets.dart';
+import 'package:material_ui/material_ui.dart'
+    show IconButton, PopupMenuButton, Tooltip;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 
@@ -114,6 +118,94 @@ abstract final class SelfTest {
       previous?.call(details);
     };
   }
+
+  // ------------------------------------------------------------ driving UI
+  //
+  // A probe that only calls controller methods proves the controller works.
+  // Every panel defect so far was in a widget the probe never built: the
+  // menu entry that rendered as a grey box, the row that overflowed. These
+  // walk the live element tree and dispatch real pointer events, so a panel
+  // that throws when opened fails the run instead of never being opened.
+
+  static Element? _findElement(bool Function(Element) test) {
+    Element? found;
+    void visit(Element element) {
+      if (found != null) return;
+      if (test(element)) {
+        found = element;
+        return;
+      }
+      element.visitChildren(visit);
+    }
+
+    WidgetsBinding.instance.rootElement?.visitChildren(visit);
+    return found;
+  }
+
+  /// True when some [Text] on screen reads exactly [label].
+  static bool _seesText(String label) => _findElement(_isText(label)) != null;
+
+  /// Prefix, not equality: most labels in these panels carry their value
+  /// ('字体大小 100.0%'), and an exact match on the name alone finds nothing.
+  static bool _seesLabel(String prefix) =>
+      _findElement(
+        (e) => e.widget is Text && ((e.widget as Text).data ?? '').startsWith(prefix),
+      ) !=
+      null;
+
+  static bool Function(Element) _isText(String label) =>
+      (e) => e.widget is Text && (e.widget as Text).data == label;
+
+  /// Every [Text] currently in the tree, for when an expected label is not
+  /// found and the question becomes "then what IS on screen?".
+  static List<String> _visibleTexts() {
+    final seen = <String>[];
+    void visit(Element element) {
+      if (element.widget case Text(data: final d?) when d.trim().isNotEmpty) {
+        if (!seen.contains(d)) seen.add(d);
+      }
+      element.visitChildren(visit);
+    }
+
+    WidgetsBinding.instance.rootElement?.visitChildren(visit);
+    return seen;
+  }
+
+  static int _pointer = 9100;
+
+  /// Taps the centre of the first widget [test] accepts. Returns false when
+  /// nothing matched or it has no box to tap.
+  static Future<bool> _tap(bool Function(Element) test) async {
+    final element = _findElement(test);
+    final box = element?.renderObject;
+    if (box is! RenderBox || !box.hasSize || !box.attached) return false;
+    final position = box.localToGlobal(box.size.center(Offset.zero));
+    final pointer = ++_pointer;
+    final binding = GestureBinding.instance
+      ..handlePointerEvent(
+        PointerDownEvent(pointer: pointer, position: position),
+      );
+    await Future.delayed(const Duration(milliseconds: 80));
+    binding.handlePointerEvent(
+      PointerUpEvent(pointer: pointer, position: position),
+    );
+    // long enough for a route transition (350ms) plus a frame or two
+    await Future.delayed(const Duration(milliseconds: 900));
+    return true;
+  }
+
+  /// Taps the button carrying [tooltip] — how the player's bar labels every
+  /// one of its buttons.
+  static Future<bool> _tapTooltip(String tooltip) => _tap(
+    (e) => switch (e.widget) {
+      Tooltip(message: final m) => m == tooltip,
+      IconButton(tooltip: final m) => m == tooltip,
+      PopupMenuButton(tooltip: final m) => m == tooltip,
+      _ => false,
+    },
+  );
+
+  static Future<bool> _tapText(String label) => _tap(_isText(label));
 
   static void schedule(List<String> args) {
     markStarted(args);
@@ -290,6 +382,12 @@ abstract final class SelfTest {
     var commentCount = 0;
     var channelUploads = 0;
     var subscribeToggled = false;
+    // did the panels the user complained about actually open?
+    var settingsSheet = false;
+    var subtitlePanel = false;
+    var captionMenu = false;
+    var speedMenu = false;
+    var afterSubtitleTap = const <String>[];
     String? firstComment;
     String? openedStage;
     int? openedBuffer;
@@ -343,6 +441,43 @@ abstract final class SelfTest {
         played = before != null && after != null && after > before;
         openedBuffer = player.videoPlayerController?.state.buffer.inMilliseconds;
       }
+      // the panels, opened the way a user opens them. Rendering the page is
+      // not the same as rendering what the buttons on it lead to.
+      player.showControls.value = true;
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (await _tapTooltip('更多设置')) {
+        settingsSheet = _seesText('字幕设置');
+        if (settingsSheet && await _tapText('字幕设置')) {
+          // that entry closes the sheet and opens the subtitle panel, so a
+          // label only that panel carries is what proves it is the one up —
+          // and one near its top: the list is lazy, so a row further down
+          // ('底部边距') is simply never built and reads as a failure.
+          subtitlePanel = _seesLabel('字体大小') && !_seesText('超分辨率');
+          if (!subtitlePanel) afterSubtitleTap = _visibleTexts().take(24).toList();
+        }
+        // closes whichever of the two is open
+        Get.back();
+        await Future.delayed(const Duration(milliseconds: 700));
+      }
+      player.showControls.value = true;
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (await _tapTooltip('字幕')) {
+        captionMenu = _seesText('关闭字幕');
+        if (captionMenu) {
+          Get.back();
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
+      player.showControls.value = true;
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (await _tapTooltip('倍速')) {
+        speedMenu = _seesText('2.0X');
+        if (speedMenu) {
+          Get.back();
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
+
       Get.back();
       await Future.delayed(const Duration(seconds: 2));
     }
@@ -355,7 +490,11 @@ abstract final class SelfTest {
           relatedCount > 0 &&
           commentCount > 0 &&
           subscribeToggled &&
-          channelUploads > 0,
+          channelUploads > 0 &&
+          settingsSheet &&
+          subtitlePanel &&
+          captionMenu &&
+          speedMenu,
       'mode': platform.mode.value.name,
       'query': query,
       'results': items.length,
@@ -370,6 +509,11 @@ abstract final class SelfTest {
       'comments': commentCount,
       'firstComment': firstComment,
       'subscribeToggled': subscribeToggled,
+      'settingsSheet': settingsSheet,
+      'subtitlePanel': subtitlePanel,
+      'captionMenu': captionMenu,
+      'speedMenu': speedMenu,
+      'afterSubtitleTap': afterSubtitleTap,
       'channelUploads': channelUploads,
       'verdict': result.verdict.toString(),
     };
