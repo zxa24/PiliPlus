@@ -11,7 +11,11 @@ import 'dart:async';
 
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
+import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:media_kit/media_kit.dart' show SubtitleTrack;
@@ -56,6 +60,7 @@ class YtVideoController extends GetxController {
     }
     detail.value = info.value;
     captions.value = info.value!.captionTracks;
+    _refreshSubscribed();
 
     final streams = await router.run((s) => s.streams(videoId));
     if (isClosed) return;
@@ -65,6 +70,7 @@ class YtVideoController extends GetxController {
     }
     _streams = streams.value;
     await _open(streams.value!);
+    unawaited(_loadRelated());
   }
 
   Future<void> _open(YtStreamPair pair) async {
@@ -87,6 +93,7 @@ class YtVideoController extends GetxController {
       onInit: () => stage.value = YtPageStage.ready,
     );
     if (!isClosed) stage.value = YtPageStage.ready;
+    _maybeAutoTranscribe();
   }
 
   /// The UI's reading of a verdict. Kept here rather than in the data layer,
@@ -142,6 +149,163 @@ class YtVideoController extends GetxController {
     captionIndex.value = index;
   }
 
+  // ------------------------------------------------------------ subscription
+
+  /// Followed locally; YouTube is never told. There is no account here.
+  final subscribed = false.obs;
+
+  void _refreshSubscribed() {
+    subscribed.value = YtSubscriptions.isFollowed(detail.value?.channelId);
+  }
+
+  Future<void> toggleSubscribe() async {
+    final info = detail.value;
+    final channelId = info?.channelId;
+    if (info == null || channelId == null || channelId.isEmpty) return;
+    final now = await YtSubscriptions.toggle(
+      channelId,
+      name: info.author,
+      avatar: info.thumbnails.isEmpty ? null : info.thumbnails.first.url,
+    );
+    subscribed.value = now;
+    SmartDialog.showToast(now ? '已订阅 ${info.author}' : '已取消订阅');
+  }
+
+  // ------------------------------------------------ related and comments
+
+  final related = <YtSearchItem>[].obs;
+  final comments = <YtComment>[].obs;
+  final commentsLoading = false.obs;
+
+  /// Null means "no more": either the video has comments off, or the last
+  /// page was the last one.
+  String? _commentsToken;
+  var _commentsStarted = false;
+
+  bool get hasMoreComments => _commentsToken != null;
+
+  Future<void> _loadRelated() async {
+    final result = await router.run(
+      (s) => (s as YtDirectSource).related(videoId),
+    );
+    if (isClosed || !result.ok || result.value == null) return;
+    related.value = result.value!.related;
+    _commentsToken = result.value!.commentsToken;
+  }
+
+  /// Fetches one page. The first call happens when the comments tab is first
+  /// shown, not with the video: most viewers never open it.
+  Future<void> loadMoreComments() async {
+    final token = _commentsToken;
+    if (token == null || commentsLoading.value) return;
+    commentsLoading.value = true;
+    final result = await router.run(
+      (s) => (s as YtDirectSource).comments(token),
+    );
+    if (isClosed) return;
+    commentsLoading.value = false;
+    if (result.ok && result.value != null) {
+      comments.addAll(result.value!.items);
+      _commentsToken = result.value!.continuation;
+    } else {
+      _commentsToken = null;
+    }
+  }
+
+  void ensureCommentsStarted() {
+    if (_commentsStarted) return;
+    _commentsStarted = true;
+    loadMoreComments();
+  }
+
+  // ------------------------------------------------- on-device transcription
+
+  /// A YouTube video that carries no captions of its own is exactly what the
+  /// recogniser is for — and, since most of what has none here is in another
+  /// language, the case the "外语视频自动转录" setting was written around.
+  final asrSession = Rxn<AsrSession>();
+  Timer? _asrRefresh;
+  Worker? _asrStateWorker;
+  StreamSubscription<void>? _asrCueSub;
+
+  /// The audio stream on its own: handing the recogniser the video as well
+  /// would download it a second time for nothing.
+  String? get asrSource => _streams?.audioUrl;
+
+  bool get canTranscribe => asrSource?.isNotEmpty == true;
+
+  Future<void> startAsr({bool auto = false}) async {
+    final source = asrSource;
+    if (source == null || source.isEmpty) {
+      SmartDialog.showToast('没有可转录的音频');
+      return;
+    }
+    await stopAsr();
+    // no Referer, no UA: googlevideo does not need them and sending
+    // bilibili's would link the two sites (see [_open])
+    final session = await AsrService.to.start(
+      key: 'yt:$videoId',
+      source: source,
+      auto: auto,
+    );
+    asrSession.value = session;
+    SmartDialog.showToast(auto ? '正在自动转录字幕…' : '正在转录字幕…');
+    _asrCueSub = session.cues.listen((_) {});
+    _asrRefresh = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _publishAsrSubtitle(),
+    );
+    _asrStateWorker = ever(session.state, (state) {
+      switch (state.stage) {
+        case AsrStage.done:
+          _publishAsrSubtitle();
+          SmartDialog.showToast(
+            session.cues.isEmpty ? '没有识别到语音' : '转录完成，已显示字幕',
+          );
+        case AsrStage.failed:
+          SmartDialog.showToast('转录失败：${state.message ?? ''}');
+        case _:
+          break;
+      }
+    });
+  }
+
+  Future<void> stopAsr() async {
+    _asrRefresh?.cancel();
+    _asrRefresh = null;
+    _asrStateWorker?.dispose();
+    _asrStateWorker = null;
+    await _asrCueSub?.cancel();
+    _asrCueSub = null;
+    asrSession.value = null;
+    if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
+  }
+
+  /// Shows what has been recognised so far. The page has no track list of its
+  /// own to insert into, so the transcript simply becomes the shown subtitle.
+  void _publishAsrSubtitle() {
+    final session = asrSession.value;
+    final player = plPlayerController.videoPlayerController;
+    if (session == null || player == null || session.cues.isEmpty) return;
+    player.setSubtitleTrack(
+      SubtitleTrack('memory://${session.cues.toVtt()}', '自动转录', 'asr',
+          uri: true),
+    );
+    captionIndex.value = -2;
+  }
+
+  /// Starts by itself when the video offers no captions and the user asked
+  /// for that. A video with captions is left alone: YouTube's own are better
+  /// than ours and cost nothing.
+  void _maybeAutoTranscribe() {
+    if (!Get.isRegistered<AsrService>()) return;
+    if (asrSession.value != null || !canTranscribe) return;
+    if (!AsrService.to.shouldAutoStart(hasSubtitles: captions.isNotEmpty)) {
+      return;
+    }
+    startAsr(auto: true);
+  }
+
   /// Re-resolves the streams: a direct URL lasts about six hours and is bound
   /// to this network, so a resumed session needs new ones rather than a retry.
   Future<void> refreshStreams() async {
@@ -164,6 +328,7 @@ class YtVideoController extends GetxController {
 
   @override
   void onClose() {
+    stopAsr();
     plPlayerController.dispose();
     super.onClose();
   }

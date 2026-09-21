@@ -4,6 +4,7 @@ import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart' show tabBarView;
 import 'package:PiliPlus/models/common/platform_mode.dart';
 import 'package:PiliPlus/pages/youtube/search/view.dart';
+import 'package:PiliPlus/pages/youtube/subscriptions/view.dart';
 import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/pages/common/common_page.dart';
 import 'package:PiliPlus/pages/home/controller.dart';
@@ -90,7 +91,7 @@ class _HomePageState extends CommonPageState<HomePage>
             if (!_mainController.useSideBar &&
                 MediaQuery.sizeOf(context).isPortrait)
               customAppBar(),
-            const Expanded(child: YtSearchPage(showAppBar: false)),
+            const Expanded(child: _YouTubeHome()),
           ],
         );
       }
@@ -430,5 +431,48 @@ Widget msgBadge(MainController mainController) {
       }
       return const SizedBox.shrink();
     },
+  );
+}
+
+
+/// LibrePili: the home tab in YouTube mode — 订阅 and 搜索, the two things a
+/// platform mode needs before it has a recommendation feed of its own.
+class _YouTubeHome extends StatefulWidget {
+  const _YouTubeHome();
+
+  @override
+  State<_YouTubeHome> createState() => _YouTubeHomeState();
+}
+
+class _YouTubeHomeState extends State<_YouTubeHome>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs = TabController(length: 2, vsync: this);
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      TabBar(
+        controller: _tabs,
+        isScrollable: true,
+        tabAlignment: TabAlignment.center,
+        dividerHeight: 0,
+        tabs: const [Tab(text: '订阅'), Tab(text: '搜索')],
+      ),
+      Expanded(
+        child: TabBarView(
+          controller: _tabs,
+          children: const [
+            YtSubscriptionsPage(showAppBar: false),
+            YtSearchPage(showAppBar: false),
+          ],
+        ),
+      ),
+    ],
   );
 }

@@ -189,6 +189,9 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--yt-channel') case final channel?) {
+      await scenario('youtubeChannel', () => _youtubeChannel(channel));
+    }
     if (_arg(args, '--yt-search') case final query?) {
       await scenario('youtubeSearch', () => _youtubeSearch(query));
     }
@@ -229,6 +232,59 @@ abstract final class SelfTest {
 
   // ------------------------------------------------------------ scenarios
 
+  /// LibrePili: can we list a channel's uploads? Subscriptions depend on it,
+  /// and stage 1 never parsed a channel page — so this asks before any UI is
+  /// built on the assumption.
+  static Future<Map<String, dynamic>> _youtubeChannel(String channelId) async {
+    final client = InnertubeClient(IoYtTransport());
+    // the "Videos" tab of a channel
+    final response = await client.browse(channelId, params: 'EgZ2aWRlb3M%3D');
+    final verdict = classifyYtTransport(response);
+    if (verdict != null) {
+      return {'pass': false, 'verdict': verdict.toString()};
+    }
+    final page = parseSearchResults(response.json);
+    // which renderers the channel tab actually uses: the search parser found
+    // a continuation but no items, so the item shape differs
+    final renderers = <String, int>{};
+    void walk(Object? node, int depth) {
+      if (depth > 40) return;
+      if (node is Map) {
+        for (final entry in node.entries) {
+          final key = entry.key.toString();
+          if (key.endsWith('Renderer') || key.endsWith('ViewModel')) {
+            renderers[key] = (renderers[key] ?? 0) + 1;
+          }
+          walk(entry.value, depth + 1);
+        }
+      } else if (node is List) {
+        for (final child in node) {
+          walk(child, depth + 1);
+        }
+      }
+    }
+
+    walk(response.json, 0);
+    final top = renderers.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    // the related-videos parser walks the tree instead of a fixed path
+    final generic = parseRelatedVideos(response.json);
+    return {
+      'pass': page.items.isNotEmpty || generic.isNotEmpty,
+      'genericItems': generic.length,
+      'genericFirst': generic.isEmpty
+          ? null
+          : '${generic.first.title} / ${generic.first.author}',
+      'renderers': {for (final e in top.take(8)) e.key: e.value},
+      'channelId': channelId,
+      'items': page.items.length,
+      'hasContinuation': page.continuation != null,
+      'first': page.items.isEmpty
+          ? null
+          : '${page.items.first.title} / ${page.items.first.author}',
+    };
+  }
+
   /// LibrePili: switch to the YouTube platform, search, open a result.
   ///
   /// The loop a user actually walks: without this, "search works" and "a
@@ -248,6 +304,11 @@ abstract final class SelfTest {
 
     String? openedTitle;
     var played = false;
+    var relatedCount = 0;
+    var commentCount = 0;
+    var channelUploads = 0;
+    var subscribeToggled = false;
+    String? firstComment;
     if (items.isNotEmpty) {
       final first = items.first;
       unawaited(
@@ -259,6 +320,31 @@ abstract final class SelfTest {
         await Future.delayed(const Duration(seconds: 1));
       }
       openedTitle = controller.detail.value?.title;
+
+      // the rest of the page: related shelf, comments, and a subscription
+      await Future.delayed(const Duration(seconds: 3));
+      relatedCount = controller.related.length;
+      controller.ensureCommentsStarted();
+      for (var i = 0; i < 10 && controller.comments.isEmpty; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+      commentCount = controller.comments.length;
+      firstComment = controller.comments.isEmpty
+          ? null
+          : controller.comments.first.author;
+
+      final wasSubscribed = controller.subscribed.value;
+      await controller.toggleSubscribe();
+      subscribeToggled = controller.subscribed.value != wasSubscribed;
+      final channelId = controller.detail.value?.channelId;
+      if (subscribeToggled && channelId != null) {
+        // and the feed that the subscription feeds into
+        final uploads = await router.run(
+          (s) => (s as YtDirectSource).channelVideos(channelId),
+        );
+        channelUploads = uploads.value?.items.length ?? 0;
+        await controller.toggleSubscribe();
+      }
       final player = controller.plPlayerController;
       await player.play();
       final first1 = player.videoPlayerController?.state.position;
@@ -272,7 +358,13 @@ abstract final class SelfTest {
 
     await platform.set(before);
     return {
-      'pass': items.isNotEmpty && played,
+      'pass':
+          items.isNotEmpty &&
+          played &&
+          relatedCount > 0 &&
+          commentCount > 0 &&
+          subscribeToggled &&
+          channelUploads > 0,
       'mode': platform.mode.value.name,
       'query': query,
       'results': items.length,
@@ -280,6 +372,11 @@ abstract final class SelfTest {
       'hasContinuation': result.value?.continuation != null,
       'openedTitle': openedTitle,
       'played': played,
+      'related': relatedCount,
+      'comments': commentCount,
+      'firstComment': firstComment,
+      'subscribeToggled': subscribeToggled,
+      'channelUploads': channelUploads,
       'verdict': result.verdict.toString(),
     };
   }

@@ -232,6 +232,10 @@ class InnertubeClient {
         'params': ?params,
       });
 
+  /// The next page of a `browse` list (a channel's uploads, for instance).
+  Future<YtResponse> browseContinuation(String token) =>
+      post('browse', YtClients.web, {'continuation': token});
+
   /// Fetch one caption track's content.
   ///
   /// The track list comes out of the *player* response — no extra request is

@@ -93,6 +93,13 @@ abstract final class AsrEntry {
   static Future<void> start(
     BuildContext context,
     VideoDetailController controller,
+  ) => startFor(context, controller.startAsr);
+
+  /// The same prompts for any page that can transcribe — the bilibili video
+  /// page and the YouTube one ask the user exactly the same things.
+  static Future<void> startFor(
+    BuildContext context,
+    Future<void> Function() start,
   ) async {
     final service = AsrService.to;
     if (!service.modelsReady) {
@@ -102,7 +109,7 @@ abstract final class AsrEntry {
     if (!Pref.asrAsked) {
       await _askForMode(context);
     }
-    await controller.startAsr();
+    await start();
   }
 
   /// One-time question: should future videos without subtitles do this by

@@ -232,6 +232,31 @@ class YtDirectSource implements YouTubeVideoSource {
     );
   }
 
+  /// A channel's uploads.
+  ///
+  /// Parsed with [parseRelatedVideos] rather than [parseSearchResults]: the
+  /// search parser follows the search response's fixed path, while a channel
+  /// tab nests the same `lockupViewModel` items somewhere else entirely.
+  /// Measured: the search parser found 0 items on a channel that the
+  /// tree-walking one read 47 from.
+  Future<YtResult<YtPage<YtSearchItem>>> channelVideos(
+    String channelId, {
+    String? continuation,
+  }) async {
+    final response = continuation == null
+        // the channel's "Videos" tab
+        ? await client.browse(channelId, params: 'EgZ2aWRlb3M%3D')
+        : await client.browseContinuation(continuation);
+    final verdict = classifyYtTransport(response);
+    if (verdict != null) return YtResult.failed(verdict);
+    return YtResult.ok(
+      YtPage(
+        parseRelatedVideos(response.json),
+        pageContinuationToken(response.json),
+      ),
+    );
+  }
+
   /// One page of comments, from a token produced by [related] or by a previous
   /// page's [YtPage.continuation].
   Future<YtResult<YtPage<YtComment>>> comments(String token) async {
