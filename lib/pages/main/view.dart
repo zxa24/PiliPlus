@@ -585,7 +585,10 @@ class _MainAppState extends PopScopeState<MainApp>
   Widget userAndSearchVertical() {
     return Column(
       children: [
-        userAvatar(colorScheme: _colorScheme, mainController: _mainController),
+        platformSwitcher(
+          colorScheme: _colorScheme,
+          mainController: _mainController,
+        ),
         const SizedBox(height: 8),
         msgBadge(_mainController),
         IconButton(

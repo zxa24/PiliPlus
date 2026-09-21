@@ -91,6 +91,7 @@ abstract final class SettingBoxKey {
       asrAsked = 'asrAsked',
       asrLanguage = 'asrLanguage',
       asrThreads = 'asrThreads',
+      platformMode = 'platformMode',
       showBangumiReply = 'showBangumiReply',
       alwaysExpandIntroPanel = 'alwaysExapndIntroPanel',
       expandIntroPanelH = 'exapndIntroPanelH',

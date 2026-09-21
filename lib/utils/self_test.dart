@@ -24,6 +24,8 @@ import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/models/common/platform_mode.dart';
+import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
@@ -187,6 +189,9 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--yt-search') case final query?) {
+      await scenario('youtubeSearch', () => _youtubeSearch(query));
+    }
     if (_arg(args, '--open-yt') case final video?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
       await scenario('openYouTube', () => _openYouTube(video, hold));
@@ -223,6 +228,61 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: switch to the YouTube platform, search, open a result.
+  ///
+  /// The loop a user actually walks: without this, "search works" and "a
+  /// video plays" were two separate claims with nothing joining them.
+  static Future<Map<String, dynamic>> _youtubeSearch(String query) async {
+    final platform = PlatformService.to;
+    final before = platform.mode.value;
+    await platform.set(PlatformMode.youtube);
+    await Future.delayed(const Duration(seconds: 2));
+
+    final source = YtDirectSource.create();
+    final router = YtSourceRouter(source);
+    final result = await router.run(
+      (s) => (s as YtDirectSource).search(query),
+    );
+    final items = result.value?.items ?? const <YtSearchItem>[];
+
+    String? openedTitle;
+    var played = false;
+    if (items.isNotEmpty) {
+      final first = items.first;
+      unawaited(
+        Get.toNamed('/ytVideo', parameters: {'id': first.videoId}),
+      );
+      await Future.delayed(const Duration(seconds: 6));
+      final controller = Get.find<YtVideoController>(tag: first.videoId);
+      for (var i = 0; i < 15 && controller.stage.value != .ready; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+      openedTitle = controller.detail.value?.title;
+      final player = controller.plPlayerController;
+      await player.play();
+      final first1 = player.videoPlayerController?.state.position;
+      await Future.delayed(const Duration(seconds: 5));
+      final second = player.videoPlayerController?.state.position;
+      played =
+          first1 != null && second != null && second > first1;
+      Get.back();
+      await Future.delayed(const Duration(seconds: 2));
+    }
+
+    await platform.set(before);
+    return {
+      'pass': items.isNotEmpty && played,
+      'mode': platform.mode.value.name,
+      'query': query,
+      'results': items.length,
+      'firstTitle': items.isEmpty ? null : items.first.title,
+      'hasContinuation': result.value?.continuation != null,
+      'openedTitle': openedTitle,
+      'played': played,
+      'verdict': result.verdict.toString(),
+    };
+  }
 
   /// LibrePili: opens the YouTube watch page for real and reports whether the
   /// player actually advanced — resolving a URL is not the same as playing it.

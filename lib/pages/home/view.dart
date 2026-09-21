@@ -2,6 +2,9 @@ import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/custom_height_widget.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart' show tabBarView;
+import 'package:PiliPlus/models/common/platform_mode.dart';
+import 'package:PiliPlus/pages/youtube/search/view.dart';
+import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/pages/common/common_page.dart';
 import 'package:PiliPlus/pages/home/controller.dart';
 import 'package:PiliPlus/pages/main/controller.dart';
@@ -75,22 +78,39 @@ class _HomePageState extends CommonPageState<HomePage>
     } else {
       tabBar = const SizedBox(height: 6);
     }
-    return Column(
-      children: [
-        if (!_mainController.useSideBar &&
-            MediaQuery.sizeOf(context).isPortrait)
-          customAppBar(),
-        tabBar,
-        Expanded(
-          child: onBuild(
-            tabBarView(
-              controller: _homeController.tabController,
-              children: _homeController.tabs.map((e) => e.page).toList(),
+    return Obx(() {
+      // LibrePili: the home tab shows whichever platform is selected. In
+      // `all` the bilibili tabs stay and YouTube is appended as one more,
+      // because two recommendation feeds are not comparable and interleaving
+      // them would be shuffling rather than merging.
+      final mode = PlatformService.to.mode.value;
+      if (mode == PlatformMode.youtube) {
+        return Column(
+          children: [
+            if (!_mainController.useSideBar &&
+                MediaQuery.sizeOf(context).isPortrait)
+              customAppBar(),
+            const Expanded(child: YtSearchPage(showAppBar: false)),
+          ],
+        );
+      }
+      return Column(
+        children: [
+          if (!_mainController.useSideBar &&
+              MediaQuery.sizeOf(context).isPortrait)
+            customAppBar(),
+          tabBar,
+          Expanded(
+            child: onBuild(
+              tabBarView(
+                controller: _homeController.tabController,
+                children: _homeController.tabs.map((e) => e.page).toList(),
+              ),
             ),
           ),
-        ),
-      ],
-    );
+        ],
+      );
+    });
   }
 
   Widget customAppBar() {
@@ -101,7 +121,10 @@ class _HomePageState extends CommonPageState<HomePage>
         const SizedBox(width: 4),
         msgBadge(_mainController),
         const SizedBox(width: 8),
-        userAvatar(colorScheme: _colorScheme, mainController: _mainController),
+        platformSwitcher(
+          colorScheme: _colorScheme,
+          mainController: _mainController,
+        ),
       ],
     );
     if (_homeController.hideTopBar) {
@@ -190,6 +213,117 @@ class _HomePageState extends CommonPageState<HomePage>
       ),
     );
   }
+}
+
+/// LibrePili: the top-bar button switches platform.
+///
+/// It used to be the avatar / "点击登录" button. The way into 我的 is the
+/// bottom navigation, and the menu keeps an entry for it; what belongs here
+/// is the platform, because that is what decides everything else on screen.
+Widget platformSwitcher({
+  required ColorScheme colorScheme,
+  required MainController mainController,
+}) {
+  final platform = PlatformService.to;
+  return Semantics(
+    label: '切换平台',
+    child: Obx(() {
+      final mode = platform.mode.value;
+      return PopupMenuButton<Object>(
+        tooltip: '切换平台',
+        position: PopupMenuPosition.under,
+        onSelected: (value) {
+          if (value is PlatformMode) {
+            platform.set(value);
+          } else {
+            mainController.toMinePage();
+          }
+        },
+        itemBuilder: (context) => [
+          for (final value in PlatformMode.values)
+            PopupMenuItem(
+              value: value,
+              child: Row(
+                children: [
+                  Icon(
+                    value == mode
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    size: 18,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(value.label),
+                ],
+              ),
+            ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: 'mine',
+            child: Row(
+              children: [
+                Icon(Icons.person_outline, size: 18),
+                SizedBox(width: 10),
+                Text('我的'),
+              ],
+            ),
+          ),
+        ],
+        child: SizedBox(
+          width: 38,
+          height: 38,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: colorScheme.onInverseSurface,
+                ),
+                child: SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: Icon(
+                    switch (mode) {
+                      PlatformMode.bilibili => MdiIcons.television,
+                      PlatformMode.youtube => Icons.smart_display_outlined,
+                      PlatformMode.all => Icons.apps,
+                    },
+                    size: 20,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+              // the incognito badge moves here with the button it replaces
+              Positioned(
+                right: -2,
+                bottom: -2,
+                child: Obx(
+                  () => MineController.anonymity.value
+                      ? IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: colorScheme.secondaryContainer,
+                            ),
+                            child: Icon(
+                              size: 12,
+                              MdiIcons.incognito,
+                              color: colorScheme.onSecondaryContainer,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }),
+  );
 }
 
 Widget userAvatar({

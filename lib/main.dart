@@ -15,6 +15,7 @@ import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
@@ -128,7 +129,8 @@ void main(List<String> args) async {
   Get
     ..lazyPut(AccountService.new)
     ..lazyPut(DownloadService.new)
-    ..lazyPut(AsrService.new);
+    ..lazyPut(AsrService.new)
+    ..put(PlatformService());
   HttpOverrides.global = _CustomHttpOverrides();
 
   if (PlatformUtils.isMobile) {

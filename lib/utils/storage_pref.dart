@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recogniz
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/models/common/asr_mode.dart';
+import 'package:PiliPlus/models/common/platform_mode.dart';
 import 'package:PiliPlus/models/common/bar_hide_type.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamic_badge_mode.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamics_type.dart';
@@ -441,6 +442,13 @@ abstract final class Pref {
   /// Empty lets SenseVoice detect the language, which is what it is good at.
   static String get asrLanguage =>
       _setting.get(SettingBoxKey.asrLanguage, defaultValue: '');
+
+  /// LibrePili: which platform the app is showing (see [PlatformMode]).
+  static PlatformMode get platformMode => _enumAt(
+    PlatformMode.values,
+    _setting.get(SettingBoxKey.platformMode),
+    PlatformMode.bilibili,
+  );
 
   /// Decoding threads. Half the cores keeps the UI responsive on the phones
   /// this was measured on, and never fewer than two.
