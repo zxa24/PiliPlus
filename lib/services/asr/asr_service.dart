@@ -311,12 +311,25 @@ class AsrService extends GetxService {
   /// — the point is whether the user can follow the speech, and the app is
   /// what they chose to read. `Get.locale` is null until the app is
   /// translated (still a TODO), so the device locale stands in until then.
-  static bool _isAppLanguage(String spoken) {
-    final app =
-        (Get.locale ?? Get.deviceLocale)?.languageCode.toLowerCase() ?? 'zh';
-    final normalised = spoken.toLowerCase();
-    if (normalised == app) return true;
-    const zh = {'zh', 'yue', 'cmn'};
-    return zh.contains(normalised) && zh.contains(app);
+  static bool _isAppLanguage(String spoken) => isSameMajorLanguage(
+    spoken,
+    (Get.locale ?? Get.deviceLocale)?.languageCode ?? 'zh',
+  );
+
+  /// True when [spoken] and [appLanguage] are the same language at the level
+  /// a viewer cares about.
+  ///
+  /// Cantonese and Mandarin count as one here: SenseVoice reports `yue` for
+  /// plenty of Mandarin speech with an accent, and transcribing a video for
+  /// someone who already understands it is worse than not transcribing it.
+  /// Finer distinctions (zh-Hans vs zh-Hant) are deliberately not made.
+  @visibleForTesting
+  static bool isSameMajorLanguage(String spoken, String appLanguage) {
+    final a = spoken.trim().toLowerCase();
+    final b = appLanguage.trim().toLowerCase();
+    if (a.isEmpty || b.isEmpty) return false;
+    if (a == b) return true;
+    const chinese = {'zh', 'yue', 'cmn', 'zh-cn', 'zh-tw', 'zh-hans', 'zh-hant'};
+    return chinese.contains(a) && chinese.contains(b);
   }
 }

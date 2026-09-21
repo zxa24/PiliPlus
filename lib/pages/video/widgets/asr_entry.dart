@@ -45,6 +45,10 @@ class AsrMenuTile extends StatelessWidget {
     final state = current?.state.value;
     final running = state?.isBusy ?? false;
     final failed = state?.stage == AsrStage.failed;
+    // a finished run used to look exactly like one that never started, which
+    // is no use to the user and was no use debugging it either
+    final done = state?.stage == AsrStage.done;
+    final cues = done ? current!.cues.length : 0;
     return ListTile(
       dense: true,
       onTap: running ? onStop : onStart,
@@ -64,16 +68,22 @@ class AsrMenuTile extends StatelessWidget {
       ),
       // the reason stays on screen: a toast that has come and gone leaves the
       // user (and anyone debugging) with nothing at all
-      subtitle: running && state!.progress != null
-          ? LinearProgressIndicator(value: state.progress)
-          : (failed && state!.message != null
-                ? Text(
-                    state.message!,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11),
-                  )
-                : null),
+      subtitle: switch (true) {
+        _ when running && state!.progress != null => LinearProgressIndicator(
+          value: state.progress,
+        ),
+        _ when failed && state!.message != null => Text(
+          state.message!,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 11),
+        ),
+        _ when done => Text(
+          cues == 0 ? '没有识别到语音' : '已生成 $cues 条字幕，点击可重新转录',
+          style: const TextStyle(fontSize: 11),
+        ),
+        _ => null,
+      },
     );
   });
 }

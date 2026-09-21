@@ -1,4 +1,5 @@
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
+import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,14 +47,28 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
   });
 
-  testWidgets('goes back to offering a run once it is done', (tester) async {
-    final session = Rxn<AsrSession>()
-      ..value = (AsrSession.debugFor('1')
-        ..debugSet(const AsrState(stage: AsrStage.done, progress: 1)));
-    await _pump(tester, session);
+  testWidgets('says what a finished run produced', (tester) async {
+    // a finished run looked identical to one that never started, which cost
+    // three rounds of device debugging and tells the user nothing either
+    final finished = AsrSession.debugFor('1')
+      ..debugSet(const AsrState(stage: AsrStage.done, progress: 1));
+    finished.cues.addAll(const [
+      AsrCue(from: 0, to: 1, content: 'a'),
+      AsrCue(from: 1, to: 2, content: 'b'),
+    ]);
+    await _pump(tester, Rxn<AsrSession>()..value = finished);
 
     expect(tester.takeException(), isNull);
     expect(find.text('自动转录字幕'), findsOneWidget);
+    expect(find.text('已生成 2 条字幕，点击可重新转录'), findsOneWidget);
+  });
+
+  testWidgets('a finished run that heard nothing says so', (tester) async {
+    final finished = AsrSession.debugFor('1')
+      ..debugSet(const AsrState(stage: AsrStage.done, progress: 1));
+    await _pump(tester, Rxn<AsrSession>()..value = finished);
+
+    expect(find.text('没有识别到语音'), findsOneWidget);
   });
 
   testWidgets('taps reach the right callback', (tester) async {
