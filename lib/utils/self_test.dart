@@ -147,6 +147,10 @@ abstract final class SelfTest {
       } catch (e, s) {
         result = {'pass': false, 'error': '$e', 'stack': '$s'};
       }
+      // the framework owns these three keys; a scenario that writes them
+      // loses its own value silently (a channel's name once came back as
+      // "youtubeChannel")
+      assert(!result.containsKey('name'), 'scenario $name wrote "name"');
       result['name'] = name;
       result['ms'] = sw.elapsedMilliseconds;
       if (uiErrors.isNotEmpty) {
@@ -236,52 +240,30 @@ abstract final class SelfTest {
   /// and stage 1 never parsed a channel page — so this asks before any UI is
   /// built on the assumption.
   static Future<Map<String, dynamic>> _youtubeChannel(String channelId) async {
-    final client = InnertubeClient(IoYtTransport());
-    // the "Videos" tab of a channel
-    final response = await client.browse(channelId, params: 'EgZ2aWRlb3M%3D');
-    final verdict = classifyYtTransport(response);
-    if (verdict != null) {
-      return {'pass': false, 'verdict': verdict.toString()};
+    final source = YtDirectSource.create();
+    final router = YtSourceRouter(source);
+    final result = await router.run(
+      (s) => (s as YtDirectSource).channelPage(channelId),
+    );
+    if (!result.ok || result.value == null) {
+      return {'pass': false, 'verdict': result.verdict.toString()};
     }
-    final page = parseSearchResults(response.json);
-    // which renderers the channel tab actually uses: the search parser found
-    // a continuation but no items, so the item shape differs
-    final renderers = <String, int>{};
-    void walk(Object? node, int depth) {
-      if (depth > 40) return;
-      if (node is Map) {
-        for (final entry in node.entries) {
-          final key = entry.key.toString();
-          if (key.endsWith('Renderer') || key.endsWith('ViewModel')) {
-            renderers[key] = (renderers[key] ?? 0) + 1;
-          }
-          walk(entry.value, depth + 1);
-        }
-      } else if (node is List) {
-        for (final child in node) {
-          walk(child, depth + 1);
-        }
-      }
-    }
-
-    walk(response.json, 0);
-    final top = renderers.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    // the related-videos parser walks the tree instead of a fixed path
-    final generic = parseRelatedVideos(response.json);
+    final page = result.value!;
+    final info = page.info;
     return {
-      'pass': page.items.isNotEmpty || generic.isNotEmpty,
-      'genericItems': generic.length,
-      'genericFirst': generic.isEmpty
-          ? null
-          : '${generic.first.title} / ${generic.first.author}',
-      'renderers': {for (final e in top.take(8)) e.key: e.value},
+      // the header is what the video response cannot give us
+      'pass': page.videos.items.isNotEmpty && info != null,
       'channelId': channelId,
-      'items': page.items.length,
-      'hasContinuation': page.continuation != null,
-      'first': page.items.isEmpty
+      'items': page.videos.items.length,
+      'hasContinuation': page.videos.continuation != null,
+      // 'name' is the framework's key for the scenario; do not collide
+      'channelName': info?.name,
+      'avatar': info?.avatar?.url != null,
+      'subscribers': info?.subscriberText,
+      'videoCount': info?.videoCountText,
+      'first': page.videos.items.isEmpty
           ? null
-          : '${page.items.first.title} / ${page.items.first.author}',
+          : '${page.videos.items.first.title} / ${page.videos.items.first.author}',
     };
   }
 

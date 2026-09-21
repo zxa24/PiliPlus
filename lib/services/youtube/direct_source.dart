@@ -243,6 +243,17 @@ class YtDirectSource implements YouTubeVideoSource {
     String channelId, {
     String? continuation,
   }) async {
+    final result = await channelPage(channelId, continuation: continuation);
+    return result.ok
+        ? YtResult.ok(result.value!.videos)
+        : result.castFailure();
+  }
+
+  /// A channel's header and its uploads in one request.
+  Future<YtResult<YtChannelPage>> channelPage(
+    String channelId, {
+    String? continuation,
+  }) async {
     final response = continuation == null
         // the channel's "Videos" tab
         ? await client.browse(channelId, params: 'EgZ2aWRlb3M%3D')
@@ -250,9 +261,12 @@ class YtDirectSource implements YouTubeVideoSource {
     final verdict = classifyYtTransport(response);
     if (verdict != null) return YtResult.failed(verdict);
     return YtResult.ok(
-      YtPage(
-        parseRelatedVideos(response.json),
-        pageContinuationToken(response.json),
+      YtChannelPage(
+        parseChannelInfo(response.json, channelId),
+        YtPage(
+          parseRelatedVideos(response.json),
+          pageContinuationToken(response.json),
+        ),
       ),
     );
   }
@@ -265,6 +279,15 @@ class YtDirectSource implements YouTubeVideoSource {
     if (verdict != null) return YtResult.failed(verdict);
     return YtResult.ok(parseComments(r.json));
   }
+}
+
+/// A channel page: its header (absent on a continuation) and one page of
+/// uploads.
+class YtChannelPage {
+  const YtChannelPage(this.info, this.videos);
+
+  final YtChannelInfo? info;
+  final YtPage<YtSearchItem> videos;
 }
 
 /// What a `next` call yields: the related shelf, and the door to the comments.

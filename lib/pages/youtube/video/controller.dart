@@ -71,6 +71,7 @@ class YtVideoController extends GetxController {
     _streams = streams.value;
     await _open(streams.value!);
     unawaited(_loadRelated());
+    unawaited(_loadChannel());
   }
 
   Future<void> _open(YtStreamPair pair, {Duration? seekTo}) async {
@@ -148,6 +149,22 @@ class YtVideoController extends GetxController {
       ),
     );
     captionIndex.value = index;
+  }
+
+  // -------------------------------------------------------- channel header
+
+  /// Avatar, subscriber count — none of which the player response carries.
+  /// One extra request, made after the video is already playing.
+  final channel = Rxn<YtChannelInfo>();
+
+  Future<void> _loadChannel() async {
+    final channelId = detail.value?.channelId;
+    if (channelId == null || channelId.isEmpty) return;
+    final result = await router.run(
+      (s) => (s as YtDirectSource).channelPage(channelId),
+    );
+    if (isClosed || !result.ok) return;
+    channel.value = result.value?.info;
   }
 
   // ------------------------------------------------------------- quality

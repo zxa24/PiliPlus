@@ -1,3 +1,4 @@
+import 'package:PiliPlus/pages/youtube/channel/view.dart';
 import 'package:PiliPlus/pages/youtube/search/view.dart';
 import 'package:PiliPlus/pages/youtube/video/view.dart';
 import 'package:PiliPlus/pages/article/view.dart';
@@ -84,6 +85,7 @@ class Routes {
     // LibrePili: YouTube watch page (stage 2)
     GetPage(name: '/ytVideo', page: () => const YtVideoPage()),
     GetPage(name: '/ytSearch', page: () => const YtSearchPage()),
+    GetPage(name: '/ytChannel', page: () => const YtChannelPageView()),
     //
     GetPage(name: '/webview', page: () => const WebviewPage()),
     // 设置

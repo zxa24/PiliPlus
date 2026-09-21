@@ -386,3 +386,29 @@ class YtPage<T> {
   @override
   String toString() => 'YtPage(${items.length} items, more=$hasMore)';
 }
+
+
+/// A channel's own page header: the things a video response does not carry.
+class YtChannelInfo {
+  const YtChannelInfo({
+    required this.channelId,
+    required this.name,
+    this.avatar,
+    this.subscriberText,
+    this.videoCountText,
+    this.description,
+  });
+
+  final String channelId;
+  final String name;
+  final YtThumbnail? avatar;
+
+  /// Left as YouTube's own localised string ("5.2M subscribers"): turning it
+  /// into a number would be inventing precision it does not have.
+  final String? subscriberText;
+  final String? videoCountText;
+  final String? description;
+
+  @override
+  String toString() => 'YtChannelInfo($name, $subscriberText)';
+}

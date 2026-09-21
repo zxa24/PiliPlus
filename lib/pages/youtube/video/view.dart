@@ -61,34 +61,10 @@ class _YtVideoPageState extends State<YtVideoPage>
 
   Widget _scaffold(ThemeData theme, bool isFullScreen) => Scaffold(
     backgroundColor: theme.colorScheme.surface,
-    // nothing of the page belongs on screen in fullscreen: the player draws
-    // its own controls over the whole window
-    appBar: isFullScreen
-        ? null
-        : AppBar(
-            title: const Text('YouTube'),
-            actions: [
-              IconButton(
-                tooltip: '复制链接',
-                onPressed: () => Utils.copyText(controller.shareUrl!),
-                icon: const Icon(Icons.link),
-              ),
-              Obx(() {
-                final hasAny =
-                    controller.captions.isNotEmpty || controller.canTranscribe;
-                if (!hasAny) return const SizedBox.shrink();
-                return IconButton(
-                  tooltip: '字幕',
-                  onPressed: _pickCaption,
-                  icon: Icon(
-                    controller.captionIndex.value == -1
-                        ? Icons.closed_caption_off_outlined
-                        : Icons.closed_caption,
-                  ),
-                );
-              }),
-            ],
-          ),
+    // no app bar at all: the back arrow and the menu live in the player's
+    // own header, over the video, exactly as they do on the bilibili page.
+    // A separate strip above the player is neither what this app looks like
+    // nor what the space is for.
     body: isFullScreen
         ? _player(theme)
         : LayoutBuilder(
@@ -272,23 +248,60 @@ class _YtVideoPageState extends State<YtVideoPage>
       children: [
         Row(
           children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              // the player response carries no channel avatar
-              child: Icon(
-                Icons.person,
-                size: 22,
-                color: theme.colorScheme.outline,
-              ),
-            ),
+            Obx(() {
+              // the player response has no avatar; the channel request that
+              // follows the video fills it in
+              final avatar = controller.channel.value?.avatar?.url;
+              return GestureDetector(
+                onTap: _openChannel,
+                child: avatar == null
+                    ? CircleAvatar(
+                        radius: 20,
+                        backgroundColor:
+                            theme.colorScheme.surfaceContainerHighest,
+                        child: Icon(
+                          Icons.person,
+                          size: 22,
+                          color: theme.colorScheme.outline,
+                        ),
+                      )
+                    : NetworkImgLayer(
+                        type: ImageType.avatar,
+                        width: 40,
+                        height: 40,
+                        src: avatar,
+                      ),
+              );
+            }),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                detail.author,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium,
+              child: GestureDetector(
+                onTap: _openChannel,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      detail.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    Obx(() {
+                      final info = controller.channel.value;
+                      if (info == null) return const SizedBox.shrink();
+                      return Text(
+                        [
+                          ?info.subscriberText,
+                          ?info.videoCountText,
+                        ].join('    '),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: theme.colorScheme.outline,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -387,6 +400,12 @@ class _YtVideoPageState extends State<YtVideoPage>
       ],
     );
   });
+
+  void _openChannel() {
+    final channelId = controller.detail.value?.channelId;
+    if (channelId == null || channelId.isEmpty) return;
+    Get.toNamed('/ytChannel', parameters: {'id': channelId});
+  }
 
   Widget _action(
     ThemeData theme, {

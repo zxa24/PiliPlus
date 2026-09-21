@@ -282,3 +282,55 @@ String? _browseIdIn(Object? node) {
   }
   return null;
 }
+
+
+/// The channel header of a `browse` response.
+///
+/// Reads `pageHeaderViewModel`, which is what a channel page carries today —
+/// measured on two channels; the older `c4TabbedHeaderRenderer` did not
+/// appear at all.
+YtChannelInfo? parseChannelInfo(Object? root, String channelId) {
+  final header = collectObjects(root, 'pageHeaderViewModel').firstOrNull;
+  if (header == null) return null;
+
+  // the title is not a plain text node here: `pageHeaderViewModel` nests it
+  // in a `dynamicTextViewModel`, so the first non-empty `content` under it is
+  // the channel name
+  final name = [
+    readText(header['title']).trim(),
+    for (final content in collectByKey(header['title'], 'content'))
+      if (content is String) content.trim(),
+  ].firstWhere((s) => s.isNotEmpty, orElse: () => '');
+
+  // the avatar is the largest source under the header's image blocks
+  final avatars = <YtThumbnail>[
+    for (final sources in collectByKey(header, 'sources'))
+      ...mapList(sources, YtThumbnail.fromJson),
+  ];
+
+  // "5.2M subscribers" and "1.2K videos" arrive as metadata rows
+  final rows = <String>[
+    for (final part in collectObjects(header, 'metadataParts'))
+      readText(part['text']).trim(),
+    for (final parts in collectByKey(header, 'metadataParts'))
+      if (parts is List)
+        for (final part in parts)
+          if (part is Map) readText(part['text']).trim(),
+  ]..removeWhere((s) => s.isEmpty);
+
+  String? pick(bool Function(String) test) {
+    for (final row in rows) {
+      if (test(row.toLowerCase())) return row;
+    }
+    return null;
+  }
+
+  return YtChannelInfo(
+    channelId: channelId,
+    name: name,
+    avatar: largestThumbnail(avatars),
+    subscriberText: pick((r) => r.contains('subscriber') || r.contains('订阅')),
+    videoCountText: pick((r) => r.contains('video') || r.contains('视频')),
+    description: readText(header['description']).trim(),
+  );
+}

@@ -48,6 +48,20 @@ class YtHeaderControl extends StatelessWidget {
               ),
             ),
           ),
+          SizedBox(
+            width: 42,
+            height: 34,
+            child: IconButton(
+              tooltip: '返回主页',
+              style: style,
+              onPressed: () => Get.until((route) => route.isFirst),
+              icon: const Icon(
+                Icons.home_outlined,
+                size: 19,
+                color: Colors.white,
+              ),
+            ),
+          ),
           Expanded(
             child: Obx(
               () => Text(
