@@ -322,6 +322,35 @@ abstract final class LocalLibrary {
     'jump_url': ?jumpUrl,
   };
 
+  /// The same item shape for a YouTube video.
+  ///
+  /// It keeps the bilibili field names because the folder list renders these
+  /// with [VListItemModel] and `VideoCardH`, and a second card for a second
+  /// platform would be two things to keep in step. The one addition is
+  /// `yt`, the video id: without it the card has no way to know it must not
+  /// open a bilibili page, and the folder would quietly be a list of dead
+  /// taps. Its key is `yt<videoId>`, so it can never collide with `av…`.
+  static Map<String, dynamic> buildYtFavData({
+    required String videoId,
+    required String title,
+    String? cover,
+    int? durationSec,
+    String? author,
+    String? channelId,
+  }) => {
+    'yt': videoId,
+    'bvid': '',
+    'title': title,
+    'pic': ?cover,
+    if (durationSec != null && durationSec > 0)
+      'length': _formatLength(durationSec),
+    'author': ?author,
+    'jump_url': 'https://www.youtube.com/watch?v=$videoId',
+    'yt_channel': ?channelId,
+  };
+
+  static String ytFavKey(String videoId) => 'yt$videoId';
+
   static String _formatLength(int sec) {
     final h = sec ~/ 3600;
     final m = (sec % 3600) ~/ 60;
@@ -396,6 +425,9 @@ class LocalFavItem {
 
   String get title => data['title'] as String? ?? '';
   String get author => data['author'] as String? ?? '';
+
+  /// Non-null when this is a YouTube video rather than a bilibili one.
+  String? get youtubeId => data['yt'] as String?;
 
   VListItemModel toVideoItem() => VListItemModel.fromJson(data);
 

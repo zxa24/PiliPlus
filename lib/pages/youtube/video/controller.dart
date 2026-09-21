@@ -13,9 +13,10 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
-import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:media_kit/media_kit.dart' show SubtitleTrack;
@@ -61,6 +62,7 @@ class YtVideoController extends GetxController {
     detail.value = info.value;
     captions.value = info.value!.captionTracks;
     _refreshSubscribed();
+    refreshFav();
 
     final streams = await router.run((s) => s.streams(videoId));
     if (isClosed) return;
@@ -219,6 +221,29 @@ class YtVideoController extends GetxController {
   // ------------------------------------------------------------ subscription
 
   /// Followed locally; YouTube is never told. There is no account here.
+  // ----------------------------------------------------------- favourites
+
+  /// Favourites live in the same local folders bilibili videos do — there is
+  /// no account on either side here, and one 收藏夹 that holds both is the
+  /// point of a single app rather than two behind one icon.
+  final isFav = false.obs;
+
+  String get favKey => LocalLibrary.ytFavKey(videoId);
+
+  Map<String, dynamic> get favData {
+    final video = detail.value;
+    return LocalLibrary.buildYtFavData(
+      videoId: videoId,
+      title: video?.title ?? videoId,
+      cover: video?.thumbnails.lastOrNull?.url,
+      durationSec: video?.duration.inSeconds,
+      author: video?.author,
+      channelId: video?.channelId,
+    );
+  }
+
+  void refreshFav() => isFav.value = LocalLibrary.isFav(favKey);
+
   final subscribed = false.obs;
 
   void _refreshSubscribed() {

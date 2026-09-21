@@ -10,6 +10,7 @@ import 'dart:math' as math;
 
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
+import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/header_control.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
@@ -323,6 +324,17 @@ class _YtVideoPageState extends State<YtVideoPage>
             // no 字幕 button here: it is on the player's bar, where the
             // bilibili page keeps it, and having it in three places at once
             // was the reason the same sheet kept opening from everywhere
+            Obx(
+              () => _action(
+                theme,
+                icon: controller.isFav.value
+                    ? Icons.star
+                    : Icons.star_outline,
+                label: '收藏',
+                color: controller.isFav.value ? theme.colorScheme.primary : null,
+                onTap: _toggleFav,
+              ),
+            ),
             _action(
               theme,
               icon: Icons.link,
@@ -416,13 +428,25 @@ class _YtVideoPageState extends State<YtVideoPage>
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    Color? color,
   }) => Tooltip(
     message: label,
     child: IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 20, color: theme.colorScheme.outline),
+      icon: Icon(icon, size: 20, color: color ?? theme.colorScheme.outline),
     ),
   );
+
+  /// The same folder sheet a bilibili video opens — one 收藏夹 holding both,
+  /// since neither side has an account here.
+  Future<void> _toggleFav() async {
+    final now = await showLocalFavSheet(
+      context,
+      key: controller.favKey,
+      data: controller.favData,
+    );
+    if (now != null) controller.isFav.value = now;
+  }
 
   Widget _comments(ThemeData theme) => Obx(() {
     final items = controller.comments;

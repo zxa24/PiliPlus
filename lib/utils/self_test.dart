@@ -17,6 +17,7 @@ import 'package:PiliPlus/models_new/member/search_archive/data.dart';
 import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/pages/danmaku/controller.dart';
+import 'package:PiliPlus/pages/local/favs.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
@@ -335,6 +336,9 @@ abstract final class SelfTest {
     if (_arg(args, '--hover-controls') case final video?) {
       await scenario('hoverControls', () => _hoverControls(video));
     }
+    if (_arg(args, '--yt-fav') case final video?) {
+      await scenario('ytFav', () => _ytFav(video));
+    }
     if (_arg(args, '--yt-search-ui') case final query?) {
       await scenario('ytSearchUi', () => _ytSearchUi(query));
     }
@@ -475,6 +479,106 @@ abstract final class SelfTest {
       'flagInFS': flagInFS,
       'afterReEnterFS': afterReEnterFS,
       'hoverAfterLeavingFS': hoverAfterLeavingFS,
+    };
+  }
+
+  /// LibrePili: favouriting a YouTube video, and opening it again from the
+  /// folder it lands in.
+  ///
+  /// The folder renders every item with bilibili's VideoCardH, whose default
+  /// tap pushes a bilibili page from a bvid. A YouTube item has no bvid, so
+  /// the risk this checks is not "does it save" but "does the card that
+  /// saved it still go somewhere real".
+  static Future<Map<String, dynamic>> _ytFav(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 4));
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    final key = controller.favKey;
+    final wasFav = LocalLibrary.isFav(key);
+    await LocalLibrary.setFolders(key, controller.favData, {
+      LocalLibrary.defaultFolderId,
+    });
+    controller.refreshFav();
+    final saved = controller.isFav.value && LocalLibrary.isFav(key);
+
+    // a bilibili-shaped item beside it: the folder has to render both, and
+    // the layout fault this found is in the card, not in either platform's
+    // data — putting one of each in makes that a measurement rather than an
+    // argument.
+    const biliKey = 'av000000001';
+    final biliWasFav = LocalLibrary.isFav(biliKey);
+    final biliData = LocalLibrary.buildFavData(
+      aid: 1,
+      bvid: 'BV1xx411c7mD',
+      title: 'LibrePili selftest 的一条 B 站条目',
+      durationSec: 125,
+      author: 'selftest',
+    );
+    await LocalLibrary.setFolders(biliKey, biliData, {
+      LocalLibrary.defaultFolderId,
+    });
+
+    final items = LocalLibrary.folderItems(LocalLibrary.defaultFolderId);
+    final item = items.firstWhereOrNull((e) => e.key == key);
+    final title = item?.title;
+    final youtubeId = item?.youtubeId;
+
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+
+    // the folder itself, rendered, and a tap on the card we just added
+    unawaited(
+      Get.to(
+        () => LocalFavFolderPage(
+          folder: LocalFavFolder(
+            id: LocalLibrary.defaultFolderId,
+            title: '默认收藏夹',
+            order: 0,
+            ctime: 0,
+          ),
+        ),
+      ),
+    );
+    await Future.delayed(const Duration(seconds: 2));
+    final cardShown = title != null && _seesText(title);
+    final biliCardShown = _seesText('LibrePili selftest 的一条 B 站条目');
+    var openedRoute = '';
+    if (cardShown) {
+      await _tapText(title);
+      await Future.delayed(const Duration(milliseconds: 900));
+      openedRoute = Get.currentRoute;
+      if (openedRoute.startsWith('/ytVideo')) {
+        Get.back();
+        await Future.delayed(const Duration(milliseconds: 600));
+      }
+    }
+    Get.back();
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    // leave the library as it was found
+    if (!wasFav) await LocalLibrary.setFolders(key, controller.favData, {});
+    if (!biliWasFav) await LocalLibrary.setFolders(biliKey, biliData, {});
+
+    return {
+      'pass':
+          saved &&
+          youtubeId == videoId &&
+          cardShown &&
+          biliCardShown &&
+          openedRoute.startsWith('/ytVideo'),
+      'key': key,
+      'saved': saved,
+      'title': title,
+      'youtubeId': youtubeId,
+      'cardShown': cardShown,
+      'biliCardShown': biliCardShown,
+      'openedRoute': openedRoute,
+      'cleanedUp': !wasFav && !LocalLibrary.isFav(key),
     };
   }
 

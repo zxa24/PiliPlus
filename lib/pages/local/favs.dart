@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:PiliPlus/common/widgets/video_card/video_card_h.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/utils/grid.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -151,6 +152,7 @@ class _LocalFavFolderPageState extends State<LocalFavFolderPage> {
   late List<LocalFavItem> _items = LocalLibrary.folderItems(widget.folder.id);
   String _query = '';
   _SortType _sort = _SortType.favTime;
+  final _gridDelegate = Grid.videoCardHDelegate();
   StreamSubscription? _sub;
 
   @override
@@ -237,12 +239,28 @@ class _LocalFavFolderPageState extends State<LocalFavFolderPage> {
                       style: TextStyle(color: theme.colorScheme.outline),
                     ),
                   )
-                : ListView.builder(
+                // a grid, not a ListView: VideoCardH sizes its cover from an
+                // aspect ratio, so in an unbounded-height list it throws
+                // "RenderAspectRatio has unbounded constraints" and the whole
+                // folder renders as an error box. Every other list of these
+                // cards in the app uses this delegate; this one did not.
+                : GridView.builder(
+                    gridDelegate: _gridDelegate,
                     itemCount: list.length,
                     itemBuilder: (context, index) {
                       final item = list[index];
+                      final youtubeId = item.youtubeId;
                       return VideoCardH(
                         videoItem: item.toVideoItem(),
+                        // a YouTube item must not fall through to the
+                        // bilibili push: the card would open a page for a
+                        // bvid that does not exist
+                        onTap: youtubeId == null
+                            ? null
+                            : () => Get.toNamed(
+                                '/ytVideo',
+                                parameters: {'id': youtubeId},
+                              ),
                         onRemove: () => LocalLibrary.removeFromFolder(
                           item.key,
                           widget.folder.id,
