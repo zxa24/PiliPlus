@@ -15,9 +15,11 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
+import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show BuildContext, WidgetsBinding;
 import 'package:get/get.dart';
 import 'package:media_kit/media_kit.dart' show SubtitleTrack;
 
@@ -214,6 +216,59 @@ class YtVideoController extends GetxController {
   // ------------------------------------------------------------ subscription
 
   /// Followed locally; YouTube is never told. There is no account here.
+  // ------------------------------------------------------------- download
+
+  /// Downloading is its own path rather than the bilibili download queue:
+  /// that queue is built around an on-disk entry with aid/cid, danmaku and a
+  /// cover, none of which describes a YouTube video. What it shares is the
+  /// remuxer, so the result is the same thing — one finished mp4.
+  final downloading = false.obs;
+  YtDownloadToken? _downloadToken;
+
+  Future<void> download(BuildContext context) async {
+    if (downloading.value) {
+      _downloadToken?.cancel();
+      return;
+    }
+    final pair = _streams;
+    if (pair == null) {
+      SmartDialog.showToast('还没有可下载的流');
+      return;
+    }
+    final token = _downloadToken = YtDownloadToken();
+    downloading.value = true;
+    SmartDialog.showLoading(
+      msg: '准备下载',
+      onDismiss: token.cancel,
+    );
+    try {
+      final file = await YtDownloader.download(
+        pair: pair,
+        videoId: videoId,
+        title: detail.value?.title ?? videoId,
+        token: token,
+        onProgress: (fraction, stage) {
+          if (isClosed) return;
+          SmartDialog.showLoading(
+            msg: '$stage ${(fraction * 100).clamp(0, 100).toStringAsFixed(0)}%',
+            onDismiss: token.cancel,
+          );
+        },
+      );
+      SmartDialog.dismiss(status: SmartStatus.loading);
+      SmartDialog.showToast('已保存到 $file');
+    } on YtDownloadCancelled {
+      SmartDialog.dismiss(status: SmartStatus.loading);
+      SmartDialog.showToast('已取消下载');
+    } catch (e) {
+      SmartDialog.dismiss(status: SmartStatus.loading);
+      SmartDialog.showToast('下载失败: $e');
+    } finally {
+      downloading.value = false;
+      _downloadToken = null;
+    }
+  }
+
   // ----------------------------------------------------------- favourites
 
   /// Favourites live in the same local folders bilibili videos do — there is
@@ -278,10 +333,19 @@ class YtVideoController extends GetxController {
     _commentsToken = result.value!.commentsToken;
     final info = result.value!.extra;
     if (!info.isEmpty) extra.value = info;
+    // Comments start with the video rather than with the tab: the bilibili
+    // page has them ready by the time you scroll to them, and a list that
+    // begins loading when you look at it always looks slow.
+    //
+    // It has to be here, not beside the call above: the token that fetches
+    // them only exists once this response has landed. Starting earlier
+    // found no token, did nothing, and marked the comments as started — so
+    // opening the tab never loaded them at all.
+    ensureCommentsStarted();
   }
 
-  /// Fetches one page. The first call happens when the comments tab is first
-  /// shown, not with the video: most viewers never open it.
+  /// Fetches one page. The first call is made as soon as the token exists,
+  /// so the tab is already populated when it is opened.
   Future<void> loadMoreComments() async {
     final token = _commentsToken;
     if (token == null || commentsLoading.value) return;
@@ -322,6 +386,29 @@ class YtVideoController extends GetxController {
   /// Opens a thread, fetching its first page of replies if this is the first
   /// time. A second call closes it again — the replies stay, so reopening
   /// costs nothing.
+  /// Fetches the first page of a thread's replies so the list can show a
+  /// preview of them, the way the bilibili one does.
+  ///
+  /// YouTube sends no replies with the comments — only a token and a count —
+  /// so a preview is a request per thread. It is made when the row is built,
+  /// which is when it is about to be seen, rather than for all twenty at
+  /// once when the page opens.
+  void ensureRepliesPreview(YtComment comment) {
+    if (!comment.hasReplies) return;
+    final id = comment.commentId;
+    if (replies.containsKey(id) || repliesLoading.contains(id)) return;
+    // This is called from a row's build. Marking the thread as loading
+    // touches an observable, and doing that while the frame is being built
+    // is a change-during-build — the error lands in an unawaited future and
+    // vanishes, which is exactly what it did: no request, no entry, and
+    // nothing on screen to say why. It waits for the frame to end instead.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (isClosed) return;
+      if (replies.containsKey(id) || repliesLoading.contains(id)) return;
+      unawaited(_fetchReplies(id, comment.replyToken));
+    });
+  }
+
   Future<void> toggleReplies(YtComment comment) async {
     final id = comment.commentId;
     if (expandedThreads.contains(id)) {

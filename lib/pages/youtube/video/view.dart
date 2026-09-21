@@ -11,6 +11,7 @@ import 'dart:math' as math;
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
+import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/header_control.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
@@ -20,10 +21,14 @@ import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/bottom_control.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/play_pause_btn.dart';
+import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/grid.dart';
+import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -317,30 +322,15 @@ class _YtVideoPageState extends State<YtVideoPage>
                 child: Text(controller.subscribed.value ? '已订阅' : '订阅'),
               ),
             ),
-            const SizedBox(width: 12),
-            // no 字幕 button here: it is on the player's bar, where the
-            // bilibili page keeps it, and having it in three places at once
-            // was the reason the same sheet kept opening from everywhere
-            Obx(
-              () => _action(
-                theme,
-                icon: controller.isFav.value
-                    ? Icons.star
-                    : Icons.star_outline,
-                label: '收藏',
-                color: controller.isFav.value ? theme.colorScheme.primary : null,
-                onTap: _toggleFav,
-              ),
-            ),
-            _action(
-              theme,
-              icon: Icons.link,
-              label: '复制链接',
-              onTap: () => Utils.copyText(controller.shareUrl!),
-            ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 6),
+        // 收藏 / 下载 / 分享, in the row the bilibili page puts under the
+        // video and with the same ActionItem it uses. 点赞 / 投币 / 再看 are
+        // not here because a logged-out YouTube has no such thing — the row
+        // holds what this platform can actually do, in that platform's order.
+        _actionRow(theme),
+        const SizedBox(height: 8),
         Text(detail.title, style: theme.textTheme.titleMedium),
         const SizedBox(height: 6),
         // 播放量 · 发布时间, the line the bilibili page puts under the title.
@@ -439,19 +429,87 @@ class _YtVideoPageState extends State<YtVideoPage>
     Get.toNamed('/ytChannel', parameters: {'id': channelId});
   }
 
-  Widget _action(
-    ThemeData theme, {
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    Color? color,
-  }) => Tooltip(
-    message: label,
-    child: IconButton(
-      onPressed: onTap,
-      icon: Icon(icon, size: 20, color: color ?? theme.colorScheme.outline),
+  Widget _actionRow(ThemeData theme) => SizedBox(
+    height: 48,
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Obx(
+          () => ActionItem(
+            icon: const Icon(FontAwesomeIcons.star),
+            selectIcon: const Icon(FontAwesomeIcons.solidStar),
+            onTap: _toggleFav,
+            selectStatus: controller.isFav.value,
+            semanticsLabel: '收藏',
+            text: '收藏',
+          ),
+        ),
+        Obx(
+          () => ActionItem(
+            icon: const Icon(FontAwesomeIcons.download),
+            onTap: _download,
+            selectStatus: false,
+            semanticsLabel: '下载',
+            text: controller.downloading.value ? '下载中' : '下载',
+          ),
+        ),
+        ActionItem(
+          icon: const Icon(FontAwesomeIcons.shareFromSquare),
+          onTap: _share,
+          selectStatus: false,
+          semanticsLabel: '分享',
+          text: '分享',
+        ),
+      ],
     ),
   );
+
+  /// The same little dialog the bilibili page opens, with the entries that
+  /// mean something here.
+  void _share() {
+    final url = controller.shareUrl!;
+    final detail = controller.detail.value;
+    showDialog<void>(
+      context: context,
+      builder: (_) => SimpleDialog(
+        clipBehavior: Clip.hardEdge,
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        children: [
+          ListTile(
+            dense: true,
+            title: const Text('复制链接', style: TextStyle(fontSize: 14)),
+            onTap: () {
+              Get.back();
+              Utils.copyText(url);
+            },
+          ),
+          ListTile(
+            dense: true,
+            title: const Text('其它app打开', style: TextStyle(fontSize: 14)),
+            onTap: () {
+              Get.back();
+              PiliAndroidHelper.openUrl(url);
+            },
+          ),
+          if (PlatformUtils.isMobile)
+            ListTile(
+              dense: true,
+              title: const Text('分享视频', style: TextStyle(fontSize: 14)),
+              onTap: () {
+                Get.back();
+                ShareUtils.shareText(
+                  detail == null
+                      ? url
+                      : '${detail.title} 频道: ${detail.author} - $url',
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _download() => controller.download(context);
 
   /// The same folder sheet a bilibili video opens — one 收藏夹 holding both,
   /// since neither side has an account here.
@@ -500,94 +558,199 @@ class _YtVideoPageState extends State<YtVideoPage>
     );
   });
 
-  /// A top-level comment and, when it is open, its replies.
-  Widget _thread(ThemeData theme, YtComment comment) => Obx(() {
-    final id = comment.commentId;
-    final open = controller.expandedThreads.contains(id);
-    final loaded = controller.replies[id];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _comment(theme, comment),
-        if (comment.hasReplies)
-          Padding(
-            padding: const EdgeInsets.only(left: 42, top: 2),
-            child: TextButton(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              onPressed: () => controller.toggleReplies(comment),
-              child: Text(
-                open
-                    ? '收起回复'
-                    // the count is not always a number: YouTube abbreviates
-                    // it ("1.2K") and the parser reports 0 rather than
-                    // inventing one, so the button says what it can
-                    : comment.replyCount > 0
-                    ? '查看 ${comment.replyCount} 条回复'
-                    : '查看回复',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ),
-        if (open) ...[
-          if (loaded == null && controller.repliesLoading.contains(id))
-            const Padding(
-              padding: EdgeInsets.only(left: 42, top: 6),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          if (loaded != null)
+  /// A top-level comment with a preview of its replies under it, the way
+  /// the bilibili page shows them: a rounded block, the first few replies as
+  /// `name: text`, then 「共 N 条回复」. Tapping anywhere in it opens the
+  /// whole thread.
+  Widget _thread(ThemeData theme, YtComment comment) {
+    // asking here means asking when the row is built, which is when it is
+    // about to be seen — YouTube sends no replies with the comments, so a
+    // preview costs one request per thread and twenty at once is not a page
+    // opening, it is a page hanging
+    controller.ensureRepliesPreview(comment);
+    return Obx(() {
+      final id = comment.commentId;
+      final loaded = controller.replies[id];
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _comment(theme, comment),
+          if (comment.hasReplies)
             Padding(
-              padding: const EdgeInsets.only(left: 42, top: 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (loaded.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Text(
-                        '没有取到回复',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.outline,
-                        ),
-                      ),
-                    ),
-                  for (final reply in loaded)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _comment(theme, reply, avatar: 26),
-                    ),
-                  if (controller.hasMoreReplies(id))
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      onPressed: () => controller.loadMoreReplies(id),
-                      child: Text(
-                        controller.repliesLoading.contains(id)
-                            ? '加载中…'
-                            : '展开更多回复',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                ],
-              ),
+              padding: const EdgeInsets.only(top: 5, bottom: 4),
+              child: _replyPreview(theme, comment, loaded),
             ),
         ],
-      ],
+      );
+    });
+  }
+
+  /// bilibili's preview block: same indent, same rounded surface, same
+  /// one-line-per-reply shape.
+  Widget _replyPreview(
+    ThemeData theme,
+    YtComment comment,
+    List<YtComment>? loaded,
+  ) {
+    const previewCount = 3;
+    final shown = loaded == null
+        ? const <YtComment>[]
+        : loaded.take(previewCount).toList();
+    // YouTube's own label is in the response's language ('962 replies'),
+    // which is not this interface's. The number is the part worth keeping —
+    // including when it is abbreviated ('1.2K'), which is exactly the case
+    // the numeric replyCount reports as 0 rather than inventing a figure.
+    final counted =
+        comment.replyCountText == null
+        ? null
+        : RegExp(r'[\d][\d.,]*\s*[KMB]?', caseSensitive: false)
+              .firstMatch(comment.replyCountText!)
+              ?.group(0);
+    final label = counted != null
+        ? '共 $counted 条回复'
+        : comment.replyCount > 0
+        ? '共 ${comment.replyCount} 条回复'
+        : '查看回复';
+    return Padding(
+      padding: const EdgeInsets.only(left: 42, right: 4),
+      child: Material(
+        animationDuration: Duration.zero,
+        color: theme.colorScheme.onInverseSurface,
+        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        child: InkWell(
+          borderRadius: const BorderRadius.all(Radius.circular(6)),
+          onTap: () => _openThread(comment),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final (index, reply) in shown.indexed)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    8,
+                    index == 0 ? 8 : 4,
+                    8,
+                    4,
+                  ),
+                  child: Text.rich(
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    TextSpan(
+                      style: TextStyle(
+                        height: 1.6,
+                        fontSize: 14,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.85,
+                        ),
+                      ),
+                      children: [
+                        TextSpan(
+                          text: reply.author,
+                          style: TextStyle(color: theme.colorScheme.primary),
+                        ),
+                        const TextSpan(text: ': '),
+                        TextSpan(text: reply.content),
+                      ],
+                    ),
+                  ),
+                ),
+              // the count row, which is also what stands in for the whole
+              // block while the replies are still on their way
+              Padding(
+                padding: EdgeInsets.fromLTRB(8, shown.isEmpty ? 6 : 2, 8, 7),
+                child: Row(
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    if (loaded == null &&
+                        controller.repliesLoading.contains(
+                          comment.commentId,
+                        )) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(strokeWidth: 1.5),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-  });
+  }
+
+  /// The whole thread, as a sheet — the bilibili page pushes a panel for
+  /// this, and the sheet is where this app puts panels over the player.
+  void _openThread(YtComment comment) {
+    final id = comment.commentId;
+    controller.expandedThreads.add(id);
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxWidth: math.min(640, MediaQuery.sizeOf(context).shortestSide),
+      ),
+      builder: (context) {
+        final theme = Theme.of(context);
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          maxChildSize: 0.95,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (context, scrollController) => Obx(() {
+            final loaded = controller.replies[id] ?? const <YtComment>[];
+            final loading = controller.repliesLoading.contains(id);
+            return ListView.separated(
+              controller: scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: 1 + loaded.length + 1,
+              separatorBuilder: (_, _) => const Divider(height: 20),
+              itemBuilder: (context, index) {
+                if (index == 0) return _comment(theme, comment);
+                if (index <= loaded.length) {
+                  return Padding(
+                    padding: const EdgeInsets.only(left: 26),
+                    child: _comment(theme, loaded[index - 1], avatar: 26),
+                  );
+                }
+                if (loading) {
+                  return const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                if (controller.hasMoreReplies(id)) {
+                  return Center(
+                    child: TextButton(
+                      onPressed: () => controller.loadMoreReplies(id),
+                      child: const Text('展开更多回复'),
+                    ),
+                  );
+                }
+                return loaded.isEmpty
+                    ? Center(
+                        child: Text(
+                          '没有取到回复',
+                          style: TextStyle(color: theme.colorScheme.outline),
+                        ),
+                      )
+                    : const SizedBox.shrink();
+              },
+            );
+          }),
+        );
+      },
+    );
+  }
 
   Widget _comment(
     ThemeData theme,

@@ -354,6 +354,7 @@ class YtComment {
     this.isPinned = false,
     this.authorIsUploader = false,
     this.replyToken,
+    this.replyCountText,
   });
 
   final String commentId;
@@ -374,9 +375,16 @@ class YtComment {
   /// throwing it away.
   final String? replyToken;
 
+  /// '962 replies' — YouTube's own label on the expand button.
+  ///
+  /// [replyCount] is a number or 0, because the toolbar abbreviates large
+  /// counts ('1.2K') and the parser will not invent one. This is what the
+  /// site itself writes there, so the button can say it verbatim.
+  final String? replyCountText;
+
   bool get hasReplies => replyToken != null;
 
-  YtComment copyWith({String? replyToken}) => YtComment(
+  YtComment copyWith({String? replyToken, String? replyCountText}) => YtComment(
     commentId: commentId,
     author: author,
     authorChannelId: authorChannelId,
@@ -388,6 +396,7 @@ class YtComment {
     isPinned: isPinned,
     authorIsUploader: authorIsUploader,
     replyToken: replyToken ?? this.replyToken,
+    replyCountText: replyCountText ?? this.replyCountText,
   );
 
   @override

@@ -75,23 +75,48 @@ YtPage<YtComment> parseComments(Object? root) {
     if (id is String) viewModels[id] = vm;
   }
   final replyTokens = _replyTokensByComment(root);
+  final replyLabels = _replyLabelsByComment(root);
 
   final out = <YtComment>[];
   final seen = <String>{};
   for (final p in collectObjects(root, 'commentEntityPayload')) {
     final c = _fromCommentEntityPayload(p, viewModels);
     if (c != null && seen.add(c.commentId)) {
-      out.add(c.copyWith(replyToken: replyTokens[c.commentId]));
+      out.add(
+        c.copyWith(
+          replyToken: replyTokens[c.commentId],
+          replyCountText: replyLabels[c.commentId],
+        ),
+      );
     }
   }
   // Legacy form, for the day YouTube serves it again (or an A/B bucket does).
   for (final p in collectObjects(root, 'commentRenderer')) {
     final c = _fromLegacyCommentRenderer(p);
     if (c != null && seen.add(c.commentId)) {
-      out.add(c.copyWith(replyToken: replyTokens[c.commentId]));
+      out.add(
+        c.copyWith(
+          replyToken: replyTokens[c.commentId],
+          replyCountText: replyLabels[c.commentId],
+        ),
+      );
     }
   }
   return YtPage(out, commentsPageContinuationToken(root));
+}
+
+/// YouTube's own label on each thread's expand button ('962 replies').
+Map<String, String> _replyLabelsByComment(Object? root) {
+  final out = <String, String>{};
+  for (final thread in collectObjects(root, 'commentThreadRenderer')) {
+    final button = collectObjects(thread, 'viewReplies').firstOrNull;
+    final label = readText(
+      (button?['buttonRenderer'] as Map?)?['text'],
+    ).trim();
+    if (label.isEmpty) continue;
+    if (_topCommentIdOf(thread) case final id?) out[id] = label;
+  }
+  return out;
 }
 
 /// Which comment each thread-scoped continuation belongs to.
@@ -105,23 +130,7 @@ Map<String, String> _replyTokensByComment(Object? root) {
   for (final thread in collectObjects(root, 'commentThreadRenderer')) {
     final tokens = collectContinuationTokens(thread);
     if (tokens.isEmpty) continue;
-    String? id;
-    for (final vm in collectObjects(thread, 'commentViewModel')) {
-      if (vm['commentId'] case final String value when value.isNotEmpty) {
-        id = value;
-        break;
-      }
-    }
-    // the legacy shape carries the id on the renderer itself
-    if (id == null) {
-      for (final c in collectObjects(thread, 'commentRenderer')) {
-        if (c['commentId'] case final String value when value.isNotEmpty) {
-          id = value;
-          break;
-        }
-      }
-    }
-    if (id != null) out[id] = tokens.first;
+    if (_topCommentIdOf(thread) case final id?) out[id] = tokens.first;
   }
   return out;
 }
@@ -178,6 +187,25 @@ String? commentsPageContinuationToken(Object? root) {
     if (r['trigger'] != 'CONTINUATION_TRIGGER_ON_ITEM_SHOWN') continue;
     for (final token in collectContinuationTokens(r)) {
       if (!threadScoped.contains(token)) return token;
+    }
+  }
+  return null;
+}
+
+/// The id of the comment a thread is about.
+///
+/// A thread carries two `commentViewModel`s and the first has no
+/// `commentId` at all, so this takes the first one that does.
+String? _topCommentIdOf(Map<String, dynamic> thread) {
+  for (final vm in collectObjects(thread, 'commentViewModel')) {
+    if (vm['commentId'] case final String value when value.isNotEmpty) {
+      return value;
+    }
+  }
+  // the legacy shape carries the id on the renderer itself
+  for (final c in collectObjects(thread, 'commentRenderer')) {
+    if (c['commentId'] case final String value when value.isNotEmpty) {
+      return value;
     }
   }
   return null;

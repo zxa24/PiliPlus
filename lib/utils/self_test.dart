@@ -30,6 +30,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
 import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
+import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
@@ -158,20 +159,34 @@ abstract final class SelfTest {
   /// ('字体大小 100.0%'), and an exact match on the name alone finds nothing.
   static bool _seesLabel(String prefix) =>
       _findElement(
-        (e) => e.widget is Text && ((e.widget as Text).data ?? '').startsWith(prefix),
+        (e) => e.widget is Text && _textOf(e.widget as Text).startsWith(prefix),
       ) !=
       null;
 
   static bool Function(Element) _isText(String label) =>
-      (e) => e.widget is Text && (e.widget as Text).data == label;
+      (e) => e.widget is Text && _textOf(e.widget as Text) == label;
+
+  /// The words a [Text] shows, whether it was given a string or a span tree.
+  /// A Text.rich has a null `data`, so reading that alone finds nothing in
+  /// any of the rich rows this app builds.
+  static String _textOf(Text text) {
+    if (text.data case final data?) return data;
+    final buffer = StringBuffer();
+    text.textSpan?.visitChildren((span) {
+      if (span is TextSpan) buffer.write(span.text ?? '');
+      return true;
+    });
+    return buffer.toString();
+  }
 
   /// Every [Text] currently in the tree, for when an expected label is not
   /// found and the question becomes "then what IS on screen?".
   static List<String> _visibleTexts() {
     final seen = <String>[];
     void visit(Element element) {
-      if (element.widget case Text(data: final d?) when d.trim().isNotEmpty) {
-        if (!seen.contains(d)) seen.add(d);
+      if (element.widget case final Text text) {
+        final d = _textOf(text);
+        if (d.trim().isNotEmpty && !seen.contains(d)) seen.add(d);
       }
       element.visitChildren(visit);
     }
@@ -336,6 +351,9 @@ abstract final class SelfTest {
     if (_arg(args, '--hover-controls') case final video?) {
       await scenario('hoverControls', () => _hoverControls(video));
     }
+    if (_arg(args, '--yt-download') case final video?) {
+      await scenario('ytDownload', () => _ytDownload(video));
+    }
     if (_arg(args, '--yt-fav') case final video?) {
       await scenario('ytFav', () => _ytFav(video));
     }
@@ -479,6 +497,90 @@ abstract final class SelfTest {
       'flagInFS': flagInFS,
       'afterReEnterFS': afterReEnterFS,
       'hoverAfterLeavingFS': hoverAfterLeavingFS,
+    };
+  }
+
+  /// LibrePili: download a YouTube video and check the file is one playable
+  /// mp4, not two halves with an extension.
+  ///
+  /// The two adaptive streams are remuxed by the same pure-Dart [Mp4Remuxer]
+  /// the bilibili downloads use, so "it finished" is not the question — the
+  /// question is whether the container it wrote has both tracks and a
+  /// duration. That is read back out of the file.
+  static Future<Map<String, dynamic>> _ytDownload(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 4));
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final pair = controller.streams;
+    if (pair == null) {
+      Get.back();
+      return {'pass': false, 'reason': 'no streams'};
+    }
+
+    // a small cap so the probe downloads a few MB rather than a whole 4K
+    // review: the container is what is being checked, not the bandwidth
+    await controller.setMaxHeight(controller.availableHeights.last);
+    await Future.delayed(const Duration(seconds: 2));
+
+    final stages = <String>[];
+    String? file;
+    String? error;
+    try {
+      file = await YtDownloader.download(
+        pair: controller.streams!,
+        videoId: videoId,
+        title: controller.detail.value?.title ?? videoId,
+        onProgress: (_, stage) {
+          if (stages.isEmpty || stages.last != stage) stages.add(stage);
+        },
+      );
+    } catch (e) {
+      error = '$e';
+    }
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+
+    var bytes = 0;
+    var playable = false;
+    Duration? duration;
+    if (file != null && File(file).existsSync()) {
+      bytes = File(file).lengthSync();
+      // open it the way a player would, and read what it reports back
+      final player = await Player.create();
+      try {
+        await player.open(Media(file), play: false);
+        for (var i = 0; i < 20; i++) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (player.state.duration > Duration.zero) break;
+        }
+        duration = player.state.duration;
+        playable =
+            duration > Duration.zero &&
+            player.state.tracks.video.length > 1 &&
+            player.state.tracks.audio.length > 1;
+      } catch (e) {
+        error ??= 'open: $e';
+      } finally {
+        await player.dispose();
+      }
+      try {
+        File(file).deleteSync();
+      } catch (_) {}
+    }
+
+    return {
+      'pass': error == null && playable && bytes > 0,
+      'file': file,
+      'bytes': bytes,
+      'seconds': duration?.inSeconds,
+      'expected': controller.detail.value?.duration.inSeconds,
+      'playable': playable,
+      'stages': stages,
+      'error': error,
     };
   }
 
@@ -765,6 +867,9 @@ abstract final class SelfTest {
     var visibleComments = 0;
     var anyReplyButton = false;
     var commentsTabOpened = false;
+    var commentsAutoLoaded = false;
+    var previewEntries = 0;
+    var previewNonEmpty = 0;
     String? firstReply;
     // did the panels the user complained about actually open?
     var settingsSheet = false;
@@ -793,13 +898,15 @@ abstract final class SelfTest {
       // the rest of the page: related shelf, comments, and a subscription
       await Future.delayed(const Duration(seconds: 3));
       relatedCount = controller.related.length;
+      // comments now start with the video, so they must already be here
+      // without anything having opened the tab
+      commentsAutoLoaded = controller.comments.isNotEmpty;
       // the publish date and the exact view count arrive with the related
       // shelf now, in place of the channel request that used to fetch the
       // avatar on its own
       publishedDate = controller.extra.value?.dateText;
       exactViews = controller.extra.value?.viewCountText;
       subscribers = controller.extra.value?.subscriberText;
-      controller.ensureCommentsStarted();
       for (var i = 0; i < 10 && controller.comments.isEmpty; i++) {
         await Future.delayed(const Duration(seconds: 1));
       }
@@ -822,32 +929,49 @@ abstract final class SelfTest {
           .where((c) => c.hasReplies)
           .length;
       if (thread != null) {
-        await controller.toggleReplies(thread);
-        for (var i = 0; i < 10; i++) {
+        // nothing is toggled: the preview is fetched by the row being built,
+        // so this only waits for it to arrive and render
+        for (var i = 0; i < 12; i++) {
           await Future.delayed(const Duration(seconds: 1));
           replyCount = controller.replies[thread.commentId]?.length ?? 0;
           if (replyCount > 0) break;
         }
-        // and they have to be rendered, not merely fetched
-        await Future.delayed(const Duration(milliseconds: 600));
-        repliesShown = _seesText('收起回复');
+        await Future.delayed(const Duration(milliseconds: 800));
         // If nothing of the comment list is on screen the tab was never
         // shown, which is a different failure from "the thread is below the
-        // fold" and from "the button says something else".
+        // fold" and from "the preview rendered empty".
         visibleComments = controller.comments
             .where((c) => _seesText(c.author))
             .length;
-        anyReplyButton = _findElement(
+        anyReplyButton =
+            _findElement(
               (e) =>
                   e.widget is Text &&
-                  ((e.widget as Text).data ?? '').startsWith('查看'),
+                  _textOf(e.widget as Text).contains('条回复'),
             ) !=
             null;
+        // entries vs non-empty entries: "no request was made" and "the
+        // request came back with nothing" look the same in replyCount alone
+        previewEntries = controller.replies.length;
+        previewNonEmpty = controller.replies.values
+            .where((v) => v.isNotEmpty)
+            .length;
         final first = controller.replies[thread.commentId]?.firstOrNull;
         firstReply = first == null
             ? null
             : '${first.author}: ${first.content.length > 30 ? '${first.content.substring(0, 30)}…' : first.content}';
-        await controller.toggleReplies(thread);
+        // the preview block itself: a reply's author on screen, not just the
+        // count row, which would render even if the block came up empty
+        // the author of a reply appears inside the preview's rich text, so
+        // this only finds it if the block itself rendered with content
+        repliesShown =
+            first != null &&
+            _findElement(
+                  (e) =>
+                      e.widget is Text &&
+                      _textOf(e.widget as Text).startsWith(first.author),
+                ) !=
+                null;
       }
 
       final wasSubscribed = controller.subscribed.value;
@@ -927,6 +1051,8 @@ abstract final class SelfTest {
           channelUploads > 0 &&
           replyCount > 0 &&
           repliesShown &&
+          anyReplyButton &&
+          commentsAutoLoaded &&
           settingsSheet &&
           subtitlePanel &&
           captionMenu &&
@@ -953,6 +1079,9 @@ abstract final class SelfTest {
       'visibleComments': visibleComments,
       'anyReplyButton': anyReplyButton,
       'commentsTabOpened': commentsTabOpened,
+      'commentsAutoLoaded': commentsAutoLoaded,
+      'previewEntries': previewEntries,
+      'previewNonEmpty': previewNonEmpty,
       'firstReply': firstReply,
       'subscribeToggled': subscribeToggled,
       'settingsSheet': settingsSheet,
