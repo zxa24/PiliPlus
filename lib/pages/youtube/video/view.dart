@@ -32,13 +32,17 @@ class YtVideoPage extends StatefulWidget {
 }
 
 class _YtVideoPageState extends State<YtVideoPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final String videoId =
       Get.parameters['id'] ?? (Get.arguments as String? ?? '');
   late final YtVideoController controller = Get.put(
     YtVideoController(videoId: videoId),
     tag: videoId,
   );
+  late final TabController _sideTabs = TabController(length: 2, vsync: this)
+    ..addListener(() {
+      if (_sideTabs.index == 1) controller.ensureCommentsStarted();
+    });
   late final TabController _tabs = TabController(length: 2, vsync: this)
     ..addListener(() {
       // comments are fetched when the tab is first opened: most viewers never
@@ -88,6 +92,37 @@ class _YtVideoPageState extends State<YtVideoPage>
         ? _player(theme)
         : LayoutBuilder(
             builder: (context, box) {
+              // the same split as the bilibili video page: on a wide window
+              // the player keeps the left and the tabs take a side column,
+              // rather than pushing everything below the fold
+              final wide = box.maxWidth > box.maxHeight && box.maxWidth > 900;
+              if (wide) {
+                final panelWidth = math.min(420.0, box.maxWidth * 0.34);
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            height: math.min(
+                              (box.maxWidth - panelWidth) * 9 / 16,
+                              box.maxHeight * 0.72,
+                            ),
+                            child: _player(theme),
+                          ),
+                          Expanded(child: _intro(theme, inSidePanel: true)),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: panelWidth,
+                      child: _sidePanel(theme),
+                    ),
+                  ],
+                );
+              }
               // 16:9 of the width, but never taller than what is there: a
               // short window made the aspect box overflow the column
               final playerHeight = math.min(
@@ -104,6 +139,52 @@ class _YtVideoPageState extends State<YtVideoPage>
             },
           ),
   );
+
+  /// The wide layout's right column: 相关视频 / 评论, as on the bilibili page.
+  Widget _sidePanel(ThemeData theme) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      TabBar(
+        controller: _sideTabs,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        dividerHeight: 0,
+        tabs: const [Tab(text: '相关视频'), Tab(text: '评论')],
+      ),
+      Expanded(
+        child: TabBarView(
+          controller: _sideTabs,
+          children: [_relatedList(theme), _comments(theme)],
+        ),
+      ),
+    ],
+  );
+
+  Widget _relatedList(ThemeData theme) => Obx(() {
+    if (controller.related.isEmpty) {
+      return Center(
+        child: Text(
+          '暂无相关视频',
+          style: TextStyle(color: theme.colorScheme.outline),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: controller.related.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final item = controller.related[index];
+        return YtVideoTile(
+          item: item,
+          onTap: () => Get.offAndToNamed(
+            '/ytVideo',
+            parameters: {'id': item.videoId},
+          ),
+        );
+      },
+    );
+  });
 
   Widget _player(ThemeData theme) => Obx(() {
     switch (controller.stage.value) {
@@ -174,38 +255,41 @@ class _YtVideoPageState extends State<YtVideoPage>
       Expanded(
         child: TabBarView(
           controller: _tabs,
-          children: [_intro(theme), _comments(theme)],
+          children: [_intro(theme, inSidePanel: false), _comments(theme)],
         ),
       ),
     ],
   );
 
-  Widget _intro(ThemeData theme) => Obx(() {
+  /// The order the bilibili page uses: who made it and the follow button
+  /// first, then the actions, then the title and its numbers.
+  Widget _intro(ThemeData theme, {required bool inSidePanel}) => Obx(() {
     final detail = controller.detail.value;
     if (detail == null) return const SizedBox.shrink();
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       children: [
-        Text(detail.title, style: theme.textTheme.titleMedium),
-        const SizedBox(height: 8),
         Row(
           children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              // the player response carries no channel avatar
+              child: Icon(
+                Icons.person,
+                size: 22,
+                color: theme.colorScheme.outline,
+              ),
+            ),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
                 detail.author,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: theme.colorScheme.outline),
+                style: theme.textTheme.bodyMedium,
               ),
             ),
-            if (detail.viewCount case final views?)
-              Text(
-                '$views 次观看',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.colorScheme.outline,
-                ),
-              ),
             const SizedBox(width: 8),
             Obx(
               () => FilledButton.tonal(
@@ -216,10 +300,51 @@ class _YtVideoPageState extends State<YtVideoPage>
                 child: Text(controller.subscribed.value ? '已订阅' : '订阅'),
               ),
             ),
+            const SizedBox(width: 12),
+            _action(
+              theme,
+              icon: Icons.closed_caption_outlined,
+              label: '字幕',
+              onTap: _pickCaption,
+            ),
+            _action(
+              theme,
+              icon: Icons.link,
+              label: '复制链接',
+              onTap: () => Utils.copyText(controller.shareUrl!),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Text(detail.title, style: theme.textTheme.titleMedium),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Icon(
+              Icons.play_circle_outline,
+              size: 13,
+              color: theme.colorScheme.outline,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              detail.viewCount == null ? '-' : '${detail.viewCount}',
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.outline,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              detail.videoId,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.outline,
+              ),
+            ),
           ],
         ),
         if (controller.streams case final pair?) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             '来源 ${pair.sourceId} · ${pair.video?.qualityLabel ?? ''} '
             '${pair.video?.codec ?? ''} + ${pair.audio?.codec ?? ''}',
@@ -227,38 +352,53 @@ class _YtVideoPageState extends State<YtVideoPage>
           ),
         ],
         if (detail.description.isNotEmpty) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           SelectableText(
             detail.description,
             style: theme.textTheme.bodySmall,
           ),
         ],
-        Obx(() {
-          if (controller.related.isEmpty) return const SizedBox.shrink();
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 20),
-              Text('相关视频', style: theme.textTheme.titleSmall),
-              const SizedBox(height: 10),
-              for (final item in controller.related)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: YtVideoTile(
-                    item: item,
-                    // replaces the page rather than stacking watch pages
-                    onTap: () => Get.offAndToNamed(
-                      '/ytVideo',
-                      parameters: {'id': item.videoId},
+        // narrow layouts have no side column, so the shelf goes here
+        if (!inSidePanel)
+          Obx(() {
+            if (controller.related.isEmpty) return const SizedBox.shrink();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 20),
+                Text('相关视频', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 10),
+                for (final item in controller.related)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: YtVideoTile(
+                      item: item,
+                      // replaces the page rather than stacking watch pages
+                      onTap: () => Get.offAndToNamed(
+                        '/ytVideo',
+                        parameters: {'id': item.videoId},
+                      ),
                     ),
                   ),
-                ),
-            ],
-          );
-        }),
+              ],
+            );
+          }),
       ],
     );
   });
+
+  Widget _action(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) => Tooltip(
+    message: label,
+    child: IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, size: 20, color: theme.colorScheme.outline),
+    ),
+  );
 
   Widget _comments(ThemeData theme) => Obx(() {
     final items = controller.comments;
@@ -471,6 +611,7 @@ class _YtVideoPageState extends State<YtVideoPage>
   @override
   void dispose() {
     _tabs.dispose();
+    _sideTabs.dispose();
     Get.delete<YtVideoController>(tag: videoId);
     super.dispose();
   }

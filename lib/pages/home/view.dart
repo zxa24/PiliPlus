@@ -3,7 +3,6 @@ import 'package:PiliPlus/common/widgets/custom_height_widget.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart' show tabBarView;
 import 'package:PiliPlus/models/common/platform_mode.dart';
-import 'package:PiliPlus/pages/youtube/search/view.dart';
 import 'package:PiliPlus/pages/youtube/subscriptions/view.dart';
 import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/pages/common/common_page.dart';
@@ -181,12 +180,15 @@ class _HomePageState extends CommonPageState<HomePage>
             splashColor: _colorScheme.primaryContainer.withValues(
               alpha: 0.3,
             ),
-            onTap: () => Get.toNamed(
-              '/search',
-              parameters: _homeController.enableSearchWord
-                  ? {'hintText': _homeController.defaultSearch.value}
-                  : null,
-            ),
+            // LibrePili: the same box searches whichever platform is showing
+            onTap: () => PlatformService.to.mode.value == PlatformMode.youtube
+                ? Get.toNamed('/ytSearch')
+                : Get.toNamed(
+                    '/search',
+                    parameters: _homeController.enableSearchWord
+                        ? {'hintText': _homeController.defaultSearch.value}
+                        : null,
+                  ),
             child: Row(
               children: [
                 const SizedBox(width: 14),
@@ -435,8 +437,9 @@ Widget msgBadge(MainController mainController) {
 }
 
 
-/// LibrePili: the home tab in YouTube mode — 订阅 and 搜索, the two things a
-/// platform mode needs before it has a recommendation feed of its own.
+/// LibrePili: the home tab in YouTube mode. Subscriptions, because that is
+/// the only feed this platform has without an account — searching is the top
+/// bar's job, the same box for whichever platform is showing.
 class _YouTubeHome extends StatefulWidget {
   const _YouTubeHome();
 
@@ -444,35 +447,8 @@ class _YouTubeHome extends StatefulWidget {
   State<_YouTubeHome> createState() => _YouTubeHomeState();
 }
 
-class _YouTubeHomeState extends State<_YouTubeHome>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 2, vsync: this);
-
+class _YouTubeHomeState extends State<_YouTubeHome> {
   @override
-  void dispose() {
-    _tabs.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      TabBar(
-        controller: _tabs,
-        isScrollable: true,
-        tabAlignment: TabAlignment.center,
-        dividerHeight: 0,
-        tabs: const [Tab(text: '订阅'), Tab(text: '搜索')],
-      ),
-      Expanded(
-        child: TabBarView(
-          controller: _tabs,
-          children: const [
-            YtSubscriptionsPage(showAppBar: false),
-            YtSearchPage(showAppBar: false),
-          ],
-        ),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) =>
+      const YtSubscriptionsPage(showAppBar: false);
 }
