@@ -987,6 +987,7 @@ abstract final class SelfTest {
     var anyReplyButton = false;
     var commentsTabOpened = false;
     var commentsAutoLoaded = false;
+    var commentsShownFromEarlyTab = false;
     var previewEntries = 0;
     var narrowErrors = const <String>[];
     var threadSheetOpened = false;
@@ -1014,7 +1015,13 @@ abstract final class SelfTest {
       unawaited(
         Get.toNamed('/ytVideo', parameters: {'id': first.videoId}),
       );
-      await Future.delayed(const Duration(seconds: 6));
+      // Open the comments tab immediately, while the video is still
+      // loading. Doing that used to close the "already started" latch on an
+      // attempt made before the token existed, and the tab then stayed empty
+      // for good.
+      await Future.delayed(const Duration(milliseconds: 1200));
+      await _tapText('评论');
+      await Future.delayed(const Duration(seconds: 5));
       final controller = Get.find<YtVideoController>(tag: first.videoId);
       for (var i = 0; i < 15 && controller.stage.value != .ready; i++) {
         await Future.delayed(const Duration(seconds: 1));
@@ -1029,6 +1036,11 @@ abstract final class SelfTest {
       // comments now start with the video, so they must already be here
       // without anything having opened the tab
       commentsAutoLoaded = controller.comments.isNotEmpty;
+      // and they are on screen, not merely fetched: the tab was opened
+      // before any of this and never touched again
+      commentsShownFromEarlyTab = controller.comments.any(
+        (c) => _seesText(c.author),
+      );
       // the publish date and the exact view count arrive with the related
       // shelf now, in place of the channel request that used to fetch the
       // avatar on its own
@@ -1257,6 +1269,7 @@ abstract final class SelfTest {
           repliesShown &&
           anyReplyButton &&
           commentsAutoLoaded &&
+          commentsShownFromEarlyTab &&
           narrowErrors.isEmpty &&
           threadSheetOpened &&
           routeWithThreadOpen?.startsWith('/ytVideo') == true &&
@@ -1291,6 +1304,7 @@ abstract final class SelfTest {
       'anyReplyButton': anyReplyButton,
       'commentsTabOpened': commentsTabOpened,
       'commentsAutoLoaded': commentsAutoLoaded,
+      'commentsShownFromEarlyTab': commentsShownFromEarlyTab,
       'previewEntries': previewEntries,
       'narrowErrors': narrowErrors,
       'threadSheetOpened': threadSheetOpened,

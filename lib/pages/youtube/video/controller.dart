@@ -324,7 +324,9 @@ class YtVideoController extends GetxController {
   /// field, nothing told the footer's Obx to rebuild when a page turned out
   /// to be the last one, and the trailing spinner had no reason to go away.
   final _commentsToken = RxnString();
-  var _commentsStarted = false;
+  // observable: `commentsPending` is read inside an Obx, and a plain bool
+  // there is the same trap the continuation token was in
+  final _commentsStarted = false.obs;
 
   /// Why the comments are not here, when they are not.
   ///
@@ -378,10 +380,24 @@ class YtVideoController extends GetxController {
   }
 
   void ensureCommentsStarted() {
-    if (_commentsStarted) return;
-    _commentsStarted = true;
+    // The latch must not close on an attempt that could not have worked.
+    // Opening the 评论 tab while the video is still loading called this
+    // before the token existed: it did nothing, marked the comments as
+    // started, and the call that arrives *with* the token then found the
+    // latch already closed — so the tab stayed empty for good.
+    if (_commentsStarted.value || _commentsToken.value == null) return;
+    _commentsStarted.value = true;
     loadMoreComments();
   }
+
+  /// True while there is nothing to show and nothing has failed: either a
+  /// page is in flight or the token it needs has not arrived yet. Both are
+  /// "wait", and neither is 「暂无评论」, which is what a video with
+  /// comments turned off says.
+  bool get commentsPending =>
+      comments.isEmpty &&
+      commentsError.value == null &&
+      (commentsLoading.value || !_commentsStarted.value);
 
   /// Retries the page that failed, without losing the ones that did not.
   Future<void> retryComments() {

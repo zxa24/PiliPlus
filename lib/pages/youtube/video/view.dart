@@ -549,7 +549,7 @@ class _YtVideoPageState extends State<YtVideoPage>
         // video with comments turned off says: the two were the same screen
         return HttpError(errMsg: error, onReload: controller.retryComments);
       }
-      if (controller.commentsLoading.value) {
+      if (controller.commentsPending) {
         return ListView(
           padding: EdgeInsets.zero,
           children: CommentChrome.skeletons(CommentChrome.listSkeletons),
