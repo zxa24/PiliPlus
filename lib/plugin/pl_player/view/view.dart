@@ -273,6 +273,19 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
+      // Start where the player already is, not always hidden. Toggling
+      // fullscreen builds a new State — the page swaps its whole body — so
+      // a bar that was up before the toggle came back down while
+      // showControls still said `true`. From there every mouse move wrote
+      // `true` over `true`, which an RxBool does not report, so the
+      // listener never ran and the bar never came back: the only way out
+      // was to leave the player and re-enter, because that made the value
+      // actually change.
+      value:
+          plPlayerController.showControls.value &&
+              !plPlayerController.controlsLock.value
+          ? 1.0
+          : 0.0,
     );
     videoController = plPlayerController.videoController!;
 

@@ -37,7 +37,13 @@ import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart'
-    show GestureBinding, PointerDownEvent, PointerUpEvent;
+    show
+        GestureBinding,
+        PointerAddedEvent,
+        PointerDeviceKind,
+        PointerDownEvent,
+        PointerHoverEvent,
+        PointerUpEvent;
 import 'package:flutter/widgets.dart';
 import 'package:material_ui/material_ui.dart'
     show IconButton, PopupMenuButton, Tooltip;
@@ -171,6 +177,34 @@ abstract final class SelfTest {
     return seen;
   }
 
+  static RenderBox? _boxOf(bool Function(Element) test) {
+    final box = _findElement(test)?.renderObject;
+    return box is RenderBox && box.hasSize && box.attached ? box : null;
+  }
+
+  /// Moves a synthetic mouse to [position]. The desktop player shows its
+  /// controls on hover, so this is the only way to check that from a probe.
+  static Future<void> _hover(Offset position) async {
+    const device = 7301;
+    final binding = GestureBinding.instance;
+    if (!_mouseAdded) {
+      _mouseAdded = true;
+      binding.handlePointerEvent(
+        const PointerAddedEvent(kind: PointerDeviceKind.mouse, device: device),
+      );
+    }
+    binding.handlePointerEvent(
+      PointerHoverEvent(
+        kind: PointerDeviceKind.mouse,
+        device: device,
+        position: position,
+      ),
+    );
+    await Future.delayed(const Duration(milliseconds: 400));
+  }
+
+  static var _mouseAdded = false;
+
   static int _pointer = 9100;
 
   /// Taps the centre of the first widget [test] accepts. Returns false when
@@ -285,6 +319,9 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--hover-controls') case final video?) {
+      await scenario('hoverControls', () => _hoverControls(video));
+    }
     if (args.contains('--platform-search')) {
       await scenario('platformSearch', _platformSearch);
     }
@@ -330,6 +367,100 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: after toggling fullscreen, does moving the mouse over the
+  /// video bring the control bars back?
+  ///
+  /// Reported: it does not — the pointer has to leave the player and come
+  /// back. The first version of this probe passed, because it reset
+  /// showControls to false before each hover and so made every hover a
+  /// genuine change — which is exactly the condition the defect needs to be
+  /// absent. It also asserted on showControls, and that flag was never the
+  /// thing that was wrong: the bar's own position is.
+  static Future<Map<String, dynamic>> _hoverControls(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 4));
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final player = controller.plPlayerController;
+
+    RenderBox? playerBox() =>
+        _boxOf((e) => e.widget.runtimeType.toString() == 'PLVideoPlayer');
+
+    /// Is the header bar actually on the video, or slid off the top? The
+    /// widget exists either way — SlideTransition only moves it — so its
+    /// position is the only honest answer.
+    bool headerShowing() {
+      final box = playerBox();
+      final header = _boxOf(
+        (e) => switch (e.widget) {
+          IconButton(tooltip: final t) => t == '更多设置',
+          _ => false,
+        },
+      );
+      if (box == null || header == null) return false;
+      final top = box.localToGlobal(Offset.zero).dy;
+      return header.localToGlobal(header.size.center(Offset.zero)).dy >= top;
+    }
+
+    final firstBox = playerBox();
+    if (firstBox == null) {
+      return {'pass': false, 'reason': 'player not found'};
+    }
+    final centre = firstBox.localToGlobal(firstBox.size.center(Offset.zero));
+
+    // the state a user is in when they press the fullscreen button: the bar
+    // is up, because they just moved the mouse to press it
+    player.controls = true;
+    await Future.delayed(const Duration(milliseconds: 400));
+    final windowed = headerShowing();
+
+    await player.triggerFullScreen(status: true);
+    await Future.delayed(const Duration(seconds: 2));
+    final fsBox = playerBox();
+    final fsCentre = fsBox == null
+        ? centre
+        : fsBox.localToGlobal(fsBox.size.center(Offset.zero));
+
+    // move the mouse, exactly as the user does — and change nothing else
+    await _hover(fsCentre);
+    await _hover(fsCentre + const Offset(9, 7));
+    final hoverInFS = headerShowing();
+    final flagInFS = player.showControls.value;
+
+    // the workaround they found: leave the player and come back
+    player.controls = false;
+    await Future.delayed(const Duration(milliseconds: 300));
+    player.controls = true;
+    await Future.delayed(const Duration(milliseconds: 400));
+    final afterReEnterFS = headerShowing();
+
+    await player.triggerFullScreen(status: false);
+    await Future.delayed(const Duration(seconds: 2));
+    final backBox = playerBox();
+    await _hover(
+      backBox == null
+          ? centre
+          : backBox.localToGlobal(backBox.size.center(Offset.zero)),
+    );
+    final hoverAfterLeavingFS = headerShowing();
+
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+    return {
+      'pass': windowed && hoverInFS && hoverAfterLeavingFS,
+      'windowed': windowed,
+      'hoverInFS': hoverInFS,
+      // true while hoverInFS is false is the whole defect: the flag says
+      // "shown", the bar is off the top of the screen
+      'flagInFS': flagInFS,
+      'afterReEnterFS': afterReEnterFS,
+      'hoverAfterLeavingFS': hoverAfterLeavingFS,
+    };
+  }
 
   /// LibrePili: does the search button search the platform that is showing?
   ///
