@@ -1102,7 +1102,12 @@ abstract final class SelfTest {
         // pagination can be exercised
         final head = thread;
         if (await _tapText(head.content)) {
-          threadSheetOpened = _seesText('评论详情') || _seesLabel('评论详情');
+          // the panel's own chrome, not just that something opened: the
+          // title bar and the 「相关回复共N条」 line bilibili puts above the
+          // replies
+          threadSheetOpened =
+              (_seesText('评论详情') || _seesLabel('评论详情')) &&
+              _seesLabel('相关回复');
           if (threadSheetOpened) {
             // and its own second page: the panel asks for more replies the
             // same way the list asks for more comments, from the row at the

@@ -858,113 +858,185 @@ class _YtVideoPageState extends State<YtVideoPage>
     return const EdgeInsets.fromLTRB(8, 4, 8, 4);
   }
 
-  /// The whole thread, as a sheet — the bilibili page pushes a panel for
-  /// this, with a title and a close button, and so does this.
+  /// 评论详情 — the shape bilibili's panel has: a 45-high bar with the
+  /// title and a close button over a 1px divider, the first-floor comment,
+  /// a 6-thick divider, a line saying how many replies there are, and then
+  /// the replies as full-size items rather than shrunken ones.
+  ///
+  /// No sort control: bilibili's row has 最热 / 最新 beside the count, and
+  /// nothing in this data layer offers a reply ordering to switch to.
   void _openThread(YtComment comment) {
     final id = comment.commentId;
     controller.ensureRepliesPreview(comment);
     // the same route every panel over the player uses: up from the bottom on
-    // a phone, in from the right on a wide window. A sheet climbing out of
-    // the bottom of a desktop window is not what the rest of the app does.
+    // a phone, in from the right on a wide window
     PageUtils.showVideoBottomSheet(
       context,
       maxWidth: 640,
       child: Builder(
         builder: (context) {
           final theme = Theme.of(context);
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Material(
-              clipBehavior: Clip.hardEdge,
-              color: theme.colorScheme.surface,
-              borderRadius: const BorderRadius.all(Radius.circular(12)),
-              child: Column(
-                children: [
-              SizedBox(
-                height: 45,
-                child: Row(
-                  children: [
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Obx(() {
-                        final count = controller.replies[id]?.length ?? 0;
-                        return Text(
-                          count == 0 ? '评论详情' : '评论详情  共 $count 条回复',
-                          style: theme.textTheme.titleSmall,
-                        );
-                      }),
+          return Material(
+            color: theme.canvasColor,
+            child: Column(
+              children: [
+                Container(
+                  height: 45,
+                  padding: const EdgeInsets.only(left: 12, right: 2),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        width: 1,
+                        color: theme.dividerColor.withValues(alpha: 0.1),
+                      ),
                     ),
-                    IconButton(
-                      tooltip: '关闭',
-                      icon: const Icon(Icons.close, size: 20),
-                      onPressed: Get.back,
-                    ),
-                    const SizedBox(width: 6),
-                  ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('评论详情'),
+                      IconButton(
+                        tooltip: '关闭',
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: Get.back,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Divider(
-                height: 6,
-                thickness: 6,
-                color: theme.colorScheme.outline.withValues(alpha: 0.08),
-              ),
-              Expanded(
-                child: Obx(() {
-                  final loaded = controller.replies[id] ?? const <YtComment>[];
-                  final loading = controller.repliesLoading.contains(id);
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 8, 16),
-                    itemCount: 1 + loaded.length + 1,
-                    separatorBuilder: (_, _) => Divider(
-                      indent: 55,
-                      endIndent: 15,
-                      height: 0.3,
-                      color: theme.colorScheme.outline.withValues(alpha: 0.08),
-                    ),
-                    itemBuilder: (context, index) {
-                      if (index == 0) return _comment(theme, comment);
-                      if (index <= loaded.length) {
-                        return Padding(
-                          padding: const EdgeInsets.only(left: 26),
-                          child: _comment(
-                            theme,
-                            loaded[index - 1],
-                            avatar: 26,
-                          ),
-                        );
-                      }
-                      if (controller.hasMoreReplies(id) && !loading) {
-                        // same as the comment list: arriving here means the
-                        // end of the loaded replies is on screen
-                        WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => controller.loadMoreReplies(id),
-                        );
-                      }
-                      return Container(
-                        height: 80,
-                        alignment: Alignment.center,
-                        child: Text(
-                          loading
-                              ? '加载中...'
-                              : controller.hasMoreReplies(id)
-                              ? '加载中...'
-                              : loaded.isEmpty
-                              ? '没有取到回复'
-                              : '没有更多了',
-                          style: TextStyle(color: theme.colorScheme.outline),
-                        ),
-                      );
-                    },
-                  );
-                }),
-              ),
-                ],
-              ),
+                Expanded(child: _threadBody(theme, comment, id)),
+              ],
             ),
           );
         },
       ),
     );
+  }
+
+  Widget _threadBody(ThemeData theme, YtComment comment, String id) =>
+      refreshIndicator(
+        onRefresh: () => controller.refreshReplies(comment),
+        child: Obx(() {
+          final loaded = controller.replies[id];
+          final loading = controller.repliesLoading.contains(id);
+          final error = controller.repliesError[id];
+          final replies = loaded ?? const <YtComment>[];
+
+          // the head comment, then a thick rule, then the count line — the
+          // order bilibili's panel puts them in
+          final head = <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 14, 8, 5),
+              child: _comment(theme, comment),
+            ),
+            Divider(
+              height: 20,
+              thickness: 6,
+              color: theme.dividerColor.withValues(alpha: 0.1),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 2.5, 12, 2.5),
+              child: SizedBox(
+                height: 32,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _replyCountLine(comment, replies.length),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ),
+            ),
+          ];
+
+          if (error != null && replies.isEmpty) {
+            return ListView(
+              children: [
+                ...head,
+                SizedBox(
+                  height: 300,
+                  child: HttpError(
+                    errMsg: error,
+                    onReload: () => controller.refreshReplies(comment),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          if (replies.isEmpty && loading) {
+            return ListView(
+              children: [
+                ...head,
+                for (var i = 0; i < 8; i++) const VideoReplySkeleton(),
+              ],
+            );
+          }
+
+          return ListView.separated(
+            padding: EdgeInsets.zero,
+            itemCount: head.length + replies.length + 1,
+            separatorBuilder: (context, index) => index < head.length - 1
+                ? const SizedBox.shrink()
+                : Divider(
+                    indent: 55,
+                    endIndent: 15,
+                    height: 0.3,
+                    color: theme.colorScheme.outline.withValues(alpha: 0.08),
+                  ),
+            itemBuilder: (context, index) {
+              if (index < head.length) return head[index];
+              final replyIndex = index - head.length;
+              if (replyIndex < replies.length) {
+                // full-size items, as in bilibili's panel: a reply here is
+                // not a footnote to the comment above it
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 14, 8, 5),
+                  child: _comment(theme, replies[replyIndex]),
+                );
+              }
+              if (controller.hasMoreReplies(id) && !loading) {
+                // reaching this row means the end of the loaded replies is
+                // on screen, which is how the comment list pages too
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => controller.loadMoreReplies(id),
+                );
+              }
+              return Container(
+                height: 125,
+                alignment: Alignment.center,
+                child: Text(
+                  error != null
+                      ? '加载失败：$error'
+                      : loading || controller.hasMoreReplies(id)
+                      ? '加载中...'
+                      : replies.isEmpty
+                      ? '没有取到回复'
+                      : '没有更多了',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              );
+            },
+          );
+        }),
+      );
+
+  /// 「相关回复共N条」, preferring YouTube's own total over how many have
+  /// been loaded so far — the loaded count would climb as you scroll and
+  /// read as the thread growing.
+  static String _replyCountLine(YtComment comment, int loaded) {
+    final counted = comment.replyCountText == null
+        ? null
+        : RegExp(
+            r'[\d][\d.,]*\s*[KMB]?',
+            caseSensitive: false,
+          ).firstMatch(comment.replyCountText!)?.group(0);
+    if (counted != null) return '相关回复共 $counted 条';
+    if (comment.replyCount > 0) return '相关回复共 ${comment.replyCount} 条';
+    return loaded > 0 ? '相关回复共 $loaded 条' : '相关回复';
   }
 
   Widget _comment(

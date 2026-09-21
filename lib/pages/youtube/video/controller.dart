@@ -451,6 +451,22 @@ class YtVideoController extends GetxController {
     });
   }
 
+  /// Pull to refresh inside a thread: back to its first page.
+  Future<void> refreshReplies(YtComment comment) async {
+    final id = comment.commentId;
+    if (repliesLoading.contains(id)) return;
+    replies
+      ..remove(id)
+      ..refresh();
+    _moreReplies.remove(id);
+    repliesError.remove(id);
+    await _fetchReplies(id, comment.replyToken);
+  }
+
+  /// Why a thread's replies are not here, when they are not. Keyed by
+  /// comment id, so one failed thread does not speak for the others.
+  final repliesError = <String, String>{}.obs;
+
   Future<void> loadMoreReplies(String commentId) =>
       _fetchReplies(commentId, _moreReplies[commentId]);
 
@@ -466,12 +482,14 @@ class YtVideoController extends GetxController {
       (replies[commentId] ??= <YtComment>[].obs).addAll(result.value!.items);
       replies.refresh();
       _moreReplies[commentId] = result.value!.continuation;
+      repliesError.remove(commentId);
     } else {
       // an empty list rather than nothing: the thread is open and has to say
       // something, and "nothing loaded" must not look like "not tried yet"
       replies[commentId] ??= <YtComment>[].obs;
       replies.refresh();
       _moreReplies[commentId] = null;
+      repliesError[commentId] = _messageFor(result.verdict);
     }
   }
 
