@@ -826,6 +826,21 @@ class HeaderControlState extends State<HeaderControl>
   }) {
     final hwdec = player.getProperty('hwdec-current');
     final volume = player.getProperty('volume');
+    // LibrePili: how the stream is actually arriving. It belongs here because
+    // this is where someone looks when playback stutters — and automatic
+    // quality switching has to be built on a signal known to exist in this
+    // libmpv build rather than one assumed to.
+    final health = {
+      for (final name in const [
+        'cache-speed',
+        'demuxer-cache-time',
+        'demuxer-cache-duration',
+        'paused-for-cache',
+        'video-bitrate',
+        'audio-bitrate',
+      ])
+        name: player.getProperty(name),
+    };
     showDialog(
       context: context,
       builder: (context) {
@@ -901,6 +916,16 @@ class HeaderControlState extends State<HeaderControl>
                       subtitle: Text(hwdec),
                       onTap: () => Utils.copyText('hwdec\n$hwdec'),
                     ),
+                    for (final entry in health.entries)
+                      ListTile(
+                        dense: true,
+                        title: Text(entry.key),
+                        subtitle: Text(
+                          entry.value.isEmpty ? '(unavailable)' : entry.value,
+                        ),
+                        onTap: () =>
+                            Utils.copyText('${entry.key}\n${entry.value}'),
+                      ),
                   ],
                 ),
               ),

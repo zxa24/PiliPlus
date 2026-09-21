@@ -26,6 +26,7 @@ import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -140,6 +141,10 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--probe-playback') case final url?) {
+      final seconds = int.tryParse(_arg(args, '--probe-secs') ?? '') ?? 20;
+      await scenario('probePlayback', () => _probePlayback(url, seconds));
+    }
     if (_arg(args, '--asr-download') case final dir?) {
       await scenario('asrDownload', () => _asrDownload(dir));
     }
@@ -165,6 +170,65 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: what the player can actually tell us about how the stream is
+  /// arriving, sampled once a second against a real source.
+  ///
+  /// Automatic quality switching needs a health signal; this reports which
+  /// mpv properties exist in media_kit's build and how they move, so the
+  /// policy is written against measurements instead of assumptions.
+  static Future<Map<String, dynamic>> _probePlayback(
+    String url,
+    int seconds,
+  ) async {
+    const names = [
+      'cache-speed',
+      'demuxer-cache-time',
+      'demuxer-cache-duration',
+      'paused-for-cache',
+      'video-bitrate',
+      'audio-bitrate',
+    ];
+    final player = await Player.create(
+      configuration: const PlayerConfiguration(logLevel: MPVLogLevel.error),
+    );
+    final native = player;
+    final samples = <Map<String, dynamic>>[];
+    try {
+      native
+        ..setProperty('cache', 'yes')
+        ..setProperty('cache-secs', '16');
+      player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
+      await player.open(Media(url));
+      for (var i = 0; i < seconds; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        samples.add({
+          'at': i + 1,
+          'position': player.state.position.inMilliseconds,
+          'buffer': player.state.buffer.inMilliseconds,
+          'buffering': player.state.buffering,
+          for (final name in names) name: native.getProperty(name),
+        });
+      }
+    } finally {
+      await player.dispose();
+    }
+
+    final available = <String>[];
+    final missing = <String>[];
+    for (final name in names) {
+      final any = samples.any(
+        (s) => (s[name] as String?)?.isNotEmpty ?? false,
+      );
+      (any ? available : missing).add(name);
+    }
+    return {
+      'pass': samples.isNotEmpty && available.isNotEmpty,
+      'available': available,
+      'missing': missing,
+      'samples': samples,
+    };
+  }
 
   /// LibrePili: fetches the recogniser's models for real, against the real
   /// URLs, into a throwaway directory — the one part of the pipeline whose
