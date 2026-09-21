@@ -6,6 +6,11 @@
 library;
 
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/bottom_control.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/play_pause_btn.dart';
+import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -106,6 +111,15 @@ class _YtVideoPageState extends State<YtVideoPage> {
             maxHeight: box.maxHeight,
             plPlayerController: player,
             headerControl: const SizedBox.shrink(),
+            // the default control bar is bilibili's and reaches for that
+            // page's controller; this one carries only what a YouTube video
+            // has
+            bottomControl: BottomControl(
+              maxWidth: box.maxWidth,
+              isFullScreen: player.isFullScreen.value,
+              controller: player,
+              buildBottomControl: () => _controls(player),
+            ),
           ),
         );
     }
@@ -145,6 +159,40 @@ class _YtVideoPageState extends State<YtVideoPage> {
       ],
     );
   });
+
+
+  Widget _controls(PlPlayerController player) => Row(
+    children: [
+      PlayOrPauseButton(plPlayerController: player),
+      const SizedBox(width: 8),
+      Obx(
+        () => Text(
+          '${DurationUtils.formatDuration(player.position.value)}'
+          ' / '
+          '${DurationUtils.formatDuration(player.duration.value)}',
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
+      ),
+      const Spacer(),
+      ComBtn(
+        width: 35,
+        height: 30,
+        tooltip: '全屏',
+        icon: Obx(
+          () => Icon(
+            player.isFullScreen.value
+                ? Icons.fullscreen_exit
+                : Icons.fullscreen,
+            size: 22,
+            color: Colors.white,
+          ),
+        ),
+        onTap: () => player.triggerFullScreen(
+          status: !player.isFullScreen.value,
+        ),
+      ),
+    ],
+  );
 
   Future<void> _pickCaption() async {
     final chosen = await showModalBottomSheet<int>(

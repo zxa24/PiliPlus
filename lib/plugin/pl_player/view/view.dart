@@ -1754,7 +1754,11 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                         ),
                       ),
                       if (plPlayerController.enableBlock &&
-                          videoDetailController.segmentProgressList.isNotEmpty)
+                          widget
+                                  .videoDetailController
+                                  ?.segmentProgressList
+                                  .isNotEmpty ==
+                              true)
                         Positioned(
                           left: 0,
                           right: 0,
@@ -1764,7 +1768,11 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                           ),
                         ),
                       if (plPlayerController.showViewPoints &&
-                          videoDetailController.viewPointList.isNotEmpty &&
+                          widget
+                                  .videoDetailController
+                                  ?.viewPointList
+                                  .isNotEmpty ==
+                              true &&
                           videoDetailController.showVP.value)
                         Padding(
                           padding: const .only(bottom: 4.25),

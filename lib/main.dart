@@ -235,13 +235,20 @@ void main(List<String> args) async {
   if (SelfTest.isRequested(args)) {
     SelfTest.schedule(args);
   } else if (args.where((a) => !a.startsWith('-')).firstOrNull
-      case final target?
-      when FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound) {
-    // LibrePili: launched with a video file / folder ("Open with")
-    PiliScheme.launchFile = target;
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => LocalPlayer.open(target),
-    );
+      case final target?) {
+    if (FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound) {
+      // LibrePili: launched with a video file / folder ("Open with")
+      PiliScheme.launchFile = target;
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => LocalPlayer.open(target),
+      );
+    } else if (target.contains('://') || target.contains('.')) {
+      // LibrePili: launched with a link — bilibili or YouTube, the scheme
+      // handler decides which page it belongs to
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => PiliScheme.routePushFromUrl(target),
+      );
+    }
   }
 }
 
