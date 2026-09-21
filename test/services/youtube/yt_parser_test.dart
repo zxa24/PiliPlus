@@ -392,6 +392,72 @@ void main() {
       expect(parsed.items.single.replyToken, isNull);
     });
 
+    test('a replies page takes its token from the trigger-less renderer', () {
+      // Shape measured off a live reply continuation: exactly one token, in
+      // a continuationItemRenderer with NO `trigger` field, behind a button
+      // reading 'Show more replies'. Requiring the scroll trigger found
+      // nothing, so a thread of 114 replies said its first 9 were all.
+      const token = 'REPLY_PAGE_TWO';
+      final replies = {
+        'onResponseReceivedEndpoints': [
+          {
+            'appendContinuationItemsAction': {
+              'continuationItems': [
+                {
+                  'continuationItemRenderer': {
+                    'button': {
+                      'buttonRenderer': {
+                        'text': {
+                          'runs': [
+                            {'text': 'Show more replies'},
+                          ],
+                        },
+                        'command': {
+                          'continuationCommand': {'token': token},
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      expect(collectObjects(replies, 'commentThreadRenderer'), isEmpty);
+      expect(commentsPageContinuationToken(replies), token);
+    });
+
+    test('a comments page still prefers the scroll-triggered token', () {
+      // both kinds present: the page token must win over any other, or the
+      // list would page itself with a button token from some thread
+      const scrollToken = 'PAGE_TWO';
+      final page = {
+        'contents': [
+          {
+            'continuationItemRenderer': {
+              'button': {
+                'buttonRenderer': {
+                  'command': {
+                    'continuationCommand': {'token': 'A_BUTTON_TOKEN'},
+                  },
+                },
+              },
+            },
+          },
+          {
+            'continuationItemRenderer': {
+              'trigger': 'CONTINUATION_TRIGGER_ON_ITEM_SHOWN',
+              'continuationEndpoint': {
+                'continuationCommand': {'token': scrollToken},
+              },
+            },
+          },
+        ],
+      };
+      expect(commentsPageContinuationToken(page), scrollToken);
+    });
+
     test('the legacy commentRenderer form is still read', () {
       final legacy = parseComments({
         'contents': [

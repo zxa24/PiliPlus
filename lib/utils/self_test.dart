@@ -47,6 +47,7 @@ import 'package:flutter/gestures.dart'
         PointerDeviceKind,
         PointerDownEvent,
         PointerHoverEvent,
+        PointerScrollEvent,
         PointerUpEvent;
 import 'package:flutter/widgets.dart';
 import 'package:material_ui/material_ui.dart'
@@ -266,6 +267,32 @@ abstract final class SelfTest {
     return count;
   }
 
+  /// Turns the mouse wheel over [position], [times] notches of [dy].
+  ///
+  /// The comment list asks for its next page when the row at the end is
+  /// built, so the only way to test pagination is to reach the end the way
+  /// a reader does.
+  static Future<void> _scroll(
+    Offset position,
+    double dy, {
+    int times = 6,
+  }) async {
+    const device = 7302;
+    final binding = GestureBinding.instance;
+    for (var i = 0; i < times; i++) {
+      binding.handlePointerEvent(
+        PointerScrollEvent(
+          kind: PointerDeviceKind.mouse,
+          device: device,
+          position: position,
+          scrollDelta: Offset(0, dy),
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    await Future.delayed(const Duration(milliseconds: 600));
+  }
+
   static int _pointer = 9100;
 
   /// Taps the centre of the first widget [test] accepts. Returns false when
@@ -382,6 +409,9 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--hover-controls') case final video?) {
       await scenario('hoverControls', () => _hoverControls(video));
+    }
+    if (_arg(args, '--yt-replies') case final video?) {
+      await scenario('ytReplies', () => _ytReplies(video));
     }
     if (_arg(args, '--yt-download') case final video?) {
       await scenario('ytDownload', () => _ytDownload(video));
@@ -529,6 +559,63 @@ abstract final class SelfTest {
       'flagInFS': flagInFS,
       'afterReEnterFS': afterReEnterFS,
       'hoverAfterLeavingFS': hoverAfterLeavingFS,
+    };
+  }
+
+  /// LibrePili: where does a reply page keep its "show more" token?
+  ///
+  /// The thread panel reported no next page for a thread whose own label
+  /// says it has 962 replies, so either the token is somewhere the comments
+  /// parser does not look, or there is genuinely only one page. This reads
+  /// the raw response rather than guessing between the two.
+  static Future<Map<String, dynamic>> _ytReplies(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final source = YtDirectSource.create();
+    final router = YtSourceRouter(source);
+
+    final related = await router.run(
+      (s) => (s as YtDirectSource).related(videoId),
+    );
+    final commentsToken = related.value?.commentsToken;
+    if (commentsToken == null) {
+      return {'pass': false, 'reason': 'no comments token'};
+    }
+    final page = await router.run(
+      (s) => (s as YtDirectSource).comments(commentsToken),
+    );
+    final thread = page.value?.items.firstWhereOrNull((c) => c.hasReplies);
+    if (thread == null) {
+      return {'pass': false, 'reason': 'no thread with replies'};
+    }
+
+    // the raw JSON of the reply continuation, read directly
+    final raw = await source.client.nextContinuation(thread.replyToken!);
+    final json = raw.json;
+    final parsed = parseComments(json);
+
+    final triggers = <String, int>{};
+    for (final r in collectObjects(json, 'continuationItemRenderer')) {
+      final trigger = (r['trigger'] ?? '(none)').toString();
+      triggers[trigger] = (triggers[trigger] ?? 0) + 1;
+    }
+    final buttonTokens = <String>[];
+    for (final b in collectObjects(json, 'buttonRenderer')) {
+      final tokens = collectContinuationTokens(b);
+      if (tokens.isNotEmpty) {
+        buttonTokens.add(readText(b['text']).trim());
+      }
+    }
+
+    return {
+      'pass': true,
+      'threadLabel': thread.replyCountText,
+      'repliesParsed': parsed.items.length,
+      'parsedContinuation': parsed.continuation != null,
+      'allTokens': collectContinuationTokens(json).length,
+      'continuationItemTriggers': triggers,
+      'buttonsWithTokens': buttonTokens,
+      'hasCommentThreadRenderer':
+          collectObjects(json, 'commentThreadRenderer').isNotEmpty,
     };
   }
 
@@ -903,6 +990,12 @@ abstract final class SelfTest {
     var previewEntries = 0;
     var narrowErrors = const <String>[];
     var threadSheetOpened = false;
+    var commentsBefore = 0;
+    var commentsAfter = 0;
+    var repliesBefore = 0;
+    var repliesAfter = 0;
+    var threadHasMore = false;
+    var threadFooterSeen = false;
     var previewNonEmpty = 0;
     String? firstReply;
     // did the panels the user complained about actually open?
@@ -1005,10 +1098,44 @@ abstract final class SelfTest {
         // this only finds it if the block itself rendered with content
         // tapping a comment must open the thread: the row used to be inert
         // unless it happened to carry a reply preview
-        final head = controller.comments.first;
+        // the thread opened is the one that has replies, so the panel's own
+        // pagination can be exercised
+        final head = thread;
         if (await _tapText(head.content)) {
           threadSheetOpened = _seesText('评论详情') || _seesLabel('评论详情');
           if (threadSheetOpened) {
+            // and its own second page: the panel asks for more replies the
+            // same way the list asks for more comments, from the row at the
+            // end, so it too has to be scrolled to
+            final threadId = head.commentId;
+            {
+              for (var i = 0; i < 12; i++) {
+                await Future.delayed(const Duration(seconds: 1));
+                repliesBefore = controller.replies[threadId]?.length ?? 0;
+                if (repliesBefore > 0) break;
+              }
+              final panel = _boxOf(
+                (e) =>
+                    e.widget is Text &&
+                    _textOf(e.widget as Text).startsWith('评论详情'),
+              );
+              if (panel != null && repliesBefore > 0) {
+                final at = panel.localToGlobal(
+                  panel.size.center(const Offset(0, 200)),
+                );
+                for (var round = 0; round < 6; round++) {
+                  await _scroll(at, 600);
+                  final now = controller.replies[threadId]?.length ?? 0;
+                  if (now > repliesBefore) break;
+                }
+                repliesAfter = controller.replies[threadId]?.length ?? 0;
+              }
+              // "no next page" and "never scrolled to the row that asks"
+              // look the same in the counts alone
+              threadHasMore = controller.hasMoreReplies(threadId);
+              threadFooterSeen =
+                  _seesText('加载中...') || _seesText('没有更多了');
+            }
             Get.back();
             await Future.delayed(const Duration(milliseconds: 700));
           }
@@ -1022,6 +1149,22 @@ abstract final class SelfTest {
                       _textOf(e.widget as Text).startsWith(first.author),
                 ) !=
                 null;
+        // page two: scroll to the end of the list and see whether more
+        // comments arrive. The trigger lives in the footer's build, so a
+        // list that is never scrolled never asks.
+        final box = _boxOf(
+          (e) => e.widget is Text && _textOf(e.widget as Text) == head.content,
+        );
+        if (box != null) {
+          commentsBefore = controller.comments.length;
+          final at = box.localToGlobal(box.size.center(Offset.zero));
+          for (var round = 0; round < 6; round++) {
+            await _scroll(at, 600);
+            if (controller.comments.length > commentsBefore) break;
+          }
+          commentsAfter = controller.comments.length;
+        }
+
       }
 
       final wasSubscribed = controller.subscribed.value;
@@ -1105,6 +1248,8 @@ abstract final class SelfTest {
           commentsAutoLoaded &&
           narrowErrors.isEmpty &&
           threadSheetOpened &&
+          commentsAfter > commentsBefore &&
+          repliesAfter > repliesBefore &&
           // the resize has to have happened for its result to mean anything
           (narrowLogicalWidth ?? 9999) < 500 &&
           settingsSheet &&
@@ -1137,6 +1282,12 @@ abstract final class SelfTest {
       'previewEntries': previewEntries,
       'narrowErrors': narrowErrors,
       'threadSheetOpened': threadSheetOpened,
+      'commentsBefore': commentsBefore,
+      'commentsAfter': commentsAfter,
+      'repliesBefore': repliesBefore,
+      'repliesAfter': repliesAfter,
+      'threadHasMore': threadHasMore,
+      'threadFooterSeen': threadFooterSeen,
       'narrowWidth': narrowLogicalWidth,
       'previewNonEmpty': previewNonEmpty,
       'firstReply': firstReply,

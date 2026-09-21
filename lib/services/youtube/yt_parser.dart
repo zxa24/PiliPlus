@@ -183,13 +183,23 @@ String? commentsPageContinuationToken(Object? root) {
   for (final t in collectObjects(root, 'commentThreadRenderer')) {
     threadScoped.addAll(collectContinuationTokens(t));
   }
+  String? fallback;
   for (final r in collectObjects(root, 'continuationItemRenderer')) {
-    if (r['trigger'] != 'CONTINUATION_TRIGGER_ON_ITEM_SHOWN') continue;
+    final onItemShown = r['trigger'] == 'CONTINUATION_TRIGGER_ON_ITEM_SHOWN';
     for (final token in collectContinuationTokens(r)) {
-      if (!threadScoped.contains(token)) return token;
+      if (threadScoped.contains(token)) continue;
+      if (onItemShown) return token;
+      // A page of REPLIES carries its "Show more replies" token in a
+      // continuationItemRenderer with no `trigger` at all — measured: one
+      // token, trigger absent, behind a button labelled 'Show more
+      // replies'. Requiring the scroll trigger found nothing there, so a
+      // thread with 114 replies reported that its 9 were all of them.
+      // A comments page always has the triggered one, and it is returned
+      // above, so this never takes precedence over it.
+      fallback ??= token;
     }
   }
-  return null;
+  return fallback;
 }
 
 /// The id of the comment a thread is about.

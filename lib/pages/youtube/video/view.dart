@@ -31,6 +31,7 @@ import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
+import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -581,6 +582,12 @@ class _YtVideoPageState extends State<YtVideoPage>
   /// reason the next page did not arrive.
   Widget _commentsFooter(ThemeData theme) => Obx(() {
     final error = controller.commentsError.value;
+    if (error == null && controller.hasMoreComments) {
+      // reaching this row means the list has been scrolled to its end
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => controller.loadMoreComments(),
+      );
+    }
     final Widget child;
     if (error != null) {
       child = TextButton(
@@ -856,22 +863,23 @@ class _YtVideoPageState extends State<YtVideoPage>
   void _openThread(YtComment comment) {
     final id = comment.commentId;
     controller.ensureRepliesPreview(comment);
-    showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      constraints: BoxConstraints(
-        maxWidth: math.min(640, MediaQuery.sizeOf(context).shortestSide),
-      ),
-      builder: (context) {
-        final theme = Theme.of(context);
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          maxChildSize: 0.95,
-          minChildSize: 0.4,
-          expand: false,
-          builder: (context, scrollController) => Column(
-            children: [
+    // the same route every panel over the player uses: up from the bottom on
+    // a phone, in from the right on a wide window. A sheet climbing out of
+    // the bottom of a desktop window is not what the rest of the app does.
+    PageUtils.showVideoBottomSheet(
+      context,
+      maxWidth: 640,
+      child: Builder(
+        builder: (context) {
+          final theme = Theme.of(context);
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Material(
+              clipBehavior: Clip.hardEdge,
+              color: theme.colorScheme.surface,
+              borderRadius: const BorderRadius.all(Radius.circular(12)),
+              child: Column(
+                children: [
               SizedBox(
                 height: 45,
                 child: Row(
@@ -905,7 +913,6 @@ class _YtVideoPageState extends State<YtVideoPage>
                   final loaded = controller.replies[id] ?? const <YtComment>[];
                   final loading = controller.repliesLoading.contains(id);
                   return ListView.separated(
-                    controller: scrollController,
                     padding: const EdgeInsets.fromLTRB(12, 12, 8, 16),
                     itemCount: 1 + loaded.length + 1,
                     separatorBuilder: (_, _) => Divider(
@@ -926,25 +933,24 @@ class _YtVideoPageState extends State<YtVideoPage>
                           ),
                         );
                       }
-                      if (loading) {
-                        return const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-                      if (controller.hasMoreReplies(id)) {
-                        return Center(
-                          child: TextButton(
-                            onPressed: () => controller.loadMoreReplies(id),
-                            child: const Text('展开更多回复'),
-                          ),
+                      if (controller.hasMoreReplies(id) && !loading) {
+                        // same as the comment list: arriving here means the
+                        // end of the loaded replies is on screen
+                        WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => controller.loadMoreReplies(id),
                         );
                       }
                       return Container(
                         height: 80,
                         alignment: Alignment.center,
                         child: Text(
-                          loaded.isEmpty ? '没有取到回复' : '没有更多了',
+                          loading
+                              ? '加载中...'
+                              : controller.hasMoreReplies(id)
+                              ? '加载中...'
+                              : loaded.isEmpty
+                              ? '没有取到回复'
+                              : '没有更多了',
                           style: TextStyle(color: theme.colorScheme.outline),
                         ),
                       );
@@ -952,10 +958,12 @@ class _YtVideoPageState extends State<YtVideoPage>
                   );
                 }),
               ),
-            ],
-          ),
-        );
-      },
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -988,44 +996,52 @@ class _YtVideoPageState extends State<YtVideoPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // name on one line, time on the next — the shape the bilibili
+              // item uses. Side by side, a 13pt name and an 11pt time sit on
+              // different baselines and read as misaligned, which is what
+              // they were.
               GestureDetector(
                 onTap: openChannel,
                 behavior: HitTestBehavior.opaque,
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Flexible(
-                      child: Text(
-                        comment.author,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: comment.authorIsUploader
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outline,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            comment.author,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: comment.authorIsUploader
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.outline,
+                            ),
+                          ),
                         ),
-                      ),
+                        if (comment.authorIsUploader) ...[
+                          const SizedBox(width: 6),
+                          const PBadge(
+                            text: 'UP',
+                            size: PBadgeSize.small,
+                            isStack: false,
+                            fontSize: 9,
+                            textScaleFactor: 1,
+                          ),
+                        ],
+                        if (comment.isPinned) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.push_pin_outlined,
+                            size: 12,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ],
+                      ],
                     ),
-                    if (comment.authorIsUploader) ...[
-                      const SizedBox(width: 6),
-                      const PBadge(
-                        text: 'UP',
-                        size: PBadgeSize.small,
-                        isStack: false,
-                        fontSize: 9,
-                        textScaleFactor: 1,
-                      ),
-                    ],
-                    if (comment.isPinned) ...[
-                      const SizedBox(width: 6),
-                      Icon(
-                        Icons.push_pin_outlined,
-                        size: 12,
-                        color: theme.colorScheme.outline,
-                      ),
-                    ],
-                    if (comment.publishedText case final posted?) ...[
-                      const SizedBox(width: 6),
+                    if (comment.publishedText case final posted?)
                       Text(
                         posted,
                         style: TextStyle(
@@ -1033,7 +1049,6 @@ class _YtVideoPageState extends State<YtVideoPage>
                           color: theme.colorScheme.outline,
                         ),
                       ),
-                    ],
                   ],
                 ),
               ),
