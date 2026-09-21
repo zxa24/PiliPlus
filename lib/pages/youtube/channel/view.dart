@@ -7,6 +7,7 @@ import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
+import 'package:PiliPlus/utils/grid.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -29,6 +30,7 @@ class _YtChannelPageViewState extends State<YtChannelPageView> {
   var _loading = true;
   String? _error;
   var _subscribed = false;
+  late final _gridDelegate = Grid.videoCardHDelegate();
 
   @override
   void initState() {
@@ -118,21 +120,29 @@ class _YtChannelPageViewState extends State<YtChannelPageView> {
                 if (notification.metrics.extentAfter < 400) _more();
                 return false;
               },
-              child: ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: _videos.length + 1,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  if (index == 0) return _header(theme);
-                  final item = _videos[index - 1];
-                  return YtVideoTile(
-                    item: item,
-                    onTap: () => Get.toNamed(
-                      '/ytVideo',
-                      parameters: {'id': item.videoId},
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                    sliver: SliverToBoxAdapter(child: _header(theme)),
+                  ),
+                  SliverGrid(
+                    gridDelegate: _gridDelegate,
+                    delegate: SliverChildBuilderDelegate(
+                      childCount: _videos.length,
+                      (context, index) {
+                        final item = _videos[index];
+                        return YtVideoTile(
+                          item: item,
+                          onTap: () => Get.toNamed(
+                            '/ytVideo',
+                            parameters: {'id': item.videoId},
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                ],
               ),
             ),
     );

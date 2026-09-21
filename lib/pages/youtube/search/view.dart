@@ -1,221 +1,195 @@
-/// LibrePili — YouTube, stage 3: searching and opening a result.
+/// LibrePili — YouTube search, laid out like bilibili's.
 ///
-/// The first place in the app where YouTube is reachable without a link.
+/// The box lives in the app bar and the page under it is the history, the
+/// same chips with the same 无痕 switch and the same 清空. Results are a
+/// page of their own, as they are there — typing and reading are different
+/// things and the app has always treated them that way.
+///
+/// What is missing is missing on purpose: 大家都在搜 and 搜索发现 are
+/// bilibili endpoints, and YouTube's suggestion endpoint would send every
+/// keystroke to Google, which is not a trade this app makes quietly.
 library;
 
-import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
-import 'package:PiliPlus/services/youtube/youtube.dart';
-import 'package:PiliPlus/utils/duration_utils.dart';
+import 'package:PiliPlus/common/widgets/disabled_icon.dart';
+import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+import 'package:PiliPlus/common/widgets/sliver_wrap.dart';
+import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
+import 'package:PiliPlus/pages/search/widgets/search_text.dart';
+import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
 class YtSearchPage extends StatefulWidget {
-  const YtSearchPage({super.key, this.showAppBar = true});
-
-  final bool showAppBar;
+  const YtSearchPage({super.key});
 
   @override
   State<YtSearchPage> createState() => _YtSearchPageState();
 }
 
 class _YtSearchPageState extends State<YtSearchPage> {
-  final _source = YtDirectSource.create();
-  late final _router = YtSourceRouter(_source);
-  final _input = TextEditingController();
+  final _tag = 'yt';
+  late final YtSearchController _controller = Get.put(
+    YtSearchController(),
+    tag: _tag,
+  );
+  late ThemeData theme;
+  late EdgeInsets padding;
 
-  var _items = <YtSearchItem>[];
-  String? _continuation;
-  var _loading = false;
-  String? _error;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    theme = Theme.of(context);
+    padding = MediaQuery.viewPaddingOf(context);
+  }
 
   @override
   void dispose() {
-    _input.dispose();
+    Get.delete<YtSearchController>(tag: _tag);
     super.dispose();
   }
 
-  Future<void> _search([String? query]) async {
-    final text = (query ?? _input.text).trim();
-    if (text.isEmpty) return;
-
-    // a pasted link is not a search: open it
-    if (tryParseYouTubeVideoId(text) case final videoId?) {
-      Get.toNamed('/ytVideo', parameters: {'id': videoId});
-      return;
-    }
-
-    setState(() {
-      _loading = true;
-      _error = null;
-      _items = const [];
-      _continuation = null;
-    });
-    final result = await _router.run((s) => (s as YtDirectSource).search(text));
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      if (result.ok && result.value != null) {
-        _items = result.value!.items;
-        _continuation = result.value!.continuation;
-      } else {
-        _error = result.verdict.toString();
-      }
-    });
-  }
-
-  Future<void> _more() async {
-    final token = _continuation;
-    if (token == null || _loading) return;
-    setState(() => _loading = true);
-    final result = await _router.run(
-      (s) => (s as YtDirectSource).searchContinuation(token),
-    );
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      if (result.ok && result.value != null) {
-        _items = [..._items, ...result.value!.items];
-        _continuation = result.value!.continuation;
-      } else {
-        _continuation = null;
-      }
-    });
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: widget.showAppBar
-          ? AppBar(title: const Text('YouTube'))
-          : null,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: TextField(
-              controller: _input,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _search,
-              decoration: InputDecoration(
-                hintText: '搜索 YouTube，或粘贴链接',
-                isDense: true,
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _search,
-                ),
+  Widget build(BuildContext context) => SimpleScaffold(
+    appBar: _appBar,
+    body: Padding(
+      padding: EdgeInsets.only(left: padding.left, right: padding.right),
+      child: ViewInsetsSafeArea(
+        child: CustomScrollView(
+          slivers: [
+            _history,
+            SliverPadding(padding: EdgeInsets.only(bottom: padding.bottom)),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  PreferredSizeWidget get _appBar => AppBar(
+    shape: Border(
+      bottom: BorderSide(
+        color: theme.dividerColor.withValues(alpha: 0.08),
+        width: 1,
+      ),
+    ),
+    actions: [
+      IconButton(
+        tooltip: '清空',
+        icon: const Icon(Icons.clear, size: 22),
+        onPressed: _controller.onClear,
+      ),
+      IconButton(
+        tooltip: '搜索',
+        icon: const Icon(Icons.search, size: 22),
+        onPressed: _controller.submit,
+      ),
+      const SizedBox(width: 10),
+    ],
+    title: TextField(
+      autofocus: true,
+      focusNode: _controller.focusNode,
+      controller: _controller.controller,
+      textInputAction: TextInputAction.search,
+      decoration: const InputDecoration(
+        visualDensity: VisualDensity.standard,
+        hintText: '搜索 YouTube，或粘贴链接',
+        border: InputBorder.none,
+      ),
+      onSubmitted: _controller.submit,
+    ),
+  );
+
+  late final _chipExtent = 16 + MediaQuery.textScalerOf(context).scale(14);
+
+  Widget get _history => Obx(() {
+    final list = _controller.historyList;
+    if (list.isEmpty) {
+      return const SliverToBoxAdapter();
+    }
+    final secondary = theme.colorScheme.secondary;
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 25),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                children: [
+                  Text(
+                    '搜索历史',
+                    strutStyle: const StrutStyle(leading: 0, height: 1),
+                    style: theme.textTheme.titleMedium!.copyWith(
+                      height: 1,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  _recordBtn,
+                  const Spacer(),
+                  TextButton.icon(
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                    ),
+                    onPressed: _controller.onClearHistory,
+                    icon: Icon(
+                      Icons.clear_all_outlined,
+                      size: 18,
+                      color: secondary,
+                    ),
+                    label: Text(
+                      '清空',
+                      style: TextStyle(height: 1, color: secondary),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          Expanded(child: _results(theme)),
+          SliverFixedWrap(
+            mainAxisExtent: _chipExtent,
+            spacing: 8,
+            runSpacing: 8,
+            delegate: SliverChildBuilderDelegate(
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: false,
+              childCount: list.length,
+              (context, index) => SearchText(
+                text: list[index],
+                onTap: _controller.onClickKeyword,
+                onLongPress: _controller.onLongSelect,
+                fontSize: 14,
+                height: 1,
+                padding: const EdgeInsets.fromLTRB(11, 8, 11, 0),
+              ),
+            ),
+          ),
         ],
       ),
     );
-  }
+  });
 
-  Widget _results(ThemeData theme) {
-    if (_error case final error?) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(error, textAlign: TextAlign.center),
+  Widget get _recordBtn => Obx(() {
+    final enable = _controller.recordSearchHistory.value;
+    return IconButton(
+      iconSize: 22,
+      tooltip: enable ? '记录搜索' : '无痕搜索',
+      icon: DisabledIcon(
+        disable: !enable,
+        child: Icon(
+          Icons.history,
+          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
         ),
-      );
-    }
-    if (_items.isEmpty) {
-      return Center(
-        child: _loading
-            ? const CircularProgressIndicator()
-            : Text(
-                '输入关键词开始搜索',
-                style: TextStyle(color: theme.colorScheme.outline),
-              ),
-      );
-    }
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        if (notification.metrics.extentAfter < 300) _more();
-        return false;
-      },
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: _items.length + (_continuation == null ? 0 : 1),
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          if (index >= _items.length) {
-            return const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          return _tile(theme, _items[index]);
-        },
       ),
+      style: const ButtonStyle(
+        visualDensity: VisualDensity.comfortable,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: WidgetStatePropertyAll(EdgeInsets.zero),
+      ),
+      onPressed: _controller.toggleRecord,
     );
-  }
-
-  Widget _tile(ThemeData theme, YtSearchItem item) => InkWell(
-    onTap: () =>
-        Get.toNamed('/ytVideo', parameters: {'id': item.videoId}),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Stack(
-          alignment: Alignment.bottomRight,
-          children: [
-            NetworkImgLayer(
-              width: 160,
-              height: 90,
-              src: item.bestThumbnail?.url,
-            ),
-            if (item.duration case final duration?)
-              Container(
-                margin: const EdgeInsets.all(4),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 1,
-                ),
-                color: Colors.black54,
-                child: Text(
-                  DurationUtils.formatDuration(duration.inSeconds),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                item.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                [
-                  item.author,
-                  ?item.viewCountText,
-                  ?item.publishedText,
-                ].join(' · '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
+  });
 }

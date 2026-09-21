@@ -18,7 +18,9 @@ import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/pages/danmaku/controller.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
+import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
+import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
@@ -205,6 +207,17 @@ abstract final class SelfTest {
 
   static var _mouseAdded = false;
 
+  static int _countElements(bool Function(Element) test) {
+    var count = 0;
+    void visit(Element element) {
+      if (test(element)) count++;
+      element.visitChildren(visit);
+    }
+
+    WidgetsBinding.instance.rootElement?.visitChildren(visit);
+    return count;
+  }
+
   static int _pointer = 9100;
 
   /// Taps the centre of the first widget [test] accepts. Returns false when
@@ -321,6 +334,9 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--hover-controls') case final video?) {
       await scenario('hoverControls', () => _hoverControls(video));
+    }
+    if (_arg(args, '--yt-search-ui') case final query?) {
+      await scenario('ytSearchUi', () => _ytSearchUi(query));
     }
     if (args.contains('--platform-search')) {
       await scenario('platformSearch', _platformSearch);
@@ -459,6 +475,64 @@ abstract final class SelfTest {
       'flagInFS': flagInFS,
       'afterReEnterFS': afterReEnterFS,
       'hoverAfterLeavingFS': hoverAfterLeavingFS,
+    };
+  }
+
+  /// LibrePili: the search pages, walked the way a user walks them.
+  ///
+  /// The box, the history chip it leaves behind, the results page it opens
+  /// and the cards on it — all four were rebuilt to bilibili's shape, and
+  /// the cards now take their height from a grid rather than their content,
+  /// which is exactly the kind of change that overflows a row. Rendering
+  /// them is the only way to find that out.
+  static Future<Map<String, dynamic>> _ytSearchUi(String query) async {
+    final platform = PlatformService.to;
+    final before = platform.mode.value;
+    await platform.set(PlatformMode.youtube);
+    await Future.delayed(const Duration(seconds: 1));
+
+    final pressed =
+        await _tapTooltip('搜索') ||
+        await _tap(
+          (e) => e.widget is Icon && (e.widget as Icon).semanticLabel == '搜索',
+        );
+    await Future.delayed(const Duration(milliseconds: 700));
+    final searchRoute = Get.currentRoute;
+
+    String? resultRoute;
+    var cards = 0;
+    var historyChip = false;
+    if (searchRoute == '/ytSearch') {
+      Get.find<YtSearchController>(tag: 'yt').onClickKeyword(query);
+      for (var i = 0; i < 15; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        cards = _countElements((e) => e.widget is YtVideoTile);
+        if (cards > 0) break;
+      }
+      resultRoute = Get.currentRoute;
+
+      Get.back();
+      await Future.delayed(const Duration(milliseconds: 800));
+      // the keyword should now be a chip on the page that sent us
+      historyChip = _seesText(query);
+      Get.back();
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    await platform.set(before);
+    return {
+      'pass':
+          pressed &&
+          searchRoute == '/ytSearch' &&
+          // the route carries its query string: /ytSearchResult?keyword=…
+          resultRoute?.startsWith('/ytSearchResult') == true &&
+          cards > 0 &&
+          historyChip,
+      'pressed': pressed,
+      'searchRoute': searchRoute,
+      'resultRoute': resultRoute,
+      'cards': cards,
+      'historyChip': historyChip,
     };
   }
 

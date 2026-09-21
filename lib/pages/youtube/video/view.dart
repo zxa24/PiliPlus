@@ -21,6 +21,7 @@ import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/play_pause_btn.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
+import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -50,6 +51,10 @@ class _YtVideoPageState extends State<YtVideoPage>
       // open it, and it is a second network round trip
       if (_tabs.index == 1) controller.ensureCommentsStarted();
     });
+
+  /// The same card metrics the rest of the app lists videos with.
+  static const _cardExtent = 110.0;
+  final _gridDelegate = Grid.videoCardHDelegate();
 
   @override
   Widget build(BuildContext context) {
@@ -146,10 +151,10 @@ class _YtVideoPageState extends State<YtVideoPage>
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
+    return GridView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      gridDelegate: _gridDelegate,
       itemCount: controller.related.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final item = controller.related[index];
         return YtVideoTile(
@@ -380,8 +385,10 @@ class _YtVideoPageState extends State<YtVideoPage>
                 Text('相关视频', style: theme.textTheme.titleSmall),
                 const SizedBox(height: 10),
                 for (final item in controller.related)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
+                  SizedBox(
+                    // the card is laid out from its cover's aspect ratio, so
+                    // it needs a height the way it gets one in a grid
+                    height: _cardExtent,
                     child: YtVideoTile(
                       item: item,
                       // replaces the page rather than stacking watch pages
