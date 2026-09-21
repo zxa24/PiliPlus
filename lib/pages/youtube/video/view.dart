@@ -5,6 +5,8 @@
 /// modes in stage 3.
 library;
 
+import 'dart:math' as math;
+
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/bottom_control.dart';
@@ -35,9 +37,17 @@ class _YtVideoPageState extends State<YtVideoPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    return Obx(() => _scaffold(theme, controller.plPlayerController.isFullScreen.value));
+  }
+
+  Widget _scaffold(ThemeData theme, bool isFullScreen) {
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(
+      // nothing of the page belongs on screen in fullscreen: the player draws
+      // its own controls over the whole window
+      appBar: isFullScreen
+          ? null
+          : AppBar(
         title: const Text('YouTube'),
         actions: [
           IconButton(
@@ -59,12 +69,24 @@ class _YtVideoPageState extends State<YtVideoPage> {
           }),
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AspectRatio(aspectRatio: 16 / 9, child: _player(theme)),
-          Expanded(child: _info(theme)),
-        ],
+      body: isFullScreen
+          ? _player(theme)
+          : LayoutBuilder(
+        builder: (context, box) {
+          // 16:9 of the width, but never taller than what is there: a short
+          // window made the aspect box exceed the column and overflow it
+          final playerHeight = math.min(
+            box.maxWidth * 9 / 16,
+            box.maxHeight * 0.75,
+          );
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(height: playerHeight, child: _player(theme)),
+              Expanded(child: _info(theme)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -161,37 +183,42 @@ class _YtVideoPageState extends State<YtVideoPage> {
   });
 
 
-  Widget _controls(PlPlayerController player) => Row(
-    children: [
-      PlayOrPauseButton(plPlayerController: player),
-      const SizedBox(width: 8),
-      Obx(
-        () => Text(
-          '${DurationUtils.formatDuration(player.position.value)}'
-          ' / '
-          '${DurationUtils.formatDuration(player.duration.value)}',
-          style: const TextStyle(color: Colors.white, fontSize: 12),
-        ),
-      ),
-      const Spacer(),
-      ComBtn(
-        width: 35,
-        height: 30,
-        tooltip: '全屏',
-        icon: Obx(
-          () => Icon(
-            player.isFullScreen.value
-                ? Icons.fullscreen_exit
-                : Icons.fullscreen,
-            size: 22,
-            color: Colors.white,
+  /// A fixed height: the bar sits in a Column the player sizes tightly, and
+  /// an intrinsically taller row overflowed it by 29 px.
+  Widget _controls(PlPlayerController player) => SizedBox(
+    height: 30,
+    child: Row(
+      children: [
+        PlayOrPauseButton(plPlayerController: player),
+        const SizedBox(width: 8),
+        Obx(
+          () => Text(
+            '${DurationUtils.formatDuration(player.position.value)}'
+            ' / '
+            '${DurationUtils.formatDuration(player.duration.value)}',
+            style: const TextStyle(color: Colors.white, fontSize: 12),
           ),
         ),
-        onTap: () => player.triggerFullScreen(
-          status: !player.isFullScreen.value,
+        const Spacer(),
+        ComBtn(
+          width: 35,
+          height: 30,
+          tooltip: '全屏',
+          icon: Obx(
+            () => Icon(
+              player.isFullScreen.value
+                  ? Icons.fullscreen_exit
+                  : Icons.fullscreen,
+              size: 22,
+              color: Colors.white,
+            ),
+          ),
+          onTap: () => player.triggerFullScreen(
+            status: !player.isFullScreen.value,
+          ),
         ),
-      ),
-    ],
+      ],
+    ),
   );
 
   Future<void> _pickCaption() async {

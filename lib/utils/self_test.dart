@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:io';
 
 import 'package:PiliPlus/http/browser_ua.dart';
@@ -78,8 +79,43 @@ abstract final class SelfTest {
   }
 
   /// Schedules the run once the first frame is on screen.
+  /// Every framework error seen during a run.
+  ///
+  /// The self-test used to assert on controller state alone, so a page that
+  /// rendered as Flutter's red error box still reported `pass: true` — three
+  /// separate crashes on the YouTube page were found by a human opening the
+  /// app, not by this. A build that throws is a failure whatever the
+  /// controllers say.
+  static final uiErrors = <String>[];
+
+  static void _watchForUiErrors() {
+    final previous = FlutterError.onError;
+    FlutterError.onError = (details) {
+      // overflow is reported through the same channel and is just as much a
+      // broken screen
+      final where = details.context?.toDescription() ?? '';
+      // the "relevant error-causing widget" is what identifies an overflow
+      final info = details.informationCollector
+          ?.call()
+          .map((n) => n.toString())
+          .firstWhere(
+            (line) => line.contains('widget'),
+            orElse: () => '',
+          );
+      uiErrors.add(
+        // keep enough of the report to name the widget and its file:line —
+        // the first line alone said "a RenderFlex overflowed" and nothing else
+        '${details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().substring(0, math.min(320, details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().length))}'
+        '${where.isEmpty ? '' : ' @ $where'}'
+        '${(info ?? '').isEmpty ? '' : ' :: ${info!.replaceAll(RegExp(r'\s+'), ' ').trim()}'}',
+      );
+      previous?.call(details);
+    };
+  }
+
   static void schedule(List<String> args) {
     markStarted(args);
+    _watchForUiErrors();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(seconds: 2), () => _run(args));
     });
@@ -111,6 +147,14 @@ abstract final class SelfTest {
       }
       result['name'] = name;
       result['ms'] = sw.elapsedMilliseconds;
+      if (uiErrors.isNotEmpty) {
+        // a scenario that drove the UI into an error state did not pass,
+        // whatever else it measured
+        result
+          ..['pass'] = false
+          ..['uiErrors'] = List<String>.from(uiErrors);
+        uiErrors.clear();
+      }
       ok &= result['pass'] == true;
       checks.add(result);
     }
@@ -213,8 +257,20 @@ abstract final class SelfTest {
 
     final advanced =
         first != null && second != null && second > first + const Duration(seconds: 1);
+
+    // leaving the page must stop playback: audio that keeps running after the
+    // user has navigated away is the worst kind of "it works"
+    Get.back();
+    await Future.delayed(const Duration(seconds: 3));
+    final afterBack = player.videoPlayerController?.state.position;
+    await Future.delayed(const Duration(seconds: 3));
+    final afterBack2 = player.videoPlayerController?.state.position;
+    final stopped =
+        player.videoPlayerController == null ||
+        (afterBack != null && afterBack2 != null && afterBack2 == afterBack);
+
     return {
-      'pass': controller.stage.value == YtPageStage.ready && advanced,
+      'pass': controller.stage.value == YtPageStage.ready && advanced && stopped,
       'stage': controller.stage.value.name,
       'message': controller.message.value,
       'title': controller.detail.value?.title,
@@ -225,6 +281,9 @@ abstract final class SelfTest {
       'captionTracks': controller.captions.length,
       'captionShown': captionOk,
       'via': controller.streams?.sourceId,
+      'stoppedOnLeave': stopped,
+      'positionAfterBack': afterBack?.inMilliseconds,
+      'positionAfterBack2': afterBack2?.inMilliseconds,
     };
   }
 
