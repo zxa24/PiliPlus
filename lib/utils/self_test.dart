@@ -309,6 +309,9 @@ abstract final class SelfTest {
     var channelUploads = 0;
     var subscribeToggled = false;
     String? firstComment;
+    String? openedStage;
+    int? openedBuffer;
+    bool? openedLive;
     if (items.isNotEmpty) {
       final first = items.first;
       unawaited(
@@ -320,6 +323,8 @@ abstract final class SelfTest {
         await Future.delayed(const Duration(seconds: 1));
       }
       openedTitle = controller.detail.value?.title;
+      openedStage = controller.stage.value.name;
+      openedLive = controller.detail.value?.isLive;
 
       // the rest of the page: related shelf, comments, and a subscription
       await Future.delayed(const Duration(seconds: 3));
@@ -347,11 +352,15 @@ abstract final class SelfTest {
       }
       final player = controller.plPlayerController;
       await player.play();
-      final first1 = player.videoPlayerController?.state.position;
-      await Future.delayed(const Duration(seconds: 5));
-      final second = player.videoPlayerController?.state.position;
-      played =
-          first1 != null && second != null && second > first1;
+      // a first result that is long or slow to start is not a failure of the
+      // page: give it a few rounds before calling it one
+      for (var round = 0; round < 4 && !played; round++) {
+        final before = player.videoPlayerController?.state.position;
+        await Future.delayed(const Duration(seconds: 4));
+        final after = player.videoPlayerController?.state.position;
+        played = before != null && after != null && after > before;
+        openedBuffer = player.videoPlayerController?.state.buffer.inMilliseconds;
+      }
       Get.back();
       await Future.delayed(const Duration(seconds: 2));
     }
@@ -372,6 +381,9 @@ abstract final class SelfTest {
       'hasContinuation': result.value?.continuation != null,
       'openedTitle': openedTitle,
       'played': played,
+      'stage': openedStage,
+      'buffer': openedBuffer,
+      'isLive': openedLive,
       'related': relatedCount,
       'comments': commentCount,
       'firstComment': firstComment,

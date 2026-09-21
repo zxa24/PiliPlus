@@ -73,7 +73,7 @@ class YtVideoController extends GetxController {
     unawaited(_loadRelated());
   }
 
-  Future<void> _open(YtStreamPair pair) async {
+  Future<void> _open(YtStreamPair pair, {Duration? seekTo}) async {
     // The player is shared with the bilibili page, which sets bilibili's
     // Referer and UA on it globally. Sending those to googlevideo would tell
     // Google which bilibili client is watching — exactly the cross-site
@@ -82,6 +82,7 @@ class YtVideoController extends GetxController {
     plPlayerController.videoPlayerController?.setMediaHeader();
     await plPlayerController.setDataSource(
       NetworkSource(videoSource: pair.videoUrl, audioSource: pair.audioUrl),
+      seekTo: seekTo,
       duration: detail.value?.duration,
       width: pair.video?.width,
       height: pair.video?.height,
@@ -147,6 +148,55 @@ class YtVideoController extends GetxController {
       ),
     );
     captionIndex.value = index;
+  }
+
+  // ------------------------------------------------------------- quality
+
+  /// Cap on the shorter side, as [YtFormatPreference.maxHeight] means it.
+  /// 0 is "no cap".
+  final maxHeight = 1080.obs;
+
+  /// The heights actually on offer for this video, best first.
+  List<int> get availableHeights {
+    final heights = <int>{
+      for (final format in detail.value?.formats ?? const <YtFormat>[])
+        if (format.isVideo && format.isPlayable && format.height != null)
+          format.height!,
+    }.toList()..sort((a, b) => b.compareTo(a));
+    return heights;
+  }
+
+  Future<void> setMaxHeight(int height) async {
+    if (maxHeight.value == height) return;
+    maxHeight.value = height;
+    final position = plPlayerController.videoPlayerController?.state.position;
+    final streams = await router.run(
+      (s) => s.streams(
+        videoId,
+        preference: YtFormatPreference(maxHeight: height),
+      ),
+    );
+    if (isClosed) return;
+    if (streams.ok && streams.value != null) {
+      _streams = streams.value;
+      await _open(streams.value!, seekTo: position);
+    } else {
+      _fail(streams.verdict);
+    }
+  }
+
+  /// A single muxed stream for a TV: an adaptive video-only URL would cast
+  /// without sound.
+  String? get castUrl {
+    final formats = detail.value?.formats ?? const <YtFormat>[];
+    final muxed = [
+      for (final format in formats)
+        if (format.isPlayable &&
+            format.mimeType.contains('video/') &&
+            format.mimeType.contains('mp4a'))
+          format,
+    ]..sort((a, b) => (b.height ?? 0).compareTo(a.height ?? 0));
+    return muxed.isEmpty ? null : muxed.first.url;
   }
 
   // ------------------------------------------------------------ subscription

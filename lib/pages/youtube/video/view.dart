@@ -12,6 +12,7 @@ import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
+import 'package:PiliPlus/pages/youtube/video/header_control.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
@@ -227,7 +228,7 @@ class _YtVideoPageState extends State<YtVideoPage>
             maxWidth: box.maxWidth,
             maxHeight: box.maxHeight,
             plPlayerController: player,
-            headerControl: const SizedBox.shrink(),
+            headerControl: YtHeaderControl(controller: controller),
             // the default bar is bilibili's and reaches for that page's
             // controller; this one carries only what a YouTube video has
             bottomControl: BottomControl(
@@ -545,6 +546,22 @@ class _YtVideoPageState extends State<YtVideoPage>
           ),
         ),
         const Spacer(),
+        ComBtn(
+          width: 35,
+          height: 30,
+          tooltip: '字幕',
+          icon: Obx(
+            () => Icon(
+              controller.captionIndex.value == -1
+                  ? Icons.closed_caption_off_outlined
+                  : Icons.closed_caption,
+              size: 20,
+              color: Colors.white,
+            ),
+          ),
+          onTap: () =>
+              YtHeaderControl(controller: controller).showCaptions(context),
+        ),
         ComBtn(
           width: 35,
           height: 30,
