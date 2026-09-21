@@ -159,13 +159,13 @@ class _MediaPageState extends CommonPageState<MinePage>
           mainAxisSize: .min,
           children: [
             if (!_mainController.hasHome) ...[
-              IconButton(
+              const IconButton(
                 iconSize: iconSize,
                 padding: padding,
                 style: style,
                 tooltip: '搜索',
-                onPressed: () => Get.toNamed('/search'),
-                icon: const Icon(Icons.search),
+                onPressed: openPlatformSearch,
+                icon: Icon(Icons.search),
               ),
               msgBadge(_mainController),
             ],

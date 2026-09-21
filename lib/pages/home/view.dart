@@ -181,14 +181,11 @@ class _HomePageState extends CommonPageState<HomePage>
               alpha: 0.3,
             ),
             // LibrePili: the same box searches whichever platform is showing
-            onTap: () => PlatformService.to.mode.value == PlatformMode.youtube
-                ? Get.toNamed('/ytSearch')
-                : Get.toNamed(
-                    '/search',
-                    parameters: _homeController.enableSearchWord
-                        ? {'hintText': _homeController.defaultSearch.value}
-                        : null,
-                  ),
+            onTap: () => openPlatformSearch(
+              biliParameters: _homeController.enableSearchWord
+                  ? {'hintText': _homeController.defaultSearch.value}
+                  : null,
+            ),
             child: Row(
               children: [
                 const SizedBox(width: 14),
@@ -215,6 +212,51 @@ class _HomePageState extends CommonPageState<HomePage>
         ),
       ),
     );
+  }
+}
+
+/// LibrePili: search whichever platform is showing.
+///
+/// There are three of these buttons — the home bar, the wide window's side
+/// rail and 我的 — and two of them reached for bilibili's search page
+/// directly, so switching to YouTube left the button next to the platform
+/// switcher quietly doing the wrong thing.
+void openPlatformSearch({Map<String, String>? biliParameters}) {
+  switch (PlatformService.to.mode.value) {
+    case PlatformMode.youtube:
+      Get.toNamed('/ytSearch');
+    case PlatformMode.bilibili:
+      Get.toNamed('/search', parameters: biliParameters);
+    case PlatformMode.all:
+      // 全部 has no one search: results from two platforms are not
+      // comparable, so this asks instead of picking one and not saying so.
+      final context = Get.context;
+      if (context == null) {
+        Get.toNamed('/search', parameters: biliParameters);
+        return;
+      }
+      showDialog<void>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('搜索'),
+          children: [
+            ListTile(
+              leading: const Icon(MdiIcons.television),
+              title: const Text('B 站'),
+              onTap: () => Get
+                ..back()
+                ..toNamed('/search', parameters: biliParameters),
+            ),
+            ListTile(
+              leading: const Icon(Icons.smart_display_outlined),
+              title: const Text('YouTube'),
+              onTap: () => Get
+                ..back()
+                ..toNamed('/ytSearch'),
+            ),
+          ],
+        ),
+      );
   }
 }
 

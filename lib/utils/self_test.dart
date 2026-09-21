@@ -285,6 +285,9 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (args.contains('--platform-search')) {
+      await scenario('platformSearch', _platformSearch);
+    }
     if (_arg(args, '--yt-channel') case final channel?) {
       await scenario('youtubeChannel', () => _youtubeChannel(channel));
     }
@@ -327,6 +330,68 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: does the search button search the platform that is showing?
+  ///
+  /// It did not. Three buttons open search — the home bar, the wide
+  /// window's side rail and 我的 — and only the first one was ever wired to
+  /// the platform, so switching to YouTube and pressing the search next to
+  /// the switcher silently opened bilibili's. This asserts on the route the
+  /// press actually lands on, which is the thing that was wrong.
+  static Future<Map<String, dynamic>> _platformSearch() async {
+    final platform = PlatformService.to;
+    final before = platform.mode.value;
+
+    Future<String?> pressSearch() async {
+      // the rail's button carries the tooltip; the home bar is an InkWell
+      // whose icon carries the label
+      final pressed =
+          await _tapTooltip('搜索') ||
+          await _tap(
+            (e) => e.widget is Icon && (e.widget as Icon).semanticLabel == '搜索',
+          );
+      if (!pressed) return null;
+      await Future.delayed(const Duration(milliseconds: 600));
+      return Get.currentRoute;
+    }
+
+    await platform.set(PlatformMode.youtube);
+    await Future.delayed(const Duration(seconds: 1));
+    final youtubeRoute = await pressSearch();
+    if (youtubeRoute != null) {
+      Get.back();
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    await platform.set(PlatformMode.bilibili);
+    await Future.delayed(const Duration(seconds: 1));
+    final bilibiliRoute = await pressSearch();
+    if (bilibiliRoute != null) {
+      Get.back();
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    // 全部 has no single search, so the press must ask rather than pick
+    await platform.set(PlatformMode.all);
+    await Future.delayed(const Duration(seconds: 1));
+    await pressSearch();
+    final allAsks = _seesText('B 站') && _seesText('YouTube');
+    if (allAsks) {
+      Get.back();
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    await platform.set(before);
+    return {
+      'pass':
+          youtubeRoute == '/ytSearch' &&
+          bilibiliRoute == '/search' &&
+          allAsks,
+      'youtubeRoute': youtubeRoute,
+      'bilibiliRoute': bilibiliRoute,
+      'allAsks': allAsks,
+    };
+  }
 
   /// LibrePili: can we list a channel's uploads? Subscriptions depend on it,
   /// and stage 1 never parsed a channel page — so this asks before any UI is
