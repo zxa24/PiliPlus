@@ -4,6 +4,7 @@ import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
+import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/dialog/report.dart';
@@ -127,12 +128,7 @@ class ReplyItemGrpc extends StatelessWidget {
         mainAxisSize: .min,
         children: [
           child,
-          Divider(
-            indent: 55,
-            endIndent: 15,
-            height: 0.3,
-            color: colorScheme.outline.withValues(alpha: 0.08),
-          ),
+          CommentChrome.itemDivider(Theme.of(context)),
         ],
       );
     }

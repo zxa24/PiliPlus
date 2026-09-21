@@ -8,7 +8,8 @@ library;
 
 import 'dart:math' as math;
 
-import 'package:PiliPlus/common/skeleton/video_reply.dart';
+import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
+import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
@@ -531,7 +532,14 @@ class _YtVideoPageState extends State<YtVideoPage>
     if (now != null) controller.isFav.value = now;
   }
 
-  Widget _comments(ThemeData theme) => Obx(() {
+  /// The comments pane. It is a [MiniScaffold] because 评论详情 opens as a
+  /// sheet *inside* it, the way the bilibili page does it
+  /// (reply/view.dart:245): the detail takes over the comment area and
+  /// leaves the video where it is, rather than covering the window.
+  Widget _comments(ThemeData theme) =>
+      MiniScaffold(body: _commentList(theme));
+
+  Widget _commentList(ThemeData theme) => Obx(() {
     final items = controller.comments;
     final error = controller.commentsError.value;
 
@@ -542,12 +550,9 @@ class _YtVideoPageState extends State<YtVideoPage>
         return HttpError(errMsg: error, onReload: controller.retryComments);
       }
       if (controller.commentsLoading.value) {
-        // the same skeleton the bilibili list uses, rather than a spinner in
-        // the middle of an empty page
-        return ListView.builder(
+        return ListView(
           padding: EdgeInsets.zero,
-          itemCount: 5,
-          itemBuilder: (_, _) => const VideoReplySkeleton(),
+          children: CommentChrome.skeletons(CommentChrome.listSkeletons),
         );
       }
       return Center(
@@ -563,16 +568,10 @@ class _YtVideoPageState extends State<YtVideoPage>
       child: ListView.separated(
         padding: EdgeInsets.zero,
         itemCount: items.length + 1,
-        separatorBuilder: (_, _) => Divider(
-          // indented past the avatar, as on the bilibili list
-          indent: 55,
-          endIndent: 15,
-          height: 0.3,
-          color: theme.colorScheme.outline.withValues(alpha: 0.08),
-        ),
+        separatorBuilder: (_, _) => CommentChrome.itemDivider(theme),
         itemBuilder: (context, index) {
           if (index == items.length) return _commentsFooter(theme);
-          return _thread(theme, items[index]);
+          return _thread(context, theme, items[index]);
         },
       ),
     );
@@ -588,36 +587,21 @@ class _YtVideoPageState extends State<YtVideoPage>
         (_) => controller.loadMoreComments(),
       );
     }
-    final Widget child;
-    if (error != null) {
-      child = TextButton(
-        onPressed: controller.retryComments,
-        child: Text('加载失败，点击重试（$error）'),
-      );
-    } else if (controller.commentsLoading.value ||
-        controller.hasMoreComments) {
-      child = Text(
-        '加载中...',
-        style: TextStyle(color: theme.colorScheme.outline),
-      );
-    } else {
-      child = Text(
-        '没有更多了',
-        style: TextStyle(color: theme.colorScheme.outline),
-      );
-    }
-    return Container(
-      height: 100,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: child,
+    return CommentChrome.pagingFooter(
+      theme,
+      isEnd: !controller.hasMoreComments,
+      error: error,
+      onRetry: controller.retryComments,
     );
   });
 
   /// A top-level comment with a preview of its replies under it, the way
   /// the bilibili page shows them: a rounded block, the first few replies as
   /// `name: text`, then 「共 N 条回复」. Tapping anywhere opens the thread.
-  Widget _thread(ThemeData theme, YtComment comment) {
+  /// [host] is the row's own context, which is below the comment pane's
+  /// MiniScaffold — the State's own context is above it, and using that
+  /// would quietly send the detail back to being a window-wide route.
+  Widget _thread(BuildContext host, ThemeData theme, YtComment comment) {
     // asking here means asking when the row is built, which is when it is
     // about to be seen — YouTube sends no replies with the comments, so a
     // preview costs one request per thread and twenty at once is not a page
@@ -630,11 +614,11 @@ class _YtVideoPageState extends State<YtVideoPage>
         // the whole row opens the thread and long-press opens the menu,
         // exactly as on the bilibili item — a comment used to be inert
         // unless it happened to have replies
-        onTap: () => _openThread(comment),
+        onTap: () => _openThread(host, comment),
         onLongPress: more,
         onSecondaryTap: PlatformUtils.isMobile ? null : more,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 14, 8, 5),
+          padding: CommentChrome.itemPadding,
           child: Obx(() {
             final loaded = controller.replies[comment.commentId];
             return Column(
@@ -644,7 +628,7 @@ class _YtVideoPageState extends State<YtVideoPage>
                 if (comment.hasReplies)
                   Padding(
                     padding: const EdgeInsets.only(top: 5, bottom: 12),
-                    child: _replyPreview(theme, comment, loaded),
+                    child: _replyPreview(host, theme, comment, loaded),
                   ),
               ],
             );
@@ -721,6 +705,7 @@ class _YtVideoPageState extends State<YtVideoPage>
   /// bilibili's preview block: same indent, same rounded surface, same
   /// one-line-per-reply shape, and each row its own tap target.
   Widget _replyPreview(
+    BuildContext host,
     ThemeData theme,
     YtComment comment,
     List<YtComment>? loaded,
@@ -755,20 +740,25 @@ class _YtVideoPageState extends State<YtVideoPage>
         controller.hasMoreReplies(comment.commentId);
     final length = shown.length + (extraRow ? 1 : 0);
     return Padding(
-      padding: const EdgeInsets.only(left: 42, right: 4),
+      padding: const EdgeInsets.only(
+        left: CommentChrome.previewIndent,
+        right: 4,
+      ),
       child: Material(
         animationDuration: Duration.zero,
         color: theme.colorScheme.onInverseSurface,
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(
+          Radius.circular(CommentChrome.previewRadiusValue),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (final (index, reply) in shown.indexed)
               InkWell(
-                borderRadius: _previewRadius(index, length),
-                onTap: () => _openThread(comment),
+                borderRadius: CommentChrome.previewRadius(index, length),
+                onTap: () => _openThread(host, comment),
                 child: Padding(
-                  padding: _previewPadding(index, length),
+                  padding: CommentChrome.previewPadding(index, length),
                   child: Text.rich(
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -807,10 +797,10 @@ class _YtVideoPageState extends State<YtVideoPage>
               ),
             if (extraRow)
               InkWell(
-                borderRadius: _previewRadius(length - 1, length),
-                onTap: () => _openThread(comment),
+                borderRadius: CommentChrome.previewRadius(length - 1, length),
+                onTap: () => _openThread(host, comment),
                 child: Padding(
-                  padding: _previewPadding(length - 1, length),
+                  padding: CommentChrome.previewPadding(length - 1, length),
                   child: Row(
                     children: [
                       Text(
@@ -838,76 +828,44 @@ class _YtVideoPageState extends State<YtVideoPage>
     );
   }
 
-  /// The corner radii and paddings the bilibili block gives a row depending
-  /// on where in the block it sits.
-  static BorderRadius? _previewRadius(int index, int length) {
-    if (length == 1) return const BorderRadius.all(Radius.circular(6));
-    if (index == 0) {
-      return const BorderRadius.vertical(top: Radius.circular(6));
-    }
-    if (index == length - 1) {
-      return const BorderRadius.vertical(bottom: Radius.circular(6));
-    }
-    return null;
-  }
-
-  static EdgeInsets _previewPadding(int index, int length) {
-    if (length == 1) return const EdgeInsets.fromLTRB(8, 5, 8, 5);
-    if (index == 0) return const EdgeInsets.fromLTRB(8, 8, 8, 4);
-    if (index == length - 1) return const EdgeInsets.fromLTRB(8, 4, 8, 8);
-    return const EdgeInsets.fromLTRB(8, 4, 8, 4);
-  }
-
-  /// 评论详情 — the shape bilibili's panel has: a 45-high bar with the
-  /// title and a close button over a 1px divider, the first-floor comment,
-  /// a 6-thick divider, a line saying how many replies there are, and then
-  /// the replies as full-size items rather than shrunken ones.
+  /// 评论详情. It opens as a sheet inside the comment area's own
+  /// [MiniScaffold] — which is what the bilibili page does
+  /// (reply/view.dart:245) — so the video stays where it is and, in the
+  /// wide layout, the detail stays inside the side panel. It was a route
+  /// over the whole window, which is a different thing wearing the same
+  /// title.
   ///
-  /// No sort control: bilibili's row has 最热 / 最新 beside the count, and
-  /// nothing in this data layer offers a reply ordering to switch to.
-  void _openThread(YtComment comment) {
+  /// [host] must be a context below that MiniScaffold, so it has to come
+  /// from the row that was tapped rather than from the page.
+  void _openThread(BuildContext host, YtComment comment) {
     final id = comment.commentId;
     controller.ensureRepliesPreview(comment);
-    // the same route every panel over the player uses: up from the bottom on
-    // a phone, in from the right on a wide window
-    PageUtils.showVideoBottomSheet(
-      context,
-      maxWidth: 640,
-      child: Builder(
-        builder: (context) {
-          final theme = Theme.of(context);
-          return Material(
-            color: theme.canvasColor,
-            child: Column(
-              children: [
-                Container(
-                  height: 45,
-                  padding: const EdgeInsets.only(left: 12, right: 2),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        width: 1,
-                        color: theme.dividerColor.withValues(alpha: 0.1),
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('评论详情'),
-                      IconButton(
-                        tooltip: '关闭',
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: Get.back,
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(child: _threadBody(theme, comment, id)),
-              ],
-            ),
-          );
-        },
+    final scaffold = MiniScaffold.maybeOf(host);
+    if (scaffold == null) {
+      // the intro tab's related shelf has no scaffold of its own; falling
+      // back keeps the thread reachable instead of silently doing nothing
+      PageUtils.showVideoBottomSheet(
+        host,
+        maxWidth: 640,
+        child: Builder(builder: (context) => _threadPanel(context, comment, id)),
+      );
+      return;
+    }
+    scaffold.showBottomSheet(
+      constraints: const BoxConstraints(),
+      (context) => _threadPanel(context, comment, id),
+    );
+  }
+
+  Widget _threadPanel(BuildContext context, YtComment comment, String id) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.canvasColor,
+      child: Column(
+        children: [
+          CommentChrome.panelHeader(theme, title: '评论详情'),
+          Expanded(child: _threadBody(theme, comment, id)),
+        ],
       ),
     );
   }
@@ -925,27 +883,11 @@ class _YtVideoPageState extends State<YtVideoPage>
           // order bilibili's panel puts them in
           final head = <Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 14, 8, 5),
+              padding: CommentChrome.itemPadding,
               child: _comment(theme, comment),
             ),
-            Divider(
-              height: 20,
-              thickness: 6,
-              color: theme.dividerColor.withValues(alpha: 0.1),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2.5, 12, 2.5),
-              child: SizedBox(
-                height: 32,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _replyCountLine(comment, replies.length),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-              ),
-            ),
+            CommentChrome.thickDivider(theme),
+            CommentChrome.countLine(_replyCountLine(comment, replies.length)),
           ];
 
           if (error != null && replies.isEmpty) {
@@ -967,7 +909,7 @@ class _YtVideoPageState extends State<YtVideoPage>
             return ListView(
               children: [
                 ...head,
-                for (var i = 0; i < 8; i++) const VideoReplySkeleton(),
+                ...CommentChrome.skeletons(CommentChrome.panelSkeletons),
               ],
             );
           }
@@ -977,12 +919,7 @@ class _YtVideoPageState extends State<YtVideoPage>
             itemCount: head.length + replies.length + 1,
             separatorBuilder: (context, index) => index < head.length - 1
                 ? const SizedBox.shrink()
-                : Divider(
-                    indent: 55,
-                    endIndent: 15,
-                    height: 0.3,
-                    color: theme.colorScheme.outline.withValues(alpha: 0.08),
-                  ),
+                : CommentChrome.itemDivider(theme),
             itemBuilder: (context, index) {
               if (index < head.length) return head[index];
               final replyIndex = index - head.length;
@@ -990,7 +927,7 @@ class _YtVideoPageState extends State<YtVideoPage>
                 // full-size items, as in bilibili's panel: a reply here is
                 // not a footnote to the comment above it
                 return Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 14, 8, 5),
+                  padding: CommentChrome.itemPadding,
                   child: _comment(theme, replies[replyIndex]),
                 );
               }
@@ -1001,23 +938,12 @@ class _YtVideoPageState extends State<YtVideoPage>
                   (_) => controller.loadMoreReplies(id),
                 );
               }
-              return Container(
-                height: 125,
-                alignment: Alignment.center,
-                child: Text(
-                  error != null
-                      ? '加载失败：$error'
-                      : loading || controller.hasMoreReplies(id)
-                      ? '加载中...'
-                      : replies.isEmpty
-                      ? '没有取到回复'
-                      : '没有更多了',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
+              return CommentChrome.pagingFooter(
+                theme,
+                isEnd: !loading && !controller.hasMoreReplies(id),
+                error: error,
+                onRetry: () => controller.refreshReplies(comment),
+                emptyText: replies.isEmpty ? '没有取到回复' : '没有更多了',
               );
             },
           );

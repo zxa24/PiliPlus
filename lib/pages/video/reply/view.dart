@@ -2,6 +2,7 @@ import 'package:PiliPlus/common/skeleton/video_reply.dart';
 import 'package:PiliPlus/common/sliver_single_child_delegate.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
+import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
@@ -180,15 +181,10 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
               }
               if (index == response.length) {
                 _videoReplyController.onLoadMore();
-                return Container(
-                  height: 125,
-                  alignment: .center,
+                return CommentChrome.pagingFooter(
+                  Theme.of(context),
+                  isEnd: _videoReplyController.isEnd,
                   margin: .only(bottom: bottom),
-                  child: Text(
-                    _videoReplyController.isEnd ? '没有更多了' : '加载中...',
-                    textAlign: .center,
-                    style: TextStyle(fontSize: 12, color: colorScheme.outline),
-                  ),
                 );
               } else {
                 return ReplyItemGrpc(

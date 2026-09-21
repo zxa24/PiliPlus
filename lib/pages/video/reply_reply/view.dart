@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/skeleton/video_reply.dart';
+import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
 import 'package:PiliPlus/common/sliver_single_child_delegate.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/colored_box_transition.dart';
@@ -150,28 +151,9 @@ class _VideoReplyReplyPanelState extends State<VideoReplyReplyPanel>
         body: widget.isVideoDetail
             ? Column(
                 children: [
-                  Container(
-                    height: 45,
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          width: 1,
-                          color: theme.dividerColor.withValues(alpha: 0.1),
-                        ),
-                      ),
-                    ),
-                    padding: const EdgeInsets.only(left: 12, right: 2),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: <Widget>[
-                        Text(isDialogue ? '对话列表' : '评论详情'),
-                        IconButton(
-                          tooltip: '关闭',
-                          icon: const Icon(Icons.close, size: 20),
-                          onPressed: Get.back,
-                        ),
-                      ],
-                    ),
+                  CommentChrome.panelHeader(
+                    theme,
+                    title: isDialogue ? '对话列表' : '评论详情',
                   ),
                   Expanded(child: child()),
                 ],
@@ -232,13 +214,7 @@ class _VideoReplyReplyPanelState extends State<VideoReplyReplyPanel>
             onCheckReply: _controller.onCheckReply,
           ),
         ),
-        SliverToBoxAdapter(
-          child: Divider(
-            height: 20,
-            color: theme.dividerColor.withValues(alpha: 0.1),
-            thickness: 6,
-          ),
-        ),
+        SliverToBoxAdapter(child: CommentChrome.thickDivider(theme)),
       ],
     );
   }
@@ -288,7 +264,7 @@ class _VideoReplyReplyPanelState extends State<VideoReplyReplyPanel>
       Loading() => const SliverPrototypeExtentList(
         prototypeItem: VideoReplySkeleton(),
         delegate: SliverSingleChildDelegate(
-          count: 8,
+          count: CommentChrome.panelSkeletons,
           child: VideoReplySkeleton(),
         ),
       ),
@@ -297,18 +273,10 @@ class _VideoReplyReplyPanelState extends State<VideoReplyReplyPanel>
         itemBuilder: (context, index) {
           if (index == response.length) {
             _controller.onLoadMore();
-            return Container(
-              height: 125,
-              alignment: Alignment.center,
+            return CommentChrome.pagingFooter(
+              Theme.of(context),
+              isEnd: _controller.isEnd,
               margin: .only(bottom: MediaQuery.viewPaddingOf(context).bottom),
-              child: Text(
-                _controller.isEnd ? '没有更多了' : '加载中...',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colorScheme.outline,
-                ),
-              ),
             );
           }
           final child = _replyItem(context, response[index], index);

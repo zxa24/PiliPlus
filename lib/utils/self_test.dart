@@ -990,6 +990,7 @@ abstract final class SelfTest {
     var previewEntries = 0;
     var narrowErrors = const <String>[];
     var threadSheetOpened = false;
+    String? routeWithThreadOpen;
     var commentsBefore = 0;
     var commentsAfter = 0;
     var repliesBefore = 0;
@@ -1108,6 +1109,11 @@ abstract final class SelfTest {
           threadSheetOpened =
               (_seesText('评论详情') || _seesLabel('评论详情')) &&
               _seesLabel('相关回复');
+          // in-pane or window-wide? Both show the title, so the title
+          // cannot tell them apart. A sheet inside the comment area is a
+          // local history entry and leaves the route alone; a panel pushed
+          // over the window does not.
+          routeWithThreadOpen = Get.currentRoute;
           if (threadSheetOpened) {
             // and its own second page: the panel asks for more replies the
             // same way the list asks for more comments, from the row at the
@@ -1253,6 +1259,7 @@ abstract final class SelfTest {
           commentsAutoLoaded &&
           narrowErrors.isEmpty &&
           threadSheetOpened &&
+          routeWithThreadOpen?.startsWith('/ytVideo') == true &&
           commentsAfter > commentsBefore &&
           repliesAfter > repliesBefore &&
           // the resize has to have happened for its result to mean anything
@@ -1287,6 +1294,7 @@ abstract final class SelfTest {
       'previewEntries': previewEntries,
       'narrowErrors': narrowErrors,
       'threadSheetOpened': threadSheetOpened,
+      'routeWithThreadOpen': routeWithThreadOpen,
       'commentsBefore': commentsBefore,
       'commentsAfter': commentsAfter,
       'repliesBefore': repliesBefore,
