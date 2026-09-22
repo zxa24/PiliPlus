@@ -12,6 +12,7 @@ import 'dart:async';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
@@ -578,7 +579,7 @@ class YtVideoController extends GetxController {
       switch (state.stage) {
         case AsrStage.done:
           _closeAsrGate();
-          _publishAsrSubtitle();
+          _publishAsrSubtitle(isFinal: true);
         case AsrStage.failed:
           _closeAsrGate();
           // only errors interrupt; progress lives in the subtitle menu
@@ -617,12 +618,28 @@ class YtVideoController extends GetxController {
 
   /// Shows what has been recognised so far. The page has no track list of its
   /// own to insert into, so the transcript simply becomes the shown subtitle.
-  void _publishAsrSubtitle() {
+  /// How far the published track reaches; see [shouldPublishAsr].
+  Duration _asrPublishedTo = Duration.zero;
+
+  void _publishAsrSubtitle({bool isFinal = false}) {
     final session = asrSession.value;
     final player = plPlayerController.videoPlayerController;
     if (session == null || player == null || session.cues.isEmpty) return;
+    // each of these reloads the track and blinks whatever is on screen
+    if (!shouldPublishAsr(
+      publishedTo: _asrPublishedTo,
+      // the player counts whole seconds
+      position: Duration(seconds: plPlayerController.position.value),
+      isFirst: captionIndex.value != -2,
+      isFinal: isFinal,
+    )) {
+      return;
+    }
+    _asrPublishedTo = Duration(
+      milliseconds: (session.cues.last.to * 1000).round(),
+    );
     player.setSubtitleTrack(
-      SubtitleTrack('memory://${session.cues.toVtt()}', '自动转录', 'asr',
+      SubtitleTrack('memory://${session.cues.toVtt()}', '语音识别', 'asr',
           uri: true),
     );
     captionIndex.value = -2;

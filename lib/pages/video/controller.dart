@@ -57,6 +57,7 @@ import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/local_documents.dart';
+import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -1326,7 +1327,7 @@ class VideoDetailController extends GetxController
       switch (state.stage) {
         case AsrStage.done:
           _closeAsrGate();
-          _publishAsrSubtitle(select: true);
+          _publishAsrSubtitle(select: true, isFinal: true);
         case AsrStage.failed:
           _closeAsrGate();
           // errors are the one thing still worth interrupting for: everything
@@ -1401,12 +1402,32 @@ class VideoDetailController extends GetxController
 
   /// Puts what has been recognised so far into the subtitle list, adding the
   /// track the first time and replacing its data afterwards.
-  void _publishAsrSubtitle({bool select = false}) {
+  /// How far the published track reaches, so a refresh that would gain the
+  /// viewer nothing can be skipped.
+  Duration _asrPublishedTo = Duration.zero;
+
+  void _publishAsrSubtitle({bool select = false, bool isFinal = false}) {
     final session = asrSession.value;
     if (session == null || isClosed) return;
     final cues = session.cues;
     if (cues.isEmpty) return;
+
+    // Handing mpv a rebuilt track reloads it, and the line on screen blinks.
+    // While the transcript already runs well ahead of the playhead there is
+    // nothing to gain by paying that.
+    if (!shouldPublishAsr(
+      publishedTo: _asrPublishedTo,
+      // the player counts whole seconds
+      position: Duration(seconds: plPlayerController.position.value),
+      isFirst: _asrTrackIndex == null,
+      isFinal: isFinal || select,
+    )) {
+      return;
+    }
     final vtt = cues.toVtt();
+    _asrPublishedTo = Duration(
+      milliseconds: (cues.last.to * 1000).round(),
+    );
 
     var index = _asrTrackIndex;
     if (index == null) {

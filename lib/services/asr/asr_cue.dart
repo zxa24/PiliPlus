@@ -59,10 +59,17 @@ abstract final class AsrCueBuilder {
   /// A clause end: only used to break a cue that is already too long to read.
   static const _clauseEnd = '，、,;；：:';
 
-  /// Characters per cue. Measured against the same video's official AI
-  /// subtitle: continuous speech with no full stops otherwise ran to 35
-  /// characters on one line, which nobody can read in six seconds.
-  static const _maxChars = 10;
+  /// How much room a cue may take, in half-width units: a CJK character
+  /// counts 2, a Latin letter 1.
+  ///
+  /// This used to count characters, which is the same thing only if every
+  /// video is Chinese. Measured against the author's own English track on a
+  /// 467 s video: they wrote 159 cues of a median 32 characters, we produced
+  /// 261 of a median 17 — the limit tuned for Chinese cut English into about
+  /// three words a line. Counting width instead leaves Chinese untouched
+  /// (every character is 2, so the thresholds scale exactly) and gives Latin
+  /// text the room the same line has.
+  static const _maxWidth = 20;
 
   /// And a cap that does not need permission from punctuation.
   ///
@@ -75,7 +82,7 @@ abstract final class AsrCueBuilder {
   /// median cue is 11 characters and their longest 28, held for a median of
   /// 1.5 s. Ours were 22 and 27 at 3.0 s — twice the text for twice as long,
   /// which reads as one long line rather than two short ones.
-  static const _hardMaxChars = 16;
+  static const _hardMaxWidth = 32;
 
   /// Nothing is cut below this, otherwise punctuation-heavy speech flickers.
   static const _minDuration = 1.0;
@@ -83,10 +90,46 @@ abstract final class AsrCueBuilder {
   /// No cue is shown for less than this if there is room to hold it.
   /// Eleven of those 203 were under a second and six under half a second:
   /// long enough to notice something appeared, not long enough to read it.
-  static const _minShown = 1.2;
+  ///
+  /// Raised from 1.2 s against the author's own track on a 467 s video: they
+  /// hold a line for a median of 2.30 s and leave almost no gap between
+  /// lines (90th percentile 1.07 s), which is why 89% of their video carries
+  /// a subtitle against our 67%. A cue can only grow into silence that is
+  /// already empty — [_holdBriefly] stops at the next cue's start — so this
+  /// buys coverage without ever overlapping the next line.
+  static const _minShown = 2.0;
 
   /// Silence longer than this inside a VAD segment is treated as a break.
   static const _gap = 0.8;
+
+  /// What [text] takes up on screen, counting a full-width character as two.
+  ///
+  /// Line length is a question about width, not about how many code points
+  /// happen to be involved: 16 Chinese characters and 16 English letters do
+  /// not occupy remotely the same line.
+  static int displayWidth(String text) {
+    var width = 0;
+    for (final rune in text.runes) {
+      width += _isFullWidth(rune) ? 2 : 1;
+    }
+    return width;
+  }
+
+  /// The East Asian Wide / Fullwidth ranges, which is all this needs: every
+  /// script the recogniser supports is either one of these or half-width.
+  static bool _isFullWidth(int rune) =>
+      (rune >= 0x1100 && rune <= 0x115F) || // hangul jamo
+      (rune >= 0x2E80 && rune <= 0x303E) || // CJK radicals, punctuation
+      (rune >= 0x3041 && rune <= 0x33FF) || // kana, hangul compat, CJK squared
+      (rune >= 0x3400 && rune <= 0x4DBF) || // CJK ext A
+      (rune >= 0x4E00 && rune <= 0x9FFF) || // CJK unified
+      (rune >= 0xA000 && rune <= 0xA4CF) || // Yi
+      (rune >= 0xAC00 && rune <= 0xD7A3) || // hangul syllables
+      (rune >= 0xF900 && rune <= 0xFAFF) || // CJK compatibility ideographs
+      (rune >= 0xFE30 && rune <= 0xFE4F) || // CJK compatibility forms
+      (rune >= 0xFF00 && rune <= 0xFF60) || // fullwidth forms
+      (rune >= 0xFFE0 && rune <= 0xFFE6) ||
+      (rune >= 0x20000 && rune <= 0x3FFFD); // CJK ext B and beyond
 
   static String stripTags(String text) => text.replaceAll(_tag, '').trim();
 
@@ -154,11 +197,15 @@ abstract final class AsrCueBuilder {
 
     final cues = <AsrCue>[];
     final buffer = StringBuffer();
+    // tracked alongside the buffer rather than recomputed: the check runs
+    // once per token and measuring the whole buffer each time is quadratic
+    var bufferWidth = 0;
     var start = clean.first.time;
 
     void flush(double end) {
       final content = _tidy(buffer.toString());
       buffer.clear();
+      bufferWidth = 0;
       if (content.isEmpty) return;
       cues.add(
         AsrCue(from: offset + start, to: offset + end, content: content),
@@ -168,6 +215,7 @@ abstract final class AsrCueBuilder {
     for (var i = 0; i < clean.length; i++) {
       final token = clean[i];
       buffer.write(token.text);
+      bufferWidth += displayWidth(token.text);
       final trimmed = token.text.trimRight();
       final next = i + 1 < clean.length ? clean[i + 1] : null;
       // only token *starts* are reported, so silence shows up as a large gap
@@ -196,12 +244,12 @@ abstract final class AsrCueBuilder {
       // and not at the padded end, which counts the hold.
       final held = (token.time + typicalToken) - start;
       final tail = trimmed.isEmpty ? '' : trimmed[trimmed.length - 1];
-      final long = buffer.length >= _maxChars;
+      final long = bufferWidth >= _maxWidth;
       final breakHere =
           next == null ||
           held >= maxDuration ||
           // a hard stop, so a sentence without commas cannot run on
-          buffer.length >= _hardMaxChars ||
+          bufferWidth >= _hardMaxWidth ||
           (held >= _minDuration &&
               (_sentenceEnd.contains(tail) ||
                   silent ||
@@ -255,7 +303,8 @@ abstract final class AsrCueBuilder {
       final brief = cue.to - cue.from < _minDuration;
       final fits =
           merged.isNotEmpty &&
-          merged.last.content.length + cue.content.length <= _hardMaxChars;
+          displayWidth(merged.last.content) + displayWidth(cue.content) <=
+              _hardMaxWidth;
       final isRunt =
           bare || cue.to - cue.from < _runtDuration || (brief && fits);
       if (isRunt && merged.isNotEmpty) {

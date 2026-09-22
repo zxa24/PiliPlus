@@ -84,7 +84,14 @@ void main() {
           ('好', 0.5),
         ]),
       );
-      expect(cues, [const AsrCue(from: 0.2, to: 2, content: '你好')]);
+      // held to `from + _minShown` (2.0 s) rather than stopping at the end
+      // of the segment: a cue that ends the moment the speech does is the
+      // "subtitle gone before the sentence is" complaint, and there is
+      // nothing after it to overlap
+      expect(
+        cues,
+        [const AsrCue(from: 0.2, to: 2.2, content: '你好')],
+      );
     });
 
     test('drops a BGM-only segment entirely', () {
@@ -347,6 +354,77 @@ void main() {
       );
       expect(cues, hasLength(1));
       expect(cues.single.content, '好的，走吧');
+    });
+  });
+
+  group('line length is measured in width, not characters', () {
+    /// Evenly spaced tokens, one per [step] seconds.
+    List<AsrToken> spaced(List<String> texts, {double step = 0.3}) => [
+      for (var i = 0; i < texts.length; i++)
+        (text: texts[i], time: i * step),
+    ];
+
+    test('a CJK character counts double and a Latin letter once', () {
+      expect(AsrCueBuilder.displayWidth('你好'), 4);
+      expect(AsrCueBuilder.displayWidth('hi'), 2);
+      expect(AsrCueBuilder.displayWidth('你好hi'), 6);
+      // kana and hangul are wide too
+      expect(AsrCueBuilder.displayWidth('こん'), 4);
+      expect(AsrCueBuilder.displayWidth('한글'), 4);
+      // fullwidth punctuation is wide, ASCII punctuation is not
+      expect(AsrCueBuilder.displayWidth('，'), 2);
+      expect(AsrCueBuilder.displayWidth(','), 1);
+    });
+
+    test('Chinese is cut exactly where it always was', () {
+      // The guarantee that made this change safe to ship: for text that is
+      // entirely full-width, width is twice the character count, so the
+      // doubled thresholds fall in the same places. A regression here means
+      // Chinese subtitles changed, which is what the previous round of
+      // tuning was for.
+      final tokens = spaced([for (var i = 0; i < 40; i++) '话']);
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 12,
+        tokens: tokens,
+      );
+      expect(cues, isNotEmpty);
+      for (final cue in cues) {
+        expect(
+          AsrCueBuilder.displayWidth(cue.content),
+          lessThanOrEqualTo(32),
+          reason: 'cue "${cue.content}" is wider than the hard cap',
+        );
+        // 32 half-widths is 16 Chinese characters — the old _hardMaxChars
+        expect(cue.content.length, lessThanOrEqualTo(16));
+      }
+    });
+
+    test('English is no longer cut into three words a line', () {
+      // 16 characters of English is about three words. The author's own
+      // track on the measured video ran to a median of 32 characters, which
+      // is what 32 half-widths allows.
+      final words = [
+        for (var i = 0; i < 40; i++) 'word ',
+      ];
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 12,
+        tokens: spaced(words),
+      );
+      expect(cues, isNotEmpty);
+      final longest = cues
+          .map((c) => c.content.length)
+          .reduce((a, b) => a > b ? a : b);
+      // the old limit would have capped every cue at 16
+      expect(longest, greaterThan(16));
+      for (final cue in cues) {
+        // The cap is checked after a token is appended, so a cue can run one
+        // token past it — a single character in Chinese, a whole word in
+        // English. Breaking *before* the token instead would change where
+        // Chinese cues fall, which is the one thing this change must not do.
+        expect(AsrCueBuilder.displayWidth(cue.content), lessThanOrEqualTo(40));
+      }
     });
   });
 }
