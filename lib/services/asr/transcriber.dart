@@ -41,6 +41,18 @@ class AsrLanguageEvent extends AsrEvent {
   final String language;
 }
 
+/// One stretch the VAD decided was speech.
+///
+/// Reported so that "the video has long stretches with no subtitle" can be
+/// answered: a hole the VAD also saw as silence is silence, and a hole
+/// inside a segment is speech that produced no cue. Without both, the two
+/// are indistinguishable.
+class AsrSegmentEvent extends AsrEvent {
+  const AsrSegmentEvent(this.start, this.duration);
+  final double start;
+  final double duration;
+}
+
 class AsrErrorEvent extends AsrEvent {
   const AsrErrorEvent(this.message);
   final String message;
@@ -87,6 +99,12 @@ class AsrTranscriber {
           controller.add(AsrProgressUpdate(d, t));
         case {'type': 'language', 'language': final String lang}:
           controller.add(AsrLanguageEvent(lang));
+        case {
+          'type': 'segment',
+          'start': final double start,
+          'duration': final double duration,
+        }:
+          controller.add(AsrSegmentEvent(start, duration));
         case {'type': 'error', 'message': final String message}:
           controller.add(AsrErrorEvent(message));
         case {'type': 'done'}:
@@ -172,6 +190,11 @@ class AsrTranscriber {
           stream.free();
           vad.pop();
 
+          send.send({
+            'type': 'segment',
+            'start': start,
+            'duration': duration,
+          });
           if (result.lang.isNotEmpty) {
             final lang = AsrCueBuilder.tagValue(result.lang);
             if (lang.isNotEmpty) {

@@ -72,6 +72,11 @@ class AsrSession {
   final state = const AsrState.idle().obs;
   final cues = <AsrCue>[].obs;
 
+  /// Stretches the VAD called speech. Diagnostic only — nothing in the UI
+  /// reads it — but it is the only way to tell a gap that is silence from a
+  /// gap where speech was recognised into nothing.
+  final segments = <({double start, double duration})>[];
+
   AsrTranscriber? _transcriber;
   StreamSubscription<AsrEvent>? _events;
   AsrCancelToken? _download;
@@ -231,6 +236,10 @@ class AsrService extends GetxService {
           switch (event) {
             case AsrCuesEvent(:final cues):
               session.cues.addAll(cues);
+            case AsrSegmentEvent(:final start, :final duration):
+              // kept so a caller can tell a silent stretch from speech that
+              // produced nothing; the UI does not read it
+              session.segments.add((start: start, duration: duration));
             case AsrProgressUpdate(:final done, :final total):
               session._set(
                 AsrState(

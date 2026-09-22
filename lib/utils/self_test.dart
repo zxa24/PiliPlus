@@ -1301,6 +1301,76 @@ abstract final class SelfTest {
     };
   }
 
+  /// Splits the audio that carries no subtitle into "the VAD heard nothing
+  /// there" and "the VAD heard speech and it produced no cue".
+  ///
+  /// Coverage alone cannot separate those, and they need opposite fixes: the
+  /// first is a video with pauses in it, the second is speech being lost.
+  static Map<String, Object?> _coverageVsVad(
+    List<AsrCue> cues,
+    List<({double start, double duration})> segments,
+    double audioSeconds,
+  ) {
+    if (audioSeconds <= 0) return const {};
+    // millisecond buckets are precise enough and make the overlap trivial
+    const step = 0.1;
+    final slots = (audioSeconds / step).ceil();
+    final speech = List<bool>.filled(slots, false);
+    final covered = List<bool>.filled(slots, false);
+    void mark(List<bool> into, double from, double to) {
+      final a = (from / step).floor().clamp(0, slots - 1);
+      final b = (to / step).ceil().clamp(0, slots);
+      for (var i = a; i < b; i++) {
+        into[i] = true;
+      }
+    }
+
+    for (final segment in segments) {
+      mark(speech, segment.start, segment.start + segment.duration);
+    }
+    for (final cue in cues) {
+      mark(covered, cue.from, cue.to);
+    }
+
+    var speechSlots = 0;
+    var uncovered = 0;
+    var uncoveredSpeech = 0;
+    final lost = <String>[];
+    var runStart = -1;
+    for (var i = 0; i < slots; i++) {
+      if (speech[i]) speechSlots++;
+      if (!covered[i]) {
+        uncovered++;
+        if (speech[i]) {
+          uncoveredSpeech++;
+          if (runStart < 0) runStart = i;
+          continue;
+        }
+      }
+      if (runStart >= 0) {
+        final length = (i - runStart) * step;
+        if (length >= 1.0) {
+          lost.add(
+            '${(runStart * step).toStringAsFixed(0)}s '
+            '+${length.toStringAsFixed(1)}s',
+          );
+        }
+        runStart = -1;
+      }
+    }
+    lost.sort((a, b) => b.split('+').last.compareTo(a.split('+').last));
+    return {
+      'segments': segments.length,
+      'vadSpeechSeconds': (speechSlots * step).toStringAsFixed(1),
+      'uncoveredSeconds': (uncovered * step).toStringAsFixed(1),
+      // the answer to "how much of the uncovered time is真静音"
+      'uncoveredButSilentSeconds':
+          ((uncovered - uncoveredSpeech) * step).toStringAsFixed(1),
+      'uncoveredSpeechSeconds': (uncoveredSpeech * step).toStringAsFixed(1),
+      'speechLostRuns': lost.take(8).toList(),
+    };
+  }
+
   /// How the cues actually land on screen: how long each is up, how long
   /// the screen is empty between them, and how much text each carries.
   ///
@@ -2191,6 +2261,9 @@ abstract final class SelfTest {
     // running vote and corrects itself after a noisy opening, which a
     // first-wins capture cannot see
     final languageEvents = <String>[];
+    // what the VAD called speech, so an uncovered stretch can be told apart
+    // from a silent one
+    final segments = <({double start, double duration})>[];
     String? error;
     final transcriber = await AsrTranscriber.start((
       pcmPath: audio.path,
@@ -2216,6 +2289,8 @@ abstract final class SelfTest {
       switch (event) {
         case AsrCuesEvent(cues: final batch):
           cues.addAll(batch);
+        case AsrSegmentEvent(:final start, :final duration):
+          segments.add((start: start, duration: duration));
         case AsrLanguageEvent(language: final lang):
           language = lang;
           if (languageEvents.isEmpty || languageEvents.last != lang) {
@@ -2253,6 +2328,7 @@ abstract final class SelfTest {
       'languageEvents': languageEvents,
       'cueCount': cues.length,
       'cueStats': _cueStats(cues, audio.durationSeconds),
+      'coverageVsVad': _coverageVsVad(cues, segments, audio.durationSeconds),
       'cues': [
         for (final cue in cues.take(40))
           {
