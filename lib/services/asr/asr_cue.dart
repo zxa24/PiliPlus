@@ -47,7 +47,7 @@ extension AsrCueList on List<AsrCue> {
   /// Bridging has to happen here rather than inside [AsrCueBuilder.fromSegment]
   /// because most of the remaining gaps fall *between* VAD segments, and a
   /// segment cannot see the one after it.
-  List<AsrCue> get displayed => AsrCueBuilder.bridgeGaps(this);
+  List<AsrCue> get displayed => AsrCueBuilder.layOut(this);
 
   String toVtt() => SubtitleUtils.json2Vtt(displayed.toJson());
 
@@ -119,23 +119,34 @@ abstract final class AsrCueBuilder {
   /// across six seconds of silence is worse than no line.
   static const _bridgeGap = 2.0;
 
-  /// Closes the small holes between consecutive cues.
+  /// Lays the finished cues out for display: small holes closed, overlaps
+  /// removed.
   ///
-  /// Only ever extends a cue *forwards* to where the next one begins, so
-  /// nothing moves, nothing overlaps and no text changes. Cues are assumed
-  /// to be in order, which is how they are built and accumulated.
-  static List<AsrCue> bridgeGaps(List<AsrCue> cues) {
+  /// Both need the whole list, which is why this cannot live in
+  /// [fromSegment]: a VAD segment cannot see the one after it. That is also
+  /// how cues came to overlap — a segment's last cue was held for
+  /// [_minShown] with no idea that the next segment had already started, so
+  /// a 2 s hold ran 0.18 s into the following line.
+  ///
+  /// A cue is only ever moved at its end, never at its start and never in
+  /// its text. Shrinking takes precedence: two lines on screen at once is
+  /// worse than a gap.
+  static List<AsrCue> layOut(List<AsrCue> cues) {
     if (cues.length < 2) return cues;
     final out = <AsrCue>[];
     for (var i = 0; i < cues.length; i++) {
       final cue = cues[i];
       final next = i + 1 < cues.length ? cues[i + 1] : null;
-      final hole = next == null ? double.infinity : next.from - cue.to;
-      out.add(
-        hole > 0 && hole < _bridgeGap
-            ? AsrCue(from: cue.from, to: next!.from, content: cue.content)
-            : cue,
-      );
+      if (next == null) {
+        out.add(cue);
+        continue;
+      }
+      final hole = next.from - cue.to;
+      final to = hole < 0
+          // overlap: give the line back to the one that starts next
+          ? (next.from > cue.from ? next.from : cue.to)
+          : (hole < _bridgeGap ? next.from : cue.to);
+      out.add(AsrCue(from: cue.from, to: to, content: cue.content));
     }
     return out;
   }
@@ -168,6 +179,27 @@ abstract final class AsrCueBuilder {
       (rune >= 0xFF00 && rune <= 0xFF60) || // fullwidth forms
       (rune >= 0xFFE0 && rune <= 0xFFE6) ||
       (rune >= 0x20000 && rune <= 0x3FFFD); // CJK ext B and beyond
+
+  /// Whether [next] begins a word, and so whether a cue may end before it.
+  ///
+  /// SenseVoice marks a word start with a **leading space**: the pieces for
+  /// "superpower" come back as `" super"` and `"power"`, and for "noticing"
+  /// as `" not"`, `"ic"`, `"ing"`. A piece with no leading space continues
+  /// the word before it, and ending a cue there cuts the word in half.
+  /// (`▁` is accepted too — other sentencepiece models use it, and the
+  /// tidying step has always replaced it.)
+  ///
+  /// Trailing punctuation carries no space either, which is the behaviour
+  /// wanted: `"."` attaches to the line it ends rather than opening the next.
+  ///
+  /// Full-width scripts mark nothing and every character stands alone, so
+  /// they may break anywhere — which is why none of this showed on Chinese.
+  static bool _startsWord(String next) {
+    if (next.isEmpty) return true;
+    final first = next.runes.first;
+    if (first == 0x20 || first == 0x2581) return true;
+    return _isFullWidth(first);
+  }
 
   static String stripTags(String text) => text.replaceAll(_tag, '').trim();
 
@@ -283,17 +315,29 @@ abstract final class AsrCueBuilder {
       final held = (token.time + typicalToken) - start;
       final tail = trimmed.isEmpty ? '' : trimmed[trimmed.length - 1];
       final long = bufferWidth >= _maxWidth;
+      // Never in the middle of a word. Every break below is decided by
+      // length or by time, and a token is a sentencepiece *fragment*, so
+      // without this the caps land wherever they happen to fall: a real
+      // video produced "a little extra coach" / "ing." and "something is
+      // technical" / "ly fully functioning". Unreadable on screen, and
+      // useless as input to a translator, which would be handed fragments
+      // that are not words.
+      final atWord = next == null || _startsWord(next.text);
+      // A tokeniser that marks no words at all must not turn the whole
+      // segment into one cue: past twice the cap, break wherever we are.
+      final overrun = bufferWidth >= _hardMaxWidth * 2;
       final breakHere =
           next == null ||
-          held >= maxDuration ||
-          // a hard stop, so a sentence without commas cannot run on
-          bufferWidth >= _hardMaxWidth ||
-          (held >= _minDuration &&
-              (_sentenceEnd.contains(tail) ||
-                  silent ||
-                  // a long line breaks at the next clause end rather than
-                  // running on to the duration cap
-                  (long && _clauseEnd.contains(tail))));
+          ((atWord || overrun) &&
+              (held >= maxDuration ||
+                  // a hard stop, so a sentence without commas cannot run on
+                  bufferWidth >= _hardMaxWidth ||
+                  (held >= _minDuration &&
+                      (_sentenceEnd.contains(tail) ||
+                          silent ||
+                          // a long line breaks at the next clause end rather
+                          // than running on to the duration cap
+                          (long && _clauseEnd.contains(tail))))));
       if (breakHere) {
         flush(shownTo);
         if (next != null) start = next.time;

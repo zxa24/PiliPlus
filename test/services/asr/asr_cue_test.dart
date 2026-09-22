@@ -16,8 +16,9 @@ void main() {
         offset: 0,
         duration: 12,
         tokens: [
+          // as SenseVoice emits them: '▁' marks the start of a word
           for (var i = 0; i < 60; i++)
-            (text: 'word ', time: i * 0.2),
+            (text: ' word', time: i * 0.2),
         ],
       );
       expect(cues, isNotEmpty);
@@ -405,7 +406,7 @@ void main() {
       // track on the measured video ran to a median of 32 characters, which
       // is what 32 half-widths allows.
       final words = [
-        for (var i = 0; i < 40; i++) 'word ',
+        for (var i = 0; i < 40; i++) ' word',
       ];
       final cues = AsrCueBuilder.fromSegment(
         offset: 0,
@@ -428,12 +429,12 @@ void main() {
     });
   });
 
-  group('bridgeGaps', () {
+  group('layOut', () {
     AsrCue cue(double from, double to, [String text = 'x']) =>
         AsrCue(from: from, to: to, content: text);
 
     test('a short hole is closed by extending the earlier cue', () {
-      final out = AsrCueBuilder.bridgeGaps([
+      final out = AsrCueBuilder.layOut([
         cue(0, 2, 'one'),
         cue(3, 5, 'two'),
       ]);
@@ -444,7 +445,7 @@ void main() {
 
     test('a real pause is left alone', () {
       // a line held across six seconds of silence is worse than no line
-      final out = AsrCueBuilder.bridgeGaps([
+      final out = AsrCueBuilder.layOut([
         cue(0, 2, 'one'),
         cue(8, 10, 'two'),
       ]);
@@ -453,7 +454,7 @@ void main() {
 
     test('nothing is moved, shortened or overlapped', () {
       final input = [cue(0, 2), cue(2.5, 4), cue(9, 11), cue(11, 12)];
-      final out = AsrCueBuilder.bridgeGaps(input);
+      final out = AsrCueBuilder.layOut(input);
       expect(out, hasLength(input.length));
       for (var i = 0; i < input.length; i++) {
         expect(out[i].from, input[i].from, reason: 'start moved at $i');
@@ -467,7 +468,7 @@ void main() {
     });
 
     test('the last cue is never extended — there is nothing to reach', () {
-      final out = AsrCueBuilder.bridgeGaps([cue(0, 2), cue(2.5, 4)]);
+      final out = AsrCueBuilder.layOut([cue(0, 2), cue(2.5, 4)]);
       expect(out.last.to, 4);
     });
 
@@ -477,6 +478,84 @@ void main() {
       final vtt = [cue(0, 2, 'one'), cue(3, 5, 'two')].toVtt();
       expect(vtt, contains('00:03'));
       expect(vtt, isNot(contains('00:02.000 -->')));
+    });
+  });
+
+  group('never breaks inside a word', () {
+    /// SenseVoice pieces: '▁' starts a word, a bare piece continues one.
+    List<AsrToken> pieces(List<String> texts) => [
+      for (var i = 0; i < texts.length; i++) (text: texts[i], time: i * 0.25),
+    ];
+
+    test('a cue does not end on half a word', () {
+      // Observed on a real video: "a little extra coach" / "ing." and
+      // "something is technical" / "ly fully functioning". On screen it is
+      // unreadable; handed to a translator it is two things that are not
+      // words.
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 20,
+        tokens: pieces([
+          // as SenseVoice really emits them: a leading space starts a word,
+          // a bare piece continues the one before
+          for (var i = 0; i < 12; i++) ...[' coach', 'ing', ' and'],
+        ]),
+      );
+      expect(cues.length, greaterThan(1), reason: 'nothing was cut at all');
+      for (final cue in cues) {
+        expect(
+          cue.content,
+          isNot(endsWith('coach')),
+          reason: 'cut inside "coaching": ${cue.content}',
+        );
+        expect(
+          cue.content,
+          isNot(startsWith('ing')),
+          reason: 'a cue beginning with a word fragment: ${cue.content}',
+        );
+      }
+    });
+
+    test('Chinese still breaks anywhere — it has no word marker', () {
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 20,
+        tokens: pieces([for (var i = 0; i < 40; i++) '话']),
+      );
+      expect(cues.length, greaterThan(1));
+      for (final cue in cues) {
+        expect(AsrCueBuilder.displayWidth(cue.content), lessThanOrEqualTo(34));
+      }
+    });
+
+    test('a tokeniser with no word markers still gets cut', () {
+      // The safety valve: preferring word starts must never mean one cue per
+      // segment if the pieces carry no marks at all.
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 20,
+        // no marker anywhere: the safety valve is all that cuts these
+        tokens: pieces([for (var i = 0; i < 60; i++) 'word']),
+      );
+      expect(cues.length, greaterThan(1));
+      for (final cue in cues) {
+        expect(AsrCueBuilder.displayWidth(cue.content), lessThanOrEqualTo(70));
+      }
+    });
+  });
+
+  group('overlaps', () {
+    test('a held cue is cut back where the next one starts', () {
+      // Cues are built per VAD segment, so a segment's last cue was held for
+      // _minShown with no idea the next segment had already begun — two
+      // lines on screen at once.
+      final out = AsrCueBuilder.layOut([
+        const AsrCue(from: 5.83, to: 7.83, content: 'I am a designer.'),
+        const AsrCue(from: 7.65, to: 10.31, content: 'And my design.'),
+      ]);
+      expect(out.first.to, 7.65);
+      expect(out.first.to, lessThanOrEqualTo(out.last.from));
+      expect(out.first.content, 'I am a designer.');
     });
   });
 }

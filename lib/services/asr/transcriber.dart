@@ -48,9 +48,12 @@ class AsrLanguageEvent extends AsrEvent {
 /// inside a segment is speech that produced no cue. Without both, the two
 /// are indistinguishable.
 class AsrSegmentEvent extends AsrEvent {
-  const AsrSegmentEvent(this.start, this.duration);
+  const AsrSegmentEvent(this.start, this.duration, {this.tokens = const []});
   final double start;
   final double duration;
+
+  /// The recogniser's raw pieces for this segment. Diagnostic only.
+  final List<String> tokens;
 }
 
 class AsrErrorEvent extends AsrEvent {
@@ -110,7 +113,16 @@ class AsrTranscriber {
           'start': final double start,
           'duration': final double duration,
         }:
-          controller.add(AsrSegmentEvent(start, duration));
+          controller.add(
+            AsrSegmentEvent(
+              start,
+              duration,
+              tokens: switch (message) {
+                {'tokens': final List raw} => raw.cast<String>(),
+                _ => const [],
+              },
+            ),
+          );
         case {'type': 'error', 'message': final String message}:
           controller.add(AsrErrorEvent(message));
         case {'type': 'done'}:
@@ -203,6 +215,10 @@ class AsrTranscriber {
             'type': 'segment',
             'start': start,
             'duration': duration,
+            // the raw pieces, for the probe only: how the recogniser marks a
+            // word decides where a cue may end, and that cannot be guessed
+            // from the joined text
+            'tokens': [for (final t in _tokens(result)) t.text],
           });
           if (result.lang.isNotEmpty) {
             final lang = AsrCueBuilder.tagValue(result.lang);

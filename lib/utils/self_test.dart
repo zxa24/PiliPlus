@@ -1368,6 +1368,10 @@ abstract final class SelfTest {
       'ourScript': ours['script'],
       'ourStats': ours['cueStats'],
       'ourCoverageVsVad': ours['coverageVsVad'],
+      // the text itself, to see WHERE the breaks land — a statistic about
+      // line length says nothing about whether a line ends mid-word
+      'ourSampleCues': ours['cues'],
+      'ourRawTokens': ours['rawTokens'],
     };
   }
 
@@ -2927,6 +2931,8 @@ abstract final class SelfTest {
     // what the VAD called speech, so an uncovered stretch can be told apart
     // from a silent one
     final segments = <({double start, double duration})>[];
+    // what the recogniser actually emits, which decides where a cue may end
+    final rawTokens = <String>[];
     String? error;
     final transcriber = await AsrTranscriber.start((
       pcmPath: audio.path,
@@ -2959,8 +2965,9 @@ abstract final class SelfTest {
       switch (event) {
         case AsrCuesEvent(cues: final batch):
           cues.addAll(batch);
-        case AsrSegmentEvent(:final start, :final duration):
+        case AsrSegmentEvent(:final start, :final duration, :final tokens):
           segments.add((start: start, duration: duration));
+          if (rawTokens.length < 60) rawTokens.addAll(tokens);
         case AsrLanguageEvent(language: final lang):
           language = lang;
           if (languageEvents.isEmpty || languageEvents.last != lang) {
@@ -3005,6 +3012,7 @@ abstract final class SelfTest {
       // real defect stayed invisible for three rounds: every cue duration in
       // the file was fine while the player was reloading the track every
       // five seconds and blinking the line off screen.
+      'rawTokens': rawTokens.take(60).toList(),
       'cueCount': shown.length,
       'builtCueCount': cues.length,
       'cueStats': _cueStats(shown, audio.durationSeconds),
