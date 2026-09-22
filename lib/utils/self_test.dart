@@ -39,7 +39,9 @@ import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/settings_import.dart';
 import 'package:collection/collection.dart';
@@ -410,6 +412,10 @@ abstract final class SelfTest {
         'download',
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
+    }
+    if (_arg(args, '--open-bili') case final url?) {
+      final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
+      await scenario('openBili', () => _openBili(url, hold));
     }
     if (_arg(args, '--hover-controls') case final video?) {
       await scenario('hoverControls', () => _hoverControls(video));
@@ -959,6 +965,188 @@ abstract final class SelfTest {
       // a type the enum has but the list does not offer: unreachable
       'missingFromList': missing,
       'couldNotOpen': unopened,
+    };
+  }
+
+  /// LibrePili: open a bilibili video the way a link does, and report what
+  /// the player is actually doing.
+  ///
+  /// Written for "this video will not play": the useful answer is not
+  /// whether it failed but *where* — the API refusing, no stream of a usable
+  /// quality coming back, the URL resolving but the transport stalling, or
+  /// the page throwing while it draws. Each of those looks the same from the
+  /// outside and needs a different fix, so each is reported separately.
+  static Future<Map<String, dynamic>> _openBili(
+    String url,
+    int holdSeconds,
+  ) async {
+    final routed = await PiliScheme.routePushFromUrl(url);
+    await Future.delayed(const Duration(seconds: 5));
+
+    VideoDetailController? controller;
+    try {
+      controller = Get.find<VideoDetailController>(
+        tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+      );
+    } catch (_) {
+      // fall back to whatever instance is registered
+      try {
+        controller = Get.find<VideoDetailController>();
+      } catch (_) {}
+    }
+    if (controller == null) {
+      return {
+        'pass': false,
+        'routed': routed,
+        'reason': 'no VideoDetailController — the page never opened',
+        'route': Get.currentRoute,
+      };
+    }
+
+    // wait for the play URL to resolve
+    for (var i = 0; i < holdSeconds && !controller.videoState.value; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    final urlData = controller.data;
+    final player = controller.plPlayerController;
+    await player.play();
+    var played = false;
+    int? buffer;
+    Duration? first;
+    Duration? last;
+    // Advanced *enough*. The first version asked only whether the position
+    // had grown, and 233ms of movement in sixteen seconds satisfied it — a
+    // stall at the very start read as healthy playback.
+    const enough = Duration(milliseconds: 1500);
+    for (var round = 0; round < 4 && !played; round++) {
+      first = player.videoPlayerController?.state.position;
+      await Future.delayed(const Duration(seconds: 4));
+      last = player.videoPlayerController?.state.position;
+      played = first != null && last != null && last - first >= enough;
+      buffer = player.videoPlayerController?.state.buffer.inMilliseconds;
+    }
+
+    // what mpv is actually doing with it: a stream that "plays" while
+    // software-decoding AV1 with no cache is a stream that stutters, and
+    // position alone cannot tell that apart from healthy playback
+    Map<String, Object?> health = const {};
+    if (player.videoPlayerController case final NativePlayer mpv) {
+      health = {
+        for (final name in const [
+          'hwdec-current',
+          'video-codec',
+          'video-format',
+          'demuxer-cache-duration',
+          'cache-speed',
+          'paused-for-cache',
+          'frame-drop-count',
+          'decoder-frame-drop-count',
+          'estimated-vf-fps',
+          'container-fps',
+          'video-bitrate',
+        ])
+          name: mpv.getProperty(name),
+      };
+    }
+
+    // Which host is being read from, and how the alternatives compare.
+    // A stream that arrives at 2 KB/s is not a decode problem and not a
+    // quality problem; it is a route problem, and the app has other routes.
+    final videoItem = controller.firstVideo;
+    final urls = <String>[
+      ?videoItem.baseUrl,
+      ...?videoItem.backupUrl,
+    ];
+    final cdnSpeeds = <Map<String, Object?>>[];
+    for (final candidate in VideoUtils.cdnCandidates(urls).take(4)) {
+      cdnSpeeds.add(await _timeRange(candidate));
+    }
+
+    final qa = controller.currentVideoQa.value;
+    final dash = controller.data.dash;
+    final result = {
+      'pass': played,
+      'routed': routed,
+      'route': Get.currentRoute,
+      'bvid': controller.bvid,
+      'cid': controller.cid.value,
+      // did the API answer at all, and with what
+      'urlDash': urlData.dash != null,
+      'videoState': controller.videoState.value,
+      'isUgc': controller.isUgc,
+      'currentQa': qa?.desc,
+      'currentQaCode': qa?.code,
+      'decodeFormat': controller.currentDecodeFormats.description,
+      'availableQa': dash?.video
+          ?.map((e) => '${e.id} ${e.codecs ?? ''}')
+          .toList(),
+      'videoStreams': dash?.video?.length ?? 0,
+      'audioStreams': dash?.audio?.length ?? 0,
+      'hasDurl': controller.data.durl?.isNotEmpty == true,
+      'videoUrlSet': controller.videoUrl?.isNotEmpty == true,
+      'audioUrlSet': controller.audioUrl?.isNotEmpty == true,
+      // and what the player made of it
+      'played': played,
+      'buffer': buffer,
+      'position': last?.inMilliseconds,
+      'playerDuration':
+          player.videoPlayerController?.state.duration.inMilliseconds,
+      'playerLog': player.videoPlayerController?.state.buffering,
+      'timeLength': controller.data.timeLength,
+      'health': health,
+      'playingHost': Uri.tryParse(controller.videoUrl ?? '')?.host,
+      'cdnSpeeds': cdnSpeeds,
+    };
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+    return result;
+  }
+
+  /// Fetches the first 2 MB of [url] and reports how fast it came.
+  ///
+  /// The same shape mpv uses — a ranged GET — so the number is comparable
+  /// to what playback gets, and no bilibili cookies are attached: the CDN
+  /// URLs are signed and need none.
+  static Future<Map<String, Object?>> _timeRange(String url) async {
+    const wanted = 2 << 20;
+    final uri = Uri.parse(url);
+    final client = HttpClient()..idleTimeout = const Duration(seconds: 10);
+    final started = DateTime.now();
+    var received = 0;
+    String? error;
+    try {
+      final request = await client.getUrl(uri)
+        ..headers.set(HttpHeaders.rangeHeader, 'bytes=0-${wanted - 1}')
+        // the CDN rejects a request with no Referer
+        ..headers.set(HttpHeaders.refererHeader, 'https://www.bilibili.com')
+        ..headers.set(HttpHeaders.userAgentHeader, 'Mozilla/5.0');
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
+      if (response.statusCode >= 400) {
+        error = 'HTTP ${response.statusCode}';
+        await response.drain<void>();
+      } else {
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 10),
+        )) {
+          received += chunk.length;
+          if (received >= wanted) break;
+        }
+      }
+    } catch (e) {
+      error = '$e';
+    } finally {
+      client.close(force: true);
+    }
+    final ms = DateTime.now().difference(started).inMilliseconds;
+    return {
+      'host': uri.host,
+      'bytes': received,
+      'ms': ms,
+      'kbPerSec': ms == 0 ? null : (received / 1024 / (ms / 1000)).round(),
+      'error': error,
     };
   }
 
