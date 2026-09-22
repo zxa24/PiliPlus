@@ -1059,12 +1059,25 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           return;
         }
         if (_isTransportFailure(event)) {
+          final positionBefore = position.value;
           EasyThrottle.throttle(
             'controllerStream.error.listen',
             const Duration(milliseconds: 10000),
             () {
               Future.delayed(const Duration(milliseconds: 3000), () {
-                if (!isBuffering.value || buffered.value != 0) return;
+                // Not "nothing is arriving". A video is two streams, and one
+                // of them can be dead while the other is fully buffered — a
+                // 192 kbps audio track that the CDN cut off at 11 668 bytes
+                // while the video track sat on four megabytes of readahead.
+                // `buffered.value != 0` was true, so this returned and the
+                // CDN failover below never ran: playback stopped a few
+                // seconds in, for ever, with the recovery it needed already
+                // written and unreachable.
+                //
+                // What decides it is whether playback is getting anywhere.
+                if (position.value != positionBefore && !isBuffering.value) {
+                  return;
+                }
                 switch (transportRecovery(_transportFailures++)) {
                   case TransportRecovery.retrySameUrl:
                     SmartDialog.showToast(

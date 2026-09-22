@@ -1010,22 +1010,37 @@ abstract final class SelfTest {
 
     final urlData = controller.data;
     final player = controller.plPlayerController;
+    // mpv's own account of what it is doing. Everything measured so far says
+    // the stream is complete and decodable, so the reason it stops has to be
+    // asked of the thing that stops.
+    final log = <String>[];
+    final logSub = player.videoPlayerController?.stream.log.listen((e) {
+      if (log.length < 60) log.add('${e.level}/${e.prefix}: ${e.text}');
+    });
+    final completedSub = player.videoPlayerController?.stream.completed.listen(
+      (done) => log.add('== completed=$done'),
+    );
     await player.play();
-    var played = false;
-    int? buffer;
-    Duration? first;
-    Duration? last;
-    // Advanced *enough*. The first version asked only whether the position
-    // had grown, and 233ms of movement in sixteen seconds satisfied it — a
-    // stall at the very start read as healthy playback.
-    const enough = Duration(milliseconds: 1500);
-    for (var round = 0; round < 4 && !played; round++) {
-      first = player.videoPlayerController?.state.position;
-      await Future.delayed(const Duration(seconds: 4));
-      last = player.videoPlayerController?.state.position;
-      played = first != null && last != null && last - first >= enough;
-      buffer = player.videoPlayerController?.state.buffer.inMilliseconds;
+    // Watched for a fixed stretch and sampled, rather than stopped at the
+    // first sign of movement. The reported symptom is a stall a few seconds
+    // in, and 1.5s of progress is indistinguishable from that — the earlier
+    // version of this loop returned exactly when the fault was starting.
+    final timeline = <int>[];
+    final hosts = <String>[];
+    for (var i = 0; i < 15; i++) {
+      await Future.delayed(const Duration(seconds: 2));
+      timeline.add(
+        player.videoPlayerController?.state.position.inMilliseconds ?? -1,
+      );
+      final host = Uri.tryParse(controller.videoUrl ?? '')?.host;
+      if (host != null && (hosts.isEmpty || hosts.last != host)) {
+        hosts.add(host);
+      }
     }
+    final buffer = player.videoPlayerController?.state.buffer.inMilliseconds;
+    final last = player.videoPlayerController?.state.position;
+    // real playback moves roughly with the clock; a stall does not
+    final played = timeline.length >= 2 && timeline.last >= 15000;
 
     // what mpv is actually doing with it: a stream that "plays" while
     // software-decoding AV1 with no cache is a stream that stutters, and
@@ -1062,6 +1077,74 @@ abstract final class SelfTest {
     for (final candidate in VideoUtils.cdnCandidates(urls).take(4)) {
       cdnSpeeds.add(await _timeRange(candidate));
     }
+    // The audio stream is the one mpv says dies at 11668 bytes. Fetched here
+    // with a Referer and again without one, because a CDN that cuts a
+    // connection short is usually answering the headers, not the bytes.
+    // Every audio stream on offer, and every CDN host each one has: the
+    // question is no longer whether one is broken but whether another works,
+    // because that decides whether the fix is picking a different quality or
+    // a different route.
+    final audioMatrix = <Map<String, Object?>>[];
+    for (final item in controller.data.dash?.audio ?? const []) {
+      final hosts = VideoUtils.cdnCandidates([
+        ?item.baseUrl,
+        ...?item.backupUrl,
+      ]);
+      for (final host in hosts.take(3)) {
+        final probe = await _timeRange(host, wanted: 256 << 10);
+        audioMatrix.add({'id': item.id, 'codecs': item.codecs, ...probe});
+      }
+    }
+
+    final audioProbe = <String, Object?>{
+      'withReferer': await _timeRange(controller.audioUrl ?? '', referer: true),
+      'withoutReferer': await _timeRange(
+        controller.audioUrl ?? '',
+        referer: false,
+      ),
+      'fullGetNoRange': await _timeRange(
+        controller.audioUrl ?? '',
+        referer: true,
+        useRange: false,
+      ),
+    };
+
+    // Reported: plays to ~5s, pauses, and resuming starts from the
+    // beginning — which is what mpv does at end of file. So the question is
+    // how long each track actually is, measured by opening each one on its
+    // own rather than trusting the API's timeLength.
+    final trackDurations = <String, Object?>{
+      'apiTimeLengthMs': controller.data.timeLength,
+      'video': await _urlDuration(controller.videoUrl),
+      'audio': await _urlDuration(controller.audioUrl),
+    };
+    // and the same quality in every codec it is offered in, because a
+    // duration mpv cannot read may be a property of one encode rather than
+    // of the video
+    final byCodec = <Map<String, Object?>>[];
+    final currentId = controller.currentVideoQa.value?.code;
+    for (final item in controller.data.dash?.video ?? const []) {
+      if (item.id != currentId) continue;
+      final measured = await _urlDuration(item.baseUrl);
+      byCodec.add({
+        'codecs': item.codecs,
+        'id': item.id,
+        ...measured,
+      });
+    }
+    trackDurations['byCodec'] = byCodec;
+    // How many bytes the CDN will actually serve, against how many a full
+    // 20 minutes at this bitrate would need. A short file is a preview, not
+    // a decoding problem — and a preview is what an account-less request
+    // gets for some videos.
+    final chosen = controller.firstVideo;
+    trackDurations['videoBytes'] = await _totalBytes(controller.videoUrl);
+    trackDurations['audioBytes'] = await _totalBytes(controller.audioUrl);
+    trackDurations['videoBandwidth'] = chosen.bandWidth;
+    if (chosen.bandWidth case final bw? when bw > 0) {
+      trackDurations['expectedBytesForFullLength'] =
+          (bw / 8 * (controller.data.timeLength ?? 0) / 1000).round();
+    }
 
     final qa = controller.currentVideoQa.value;
     final dash = controller.data.dash;
@@ -1088,6 +1171,8 @@ abstract final class SelfTest {
       'audioUrlSet': controller.audioUrl?.isNotEmpty == true,
       // and what the player made of it
       'played': played,
+      'positionTimeline': timeline,
+      'hostTimeline': hosts,
       'buffer': buffer,
       'position': last?.inMilliseconds,
       'playerDuration':
@@ -1097,10 +1182,67 @@ abstract final class SelfTest {
       'health': health,
       'playingHost': Uri.tryParse(controller.videoUrl ?? '')?.host,
       'cdnSpeeds': cdnSpeeds,
+      'audioProbe': audioProbe,
+      'audioMatrix': audioMatrix,
+      'trackDurations': trackDurations,
+      'playRepeat': player.playRepeat.toString(),
     };
+    await logSub?.cancel();
+    await completedSub?.cancel();
+    result['mpvLog'] = log;
     Get.back();
     await Future.delayed(const Duration(seconds: 1));
     return result;
+  }
+
+  /// The size the CDN reports for [url], read from a one-byte ranged GET.
+  static Future<Object?> _totalBytes(String? url) async {
+    if (url == null || url.isEmpty) return null;
+    final client = HttpClient()..idleTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.getUrl(Uri.parse(url))
+        ..headers.set(HttpHeaders.rangeHeader, 'bytes=0-0')
+        ..headers.set(HttpHeaders.refererHeader, 'https://www.bilibili.com')
+        ..headers.set(HttpHeaders.userAgentHeader, 'Mozilla/5.0');
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final range = response.headers.value(HttpHeaders.contentRangeHeader);
+      await response.drain<void>();
+      // 'bytes 0-0/12345678'
+      final total = range?.split('/').lastOrNull;
+      return int.tryParse(total ?? '') ?? range ?? 'HTTP ${response.statusCode}';
+    } catch (e) {
+      return '$e';
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Opens one URL on its own and reports the duration it claims.
+  ///
+  /// The player is fed two tracks; if either is shorter than the video,
+  /// playback ends there. That is invisible while they are combined.
+  static Future<Map<String, Object?>> _urlDuration(String? url) async {
+    if (url == null || url.isEmpty) return {'url': null};
+    final player = await Player.create();
+    try {
+      await player.open(Media(url), play: false);
+      for (var i = 0; i < 24; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (player.state.duration > Duration.zero) break;
+      }
+      return {
+        'host': Uri.tryParse(url)?.host,
+        'durationMs': player.state.duration.inMilliseconds,
+        'videoTracks': player.state.tracks.video.length,
+        'audioTracks': player.state.tracks.audio.length,
+      };
+    } catch (e) {
+      return {'host': Uri.tryParse(url)?.host, 'error': '$e'};
+    } finally {
+      await player.dispose();
+    }
   }
 
   /// Fetches the first 2 MB of [url] and reports how fast it came.
@@ -1108,19 +1250,28 @@ abstract final class SelfTest {
   /// The same shape mpv uses — a ranged GET — so the number is comparable
   /// to what playback gets, and no bilibili cookies are attached: the CDN
   /// URLs are signed and need none.
-  static Future<Map<String, Object?>> _timeRange(String url) async {
-    const wanted = 2 << 20;
+  static Future<Map<String, Object?>> _timeRange(
+    String url, {
+    bool referer = true,
+    bool useRange = true,
+    int wanted = 2 << 20,
+  }) async {
+    if (url.isEmpty) return {'error': 'no url'};
     final uri = Uri.parse(url);
     final client = HttpClient()..idleTimeout = const Duration(seconds: 10);
     final started = DateTime.now();
     var received = 0;
     String? error;
     try {
-      final request = await client.getUrl(uri)
-        ..headers.set(HttpHeaders.rangeHeader, 'bytes=0-${wanted - 1}')
-        // the CDN rejects a request with no Referer
-        ..headers.set(HttpHeaders.refererHeader, 'https://www.bilibili.com')
-        ..headers.set(HttpHeaders.userAgentHeader, 'Mozilla/5.0');
+      final request = await client.getUrl(uri);
+      if (useRange) {
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-${wanted - 1}');
+      }
+      if (referer) {
+        request.headers
+          ..set(HttpHeaders.refererHeader, 'https://www.bilibili.com')
+          ..set(HttpHeaders.userAgentHeader, 'Mozilla/5.0');
+      }
       final response = await request.close().timeout(
         const Duration(seconds: 15),
       );
