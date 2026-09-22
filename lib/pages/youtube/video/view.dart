@@ -19,6 +19,7 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
+import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/header_control.dart';
@@ -1156,8 +1157,18 @@ class _YtVideoPageState extends State<YtVideoPage>
           }),
           Obx(() {
             final captions = controller.captions;
-            if (captions.isEmpty) return const SizedBox.shrink();
+            final canTranscribe = controller.canTranscribe;
+            // The button used to disappear when a video had no captions —
+            // which is precisely the video transcription exists for. Someone
+            // looking for subtitles on such a video found no button at all
+            // and no hint that the app could make one.
+            if (captions.isEmpty && !canTranscribe) {
+              return const SizedBox.shrink();
+            }
             final index = controller.captionIndex.value;
+            // read so this rebuilds as the run progresses; the label says
+            // whether it is running
+            final session = controller.asrSession.value;
             return _popup<int>(
               tooltip: '字幕',
               initialValue: index,
@@ -1165,8 +1176,25 @@ class _YtVideoPageState extends State<YtVideoPage>
                 (value: -1, label: '关闭字幕', enabled: true),
                 for (final (i, track) in captions.indexed)
                   (value: i, label: _label(track), enabled: true),
+                if (canTranscribe)
+                  (
+                    value: _transcribeValue,
+                    label: AsrEntry.menuLabel(session),
+                    enabled: true,
+                  ),
               ],
-              onSelected: controller.setCaption,
+              onSelected: (value) {
+                if (value == _transcribeValue) {
+                  final running = session?.state.value.isBusy ?? false;
+                  if (running) {
+                    controller.stopAsr();
+                  } else {
+                    AsrEntry.startFor(context, controller.startAsr);
+                  }
+                  return;
+                }
+                controller.setCaption(value);
+              },
               child: SizedBox(
                 width: width,
                 height: 30,
@@ -1222,6 +1250,9 @@ class _YtVideoPageState extends State<YtVideoPage>
       ),
     );
   }
+
+  /// A value no caption index can take, for the transcription row.
+  static const _transcribeValue = -99;
 
   /// The dark popup the bilibili bar uses for every one of these buttons.
   Widget _popup<T>({

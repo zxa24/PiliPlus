@@ -95,6 +95,20 @@ abstract final class AsrEntry {
     VideoDetailController controller,
   ) => startFor(context, controller.startAsr);
 
+  /// A one-line label for a popup item, where [AsrMenuTile]'s two lines and
+  /// progress bar do not fit.
+  ///
+  /// This exists because the caption popup is where someone stands when they
+  /// have just found out a video has no subtitles, and that is exactly when
+  /// transcription is worth offering.
+  static String menuLabel(AsrSession? session) {
+    final state = session?.state.value;
+    if (state?.isBusy ?? false) return '停止转录（${state!.label}）';
+    if (state?.stage == AsrStage.failed) return '转录失败，点击重试';
+    if (state?.stage == AsrStage.done) return '重新转录';
+    return '语音识别字幕';
+  }
+
   /// The same prompts for any page that can transcribe — the bilibili video
   /// page and the YouTube one ask the user exactly the same things.
   static Future<void> startFor(

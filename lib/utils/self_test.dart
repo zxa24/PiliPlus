@@ -1373,7 +1373,10 @@ abstract final class SelfTest {
       player.showControls.value = true;
       await Future.delayed(const Duration(milliseconds: 700));
       if (await _tapTooltip('字幕')) {
-        captionMenu = _seesText('关闭字幕');
+        // the caption menu is where someone stands when they find a video
+        // has no subtitles, so the transcription row has to be reachable
+        // from here and not only from 更多设置
+        captionMenu = _seesText('关闭字幕') && _seesLabel('语音识别字幕');
         if (captionMenu) {
           Get.back();
           await Future.delayed(const Duration(milliseconds: 500));

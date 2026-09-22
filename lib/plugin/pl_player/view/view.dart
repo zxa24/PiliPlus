@@ -34,6 +34,7 @@ import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
 import 'package:PiliPlus/pages/video/post_panel/popup_menu_text.dart';
 import 'package:PiliPlus/pages/video/post_panel/view.dart';
+import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/bottom_control_type.dart';
@@ -713,8 +714,15 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       /// 字幕
       BottomControlType.subtitle => Obx(
         () {
-          if (videoDetailController.subtitles.isNotEmpty) {
+          // LibrePili: the button used to vanish when a video had no
+          // subtitles, which is exactly the video on-device transcription
+          // exists for — someone looking for subtitles there found no button
+          // at all and no hint that the app could make one.
+          final canTranscribe = videoDetailController.canTranscribe;
+          if (videoDetailController.subtitles.isNotEmpty || canTranscribe) {
             final val = videoDetailController.vttSubtitlesIndex.value;
+            // read so the label follows the run; it says whether it is going
+            final session = videoDetailController.asrSession.value;
             return PopupMenuButton<int>(
               tooltip: '字幕',
               requestFocus: false,
@@ -747,6 +755,28 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                       ),
                     );
                   }),
+                  if (canTranscribe)
+                    PopupMenuItem<int>(
+                      // a value no subtitle index can take
+                      value: -99,
+                      height: 35,
+                      onTap: () {
+                        if (session?.state.value.isBusy ?? false) {
+                          videoDetailController.stopAsr();
+                        } else {
+                          AsrEntry.start(context, videoDetailController);
+                        }
+                      },
+                      child: Text(
+                        AsrEntry.menuLabel(session),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
                 ];
               },
               child: SizedBox(
