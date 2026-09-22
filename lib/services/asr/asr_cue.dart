@@ -42,9 +42,16 @@ class AsrCue {
 extension AsrCueList on List<AsrCue> {
   List<Map<String, dynamic>> toJson() => [for (final cue in this) cue.toJson()];
 
-  String toVtt() => SubtitleUtils.json2Vtt(toJson());
+  /// The cues as they are shown, gaps closed.
+  ///
+  /// Bridging has to happen here rather than inside [AsrCueBuilder.fromSegment]
+  /// because most of the remaining gaps fall *between* VAD segments, and a
+  /// segment cannot see the one after it.
+  List<AsrCue> get displayed => AsrCueBuilder.bridgeGaps(this);
 
-  String toSrt() => SubtitleUtils.json2Srt(toJson());
+  String toVtt() => SubtitleUtils.json2Vtt(displayed.toJson());
+
+  String toSrt() => SubtitleUtils.json2Srt(displayed.toJson());
 }
 
 abstract final class AsrCueBuilder {
@@ -101,6 +108,37 @@ abstract final class AsrCueBuilder {
 
   /// Silence longer than this inside a VAD segment is treated as a break.
   static const _gap = 0.8;
+
+  /// A hole smaller than this between two cues is closed rather than left.
+  ///
+  /// The author's own track on the measured video leaves a median gap of
+  /// 0.03 s and a 90th percentile of 1.07 s — in other words, the screen
+  /// almost never goes blank between two lines. Ours left a 90th percentile
+  /// of 2.32 s on the same video, which is the flicker between sentences.
+  /// Anything larger than this is a real pause and stays one: a line held
+  /// across six seconds of silence is worse than no line.
+  static const _bridgeGap = 2.0;
+
+  /// Closes the small holes between consecutive cues.
+  ///
+  /// Only ever extends a cue *forwards* to where the next one begins, so
+  /// nothing moves, nothing overlaps and no text changes. Cues are assumed
+  /// to be in order, which is how they are built and accumulated.
+  static List<AsrCue> bridgeGaps(List<AsrCue> cues) {
+    if (cues.length < 2) return cues;
+    final out = <AsrCue>[];
+    for (var i = 0; i < cues.length; i++) {
+      final cue = cues[i];
+      final next = i + 1 < cues.length ? cues[i + 1] : null;
+      final hole = next == null ? double.infinity : next.from - cue.to;
+      out.add(
+        hole > 0 && hole < _bridgeGap
+            ? AsrCue(from: cue.from, to: next!.from, content: cue.content)
+            : cue,
+      );
+    }
+    return out;
+  }
 
   /// What [text] takes up on screen, counting a full-width character as two.
   ///

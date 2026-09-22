@@ -2984,6 +2984,7 @@ abstract final class SelfTest {
       } catch (_) {}
     }
 
+    final shown = cues.displayed;
     return {
       'pass': error == null && cues.isNotEmpty,
       'error': ?error,
@@ -2999,12 +3000,18 @@ abstract final class SelfTest {
       // echoed so "the flag never arrived" and "the model ignored it" are
       // not the same observation
       'forcedLanguage': forceLanguage ?? '(auto)',
-      'cueCount': cues.length,
-      'cueStats': _cueStats(cues, audio.durationSeconds),
-      'script': _scriptMix(cues),
-      'coverageVsVad': _coverageVsVad(cues, segments, audio.durationSeconds),
+      // Measured as SHOWN, not as built. The two differ — gaps are closed
+      // when the track is serialised — and measuring the wrong one is how a
+      // real defect stayed invisible for three rounds: every cue duration in
+      // the file was fine while the player was reloading the track every
+      // five seconds and blinking the line off screen.
+      'cueCount': shown.length,
+      'builtCueCount': cues.length,
+      'cueStats': _cueStats(shown, audio.durationSeconds),
+      'script': _scriptMix(shown),
+      'coverageVsVad': _coverageVsVad(shown, segments, audio.durationSeconds),
       'cues': [
-        for (final cue in cues.take(40))
+        for (final cue in shown.take(40))
           {
             'from': cue.from,
             'to': cue.to,

@@ -427,4 +427,56 @@ void main() {
       }
     });
   });
+
+  group('bridgeGaps', () {
+    AsrCue cue(double from, double to, [String text = 'x']) =>
+        AsrCue(from: from, to: to, content: text);
+
+    test('a short hole is closed by extending the earlier cue', () {
+      final out = AsrCueBuilder.bridgeGaps([
+        cue(0, 2, 'one'),
+        cue(3, 5, 'two'),
+      ]);
+      expect(out.first.to, 3);
+      expect(out.first.content, 'one');
+      expect(out.last.from, 3);
+    });
+
+    test('a real pause is left alone', () {
+      // a line held across six seconds of silence is worse than no line
+      final out = AsrCueBuilder.bridgeGaps([
+        cue(0, 2, 'one'),
+        cue(8, 10, 'two'),
+      ]);
+      expect(out.first.to, 2);
+    });
+
+    test('nothing is moved, shortened or overlapped', () {
+      final input = [cue(0, 2), cue(2.5, 4), cue(9, 11), cue(11, 12)];
+      final out = AsrCueBuilder.bridgeGaps(input);
+      expect(out, hasLength(input.length));
+      for (var i = 0; i < input.length; i++) {
+        expect(out[i].from, input[i].from, reason: 'start moved at $i');
+        expect(out[i].to, greaterThanOrEqualTo(input[i].to));
+        expect(out[i].content, input[i].content);
+        if (i + 1 < out.length) {
+          expect(out[i].to, lessThanOrEqualTo(out[i + 1].from),
+              reason: 'overlap at $i');
+        }
+      }
+    });
+
+    test('the last cue is never extended — there is nothing to reach', () {
+      final out = AsrCueBuilder.bridgeGaps([cue(0, 2), cue(2.5, 4)]);
+      expect(out.last.to, 4);
+    });
+
+    test('toVtt serialises the bridged cues, not the raw ones', () {
+      // The probe and the player must measure the same thing. They did not,
+      // and that is how a visible defect survived three rounds of stats.
+      final vtt = [cue(0, 2, 'one'), cue(3, 5, 'two')].toVtt();
+      expect(vtt, contains('00:03'));
+      expect(vtt, isNot(contains('00:02.000 -->')));
+    });
+  });
 }
