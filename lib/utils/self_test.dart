@@ -9,11 +9,15 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/member.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:PiliPlus/grpc/dm.dart';
+import 'package:PiliPlus/grpc/bilibili/community/service/dm/v1.pb.dart'
+    show SubtitleType;
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
+import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/models/common/video/source_type.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/model_hot_video_item.dart';
@@ -1120,6 +1124,34 @@ abstract final class SelfTest {
       ticketError = '$e';
     }
 
+    // The path the app's video page actually uses when the REST list comes
+    // back empty and nobody is logged in: the gRPC DmView interface. The
+    // probe never called it, which is the whole reason "anonymous cannot get
+    // the list" looked true — the app gets it, just not from this endpoint.
+    List<Map<String, Object?>>? grpcTracks;
+    String? grpcError;
+    if (aid != null) {
+      final view = await DmGrpc.dmView(aid, cid);
+      switch (view) {
+        case Success(:final response):
+          grpcTracks = response.hasSubtitle()
+              ? [
+                  for (final t in response.subtitle.subtitles)
+                    {
+                      'lan': t.lan,
+                      'lan_doc': t.lanDoc,
+                      'isAi': t.type == SubtitleType.AI,
+                      'hasUrl': t.subtitleUrl.isNotEmpty,
+                    },
+                ]
+              : const [];
+        case Error(:final errMsg):
+          grpcError = errMsg;
+        case Loading():
+          grpcError = 'still loading';
+      }
+    }
+
     final res = best ?? plain;
     final data = res.data;
     // spelled out rather than chained: `a ? b?['c'] : d` parses the `?[` as
@@ -1129,7 +1161,8 @@ abstract final class SelfTest {
     final Object? tracks = subtitle is Map ? subtitle['subtitles'] : null;
 
     return {
-      'pass': tracks is List && tracks.isNotEmpty,
+      'pass': (tracks is List && tracks.isNotEmpty) ||
+          (grpcTracks?.isNotEmpty ?? false),
       'bvid': bvid,
       'cid': cid,
       'loggedIn': Accounts.main.isLogin,
@@ -1140,6 +1173,9 @@ abstract final class SelfTest {
       'attempts': tried,
       'ticketError': ticketError,
       'trackCountWithTicket': countWithTicket,
+      'grpcDmViewTracks': grpcTracks,
+      'grpcDmViewCount': grpcTracks?.length,
+      'grpcError': grpcError,
       'subtitleKeys': subtitle is Map ? subtitle.keys.toList() : null,
       'trackCount': tracks is List ? tracks.length : null,
       'tracks': tracks is List
@@ -1353,11 +1389,41 @@ abstract final class SelfTest {
     }
 
     final info = await VideoHttp.playInfo(bvid: bvid, cid: cid);
-    final tracks = info.dataOrNull?.subtitle?.subtitles ?? const <bili_sub.Subtitle>[];
-    // Worth stating plainly when it happens: bilibili only returns the
-    // subtitle list to a logged-in request, so an empty list here does not
-    // mean the video has no captions.
+    var tracks =
+        info.dataOrNull?.subtitle?.subtitles ?? const <bili_sub.Subtitle>[];
     final loggedIn = Accounts.main.isLogin;
+    var viaGrpc = false;
+    // The same fallback the video page uses. `player/wbi/v2` returns an empty
+    // list to an anonymous caller — measured across six request shapes,
+    // including one carrying a valid bili_ticket — while the gRPC DmView
+    // interface returns the tracks perfectly well without an account. The
+    // probe called only the REST endpoint, which is why the list looked
+    // unavailable and got written up as "you have to be logged in". It is the
+    // other way round: this is the anonymous path, and it works.
+    final aid = detail.aid;
+    if (tracks.isEmpty && aid != null) {
+      final view = await DmGrpc.dmView(aid, cid);
+      if (view case Success(:final response) when response.hasSubtitle()) {
+        tracks = response.subtitle.subtitles
+            .map(
+              (i) => bili_sub.Subtitle(
+                lan: i.lan,
+                lanDoc: i.lanDoc,
+                // `getSubtitles` prepends the scheme, as the REST list omits it
+                subtitleUrl: i.subtitleUrl.replaceFirst(
+                  RegExp('^https?:'),
+                  '',
+                ),
+                isAi: i.type == SubtitleType.AI,
+                source: i.type == SubtitleType.AI
+                    ? SubtitleSource.platform
+                    : SubtitleSource.author,
+              ),
+            )
+            .toList();
+        viaGrpc = tracks.isNotEmpty;
+      }
+    }
 
     final play = await VideoHttp.videoUrl(
       bvid: bvid,
@@ -1399,6 +1465,9 @@ abstract final class SelfTest {
       'bvid': bvid,
       'cid': cid,
       'loggedIn': loggedIn,
+      // which interface the list came from, so an empty one is never again
+      // read as a statement about accounts
+      'trackSource': viaGrpc ? 'grpc DmView' : 'rest player/wbi/v2',
       'durationSeconds': durationSeconds,
       'theirTrack': track == null
           ? null
