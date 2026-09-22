@@ -1805,8 +1805,13 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                                 : null,
                           ),
                         ),
+                      // guarded like its two neighbours: this player is
+                      // embedded by pages that have no bilibili controller,
+                      // and 高能进度条 is a preference — with it on, the
+                      // YouTube page walked straight into the force-unwrap
                       if (plPlayerController.showDmChart &&
-                          videoDetailController.showDmTrendChart.value)
+                          widget.videoDetailController?.showDmTrendChart.value ==
+                              true)
                         if (videoDetailController.dmTrend.value?.dataOrNull
                             case final list?)
                           buildDmChart(primary, list, videoDetailController),

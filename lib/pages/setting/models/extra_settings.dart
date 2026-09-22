@@ -2,6 +2,7 @@ import 'dart:io' show Platform, Directory;
 import 'dart:math' show max;
 
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
+import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/common/widgets/emote_tooltip.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart'
@@ -41,6 +42,7 @@ import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/settings_import.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -56,6 +58,37 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:material_ui/material_ui.dart' hide RefreshIndicator;
 
 List<SettingsModel> get extraSettings => [
+  // LibrePili: only offered when there is actually something to import, so
+  // the row is never a dead end. The fork has its own application id and so
+  // its own profile — correct, but it means every preference set in PiliPlus
+  // reverts to a default here, and a default is invisible: the 字号 slider
+  // reads 1.00 because nothing was written, which looks like this app simply
+  // renders smaller.
+  if (SettingsImport.findBox() != null)
+    NormalModel(
+      title: '从 PiliPlus 导入设置',
+      subtitle: '读取同一台机器上 PiliPlus 的偏好（画质、字号、播放器等），不含账号',
+      leading: const Icon(Icons.download_for_offline_outlined),
+      onTap: (context, setState) async {
+        final ok = await showConfirmDialog(
+          context: context,
+          title: const Text('导入 PiliPlus 的设置？'),
+          content: const Text(
+            '会用 PiliPlus 的偏好覆盖本应用的同名设置。\n'
+            '不导入账号、下载路径和字体文件路径 —— 那些属于另一个安装。\n'
+            '导入后重启应用生效。',
+          ),
+        );
+        if (!ok) return;
+        final result = await SettingsImport.run();
+        setState();
+        SmartDialog.showToast(
+          result.imported == 0
+              ? '没有可导入的设置'
+              : '已导入 ${result.imported} 项（跳过 ${result.skipped} 项），重启后生效',
+        );
+      },
+    ),
   if (PlatformUtils.isDesktop) ...[
     SwitchModel(
       title: '退出时最小化',

@@ -41,6 +41,7 @@ import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
+import 'package:PiliPlus/utils/settings_import.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart'
     show
@@ -417,13 +418,21 @@ abstract final class SelfTest {
       await scenario('ytReplies', () => _ytReplies(video));
     }
     if (_arg(args, '--yt-download') case final video?) {
-      await scenario('ytDownload', () => _ytDownload(video));
+      // --keep leaves the finished mp4 on disk, so another scenario (the
+      // transcriber) can be pointed at it instead of inventing a source
+      await scenario(
+        'ytDownload',
+        () => _ytDownload(video, keep: args.contains('--keep')),
+      );
     }
     if (_arg(args, '--yt-fav') case final video?) {
       await scenario('ytFav', () => _ytFav(video));
     }
     if (_arg(args, '--yt-search-ui') case final query?) {
       await scenario('ytSearchUi', () => _ytSearchUi(query));
+    }
+    if (args.contains('--import-settings')) {
+      await scenario('importSettings', _importSettings);
     }
     if (args.contains('--settings-reachable')) {
       await scenario('settingsReachable', _settingsReachable);
@@ -635,7 +644,10 @@ abstract final class SelfTest {
   /// the bilibili downloads use, so "it finished" is not the question — the
   /// question is whether the container it wrote has both tracks and a
   /// duration. That is read back out of the file.
-  static Future<Map<String, dynamic>> _ytDownload(String input) async {
+  static Future<Map<String, dynamic>> _ytDownload(
+    String input, {
+    bool keep = false,
+  }) async {
     final videoId = tryParseYouTubeVideoId(input) ?? input;
     unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
     await Future.delayed(const Duration(seconds: 4));
@@ -695,9 +707,11 @@ abstract final class SelfTest {
       } finally {
         await player.dispose();
       }
-      try {
-        File(file).deleteSync();
-      } catch (_) {}
+      if (!keep) {
+        try {
+          File(file).deleteSync();
+        } catch (_) {}
+      }
     }
 
     return {
@@ -870,6 +884,39 @@ abstract final class SelfTest {
     };
   }
 
+  /// LibrePili: does importing PiliPlus's preferences find them and land
+  /// them in our box?
+  ///
+  /// Safe to run: --selftest has its own profile, so the writes go to the
+  /// self test's settings box and not the user's. That isolation is also
+  /// why the *source* path is searched for rather than computed — the
+  /// profile is one directory deeper here than in a normal run, and a fixed
+  /// number of parents would be right for one and wrong for the other.
+  static Future<Map<String, dynamic>> _importSettings() async {
+    final box = SettingsImport.findBox();
+    if (box == null) {
+      return {
+        'pass': false,
+        'reason': 'no PiliPlus box on this machine',
+        'searchedFrom': appSupportDirPath,
+      };
+    }
+    // the value that started all this: 字号, which PiliPlus had at 1.2 and
+    // this app had never written at all
+    final before = Pref.defaultTextScale;
+    final result = await SettingsImport.run();
+    final after = Pref.defaultTextScale;
+    return {
+      'pass': result.imported > 0,
+      'source': box.path,
+      'imported': result.imported,
+      'skipped': result.skipped,
+      'textScaleBefore': before,
+      'textScaleAfter': after,
+      'textScaleChanged': before != after,
+    };
+  }
+
   /// LibrePili: can every settings group actually be opened?
   ///
   /// The settings list is a hardcoded array; the group *types* are an enum
@@ -940,6 +987,14 @@ abstract final class SelfTest {
           : MediaQuery.devicePixelRatioOf(context),
       'logicalWidth': context == null ? null : MediaQuery.widthOf(context),
       'textScalerOn14': scaler?.scale(14),
+      // What Windows itself asks for (Accessibility → Text size). The app
+      // overrides MediaQuery's scaler with TextScaler.linear(defaultTextScale)
+      // unconditionally, so anything the system asked for is discarded — and
+      // the value above was read from Get.context, which may sit ABOVE that
+      // override and therefore report the wrong number.
+      'platformTextScaleFactor':
+          WidgetsBinding.instance.platformDispatcher.textScaleFactor,
+      'defaultTextScalePref': Pref.defaultTextScale,
       'fontFamily': FontUtils.fontFamily,
       'appFontWeight': Pref.appFontWeight.value,
     };
