@@ -7,6 +7,11 @@ import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/member.dart';
+import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
+import 'package:PiliPlus/http/api.dart';
+import 'package:PiliPlus/http/init.dart';
+import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models/common/video/source_type.dart';
@@ -418,6 +423,9 @@ abstract final class SelfTest {
         'download',
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
+    }
+    if (_arg(args, '--bili-subtitles') case final bvid?) {
+      await scenario('biliSubtitles', () => _biliSubtitles(bvid));
     }
     if (_arg(args, '--asr-latency') case final video?) {
       await scenario('asrLatency', () => _asrLatency(video));
@@ -981,6 +989,173 @@ abstract final class SelfTest {
     };
   }
 
+  /// LibrePili: what bilibili's player API actually returns for a video's
+  /// subtitle list, anonymously.
+  ///
+  /// Written because "the list is empty" was reported as "you need to log
+  /// in", which is a mechanism claim the empty list alone does not support:
+  /// a risk-controlled request, an unsigned one and a genuinely captionless
+  /// video all look identical from the parsed model. This dumps the raw
+  /// response so the three can be told apart.
+  static Future<Map<String, dynamic>> _biliSubtitles(String input) async {
+    final bvid = IdUtils.bvRegex.firstMatch(input)?.group(0) ?? input;
+    final intro = await VideoHttp.videoIntro(bvid: bvid);
+    final detail = intro.dataOrNull;
+    final cid = detail?.cid;
+    if (cid == null) {
+      return {
+        'pass': false,
+        'reason': 'no cid',
+        'introState': intro.runtimeType.toString(),
+        'introError': intro is Error ? intro.errMsg : null,
+      };
+    }
+
+    // Which request shape actually returns the list. The app's own call
+    // came back `code: 0` with `subtitles: []`, which rules out risk control
+    // and a bad signature but not a wrong endpoint or a missing parameter —
+    // so try the shapes the web player is known to use and report all of
+    // them rather than concluding from one.
+    final aid = detail?.aid;
+    final attempts = <String, Map<String, Object>>{
+      'wbi/v2 bvid+cid': {'bvid': bvid, 'cid': cid},
+      if (aid != null) 'wbi/v2 aid+cid': {'aid': aid, 'cid': cid},
+      'wbi/v2 +web_location': {
+        'bvid': bvid,
+        'cid': cid,
+        'web_location': 1315873,
+        'isGaiaAvoided': true,
+      },
+      if (aid != null)
+        'wbi/v2 aid+bvid+cid +web_location': {
+          'aid': aid,
+          'bvid': bvid,
+          'cid': cid,
+          'web_location': 1315873,
+        },
+    };
+    final tried = <Map<String, Object?>>[];
+    Response<dynamic>? best;
+    for (final attempt in attempts.entries) {
+      final signed = await WbiSign.makSign(attempt.value);
+      final r = await Request().get(Api.playInfo, queryParameters: signed);
+      final body = r.data;
+      final Object? env = body is Map ? body['data'] : null;
+      final Object? sub = env is Map ? env['subtitle'] : null;
+      final Object? list = sub is Map ? sub['subtitles'] : null;
+      final count = list is List ? list.length : -1;
+      tried.add({
+        'shape': attempt.key,
+        'code': body is Map ? body['code'] : null,
+        'trackCount': count,
+      });
+      if (count > 0 && best == null) best = r;
+    }
+    // the plain (unsigned) endpoint, which older clients use
+    final plain = await Request().get(
+      '/x/player/v2',
+      queryParameters: {'bvid': bvid, 'cid': cid, 'aid': ?aid},
+    );
+    {
+      final body = plain.data;
+      final Object? env = body is Map ? body['data'] : null;
+      final Object? sub = env is Map ? env['subtitle'] : null;
+      final Object? list = sub is Map ? sub['subtitles'] : null;
+      tried.add({
+        'shape': 'player/v2 (unsigned)',
+        'code': body is Map ? body['code'] : null,
+        'trackCount': list is List ? list.length : -1,
+      });
+      if (list is List && list.isNotEmpty && best == null) best = plain;
+    }
+
+    // Hypothesis: the anonymous request is missing `bili_ticket`.
+    //
+    // The app makes up its own buvid3 and activates it, but never asks for
+    // the ticket the web front-end obtains on load. If that is what gates
+    // the list, fetching one and retrying should change the count — and if
+    // it does not, the ticket is not the reason and the empty list means
+    // this video really has no tracks for an anonymous caller.
+    String? ticketError;
+    int? countWithTicket;
+    try {
+      final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final sign = Hmac(sha256, utf8.encode('XgwSnGZ1p'))
+          .convert(utf8.encode('ts$ts'))
+          .toString();
+      final ticketRes = await Request().post(
+        'https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket',
+        queryParameters: {
+          'key_id': 'ec02',
+          'hexsign': sign,
+          'context[ts]': '$ts',
+          'csrf': '',
+        },
+      );
+      final body = ticketRes.data;
+      final Object? env = body is Map ? body['data'] : null;
+      final ticket = env is Map ? env['ticket'] as String? : null;
+      if (ticket == null || ticket.isEmpty) {
+        ticketError = 'no ticket in response: ${body is Map ? body['code'] : body}';
+      } else {
+        final signed = await WbiSign.makSign({'bvid': bvid, 'cid': cid});
+        final retry = await Request().get(
+          Api.playInfo,
+          queryParameters: signed,
+          options: Options(headers: {'Cookie': 'bili_ticket=$ticket'}),
+        );
+        final rb = retry.data;
+        final Object? renv = rb is Map ? rb['data'] : null;
+        final Object? rsub = renv is Map ? renv['subtitle'] : null;
+        final Object? rlist = rsub is Map ? rsub['subtitles'] : null;
+        countWithTicket = rlist is List ? rlist.length : -1;
+        tried.add({
+          'shape': 'wbi/v2 + bili_ticket',
+          'code': rb is Map ? rb['code'] : null,
+          'trackCount': countWithTicket,
+        });
+        if (rlist is List && rlist.isNotEmpty && best == null) best = retry;
+      }
+    } catch (e) {
+      ticketError = '$e';
+    }
+
+    final res = best ?? plain;
+    final data = res.data;
+    // spelled out rather than chained: `a ? b?['c'] : d` parses the `?[` as
+    // the start of another conditional and fails to compile
+    final Object? envelope = data is Map ? data['data'] : null;
+    final Object? subtitle = envelope is Map ? envelope['subtitle'] : null;
+    final Object? tracks = subtitle is Map ? subtitle['subtitles'] : null;
+
+    return {
+      'pass': tracks is List && tracks.isNotEmpty,
+      'bvid': bvid,
+      'cid': cid,
+      'loggedIn': Accounts.main.isLogin,
+      // the envelope says which of the three cases this is
+      'code': data is Map ? data['code'] : null,
+      'message': data is Map ? data['message'] : null,
+      'bodyIsHtml': data is String && data.trimLeft().startsWith('<'),
+      'attempts': tried,
+      'ticketError': ticketError,
+      'trackCountWithTicket': countWithTicket,
+      'subtitleKeys': subtitle is Map ? subtitle.keys.toList() : null,
+      'trackCount': tracks is List ? tracks.length : null,
+      'tracks': tracks is List
+          ? [
+              for (final t in tracks.cast<Map>())
+                {
+                  'lan': t['lan'],
+                  'lan_doc': t['lan_doc'],
+                  'type': t['type'],
+                  'hasUrl': (t['subtitle_url'] as String?)?.isNotEmpty == true,
+                },
+            ]
+          : null,
+    };
+  }
+
   /// LibrePili: how long a real transcription takes to put its first
   /// subtitle on screen, and whether it still reaches the end of the audio.
   ///
@@ -1080,23 +1255,8 @@ abstract final class SelfTest {
     if (tracks.isEmpty) {
       return {'pass': false, 'reason': 'this video ships no captions'};
     }
-    // An author-provided track is very often a TRANSLATION, not a
-    // transcript: this video is spoken in Japanese and the author uploaded
-    // Chinese, Korean and English. Comparing our transcript against one of
-    // those and concluding "the recogniser picked the wrong language" is
-    // exactly the mistake that is easy to make here — a translation is in
-    // the wrong language *by design*.
-    //
-    // YouTube's automatic track is the only one guaranteed to be a
-    // transcript of what was said, so that is the baseline.
-    final track =
-        tracks.firstWhereOrNull((t) => t.isAutomatic) ?? tracks.first;
-    final content = await router.run((s) => s.captionContent(track));
-    if (!content.ok || content.value == null) {
-      return {'pass': false, 'reason': 'caption fetch failed'};
-    }
-    final theirs = _parseVtt(content.value!);
-
+    // Transcribe FIRST, because which track is a fair baseline depends on
+    // what language is being spoken and only the recogniser can say.
     final streams = await router.run((s) => s.streams(videoId));
     final audioUrl = streams.value?.audioUrl;
     if (audioUrl == null || audioUrl.isEmpty) {
@@ -1105,12 +1265,54 @@ abstract final class SelfTest {
     final ours = await _asr(audioUrl);
     final durationSeconds = detail.duration.inSeconds.toDouble();
 
+    // Both kinds, where the video has both. "视频自带" and "平台生成" are
+    // different things and the question was about both: an author's track is
+    // hand-written and usually the better-typeset one, the automatic track
+    // is the one guaranteed to be a transcript of the speech.
+    final spoken = ours['language'] as String?;
+    final chosen = _baselinesFor(
+      tracks,
+      isAutomatic: (t) => t.isAutomatic,
+      languageOf: (t) => t.languageCode,
+      spoken: spoken,
+    );
+    final baselines = <Map<String, Object?>>[];
+    for (final candidate in chosen) {
+      final t = candidate.track;
+      final content = await router.run((s) => s.captionContent(t));
+      final cues = content.value == null
+          ? const <AsrCue>[]
+          : _parseVtt(content.value!);
+      baselines.add({
+        'kind': candidate.kind,
+        'track': '${t.languageCode} ${t.name}'
+            '${t.isAutomatic ? ' (auto)' : ''}',
+        'cueCount': cues.length,
+        'script': cues.isEmpty ? null : _scriptMix(cues),
+        'stats': cues.isEmpty ? null : _cueStats(cues, durationSeconds),
+      });
+    }
+    if (baselines.isEmpty) {
+      return {'pass': false, 'reason': 'caption fetch failed'};
+    }
+    // the primary one stays the transcript where there is one
+    final picked = chosen.first;
+    final track = picked.track;
+    final primary = await router.run((s) => s.captionContent(track));
+    final theirs = primary.value == null
+        ? const <AsrCue>[]
+        : _parseVtt(primary.value!);
+
     return {
       'pass': ours['pass'] == true && theirs.isNotEmpty,
       'videoId': videoId,
       'durationSeconds': durationSeconds,
       'theirTrack': '${track.languageCode} ${track.name}'
           '${track.isAutomatic ? ' (auto)' : ''}',
+      'baselineChosenBy': picked.kind,
+      'baselineMayBeTranslation': picked.mayBeTranslation,
+      // every track worth measuring against, not just the chosen one
+      'baselines': baselines,
       // every track, because which one is a transcript and which a
       // translation decides what the comparison means
       'allTracks': [
@@ -1157,17 +1359,6 @@ abstract final class SelfTest {
     // mean the video has no captions.
     final loggedIn = Accounts.main.isLogin;
 
-    List<AsrCue> theirs = const [];
-    bili_sub.Subtitle? track;
-    if (tracks.isNotEmpty) {
-      track = tracks.firstWhereOrNull((t) => t.isAi) ?? tracks.first;
-      final url = track.subtitleUrl;
-      if (url != null && url.isNotEmpty) {
-        final body = await VideoHttp.getSubtitles(url);
-        if (body != null) theirs = _parseVtt(body);
-      }
-    }
-
     final play = await VideoHttp.videoUrl(
       bvid: bvid,
       cid: cid,
@@ -1182,6 +1373,27 @@ abstract final class SelfTest {
     final ours = await _asr(audioUrl);
     final durationSeconds = (detail.duration ?? 0).toDouble();
 
+    List<AsrCue> theirs = const [];
+    bili_sub.Subtitle? track;
+    String baselineReason = 'no track';
+    var mayBeTranslation = false;
+    if (tracks.isNotEmpty) {
+      final picked = _baselinesFor(
+        tracks,
+        isAutomatic: (t) => t.isAi,
+        languageOf: (t) => t.lan,
+        spoken: ours['language'] as String?,
+      ).first;
+      track = picked.track;
+      baselineReason = picked.kind;
+      mayBeTranslation = picked.mayBeTranslation;
+      final url = track.subtitleUrl;
+      if (url != null && url.isNotEmpty) {
+        final body = await VideoHttp.getSubtitles(url);
+        if (body != null) theirs = _parseVtt(body);
+      }
+    }
+
     return {
       'pass': ours['pass'] == true && theirs.isNotEmpty,
       'bvid': bvid,
@@ -1191,6 +1403,8 @@ abstract final class SelfTest {
       'theirTrack': track == null
           ? null
           : '${track.lan} ${track.lanDoc}${track.isAi ? ' (auto)' : ''}',
+      'baselineChosenBy': baselineReason,
+      'baselineMayBeTranslation': mayBeTranslation,
       'allTracks': [
         for (final t in tracks) '${t.lan}${t.isAi ? ' (auto)' : ''} ${t.lanDoc}',
       ],
@@ -1203,6 +1417,62 @@ abstract final class SelfTest {
       'ourStats': ours['cueStats'],
       'ourCoverageVsVad': ours['coverageVsVad'],
     };
+  }
+
+  /// Which caption track to measure ours against.
+  ///
+  /// Only a machine-made track is guaranteed to be a *transcript*. An
+  /// author's track is very often a translation, and a translation is in
+  /// another language by design — measuring against one and concluding "the
+  /// recogniser picked the wrong language" is a conclusion about the
+  /// baseline, not about the recogniser. That mistake has now been made
+  /// twice: once on a Japanese video whose author uploaded zh/ko/en, and
+  /// again on a Chinese one with no automatic track at all, where falling
+  /// back to `tracks.first` picked the English translation.
+  ///
+  /// So: the automatic track where there is one; otherwise the author track
+  /// whose language matches what was actually recognised; otherwise the
+  /// first, flagged so the numbers are not read as a language verdict.
+  static List<({T track, String kind, bool mayBeTranslation})>
+  _baselinesFor<T>(
+    List<T> tracks, {
+    required bool Function(T) isAutomatic,
+    required String Function(T) languageOf,
+    required String? spoken,
+  }) {
+    final out = <({T track, String kind, bool mayBeTranslation})>[];
+    if (tracks.firstWhereOrNull(isAutomatic) case final auto?) {
+      out.add((track: auto, kind: '平台生成', mayBeTranslation: false));
+    }
+    // the author's own track in the spoken language: hand-written, and the
+    // fair reference for how a subtitle should be broken and timed
+    if (spoken != null && spoken.isNotEmpty) {
+      final match = tracks.firstWhereOrNull(
+        (t) => !isAutomatic(t) && _sameMajorLanguage(languageOf(t), spoken),
+      );
+      if (match != null) {
+        out.add((track: match, kind: '视频自带', mayBeTranslation: false));
+      }
+    }
+    if (out.isEmpty && tracks.isNotEmpty) {
+      out.add((
+        track: tracks.first,
+        kind: '回退（可能是译文）',
+        mayBeTranslation: true,
+      ));
+    }
+    return out;
+  }
+
+  /// `zh-CN` and `zh` are the same language here; `ai-zh` is bilibili's.
+  static bool _sameMajorLanguage(String a, String b) {
+    String major(String code) {
+      final cleaned = code.toLowerCase().replaceFirst(RegExp(r'^ai-'), '');
+      final cut = cleaned.indexOf(RegExp(r'[-_]'));
+      return cut == -1 ? cleaned : cleaned.substring(0, cut);
+    }
+
+    return AsrService.isSameMajorLanguage(major(a), major(b));
   }
 
   /// A WebVTT body into cues. Only the timing lines matter here; cue

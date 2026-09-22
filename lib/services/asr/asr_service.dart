@@ -395,7 +395,9 @@ class AsrService extends GetxService {
   /// plenty of Mandarin speech with an accent, and transcribing a video for
   /// someone who already understands it is worse than not transcribing it.
   /// Finer distinctions (zh-Hans vs zh-Hant) are deliberately not made.
-  @visibleForTesting
+  ///
+  /// Public because the caption-compare probe needs the same notion when it
+  /// decides which track is a fair baseline.
   static bool isSameMajorLanguage(String spoken, String appLanguage) {
     final a = spoken.trim().toLowerCase();
     final b = appLanguage.trim().toLowerCase();
