@@ -90,6 +90,11 @@ class _SettingPageState extends State<SettingPage> {
       icon: Icon(Icons.memory_outlined),
     ),
     _SettingsModel(
+      type: SettingType.youtubeSetting,
+      subtitle: '内容地区与语言（影响可用性与返回文字的语言）',
+      icon: Icon(Icons.smart_display_outlined),
+    ),
+    _SettingsModel(
       type: SettingType.webdavSetting,
       icon: Icon(MdiIcons.databaseCogOutline),
     ),

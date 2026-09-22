@@ -28,6 +28,7 @@ import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
+import 'package:PiliPlus/models/common/setting_type.dart';
 import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
@@ -423,6 +424,9 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--yt-search-ui') case final query?) {
       await scenario('ytSearchUi', () => _ytSearchUi(query));
+    }
+    if (args.contains('--settings-reachable')) {
+      await scenario('settingsReachable', _settingsReachable);
     }
     if (args.contains('--metrics')) {
       await scenario('metrics', _uiMetrics);
@@ -863,6 +867,51 @@ abstract final class SelfTest {
       'resultRoute': resultRoute,
       'cards': cards,
       'historyChip': historyChip,
+    };
+  }
+
+  /// LibrePili: can every settings group actually be opened?
+  ///
+  /// The settings list is a hardcoded array; the group *types* are an enum
+  /// with exhaustive switches over them. Adding a type and wiring the
+  /// switches satisfies the analyser completely and still leaves the group
+  /// with no way in — which is exactly what happened to the YouTube one.
+  /// Nothing but opening each entry can tell.
+  static Future<Map<String, dynamic>> _settingsReachable() async {
+    unawaited(Get.toNamed('/setting'));
+    await Future.delayed(const Duration(seconds: 2));
+
+    final missing = <String>[];
+    final unopened = <String>[];
+    for (final type in SettingType.values) {
+      if (!_seesText(type.title)) {
+        missing.add(type.title);
+        continue;
+      }
+      if (!await _tapText(type.title)) {
+        unopened.add(type.title);
+        continue;
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+      // the group's own page shows its title; on a wide window it replaces
+      // the right-hand pane instead of pushing, so both are accepted
+      final opened =
+          Get.currentRoute.contains('setting') || _seesText(type.title);
+      if (!opened) unopened.add(type.title);
+      if (Get.currentRoute != '/setting') {
+        Get.back();
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
+    }
+
+    Get.back();
+    await Future.delayed(const Duration(milliseconds: 500));
+    return {
+      'pass': missing.isEmpty && unopened.isEmpty,
+      'groups': SettingType.values.length,
+      // a type the enum has but the list does not offer: unreachable
+      'missingFromList': missing,
+      'couldNotOpen': unopened,
     };
   }
 
