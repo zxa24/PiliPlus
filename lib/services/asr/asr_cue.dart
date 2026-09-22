@@ -62,7 +62,7 @@ abstract final class AsrCueBuilder {
   /// Characters per cue. Measured against the same video's official AI
   /// subtitle: continuous speech with no full stops otherwise ran to 35
   /// characters on one line, which nobody can read in six seconds.
-  static const _maxChars = 14;
+  static const _maxChars = 10;
 
   /// And a cap that does not need permission from punctuation.
   ///
@@ -71,7 +71,11 @@ abstract final class AsrCueBuilder {
   /// video: median 28 characters, 90th percentile 42, longest 49, and 26 of
   /// 203 cues over 40 — three lines on a phone. A limit that a sentence can
   /// simply decline to honour is not a limit.
-  static const _hardMaxChars = 22;
+  /// Measured against the captions YouTube ships for the same video: their
+  /// median cue is 11 characters and their longest 28, held for a median of
+  /// 1.5 s. Ours were 22 and 27 at 3.0 s — twice the text for twice as long,
+  /// which reads as one long line rather than two short ones.
+  static const _hardMaxChars = 16;
 
   /// Nothing is cut below this, otherwise punctuation-heavy speech flickers.
   static const _minDuration = 1.0;

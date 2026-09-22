@@ -166,6 +166,12 @@ class YtCaptionTrack {
     translatable: m['isTranslatable'] == true,
   );
 
+  /// Whether YouTube generated this track rather than a person writing it.
+  ///
+  /// Encoded in `vssId`: an automatic track is `a.<lang>`, an author's is
+  /// `.<lang>`. There is no separate flag in the response.
+  bool get isAutomatic => vssId.startsWith('a.');
+
   final String languageCode;
   final String baseUrl;
   final String vssId;

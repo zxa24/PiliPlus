@@ -413,6 +413,9 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--caption-compare') case final video?) {
+      await scenario('captionCompare', () => _captionCompare(video));
+    }
     if (_arg(args, '--open-bili') case final url?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
       await scenario('openBili', () => _openBili(url, hold));
@@ -475,6 +478,7 @@ abstract final class SelfTest {
         () => _asr(
           source,
           modelDir: _arg(args, '--asr-models'),
+          forceLanguage: _arg(args, '--asr-language'),
           srtOut: _arg(args, '--asr-srt'),
           pcmOut: _arg(args, '--asr-pcm'),
         ),
@@ -968,6 +972,106 @@ abstract final class SelfTest {
     };
   }
 
+  /// LibrePili: how our transcription of a video compares with the
+  /// captions YouTube ships for the same one.
+  ///
+  /// Compared on shape rather than on wording: how many cues, how long each
+  /// is on screen, how many characters it carries, how much of the audio
+  /// carries a subtitle at all. Those are the properties that were reported
+  /// as wrong, and unlike the text they can be put side by side.
+  static Future<Map<String, dynamic>> _captionCompare(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final source = YtDirectSource.create();
+    final router = YtSourceRouter(source);
+
+    final info = await router.run((s) => s.detail(videoId));
+    final detail = info.value;
+    if (detail == null) {
+      return {'pass': false, 'reason': 'no detail', 'verdict': '${info.verdict}'};
+    }
+    final tracks = detail.captionTracks;
+    if (tracks.isEmpty) {
+      return {'pass': false, 'reason': 'this video ships no captions'};
+    }
+    // prefer a track the author wrote over an automatic one where both exist
+    final track = tracks.firstWhereOrNull((t) => !t.isAutomatic) ?? tracks.first;
+    final content = await router.run((s) => s.captionContent(track));
+    if (!content.ok || content.value == null) {
+      return {'pass': false, 'reason': 'caption fetch failed'};
+    }
+    final theirs = _parseVtt(content.value!);
+
+    final streams = await router.run((s) => s.streams(videoId));
+    final audioUrl = streams.value?.audioUrl;
+    if (audioUrl == null || audioUrl.isEmpty) {
+      return {'pass': false, 'reason': 'no audio stream'};
+    }
+    final ours = await _asr(audioUrl);
+    final durationSeconds = detail.duration.inSeconds.toDouble();
+
+    return {
+      'pass': ours['pass'] == true && theirs.isNotEmpty,
+      'videoId': videoId,
+      'durationSeconds': durationSeconds,
+      'theirTrack': '${track.languageCode} ${track.name}'
+          '${track.isAutomatic ? ' (auto)' : ''}',
+      'theirCueCount': theirs.length,
+      // Which script each side wrote in. The recogniser supports zh/en/ja/
+      // ko/yue and picks one; if it picks the wrong one it still produces
+      // fluent-looking text, just in the wrong language. Counting characters
+      // says which, without putting either transcript side by side.
+      'theirScript': _scriptMix(theirs),
+      'theirStats': _cueStats(theirs, durationSeconds),
+      'ourLanguage': ours['language'],
+      'ourCueCount': ours['cueCount'],
+      'ourScript': ours['script'],
+      'ourStats': ours['cueStats'],
+      'ourCoverageVsVad': ours['coverageVsVad'],
+    };
+  }
+
+  /// A WebVTT body into cues. Only the timing lines matter here; cue
+  /// settings (`align:`, `position:`) and any styling blocks are skipped.
+  static List<AsrCue> _parseVtt(String body) {
+    final cues = <AsrCue>[];
+    final lines = body.replaceAll('\r\n', '\n').split('\n');
+    final arrow = RegExp(r'(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}|\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}|\d{1,2}:\d{2}[.,]\d{1,3})');
+    double parse(String stamp) {
+      final clean = stamp.replaceAll(',', '.');
+      final parts = clean.split(':');
+      var seconds = 0.0;
+      for (final part in parts) {
+        seconds = seconds * 60 + (double.tryParse(part) ?? 0);
+      }
+      return seconds;
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      final match = arrow.firstMatch(lines[i]);
+      if (match == null) continue;
+      final from = parse(match.group(1)!);
+      final to = parse(match.group(2)!);
+      final text = StringBuffer();
+      for (var j = i + 1; j < lines.length; j++) {
+        final line = lines[j].trim();
+        if (line.isEmpty || arrow.hasMatch(line)) break;
+        if (text.isNotEmpty) text.write(' ');
+        // strip the inline timing tags an auto-caption carries
+        text.write(
+          line
+              .replaceAll(RegExp(r'<[^>]*>'), '')
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .trim(),
+        );
+      }
+      final content = text.toString().trim();
+      if (content.isNotEmpty) {
+        cues.add(AsrCue(from: from, to: to, content: content));
+      }
+    }
+    return cues;
+  }
+
   /// LibrePili: open a bilibili video the way a link does, and report what
   /// the player is actually doing.
   ///
@@ -1298,6 +1402,45 @@ abstract final class SelfTest {
       'ms': ms,
       'kbPerSec': ms == 0 ? null : (received / 1024 / (ms / 1000)).round(),
       'error': error,
+    };
+  }
+
+  /// The writing systems a set of cues is made of, as fractions.
+  ///
+  /// Hangul says Korean, kana says Japanese, Han alone says Chinese. A
+  /// recogniser that picked the wrong language still writes fluently — in
+  /// the wrong script — so this is what tells the two apart.
+  static Map<String, String> _scriptMix(List<AsrCue> cues) {
+    var hangul = 0;
+    var kana = 0;
+    var han = 0;
+    var latin = 0;
+    var total = 0;
+    for (final cue in cues) {
+      for (final rune in cue.content.runes) {
+        if (rune <= 0x20) continue;
+        total++;
+        if (rune >= 0xAC00 && rune <= 0xD7A3) {
+          hangul++;
+        } else if ((rune >= 0x3040 && rune <= 0x309F) ||
+            (rune >= 0x30A0 && rune <= 0x30FF)) {
+          kana++;
+        } else if (rune >= 0x4E00 && rune <= 0x9FFF) {
+          han++;
+        } else if ((rune >= 0x41 && rune <= 0x5A) ||
+            (rune >= 0x61 && rune <= 0x7A)) {
+          latin++;
+        }
+      }
+    }
+    String pct(int n) =>
+        total == 0 ? '0' : (n / total).toStringAsFixed(3);
+    return {
+      'hangul': pct(hangul),
+      'kana': pct(kana),
+      'han': pct(han),
+      'latin': pct(latin),
+      'chars': '$total',
     };
   }
 
@@ -2232,6 +2375,7 @@ abstract final class SelfTest {
     String? modelDir,
     String? srtOut,
     String? pcmOut,
+    String? forceLanguage,
   }) async {
     final store = AsrModelStore(
       root: modelDir == null ? null : Directory(modelDir),
@@ -2283,7 +2427,10 @@ abstract final class SelfTest {
           .fileOf(AsrModelCatalog.vad, AsrModelCatalog.vad.files.first)
           .path,
       threads: Pref.asrThreads,
-      language: '',
+      // empty lets the recogniser decide; a value forces it, which is how
+      // to tell "the model cannot do this language" from "the model picked
+      // the wrong one"
+      language: forceLanguage ?? '',
     ));
     await for (final event in transcriber.events) {
       switch (event) {
@@ -2326,8 +2473,12 @@ abstract final class SelfTest {
           : (extractMs + transcribeMs) / 1000 / audio.durationSeconds,
       'language': language,
       'languageEvents': languageEvents,
+      // echoed so "the flag never arrived" and "the model ignored it" are
+      // not the same observation
+      'forcedLanguage': forceLanguage ?? '(auto)',
       'cueCount': cues.length,
       'cueStats': _cueStats(cues, audio.durationSeconds),
+      'script': _scriptMix(cues),
       'coverageVsVad': _coverageVsVad(cues, segments, audio.durationSeconds),
       'cues': [
         for (final cue in cues.take(40))
