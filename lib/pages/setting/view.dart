@@ -137,7 +137,8 @@ class _SettingPageState extends State<SettingPage> {
                       .styleSetting ||
                       .extraSetting ||
                       .downloadSetting ||
-                      .asrSetting => CommonSetting(
+                      .asrSetting ||
+                      .youtubeSetting => CommonSetting(
                         settingType: _type,
                         showAppBar: false,
                       ),
@@ -173,7 +174,8 @@ class _SettingPageState extends State<SettingPage> {
           .styleSetting ||
           .extraSetting ||
           .downloadSetting ||
-          .asrSetting => CommonSetting(settingType: type),
+          .asrSetting ||
+          .youtubeSetting => CommonSetting(settingType: type),
           .localModelSetting => const LocalModelsPage(),
           .webdavSetting => const WebDavSettingPage(),
           .about => const AboutPage(),

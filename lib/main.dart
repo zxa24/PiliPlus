@@ -15,6 +15,7 @@ import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/pages/setting/models/youtube_settings.dart';
 import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
@@ -120,6 +121,8 @@ void main(List<String> args) async {
     exit(0);
   }
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
+  // LibrePili: the region/language asked of YouTube, from settings
+  applyYtLocale();
   await Future.wait([
     _initDownPath(),
     _initTmpPath(),

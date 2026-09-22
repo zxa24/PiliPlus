@@ -36,6 +36,7 @@ import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -54,6 +55,7 @@ import 'package:material_ui/material_ui.dart'
     show IconButton, PopupMenuButton, Tooltip;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
+import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
@@ -421,6 +423,9 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--yt-search-ui') case final query?) {
       await scenario('ytSearchUi', () => _ytSearchUi(query));
+    }
+    if (args.contains('--metrics')) {
+      await scenario('metrics', _uiMetrics);
     }
     if (args.contains('--platform-search')) {
       await scenario('platformSearch', _platformSearch);
@@ -858,6 +863,36 @@ abstract final class SelfTest {
       'resultRoute': resultRoute,
       'cards': cards,
       'historyChip': historyChip,
+    };
+  }
+
+  /// LibrePili: what this build actually renders at.
+  ///
+  /// Reported as "everything is one size smaller than PiliPlus, and both
+  /// say the scale is 1.00". Comparing screenshots cannot answer that; the
+  /// numbers the framework is working from can.
+  static Future<Map<String, dynamic>> _uiMetrics() async {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final context = Get.context;
+    final scaler = context == null
+        ? null
+        : MediaQuery.textScalerOf(context);
+    return {
+      'pass': true,
+      'uiScalePref': Pref.uiScale,
+      'devicePixelRatioScaled':
+          ScaledWidgetsFlutterBinding.instance.devicePixelRatioScaled,
+      // what the OS reports, before anything the app does to it
+      'viewDevicePixelRatio': view.devicePixelRatio,
+      'physicalWidth': view.physicalSize.width,
+      // and what the widget tree is laid out in
+      'mediaDevicePixelRatio': context == null
+          ? null
+          : MediaQuery.devicePixelRatioOf(context),
+      'logicalWidth': context == null ? null : MediaQuery.widthOf(context),
+      'textScalerOn14': scaler?.scale(14),
+      'fontFamily': FontUtils.fontFamily,
+      'appFontWeight': Pref.appFontWeight.value,
     };
   }
 

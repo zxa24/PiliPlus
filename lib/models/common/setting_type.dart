@@ -7,6 +7,7 @@ import 'package:PiliPlus/pages/setting/models/privacy_settings.dart';
 import 'package:PiliPlus/pages/setting/models/recommend_settings.dart';
 import 'package:PiliPlus/pages/setting/models/style_settings.dart';
 import 'package:PiliPlus/pages/setting/models/video_settings.dart';
+import 'package:PiliPlus/pages/setting/models/youtube_settings.dart';
 
 enum SettingType {
   privacySetting('隐私设置'),
@@ -17,6 +18,7 @@ enum SettingType {
   extraSetting('其它设置'),
   downloadSetting('下载设置'),
   asrSetting('语音转录'),
+  youtubeSetting('YouTube 设置'),
   localModelSetting('本地模型'),
   webdavSetting('WebDAV 设置'),
   about('关于'),
@@ -34,6 +36,7 @@ enum SettingType {
     .extraSetting => extraSettings,
     .downloadSetting => downloadSettings,
     .asrSetting => asrSettings,
+    .youtubeSetting => youtubeSettings,
     _ => throw UnimplementedError(),
   };
 }

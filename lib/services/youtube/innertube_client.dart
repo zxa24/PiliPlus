@@ -78,10 +78,11 @@ class YtPlayerResponse {
 class InnertubeClient {
   InnertubeClient(
     this.transport, {
-    this.hl = defaultHl,
-    this.gl = defaultGl,
+    String? hl,
+    String? gl,
     this._nonce = defaultYtNonce,
-  });
+  }) : hl = hl ?? ytHl,
+       gl = gl ?? ytGl;
 
   final YtTransport transport;
   final String hl;

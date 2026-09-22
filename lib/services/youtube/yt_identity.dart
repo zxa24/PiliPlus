@@ -139,6 +139,12 @@ class YtClientIdentity {
 const String defaultHl = 'zh-CN';
 const String defaultGl = 'GB';
 
+/// What is actually sent, which the user can change in settings. They start
+/// at the defaults and are set once at launch; the data layer reads them so
+/// no page has to pass a locale down.
+String ytHl = defaultHl;
+String ytGl = defaultGl;
+
 const String youtubeiWebBase = 'https://www.youtube.com/youtubei/v1/';
 const String youtubeiGapisBase = 'https://youtubei.googleapis.com/youtubei/v1/';
 

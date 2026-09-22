@@ -88,6 +88,9 @@ abstract final class SettingBoxKey {
       dlCommentCount = 'dlCommentCount',
       dlReplyCount = 'dlReplyCount',
       asrMode = 'asrMode',
+      // LibrePili: the region and language asked of YouTube
+      ytRegion = 'ytRegion',
+      ytLanguage = 'ytLanguage',
       asrAsked = 'asrAsked',
       asrLanguage = 'asrLanguage',
       asrThreads = 'asrThreads',

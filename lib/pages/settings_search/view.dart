@@ -4,6 +4,7 @@ import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
 import 'package:PiliPlus/common/widgets/view_sliver_safe_area.dart';
 import 'package:PiliPlus/pages/search/controller.dart' show DebounceStreamState;
 import 'package:PiliPlus/pages/setting/models/asr_settings.dart';
+import 'package:PiliPlus/pages/setting/models/youtube_settings.dart';
 import 'package:PiliPlus/pages/setting/models/download_settings.dart';
 import 'package:PiliPlus/pages/setting/models/extra_settings.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
@@ -39,6 +40,7 @@ class _SettingsSearchPageState
     ...styleSettings,
     ...downloadSettings,
     ...asrSettings,
+    ...youtubeSettings,
   ];
 
   @override

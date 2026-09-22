@@ -5,6 +5,8 @@ import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recogniz
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/models/common/asr_mode.dart';
+import 'package:PiliPlus/models/common/yt_locale.dart';
+import 'package:PiliPlus/services/youtube/yt_identity.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
 import 'package:PiliPlus/models/common/bar_hide_type.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamic_badge_mode.dart';
@@ -767,6 +769,15 @@ abstract final class Pref {
 
   static double get defaultTextScale =>
       _setting.get(SettingBoxKey.defaultTextScale, defaultValue: 1.0);
+
+  /// LibrePili: the region and language asked of YouTube. See [YtRegion].
+  static YtRegion get ytRegion => YtRegion.fromCode(
+    _setting.get(SettingBoxKey.ytRegion, defaultValue: defaultGl),
+  );
+
+  static YtLanguage get ytLanguage => YtLanguage.fromCode(
+    _setting.get(SettingBoxKey.ytLanguage, defaultValue: defaultHl),
+  );
 
   static double get uiScale =>
       _setting.get(SettingBoxKey.uiScale, defaultValue: 1.0);
