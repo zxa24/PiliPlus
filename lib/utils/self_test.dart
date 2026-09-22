@@ -993,8 +993,17 @@ abstract final class SelfTest {
     if (tracks.isEmpty) {
       return {'pass': false, 'reason': 'this video ships no captions'};
     }
-    // prefer a track the author wrote over an automatic one where both exist
-    final track = tracks.firstWhereOrNull((t) => !t.isAutomatic) ?? tracks.first;
+    // An author-provided track is very often a TRANSLATION, not a
+    // transcript: this video is spoken in Japanese and the author uploaded
+    // Chinese, Korean and English. Comparing our transcript against one of
+    // those and concluding "the recogniser picked the wrong language" is
+    // exactly the mistake that is easy to make here — a translation is in
+    // the wrong language *by design*.
+    //
+    // YouTube's automatic track is the only one guaranteed to be a
+    // transcript of what was said, so that is the baseline.
+    final track =
+        tracks.firstWhereOrNull((t) => t.isAutomatic) ?? tracks.first;
     final content = await router.run((s) => s.captionContent(track));
     if (!content.ok || content.value == null) {
       return {'pass': false, 'reason': 'caption fetch failed'};
@@ -1015,6 +1024,13 @@ abstract final class SelfTest {
       'durationSeconds': durationSeconds,
       'theirTrack': '${track.languageCode} ${track.name}'
           '${track.isAutomatic ? ' (auto)' : ''}',
+      // every track, because which one is a transcript and which a
+      // translation decides what the comparison means
+      'allTracks': [
+        for (final t in tracks)
+          '${t.languageCode}${t.isAutomatic ? ' (auto)' : ''}'
+              '${t.name.isEmpty ? '' : ' ${t.name}'}',
+      ],
       'theirCueCount': theirs.length,
       // Which script each side wrote in. The recogniser supports zh/en/ja/
       // ko/yue and picks one; if it picks the wrong one it still produces
