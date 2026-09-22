@@ -40,7 +40,12 @@ void main() {
       expect(client['deviceModel'], 'RealityDevice17,1');
       expect(client['osName'], 'visionOS');
       expect(client['visitorData'], 'VISITOR_0');
-      expect(client['hl'], 'en-GB');
+      // hl is the language YouTube answers in, and it is the interface's:
+      // every count, date and label the app shows but did not write comes
+      // back in it. gl is the content region and stays neutral — pointing
+      // it at a country invites that country's availability rules onto
+      // videos that would otherwise play. They are different questions.
+      expect(client['hl'], 'zh-CN');
       expect(client['gl'], 'GB');
 
       final body = player.jsonBody;

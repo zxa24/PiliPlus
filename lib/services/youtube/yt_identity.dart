@@ -118,9 +118,25 @@ class YtClientIdentity {
   String toString() => '$name/$version';
 }
 
-/// Hardcoded locale. Following the device locale would be more correct and is
-/// also a (weak) fingerprint; that is a policy call left to a later stage.
-const String defaultHl = 'en-GB';
+/// The language YouTube answers in.
+///
+/// Every string this app shows that it did not write itself comes from here:
+/// '22.9万位订阅者', '5 天前', '962 条回复', the publish date. While this was
+/// 'en-GB' the interface was Chinese and everything inside it was English,
+/// and no amount of work on the Dart side could have fixed that — the words
+/// are chosen by the server.
+///
+/// [defaultGl] stays neutral on purpose. `hl` picks the language of the
+/// text; `gl` picks the *content region*, and pointing that at a specific
+/// country invites that country's availability rules onto videos that would
+/// otherwise play. They are different questions and only one of them is
+/// about what language to read in.
+///
+/// The trade-off this makes: a locale is a (weak) fingerprint, and one
+/// hardcoded value for everyone is the least distinguishing thing to send.
+/// Sending the interface's own language is more distinguishing — and is
+/// what makes the app usable in that language.
+const String defaultHl = 'zh-CN';
 const String defaultGl = 'GB';
 
 const String youtubeiWebBase = 'https://www.youtube.com/youtubei/v1/';

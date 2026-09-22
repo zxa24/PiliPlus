@@ -338,11 +338,33 @@ class YtVideoController extends GetxController {
 
   bool get hasMoreComments => _commentsToken.value != null;
 
+  /// Why the related shelf is not here, when it is not — and whether it is
+  /// still on its way. Without these the shelf said 「暂无相关视频」 while
+  /// loading and again when the request had failed: three states, one
+  /// sentence.
+  final relatedError = RxnString();
+  final _relatedDone = false.obs;
+
+  bool get relatedPending => related.isEmpty && !_relatedDone.value;
+
+  Future<void> reloadRelated() {
+    relatedError.value = null;
+    _relatedDone.value = false;
+    return _loadRelated();
+  }
+
   Future<void> _loadRelated() async {
     final result = await router.run(
       (s) => (s as YtDirectSource).related(videoId),
     );
-    if (isClosed || !result.ok || result.value == null) return;
+    if (isClosed) return;
+    if (!result.ok || result.value == null) {
+      _relatedDone.value = true;
+      relatedError.value = _messageFor(result.verdict);
+      return;
+    }
+    _relatedDone.value = true;
+    relatedError.value = null;
     related.value = result.value!.related;
     _commentsToken.value = result.value!.commentsToken;
     final info = result.value!.extra;

@@ -10,6 +10,7 @@ import 'package:PiliPlus/common/widgets/pendant_avatar.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show ReloadScrollPhysics;
 import 'package:PiliPlus/common/widgets/selection_text.dart';
+import 'package:PiliPlus/common/widgets/video_intro/intro_metrics.dart';
 import 'package:PiliPlus/common/widgets/stat/stat.dart';
 import 'package:PiliPlus/common/widgets/translucent_column.dart';
 import 'package:PiliPlus/http/sponsor_block.dart';
@@ -287,7 +288,10 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
       const SizedBox(height: 8),
       SelectionText.rich(
         buildDesc(descV2),
-        style: const TextStyle(height: 1.4),
+        style: const TextStyle(
+          fontSize: IntroMetrics.description,
+          height: IntroMetrics.descriptionHeight,
+        ),
       ),
     ],
     NoTranslucentArea(
@@ -411,14 +415,14 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
       if (isSelectable) {
         return SelectionText.rich(
           textSpan,
-          style: const TextStyle(fontSize: 16),
+          style: const TextStyle(fontSize: IntroMetrics.title),
         );
       }
       return Text.rich(
         textSpan,
         maxLines: isExpand ? null : 2,
         overflow: isExpand ? null : .ellipsis,
-        style: const TextStyle(fontSize: 16),
+        style: const TextStyle(fontSize: IntroMetrics.title),
       );
     }
 
@@ -453,7 +457,7 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
               -10 => '特别关注',
               _ => ' 关注 ',
             },
-            style: const TextStyle(fontSize: 13),
+            style: const TextStyle(fontSize: IntroMetrics.followButton),
           ),
         );
       },
@@ -914,7 +918,7 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
           children: [
             PendantAvatar(
               userStat.card?.face,
-              size: 35,
+              size: IntroMetrics.avatarSize,
               badgeSize: 14,
               vipStatus: userStat.card?.vip?.status,
               officialType: userStat.card?.official?.type,
@@ -927,7 +931,7 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: IntroMetrics.ownerName,
                     color: isVip && userStat.card?.vip?.type == 2
                         ? colorScheme.vipColor
                         : null,

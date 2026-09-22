@@ -8,7 +8,9 @@ library;
 
 import 'dart:math' as math;
 
+import 'package:PiliPlus/common/skeleton/video_card_h.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
+import 'package:PiliPlus/common/widgets/video_intro/intro_metrics.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -157,7 +159,21 @@ class _YtVideoPageState extends State<YtVideoPage>
   );
 
   Widget _relatedList(ThemeData theme) => Obx(() {
+    // the same three states every other list in the app has: skeletons while
+    // it loads, the reason when it fails, the list when it arrives. This was
+    // a bare GridView that showed 「暂无相关视频」 for all three.
     if (controller.related.isEmpty) {
+      if (controller.relatedError.value case final error?) {
+        return HttpError(errMsg: error, onReload: controller.reloadRelated);
+      }
+      if (controller.relatedPending) {
+        return GridView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          gridDelegate: _gridDelegate,
+          itemCount: 6,
+          itemBuilder: (_, _) => const VideoCardHSkeleton(),
+        );
+      }
       return Center(
         child: Text(
           '暂无相关视频',
@@ -275,24 +291,24 @@ class _YtVideoPageState extends State<YtVideoPage>
                 onTap: _openChannel,
                 child: avatar == null
                     ? CircleAvatar(
-                        radius: 20,
+                        radius: IntroMetrics.avatarSize / 2,
                         backgroundColor:
                             theme.colorScheme.surfaceContainerHighest,
                         child: Icon(
                           Icons.person,
-                          size: 22,
+                          size: 20,
                           color: theme.colorScheme.outline,
                         ),
                       )
                     : NetworkImgLayer(
                         type: ImageType.avatar,
-                        width: 40,
-                        height: 40,
+                        width: IntroMetrics.avatarSize,
+                        height: IntroMetrics.avatarSize,
                         src: avatar,
                       ),
               );
             }),
-            const SizedBox(width: 10),
+            const SizedBox(width: IntroMetrics.avatarGap),
             Expanded(
               child: GestureDetector(
                 onTap: _openChannel,
@@ -303,7 +319,9 @@ class _YtVideoPageState extends State<YtVideoPage>
                       detail.author,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
+                      style: const TextStyle(
+                        fontSize: IntroMetrics.ownerName,
+                      ),
                     ),
                     Obx(() {
                       final subscribers = controller.extra.value?.subscriberText;
@@ -311,7 +329,7 @@ class _YtVideoPageState extends State<YtVideoPage>
                       return Text(
                         subscribers,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: IntroMetrics.ownerSecondary,
                           color: theme.colorScheme.outline,
                         ),
                       );
@@ -327,7 +345,10 @@ class _YtVideoPageState extends State<YtVideoPage>
                   visualDensity: VisualDensity.compact,
                 ),
                 onPressed: controller.toggleSubscribe,
-                child: Text(controller.subscribed.value ? '已订阅' : '订阅'),
+                child: Text(
+                  controller.subscribed.value ? '已订阅' : '订阅',
+                  style: const TextStyle(fontSize: IntroMetrics.followButton),
+                ),
               ),
             ),
             // 收藏 / 下载 / 分享 share this row with 订阅: bilibili gives the
@@ -338,7 +359,10 @@ class _YtVideoPageState extends State<YtVideoPage>
           ],
         ),
         const SizedBox(height: 10),
-        Text(detail.title, style: theme.textTheme.titleMedium),
+        Text(
+          detail.title,
+          style: const TextStyle(fontSize: IntroMetrics.title),
+        ),
         const SizedBox(height: 6),
         // 播放量 · 发布时间, the line the bilibili page puts under the title.
         // The date is not in the player response at all; it arrives with the
@@ -350,7 +374,7 @@ class _YtVideoPageState extends State<YtVideoPage>
               (detail.viewCount == null ? null : '${detail.viewCount} views');
           final date = info?.dateText ?? info?.relativeDateText;
           final style = TextStyle(
-            fontSize: 12,
+            fontSize: IntroMetrics.stat,
             color: theme.colorScheme.outline,
           );
           return Row(
@@ -393,10 +417,15 @@ class _YtVideoPageState extends State<YtVideoPage>
           ),
         ],
         if (detail.description.isNotEmpty) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
+          // bodySmall is 12; the bilibili description is 14 at 1.4, which is
+          // why this read as the small print of the same page
           SelectableText(
             detail.description,
-            style: theme.textTheme.bodySmall,
+            style: const TextStyle(
+              fontSize: IntroMetrics.description,
+              height: IntroMetrics.descriptionHeight,
+            ),
           ),
         ],
         // narrow layouts have no side column, so the shelf goes here
