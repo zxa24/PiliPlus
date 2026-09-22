@@ -15,6 +15,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -83,6 +84,14 @@ class AsrSession {
   String? _pcmPath;
   var _closed = false;
 
+  /// Seconds of audio decoded so far, for the "提取音频 Ns" label.
+  double _extracted = 0;
+
+  /// Touching this file tells the decoder isolate to stop. It cannot be
+  /// killed outright without leaking the mpv context it holds, and it no
+  /// longer ends on its own when the page closes.
+  String get _cancelPath => '${_pcmPath ?? ''}.cancel';
+
   bool get isRunning => state.value.isBusy;
 
   /// A VTT the existing subtitle path can take as `memory://` data.
@@ -101,10 +110,28 @@ class AsrSession {
     _transcriber?.stop();
     await _events?.cancel();
     final pcm = _pcmPath;
+    if (pcm != null) {
+      // ask the decoder to stop before taking the file away, so it does not
+      // keep writing to a handle whose name is gone
+      try {
+        File(_cancelPath).writeAsStringSync('1');
+      } catch (_) {}
+    }
     _pcmPath = null;
     if (pcm != null) {
+      await _deleteScratch(pcm);
+    }
+  }
+
+  /// The PCM and the two markers beside it.
+  static Future<void> _deleteScratch(String pcm) async {
+    for (final name in [
+      pcm,
+      PcmWindowReader.doneMarkerFor(pcm),
+      '$pcm.cancel',
+    ]) {
       try {
-        final file = File(pcm);
+        final file = File(name);
         if (file.existsSync()) await file.delete();
       } catch (_) {}
     }
@@ -193,23 +220,52 @@ class AsrService extends GetxService {
         '${session.key}-${DateTime.now().millisecondsSinceEpoch}.pcm',
       );
       session._pcmPath = pcmPath;
-      final audio = await AsrAudioExtractor.extract(
+
+      // Extraction is no longer awaited. It used to be, and the cost was the
+      // whole file: nothing was recognised until every byte had been pulled,
+      // which on a throttled CDN is minutes (googlevideo was measured at 2x
+      // realtime — a one-hour video meant a half-hour wait for the first
+      // subtitle). The recogniser now walks the file while it is still being
+      // written, so the first cues arrive seconds in and the rest trail the
+      // download.
+      final extraction = AsrAudioExtractor.extract(
         source: source,
         output: pcmPath,
         referer: referer,
         userAgent: userAgent,
-        onSeconds: (seconds) => session._set(
+        cancelPath: session._cancelPath,
+        onSeconds: (seconds) => session._extracted = seconds,
+      );
+      // a failure before any bytes exist must not be swallowed while we wait
+      Object? extractError;
+      unawaited(extraction.catchError((Object e) {
+        extractError = e;
+        return (path: pcmPath, durationSeconds: 0.0);
+      }));
+
+      // enough audio for the VAD to have something to chew on; below this the
+      // recogniser would start, hit the end of the file and wait anyway
+      const headStart = asrBytesPerSecond * 2;
+      final file = File(pcmPath);
+      while (!session._closed && extractError == null) {
+        final size = file.existsSync() ? file.lengthSync() : 0;
+        if (size >= headStart) break;
+        if (File(PcmWindowReader.doneMarkerFor(pcmPath)).existsSync()) break;
+        session._set(
           AsrState(
             stage: AsrStage.extracting,
-            message: '提取音频 ${seconds.toStringAsFixed(0)}s',
+            message: '提取音频 ${session._extracted.toStringAsFixed(0)}s',
           ),
-        ),
-      );
+        );
+        await Future.delayed(const Duration(milliseconds: 150));
+      }
       if (session._closed) return;
+      if (extractError != null) throw extractError!;
 
       session._set(const AsrState(stage: AsrStage.transcribing, progress: 0));
       final transcriber = await AsrTranscriber.start((
-        pcmPath: audio.path,
+        pcmPath: pcmPath,
+        follow: true,
         modelPath: store
             .fileOf(
               AsrModelCatalog.senseVoice,
@@ -281,6 +337,16 @@ class AsrService extends GetxService {
         },
       );
       await completer.future;
+      // the decoder may still hold the file; its result also carries any
+      // error that only surfaced at the end
+      try {
+        await extraction;
+      } catch (e) {
+        if (session.cues.isEmpty) rethrow;
+        // some audio was transcribed: a failure in the tail is worth logging
+        // but not worth throwing away what the user can already read
+        Utils.reportError('asr: extraction ended early: $e');
+      }
       if (session._closed) return;
       if (session.state.value.stage != AsrStage.failed &&
           session.state.value.stage != AsrStage.idle) {
@@ -305,10 +371,7 @@ class AsrService extends GetxService {
       final pcm = session._pcmPath;
       session._pcmPath = null;
       if (pcm != null) {
-        try {
-          final file = File(pcm);
-          if (file.existsSync()) await file.delete();
-        } catch (_) {}
+        await AsrSession._deleteScratch(pcm);
       }
     }
   }

@@ -67,6 +67,12 @@ typedef AsrJob = ({
 
   /// Empty lets SenseVoice detect; otherwise it is forced (`zh`/`en`/…).
   String language,
+
+  /// Whether [pcmPath] is still being written. True means transcription runs
+  /// alongside extraction instead of after it, which is what lets the first
+  /// cues appear seconds into a video rather than after the whole audio has
+  /// been pulled.
+  bool follow,
 });
 
 class AsrTranscriber {
@@ -164,8 +170,11 @@ class AsrTranscriber {
       // segment offsets are counted from the last reset, not from zero
       vad.reset();
 
-      final reader = PcmWindowReader(job.pcmPath);
-      final total = reader.durationSeconds;
+      final reader = PcmWindowReader(job.pcmPath, follow: job.follow);
+      // In follow mode the file is still growing, so this is a lower bound
+      // that is re-read as the run goes; a progress bar computed from the
+      // first value alone would sit at 100% for most of the job.
+      var total = reader.durationSeconds;
       // Which language, decided by how much speech is in it rather than by
       // whichever segment happened to come first. A Japanese video opening
       // with two seconds of noise was recognised as 'The.' and reported as
@@ -228,13 +237,17 @@ class AsrTranscriber {
         final done = reader.samplesRead / asrSampleRate;
         if (done - lastProgress >= 1) {
           lastProgress = done;
+          if (job.follow) total = reader.durationSeconds;
           send.send({'type': 'progress', 'done': done, 'total': total});
         }
       }
+      // only once the reader has really ended: in follow mode it returns
+      // when the extractor's marker appears, not at the first empty read
       vad.flush();
       drain();
+      final played = reader.samplesRead / asrSampleRate;
       reader.close();
-      send.send({'type': 'progress', 'done': total, 'total': total});
+      send.send({'type': 'progress', 'done': played, 'total': played});
     } catch (e) {
       send.send({'type': 'error', 'message': e.toString()});
     } finally {

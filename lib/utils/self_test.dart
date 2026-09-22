@@ -16,6 +16,9 @@ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/member/search_archive/data.dart';
 import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
+import 'package:PiliPlus/models/common/video/video_type.dart';
+import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart'
+    as bili_sub;
 import 'package:PiliPlus/pages/danmaku/controller.dart';
 import 'package:PiliPlus/pages/local/favs.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
@@ -34,11 +37,14 @@ import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
@@ -412,6 +418,9 @@ abstract final class SelfTest {
         'download',
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
+    }
+    if (_arg(args, '--asr-latency') case final video?) {
+      await scenario('asrLatency', () => _asrLatency(video));
     }
     if (_arg(args, '--caption-compare') case final video?) {
       await scenario('captionCompare', () => _captionCompare(video));
@@ -972,6 +981,78 @@ abstract final class SelfTest {
     };
   }
 
+  /// LibrePili: how long a real transcription takes to put its first
+  /// subtitle on screen, and whether it still reaches the end of the audio.
+  ///
+  /// Runs the service the app runs, not a copy of it: the thing being
+  /// measured is the overlap between extraction and recognition, and a probe
+  /// that re-implemented that overlap would only prove its own copy works.
+  ///
+  /// Two numbers matter and they pull against each other. The first cue used
+  /// to wait for the whole audio to be pulled — minutes on a throttled CDN.
+  /// Reading a file while it is still being written fixes that, and the way
+  /// it goes wrong is silent: the reader stops at the first empty read and
+  /// the rest of the video is never transcribed, with no error anywhere. So
+  /// the tail is checked as well as the latency.
+  static Future<Map<String, dynamic>> _asrLatency(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final router = YtSourceRouter(YtDirectSource.create());
+    final detail = (await router.run((s) => s.detail(videoId))).value;
+    final streams = await router.run((s) => s.streams(videoId));
+    final audioUrl = streams.value?.audioUrl;
+    if (audioUrl == null || audioUrl.isEmpty) {
+      return {'pass': false, 'reason': 'no audio stream'};
+    }
+    final durationSeconds = (detail?.duration.inSeconds ?? 0).toDouble();
+
+    final service = AsrService.to;
+    if (!service.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+
+    final started = DateTime.now();
+    int? firstCueMs;
+    final session = await service.start(key: 'probe:$videoId', source: audioUrl);
+    final sub = session.cues.listen((_) {
+      firstCueMs ??= DateTime.now().difference(started).inMilliseconds;
+    });
+
+    // the run is over when the service says so; cap it so a stall reports a
+    // stall rather than hanging the probe
+    final deadline = started.add(const Duration(minutes: 30));
+    while (session.state.value.isBusy && DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    final doneMs = DateTime.now().difference(started).inMilliseconds;
+    await sub.cancel();
+
+    final cues = session.cues.toList();
+    final lastCueEnd = cues.isEmpty ? 0.0 : cues.last.to;
+    await service.stop();
+
+    // the failure this exists to catch: transcription that ends early.
+    // Anything more than a closing stretch of silence unaccounted for means
+    // the reader stopped while the decoder was still writing.
+    final tailGap = durationSeconds - lastCueEnd;
+    return {
+      'pass':
+          cues.isNotEmpty &&
+          firstCueMs != null &&
+          (durationSeconds == 0 || tailGap < durationSeconds * 0.1),
+      'videoId': videoId,
+      'durationSeconds': durationSeconds,
+      'msToFirstCue': firstCueMs,
+      'msToDone': doneMs,
+      // what the old design would have cost: nothing could appear before the
+      // whole stream had been pulled
+      'stage': session.state.value.stage.name,
+      'cueCount': cues.length,
+      'lastCueEndSeconds': lastCueEnd,
+      'tailGapSeconds': tailGap,
+      'cueStats': _cueStats(cues, durationSeconds),
+    };
+  }
+
   /// LibrePili: how our transcription of a video compares with the
   /// captions YouTube ships for the same one.
   ///
@@ -980,6 +1061,12 @@ abstract final class SelfTest {
   /// carries a subtitle at all. Those are the properties that were reported
   /// as wrong, and unlike the text they can be put side by side.
   static Future<Map<String, dynamic>> _captionCompare(String input) async {
+    // Both platforms ship captions and both can be compared the same way;
+    // only the fetching differs. A bilibili link goes down the bilibili path
+    // so one flag covers either.
+    if (IdUtils.bvRegex.firstMatch(input) case final bv?) {
+      return _captionCompareBili(bv.group(0)!);
+    }
     final videoId = tryParseYouTubeVideoId(input) ?? input;
     final source = YtDirectSource.create();
     final router = YtSourceRouter(source);
@@ -1038,6 +1125,78 @@ abstract final class SelfTest {
       // says which, without putting either transcript side by side.
       'theirScript': _scriptMix(theirs),
       'theirStats': _cueStats(theirs, durationSeconds),
+      'ourLanguage': ours['language'],
+      'ourCueCount': ours['cueCount'],
+      'ourScript': ours['script'],
+      'ourStats': ours['cueStats'],
+      'ourCoverageVsVad': ours['coverageVsVad'],
+    };
+  }
+
+  /// The same comparison for a bilibili video.
+  ///
+  /// bilibili marks a machine-made track with `type == 1` (`isAi`), which is
+  /// the counterpart of YouTube's automatic track: the one guaranteed to be
+  /// a transcript rather than a translation. Where a video has both, the AI
+  /// track is the baseline for the same reason.
+  static Future<Map<String, dynamic>> _captionCompareBili(String bvid) async {
+    final intro = await VideoHttp.videoIntro(bvid: bvid);
+    final detail = intro.dataOrNull;
+    if (detail == null) {
+      return {'pass': false, 'reason': 'no detail', 'bvid': bvid};
+    }
+    final cid = detail.cid;
+    if (cid == null) {
+      return {'pass': false, 'reason': 'no cid', 'bvid': bvid};
+    }
+
+    final info = await VideoHttp.playInfo(bvid: bvid, cid: cid);
+    final tracks = info.dataOrNull?.subtitle?.subtitles ?? const <bili_sub.Subtitle>[];
+    // Worth stating plainly when it happens: bilibili only returns the
+    // subtitle list to a logged-in request, so an empty list here does not
+    // mean the video has no captions.
+    final loggedIn = Accounts.main.isLogin;
+
+    List<AsrCue> theirs = const [];
+    bili_sub.Subtitle? track;
+    if (tracks.isNotEmpty) {
+      track = tracks.firstWhereOrNull((t) => t.isAi) ?? tracks.first;
+      final url = track.subtitleUrl;
+      if (url != null && url.isNotEmpty) {
+        final body = await VideoHttp.getSubtitles(url);
+        if (body != null) theirs = _parseVtt(body);
+      }
+    }
+
+    final play = await VideoHttp.videoUrl(
+      bvid: bvid,
+      cid: cid,
+      qn: 64,
+      tryLook: true,
+      videoType: VideoType.ugc,
+    );
+    final audioUrl = play.dataOrNull?.dash?.audio?.firstOrNull?.baseUrl;
+    if (audioUrl == null || audioUrl.isEmpty) {
+      return {'pass': false, 'reason': 'no audio stream', 'bvid': bvid};
+    }
+    final ours = await _asr(audioUrl);
+    final durationSeconds = (detail.duration ?? 0).toDouble();
+
+    return {
+      'pass': ours['pass'] == true && theirs.isNotEmpty,
+      'bvid': bvid,
+      'cid': cid,
+      'loggedIn': loggedIn,
+      'durationSeconds': durationSeconds,
+      'theirTrack': track == null
+          ? null
+          : '${track.lan} ${track.lanDoc}${track.isAi ? ' (auto)' : ''}',
+      'allTracks': [
+        for (final t in tracks) '${t.lan}${t.isAi ? ' (auto)' : ''} ${t.lanDoc}',
+      ],
+      'theirCueCount': theirs.length,
+      'theirScript': theirs.isEmpty ? null : _scriptMix(theirs),
+      'theirStats': theirs.isEmpty ? null : _cueStats(theirs, durationSeconds),
       'ourLanguage': ours['language'],
       'ourCueCount': ours['cueCount'],
       'ourScript': ours['script'],
@@ -2406,10 +2565,15 @@ abstract final class SelfTest {
 
     final pcm = pcmOut ?? path.join(tmpDirPath, 'asr', 'selftest.pcm');
     final extractStarted = DateTime.now();
+    // bilibili's CDN refuses a request with no Referer; YouTube's does not
+    // need one, and sending it bilibili's would tell Google where the
+    // request came from for no benefit.
+    final isBili = !(Uri.tryParse(source)?.host.contains('googlevideo') ??
+        false);
     final audio = await AsrAudioExtractor.extract(
       source: source,
       output: pcm,
-      referer: HttpString.baseUrl,
+      referer: isBili ? HttpString.baseUrl : null,
       userAgent: BrowserUa.pc,
     );
     final extractMs = DateTime.now().difference(extractStarted).inMilliseconds;
@@ -2447,6 +2611,10 @@ abstract final class SelfTest {
       // to tell "the model cannot do this language" from "the model picked
       // the wrong one"
       language: forceLanguage ?? '',
+      // the probe extracts first and transcribes after, so the file is
+      // complete before this starts: measuring the recogniser, not the
+      // download it now runs alongside
+      follow: false,
     ));
     await for (final event in transcriber.events) {
       switch (event) {

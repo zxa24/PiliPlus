@@ -13,6 +13,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:PiliPlus/services/asr/mpv_ffi.dart';
+import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 
@@ -39,6 +40,7 @@ typedef _ExtractArgs = ({
   String? referer,
   String? userAgent,
   int timeoutSeconds,
+  String? cancelPath,
 });
 
 abstract final class AsrAudioExtractor {
@@ -59,10 +61,18 @@ abstract final class AsrAudioExtractor {
     String? userAgent,
     Duration timeout = const Duration(minutes: 30),
     ValueChanged<double>? onSeconds,
+    String? cancelPath,
   }) async {
     final file = File(output);
     if (file.existsSync()) await file.delete();
     await file.parent.create(recursive: true);
+    // a marker left over from a previous run would stop this one immediately
+    if (cancelPath != null) {
+      final cancel = File(cancelPath);
+      if (cancel.existsSync()) await cancel.delete();
+    }
+    final done = File(PcmWindowReader.doneMarkerFor(output));
+    if (done.existsSync()) await done.delete();
 
     Timer? ticker;
     if (onSeconds != null) {
@@ -83,6 +93,7 @@ abstract final class AsrAudioExtractor {
         referer: referer,
         userAgent: userAgent,
         timeoutSeconds: timeout.inSeconds,
+        cancelPath: cancelPath,
       );
       final bytes = await _spawn(args);
       if (bytes <= 0) {
@@ -91,6 +102,16 @@ abstract final class AsrAudioExtractor {
       return (path: output, durationSeconds: bytes / asrBytesPerSecond);
     } finally {
       ticker?.cancel();
+      // Whatever happened — finished, failed, cancelled — a reader following
+      // this file has to be told to stop waiting. Written here rather than
+      // inside the isolate so it cannot be missed on the throwing paths, and
+      // only once the isolate has returned, which is when the last bytes are
+      // on disk.
+      try {
+        done.writeAsStringSync(
+          file.existsSync() ? '${file.lengthSync()}' : '0',
+        );
+      } catch (_) {}
     }
   }
 
@@ -151,8 +172,14 @@ abstract final class AsrAudioExtractor {
       final started = DateTime.now();
       final errors = <String>[];
       var ended = false;
+      // Leaving the page has to stop the decode. It used to run to the end
+      // regardless, which only wasted the tail of a download nobody was
+      // waiting for; now that playback starts while this is still going, a
+      // user who moves on would otherwise leave it pulling the whole stream.
+      final cancel = args.cancelPath == null ? null : File(args.cancelPath!);
       while (DateTime.now().difference(started).inSeconds <
           args.timeoutSeconds) {
+        if (cancel != null && cancel.existsSync()) break;
         final event = mpv.waitEvent(ctx, 0.1);
         switch (event.ref.eventId) {
           case MpvEventId.logMessage:

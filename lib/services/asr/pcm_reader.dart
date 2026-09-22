@@ -11,20 +11,76 @@ import 'dart:typed_data';
 const asrVadWindow = 512;
 
 class PcmWindowReader {
-  PcmWindowReader(String path)
-    : _file = File(path).openSync(),
-      _length = File(path).lengthSync();
+  PcmWindowReader(
+    String path, {
+    this.follow = false,
+    this.idleTimeout = const Duration(seconds: 90),
+  }) : _path = path,
+       _file = File(path).openSync();
 
   /// How much of the file is read at a time.
   static const _blockBytes = 1 << 16;
 
+  /// How long to wait between checks for more data in [follow] mode.
+  static const _pollInterval = Duration(milliseconds: 100);
+
+  /// The file the extractor writes when it has finished (or given up).
+  ///
+  /// A plain file rather than a message because the writer and the reader are
+  /// different isolates and a growing file is the only thing they share. It
+  /// is written *after* the decoder is torn down, so once it exists every
+  /// byte has been flushed — an empty read past it really is the end.
+  static String doneMarkerFor(String pcmPath) => '$pcmPath.done';
+
+  final String _path;
   final RandomAccessFile _file;
-  final int _length;
+
+  /// Whether the file is still being written.
+  ///
+  /// Without this the reader stops at whatever the file happened to hold when
+  /// it was opened. That is correct for a finished extraction and silently
+  /// wrong for one still running: the rest of the audio is never transcribed,
+  /// and nothing reports an error — the run just ends early.
+  final bool follow;
+
+  /// How long to keep waiting for bytes that never come. A decoder that dies
+  /// without writing its marker must not wedge the reader forever.
+  final Duration idleTimeout;
+
   var _samplesRead = 0;
 
-  double get durationSeconds => _length / 2 / 16000;
+  /// Seconds of audio on disk so far. In [follow] mode this grows as the
+  /// extractor writes, so a progress total computed from it is a lower bound
+  /// rather than the final length.
+  double get durationSeconds {
+    try {
+      return File(_path).lengthSync() / 2 / 16000;
+    } catch (_) {
+      return _samplesRead / 16000;
+    }
+  }
 
   int get samplesRead => _samplesRead;
+
+  bool get _extractionFinished => File(doneMarkerFor(_path)).existsSync();
+
+  /// Blocks until there is more to read, and answers whether there is.
+  ///
+  /// Synchronous on purpose: this runs on the transcription isolate, whose
+  /// whole job is a blocking loop over the decoder.
+  bool _waitForMore() {
+    if (!follow) return false;
+    final deadline = DateTime.now().add(idleTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      // read the flag first: if extraction finished *during* the sleep, the
+      // bytes it wrote are already on disk and one more read gets them
+      final finished = _extractionFinished;
+      if (_file.positionSync() < File(_path).lengthSync()) return true;
+      if (finished) return false;
+      sleep(_pollInterval);
+    }
+    return false;
+  }
 
   /// Little-endian signed 16-bit samples, scaled to -1..1, in windows of
   /// [asrVadWindow].
@@ -45,8 +101,12 @@ class PcmWindowReader {
     var stray = -1;
 
     while (true) {
-      final bytes = _file.readSync(_blockBytes);
-      if (bytes.isEmpty) break;
+      var bytes = _file.readSync(_blockBytes);
+      if (bytes.isEmpty) {
+        if (!_waitForMore()) break;
+        bytes = _file.readSync(_blockBytes);
+        if (bytes.isEmpty) break;
+      }
       var i = 0;
       if (stray >= 0) {
         window[filled++] = _scale(stray | (bytes[0] << 8));

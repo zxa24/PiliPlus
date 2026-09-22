@@ -232,6 +232,16 @@ class _YtVideoPageState extends State<YtVideoPage>
         );
       case YtPageStage.ready:
         final player = controller.plPlayerController;
+        // asrPending: transcription is a peer of the stream, so a video whose
+        // subtitles are being generated is not ready until they start
+        if (controller.asrPending.value) {
+          // the same face as any other loading: waiting for subtitles is not
+          // a different kind of wait to the user
+          return const ColoredBox(
+            color: Colors.black,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
         if (player.videoController == null) {
           return const ColoredBox(color: Colors.black);
         }
@@ -1293,8 +1303,7 @@ class _YtVideoPageState extends State<YtVideoPage>
     ),
   );
 
-  static String _label(YtCaptionTrack track) =>
-      track.name.isEmpty ? track.languageCode : track.name;
+  static String _label(YtCaptionTrack track) => track.displayName;
 
   @override
   void dispose() {

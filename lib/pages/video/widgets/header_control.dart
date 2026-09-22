@@ -1314,7 +1314,7 @@ class HeaderControlState extends State<HeaderControl>
                   SmartDialog.showToast(e.toString());
                 }
               },
-              child: Text(item.lanDoc ?? item.lan),
+              child: Text(item.displayName),
             );
           }),
         );

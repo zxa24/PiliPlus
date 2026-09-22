@@ -537,6 +537,12 @@ class YtVideoController extends GetxController {
   /// recogniser is for — and, since most of what has none here is in another
   /// language, the case the "外语视频自动转录" setting was written around.
   final asrSession = Rxn<AsrSession>();
+
+  /// See [VideoDetailController.asrPending]: transcription is a peer of the
+  /// video stream, so an automatic run holds the page in loading until its
+  /// first cues exist.
+  final asrPending = false.obs;
+  Timer? _asrGate;
   Timer? _asrRefresh;
   Worker? _asrStateWorker;
   StreamSubscription<void>? _asrCueSub;
@@ -554,6 +560,7 @@ class YtVideoController extends GetxController {
       return;
     }
     await stopAsr();
+    if (auto) _openAsrGate();
     // no Referer, no UA: googlevideo does not need them and sending
     // bilibili's would link the two sites (see [_open])
     final session = await AsrService.to.start(
@@ -562,8 +569,7 @@ class YtVideoController extends GetxController {
       auto: auto,
     );
     asrSession.value = session;
-    SmartDialog.showToast(auto ? '正在自动转录字幕…' : '正在转录字幕…');
-    _asrCueSub = session.cues.listen((_) {});
+    _asrCueSub = session.cues.listen((_) => _closeAsrGate());
     _asrRefresh = Timer.periodic(
       const Duration(seconds: 5),
       (_) => _publishAsrSubtitle(),
@@ -571,19 +577,34 @@ class YtVideoController extends GetxController {
     _asrStateWorker = ever(session.state, (state) {
       switch (state.stage) {
         case AsrStage.done:
+          _closeAsrGate();
           _publishAsrSubtitle();
-          SmartDialog.showToast(
-            session.cues.isEmpty ? '没有识别到语音' : '转录完成，已显示字幕',
-          );
         case AsrStage.failed:
+          _closeAsrGate();
+          // only errors interrupt; progress lives in the subtitle menu
           SmartDialog.showToast('转录失败：${state.message ?? ''}');
+        case AsrStage.idle:
+          _closeAsrGate();
         case _:
           break;
       }
     });
   }
 
+  void _openAsrGate() {
+    _asrGate?.cancel();
+    asrPending.value = true;
+    _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
+  }
+
+  void _closeAsrGate() {
+    _asrGate?.cancel();
+    _asrGate = null;
+    if (asrPending.value) asrPending.value = false;
+  }
+
   Future<void> stopAsr() async {
+    _closeAsrGate();
     _asrRefresh?.cancel();
     _asrRefresh = null;
     _asrStateWorker?.dispose();

@@ -1218,6 +1218,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     child: Obx(
       () =>
           !videoDetailController.videoState.value ||
+              // transcription is a peer of the stream: when subtitles are
+              // going to be generated for this video, it is not ready until
+              // they have started arriving
+              videoDetailController.asrPending.value ||
               !videoDetailController.autoPlay ||
               plPlayerController?.videoController == null
           ? const SizedBox.shrink()

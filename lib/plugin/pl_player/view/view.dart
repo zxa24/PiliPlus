@@ -748,7 +748,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                       height: 35,
                       onTap: () => videoDetailController.setSubtitle(i + 1),
                       child: Text(
-                        e.lanDoc ?? e.lan,
+                        e.displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const .new(color: Colors.white, fontSize: 13),

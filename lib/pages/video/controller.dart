@@ -4,6 +4,7 @@ import 'dart:io' show Directory, File;
 import 'dart:math' show min;
 import 'dart:ui';
 
+import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/segment_progress_bar.dart';
@@ -1258,6 +1259,16 @@ class VideoDetailController extends GetxController
   /// in GetX, and a null session used to make that entry throw and render as
   /// a grey error box in release builds.
   final asrSession = Rxn<AsrSession>();
+
+  /// Whether transcription still owes the page its first subtitles.
+  ///
+  /// Transcription is treated as a peer of the video and audio streams: a
+  /// video that is going to be watched with generated subtitles is not ready
+  /// until they have started, the same way it is not ready until the stream
+  /// has. Only an automatic run started with the page holds this — a manual
+  /// start in the middle of playback must not blank out the player.
+  final asrPending = false.obs;
+  Timer? _asrGate;
   StreamSubscription<void>? _asrCueSub;
   Worker? _asrStateWorker;
   int? _asrTrackIndex;
@@ -1292,6 +1303,7 @@ class VideoDetailController extends GetxController
       source = 'fdclose://$fd';
     }
     await stopAsr();
+    if (auto) _openAsrGate();
     final service = AsrService.to;
     final session = await service.start(
       key: '$cid',
@@ -1308,20 +1320,21 @@ class VideoDetailController extends GetxController
       const Duration(seconds: 5),
       (_) => _publishAsrSubtitle(),
     );
-    _asrCueSub = session.cues.listen((_) {});
-    // the menu closes on tap, so without this nothing on screen says a
-    // minute-long job just started
-    SmartDialog.showToast(auto ? '正在自动转录字幕…' : '正在转录字幕…');
+    // the first cues are what the page has been waiting for
+    _asrCueSub = session.cues.listen((_) => _closeAsrGate());
     _asrStateWorker = ever(session.state, (state) {
       switch (state.stage) {
         case AsrStage.done:
+          _closeAsrGate();
           _publishAsrSubtitle(select: true);
-          SmartDialog.showToast(
-            session.cues.isEmpty ? '没有识别到语音' : '转录完成，已添加字幕轨',
-          );
         case AsrStage.failed:
+          _closeAsrGate();
+          // errors are the one thing still worth interrupting for: everything
+          // else about a transcription is visible in the subtitle menu, and a
+          // toast per stage turned a background job into a stream of popups
           SmartDialog.showToast('转录失败：${state.message ?? ''}');
         case AsrStage.idle:
+          _closeAsrGate();
           // the service gave up on its own — an automatic run that turned out
           // to be in the user's own language. Take the half-finished track
           // back off the menu; a *manual* stop keeps what was recognised.
@@ -1346,7 +1359,22 @@ class VideoDetailController extends GetxController
     startAsr(auto: true);
   }
 
+  /// Holds the page in its loading state until transcription has produced
+  /// something, with a cap so a decoder that never delivers cannot wedge it.
+  void _openAsrGate() {
+    _asrGate?.cancel();
+    asrPending.value = true;
+    _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
+  }
+
+  void _closeAsrGate() {
+    _asrGate?.cancel();
+    _asrGate = null;
+    if (asrPending.value) asrPending.value = false;
+  }
+
   Future<void> stopAsr() async {
+    _closeAsrGate();
     _asrRefresh?.cancel();
     _asrRefresh = null;
     _asrStateWorker?.dispose();
@@ -1384,7 +1412,13 @@ class VideoDetailController extends GetxController
     if (index == null) {
       index = subtitles.length;
       _asrTrackIndex = index;
-      subtitles.add(Subtitle(lan: 'asr', lanDoc: '自动转录'));
+      subtitles.add(
+        Subtitle(
+          lan: 'asr',
+          lanDoc: '语音识别',
+          source: SubtitleSource.device,
+        ),
+      );
       select = true;
     }
     vttSubtitles[index] = (isData: true, id: vtt);

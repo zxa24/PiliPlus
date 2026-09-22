@@ -6,6 +6,7 @@
 /// a recorded JSON fixture.
 library;
 
+import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/services/youtube/yt_json.dart';
 
 /// One entry of a `thumbnails` array.
@@ -171,6 +172,14 @@ class YtCaptionTrack {
   /// Encoded in `vssId`: an automatic track is `a.<lang>`, an author's is
   /// `.<lang>`. There is no separate flag in the response.
   bool get isAutomatic => vssId.startsWith('a.');
+
+  /// Who made it, in the form both platforms' menus render.
+  SubtitleSource get source =>
+      isAutomatic ? SubtitleSource.platform : SubtitleSource.author;
+
+  /// The name to show in a menu, with the source note where there is one.
+  String get displayName =>
+      source.annotate(name.isEmpty ? languageCode : name);
 
   final String languageCode;
   final String baseUrl;
