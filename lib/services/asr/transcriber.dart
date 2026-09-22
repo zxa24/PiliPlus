@@ -148,7 +148,13 @@ class AsrTranscriber {
 
       final reader = PcmWindowReader(job.pcmPath);
       final total = reader.durationSeconds;
-      var reportedLanguage = false;
+      // Which language, decided by how much speech is in it rather than by
+      // whichever segment happened to come first. A Japanese video opening
+      // with two seconds of noise was recognised as 'The.' and reported as
+      // English for the whole run — and the 外语自动转录 policy then makes
+      // its decision, including whether to stop, on that.
+      final languageWeight = <String, int>{};
+      String? reportedLanguage;
       var lastProgress = 0.0;
 
       void drain() {
@@ -166,12 +172,20 @@ class AsrTranscriber {
           stream.free();
           vad.pop();
 
-          if (!reportedLanguage && result.lang.isNotEmpty) {
-            reportedLanguage = true;
-            send.send({
-              'type': 'language',
-              'language': AsrCueBuilder.tagValue(result.lang),
-            });
+          if (result.lang.isNotEmpty) {
+            final lang = AsrCueBuilder.tagValue(result.lang);
+            if (lang.isNotEmpty) {
+              // weighted by text, so a long stretch outvotes a stray word
+              languageWeight[lang] =
+                  (languageWeight[lang] ?? 0) + result.text.length + 1;
+              final winner = languageWeight.entries
+                  .reduce((a, b) => b.value > a.value ? b : a)
+                  .key;
+              if (winner != reportedLanguage) {
+                reportedLanguage = winner;
+                send.send({'type': 'language', 'language': winner});
+              }
+            }
           }
           final cues = AsrCueBuilder.fromSegment(
             offset: start,

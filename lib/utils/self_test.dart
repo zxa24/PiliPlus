@@ -1301,6 +1301,51 @@ abstract final class SelfTest {
     };
   }
 
+  /// How the cues actually land on screen: how long each is up, how long
+  /// the screen is empty between them, and how much text each carries.
+  ///
+  /// Reported as "many subtitles flash and then nothing until the next
+  /// sentence, and some run to three lines" — both are distributions, and
+  /// neither can be judged from a handful of examples.
+  static Map<String, Object?> _cueStats(List<AsrCue> cues) {
+    if (cues.isEmpty) return const {};
+    final shown = <double>[];
+    final gaps = <double>[];
+    final chars = <int>[];
+    for (var i = 0; i < cues.length; i++) {
+      shown.add(cues[i].to - cues[i].from);
+      chars.add(cues[i].content.length);
+      if (i + 1 < cues.length) gaps.add(cues[i + 1].from - cues[i].to);
+    }
+    List<double> sorted(List<double> v) => [...v]..sort();
+    double at(List<double> v, double q) =>
+        v.isEmpty ? 0 : v[(v.length * q).clamp(0, v.length - 1).floor()];
+    final s = sorted(shown);
+    final g = sorted(gaps);
+    final c = sorted(chars.map((e) => e.toDouble()).toList());
+    return {
+      'shownP10': at(s, 0.1).toStringAsFixed(2),
+      'shownMedian': at(s, 0.5).toStringAsFixed(2),
+      'shownP90': at(s, 0.9).toStringAsFixed(2),
+      // a cue nobody can read
+      'underOneSecond': shown.where((e) => e < 1.0).length,
+      'underHalfSecond': shown.where((e) => e < 0.5).length,
+      'gapMedian': at(g, 0.5).toStringAsFixed(2),
+      'gapP90': at(g, 0.9).toStringAsFixed(2),
+      // screen empty for longer than the cue before it was up
+      'gapOverTwoSeconds': gaps.where((e) => e > 2).length,
+      'charsMedian': at(c, 0.5).round(),
+      'charsP90': at(c, 0.9).round(),
+      'charsMax': chars.reduce((a, b) => a > b ? a : b),
+      // roughly a line at this font size; three lines is the complaint
+      'overTwoLines': chars.where((e) => e > 40).length,
+      'emptyFraction':
+          (gaps.fold<double>(0, (a, b) => a + (b > 0 ? b : 0)) /
+                  (cues.last.to - cues.first.from))
+              .toStringAsFixed(3),
+    };
+  }
+
   /// LibrePili: what this build actually renders at.
   ///
   /// Reported as "everything is one size smaller than PiliPlus, and both
@@ -2109,6 +2154,10 @@ abstract final class SelfTest {
     final transcribeStarted = DateTime.now();
     final cues = <AsrCue>[];
     String? language;
+    // the whole sequence, not the first: the language is now decided by a
+    // running vote and corrects itself after a noisy opening, which a
+    // first-wins capture cannot see
+    final languageEvents = <String>[];
     String? error;
     final transcriber = await AsrTranscriber.start((
       pcmPath: audio.path,
@@ -2135,7 +2184,10 @@ abstract final class SelfTest {
         case AsrCuesEvent(cues: final batch):
           cues.addAll(batch);
         case AsrLanguageEvent(language: final lang):
-          language ??= lang;
+          language = lang;
+          if (languageEvents.isEmpty || languageEvents.last != lang) {
+            languageEvents.add(lang);
+          }
         case AsrErrorEvent(message: final message):
           error = message;
         case AsrProgressUpdate():
@@ -2165,7 +2217,9 @@ abstract final class SelfTest {
           ? null
           : (extractMs + transcribeMs) / 1000 / audio.durationSeconds,
       'language': language,
+      'languageEvents': languageEvents,
       'cueCount': cues.length,
+      'cueStats': _cueStats(cues),
       'cues': [
         for (final cue in cues.take(40))
           {

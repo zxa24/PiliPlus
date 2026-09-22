@@ -64,8 +64,22 @@ abstract final class AsrCueBuilder {
   /// characters on one line, which nobody can read in six seconds.
   static const _maxChars = 20;
 
+  /// And a cap that does not need permission from punctuation.
+  ///
+  /// [_maxChars] only ever *armed* a break at the next clause end, so speech
+  /// without commas ran to the duration cap instead. Measured on a 15-minute
+  /// video: median 28 characters, 90th percentile 42, longest 49, and 26 of
+  /// 203 cues over 40 — three lines on a phone. A limit that a sentence can
+  /// simply decline to honour is not a limit.
+  static const _hardMaxChars = 30;
+
   /// Nothing is cut below this, otherwise punctuation-heavy speech flickers.
   static const _minDuration = 1.0;
+
+  /// No cue is shown for less than this if there is room to hold it.
+  /// Eleven of those 203 were under a second and six under half a second:
+  /// long enough to notice something appeared, not long enough to read it.
+  static const _minShown = 1.2;
 
   /// Silence longer than this inside a VAD segment is treated as a break.
   static const _gap = 0.8;
@@ -150,6 +164,8 @@ abstract final class AsrCueBuilder {
       final breakHere =
           next == null ||
           held >= maxDuration ||
+          // a hard stop, so a sentence without commas cannot run on
+          buffer.length >= _hardMaxChars ||
           (held >= _minDuration &&
               (_sentenceEnd.contains(tail) ||
                   silent ||
@@ -161,7 +177,33 @@ abstract final class AsrCueBuilder {
         if (next != null) start = next.time;
       }
     }
-    return _mergeRunts(cues);
+    return _holdBriefly(_mergeRunts(cues));
+  }
+
+  /// Gives a cue that is too brief to read the time to be read, taking it
+  /// from the silence that follows rather than from the next cue.
+  ///
+  /// Nothing is moved and nothing overlaps: a cue only grows into a gap that
+  /// is already empty. Where there is no gap the cue was already merged by
+  /// [_mergeRunts], or it genuinely butts against the next line.
+  static List<AsrCue> _holdBriefly(List<AsrCue> cues) {
+    final out = <AsrCue>[];
+    for (var i = 0; i < cues.length; i++) {
+      final cue = cues[i];
+      final wanted = cue.from + _minShown;
+      final ceiling = i + 1 < cues.length ? cues[i + 1].from : wanted;
+      final to = cue.to >= wanted
+          ? cue.to
+          : (wanted <= ceiling ? wanted : ceiling);
+      out.add(
+        AsrCue(
+          from: cue.from,
+          to: to > cue.to ? to : cue.to,
+          content: cue.content,
+        ),
+      );
+    }
+    return out;
   }
 
   /// Folds away cues that are too short to read or hold nothing but
@@ -171,7 +213,15 @@ abstract final class AsrCueBuilder {
     final merged = <AsrCue>[];
     for (final cue in cues) {
       final bare = cue.content.replaceAll(_punctuation, '').isEmpty;
-      final isRunt = bare || cue.to - cue.from < _runtDuration;
+      // A cue under a second is a flash. It is folded into the one before —
+      // but only when the result still fits on two lines, or fixing the
+      // flicker would create the overlong line instead.
+      final brief = cue.to - cue.from < _minDuration;
+      final fits =
+          merged.isNotEmpty &&
+          merged.last.content.length + cue.content.length <= _hardMaxChars;
+      final isRunt =
+          bare || cue.to - cue.from < _runtDuration || (brief && fits);
       if (isRunt && merged.isNotEmpty) {
         final previous = merged.removeLast();
         merged.add(

@@ -7,6 +7,70 @@ List<AsrToken> _tokens(List<(String, double)> raw) => [
 
 void main() {
   group('AsrCueBuilder.fromSegment', () {
+    test('a sentence without punctuation is still cut into readable lines', () {
+      // Measured on a 15-minute video before this existed: median 28
+      // characters, 90th percentile 42, longest 49, and 26 of 203 cues over
+      // 40 — three lines on a phone. The 20-character limit only ever armed
+      // a break at the next comma, so speech without commas ignored it.
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 12,
+        tokens: [
+          for (var i = 0; i < 60; i++)
+            (text: 'word ', time: i * 0.2),
+        ],
+      );
+      expect(cues, isNotEmpty);
+      for (final cue in cues) {
+        expect(
+          cue.content.length,
+          lessThanOrEqualTo(40),
+          reason: 'a cue that needs three lines: ${cue.content}',
+        );
+      }
+    });
+
+    test('no cue is left on screen too briefly to read', () {
+      // Eleven of those 203 were under a second, six under half a second.
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 10,
+        tokens: const [
+          (text: '好。', time: 0.0),
+          (text: '这是一句完整的话。', time: 3.0),
+          (text: '嗯。', time: 7.0),
+        ],
+      );
+      expect(cues, isNotEmpty);
+      for (final cue in cues) {
+        expect(
+          cue.to - cue.from,
+          greaterThanOrEqualTo(0.5),
+          reason: 'a flash, not a subtitle: ${cue.content}',
+        );
+      }
+    });
+
+    test('holding a brief cue never overlaps the next one', () {
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 6,
+        tokens: const [
+          (text: '一。', time: 0.0),
+          (text: '二。', time: 0.6),
+          (text: '三。', time: 1.2),
+        ],
+      );
+      for (var i = 0; i + 1 < cues.length; i++) {
+        expect(
+          cues[i].to,
+          lessThanOrEqualTo(cues[i + 1].from),
+          reason: 'cue $i runs into the next',
+        );
+      }
+    });
+
+
     test('drops SenseVoice metadata tags', () {
       final cues = AsrCueBuilder.fromSegment(
         offset: 0,
