@@ -1307,7 +1307,7 @@ abstract final class SelfTest {
   /// Reported as "many subtitles flash and then nothing until the next
   /// sentence, and some run to three lines" — both are distributions, and
   /// neither can be judged from a handful of examples.
-  static Map<String, Object?> _cueStats(List<AsrCue> cues) {
+  static Map<String, Object?> _cueStats(List<AsrCue> cues, double audioSeconds) {
     if (cues.isEmpty) return const {};
     final shown = <double>[];
     final gaps = <double>[];
@@ -1339,6 +1339,39 @@ abstract final class SelfTest {
       'charsMax': chars.reduce((a, b) => a > b ? a : b),
       // roughly a line at this font size; three lines is the complaint
       'overTwoLines': chars.where((e) => e > 40).length,
+      // Against the whole audio, not the span between the first and last
+      // cue: "large stretches with no subtitle at all" is a statement about
+      // the video, and a fraction measured inside the transcript cannot see
+      // a piece of it that produced nothing.
+      'coverage': audioSeconds <= 0
+          ? null
+          : (shown.fold<double>(0, (a, b) => a + b) / audioSeconds)
+                .toStringAsFixed(3),
+      'beforeFirstCue': cues.first.from.toStringAsFixed(1),
+      'afterLastCue': (audioSeconds - cues.last.to).toStringAsFixed(1),
+      'biggestGaps': () {
+        final holes = <(double, double)>[];
+        if (cues.first.from > 0) holes.add((0, cues.first.from));
+        for (var i = 0; i + 1 < cues.length; i++) {
+          final hole = cues[i + 1].from - cues[i].to;
+          if (hole > 0) holes.add((cues[i].to, hole));
+        }
+        if (audioSeconds > cues.last.to) {
+          holes.add((cues.last.to, audioSeconds - cues.last.to));
+        }
+        holes.sort((a, b) => b.$2.compareTo(a.$2));
+        return [
+          for (final hole in holes.take(6))
+            '${hole.$1.toStringAsFixed(0)}s +${hole.$2.toStringAsFixed(1)}s',
+        ];
+      }(),
+      'gapsOverFiveSeconds': () {
+        var n = 0;
+        for (var i = 0; i + 1 < cues.length; i++) {
+          if (cues[i + 1].from - cues[i].to > 5) n++;
+        }
+        return n;
+      }(),
       'emptyFraction':
           (gaps.fold<double>(0, (a, b) => a + (b > 0 ? b : 0)) /
                   (cues.last.to - cues.first.from))
@@ -2219,7 +2252,7 @@ abstract final class SelfTest {
       'language': language,
       'languageEvents': languageEvents,
       'cueCount': cues.length,
-      'cueStats': _cueStats(cues),
+      'cueStats': _cueStats(cues, audio.durationSeconds),
       'cues': [
         for (final cue in cues.take(40))
           {

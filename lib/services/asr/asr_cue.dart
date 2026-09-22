@@ -62,7 +62,7 @@ abstract final class AsrCueBuilder {
   /// Characters per cue. Measured against the same video's official AI
   /// subtitle: continuous speech with no full stops otherwise ran to 35
   /// characters on one line, which nobody can read in six seconds.
-  static const _maxChars = 20;
+  static const _maxChars = 14;
 
   /// And a cap that does not need permission from punctuation.
   ///
@@ -71,7 +71,7 @@ abstract final class AsrCueBuilder {
   /// video: median 28 characters, 90th percentile 42, longest 49, and 26 of
   /// 203 cues over 40 — three lines on a phone. A limit that a sentence can
   /// simply decline to honour is not a limit.
-  static const _hardMaxChars = 30;
+  static const _hardMaxChars = 22;
 
   /// Nothing is cut below this, otherwise punctuation-heavy speech flickers.
   static const _minDuration = 1.0;
@@ -132,6 +132,22 @@ abstract final class AsrCueBuilder {
       ];
     }
 
+    // How long a token takes to say, estimated from this segment's own
+    // pace. Only token *starts* are reported, so the last token of a cue has
+    // no known end — assuming it was over within [_gap] cut the final word
+    // in half on slow speech, which is what "the subtitle ends before the
+    // sentence does" was.
+    final spacings = <double>[
+      for (var i = 0; i + 1 < clean.length; i++)
+        if (clean[i + 1].time - clean[i].time < _gap)
+          clean[i + 1].time - clean[i].time,
+    ]..sort();
+    final typicalToken = spacings.isEmpty
+        ? 0.3
+        : spacings[spacings.length ~/ 2];
+    // enough for the word itself plus a moment to finish reading it
+    final tailHold = (typicalToken * 3).clamp(_gap, 2.0);
+
     final cues = <AsrCue>[];
     final buffer = StringBuffer();
     var start = clean.first.time;
@@ -157,8 +173,24 @@ abstract final class AsrCueBuilder {
       // across silence the cue would otherwise sit on screen through the pause
       final end = next == null
           ? duration
-          : (silent ? token.time + _gap : next.time);
-      final held = end - start;
+          // across silence the cue must not sit through the pause, but it
+          // must outlast the word it ends on: hold for the segment's own
+          // token pace, never past the next token
+          : (silent
+                ? (token.time + tailHold).clamp(token.time, next.time)
+                : next.time);
+      // never past the segment it came from
+      final shownTo = end > duration ? duration : end;
+      // Two different questions. How long this cue has been *collecting
+      // speech* decides whether to break; how long it should stay on screen
+      // decides `end`. Measuring the break against the padded end made a
+      // 1.2 s pause between two syllables long enough to split a word.
+      // Two different questions. How long this cue has been *collecting
+      // speech* decides whether to break; how long it stays on screen
+      // decides its end. The speech ends when the last token finishes —
+      // not when the next one starts, which counts the silence after it,
+      // and not at the padded end, which counts the hold.
+      final held = (token.time + typicalToken) - start;
       final tail = trimmed.isEmpty ? '' : trimmed[trimmed.length - 1];
       final long = buffer.length >= _maxChars;
       final breakHere =
@@ -173,7 +205,7 @@ abstract final class AsrCueBuilder {
                   // running on to the duration cap
                   (long && _clauseEnd.contains(tail))));
       if (breakHere) {
-        flush(end);
+        flush(shownTo);
         if (next != null) start = next.time;
       }
     }
