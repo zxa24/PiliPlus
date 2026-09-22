@@ -2038,7 +2038,13 @@ abstract final class SelfTest {
   /// failure modes (a dead mirror, a renamed release asset, a tarball whose
   /// member paths moved) only show up against the live internet.
   static Future<Map<String, dynamic>> _asrDownload(String dir) async {
-    final store = AsrModelStore(root: Directory(dir));
+    // An empty --asr-download resolves Directory('') to the working
+    // directory, and 240 MB of models landed in the repo. A blank argument
+    // means "wherever the app keeps them", which under --selftest is the
+    // self test's own profile and persists between runs.
+    final store = AsrModelStore(
+      root: dir.trim().isEmpty ? null : Directory(dir),
+    );
     final started = DateTime.now();
     var lastLabel = '';
     final steps = <String>[];
