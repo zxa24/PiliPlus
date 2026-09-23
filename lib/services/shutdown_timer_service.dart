@@ -1,7 +1,6 @@
 // 定时关闭服务
 
 import 'dart:async' show Timer;
-import 'dart:io' show exit;
 
 import 'package:PiliPlus/models/common/enum_with_label.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
@@ -16,6 +15,7 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get_rx/src/rx_types/rx_types.dart';
 import 'package:get/get_state_manager/src/rx_flutter/rx_obx_widget.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:PiliPlus/utils/app_exit.dart';
 
 const _kSqueeze = 1.25;
 const _kItemExtent = 38.0;
@@ -126,11 +126,12 @@ class ShutdownTimerService {
         isManual: true,
       );
       if (res != null) {
-        res.whenComplete(() => exit(0));
+        res.whenComplete(appExit);
         return;
       }
     }
-    exit(0);
+    // not exit(): see appExit — a sleep-timer exit crashed in dcomp.dll
+    appExit();
   }
 
   static (int hour, int minute) _parseMinutes(int minutes) =>

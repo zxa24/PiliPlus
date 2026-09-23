@@ -52,6 +52,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:window_manager/window_manager.dart' hide calcWindowPosition;
+import 'package:PiliPlus/utils/app_exit.dart';
 
 WebViewEnvironment? webViewEnvironment;
 
@@ -118,7 +119,7 @@ void main(List<String> args) async {
     await Utils.copyText(e.toString(), needToast: false);
     if (kDebugMode) debugPrint('GStorage init error: $e');
     if (isSelfTestProfile) SelfTest.abort(args, e);
-    exit(0);
+    appExit();
   }
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
   // LibrePili: the region/language asked of YouTube, from settings

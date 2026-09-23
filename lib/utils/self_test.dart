@@ -76,6 +76,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:PiliPlus/utils/app_exit.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
 ///
@@ -114,7 +115,7 @@ abstract final class SelfTest {
         );
       } catch (_) {}
     }
-    exit(1);
+    appExit(1);
   }
 
   /// Schedules the run once the first frame is on screen.
@@ -512,7 +513,7 @@ abstract final class SelfTest {
     await File(out).writeAsString(
       const JsonEncoder.withIndent('  ').convert(report),
     );
-    exit(ok ? 0 : 1);
+    appExit(ok ? 0 : 1);
   }
 
   // ------------------------------------------------------------ scenarios
