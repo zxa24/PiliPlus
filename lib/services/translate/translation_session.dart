@@ -1,0 +1,223 @@
+/// LibrePili: translating a transcript while it is still being written,
+/// in the order the viewer will need it.
+///
+/// Scheduled by the playhead, not by the recogniser. Recognition runs
+/// minutes ahead of playback; chasing it means translating as fast as it
+/// recognises, while staying [translationLead] ahead of the viewer needs a
+/// fraction of that — the difference between needing a flagship phone and
+/// leaving a mid-range one half idle (research/translation-deliberation-
+/// 2026-09-22.md). It also means a viewer who leaves after two minutes did
+/// not pay for translating an hour.
+///
+/// A unit is translated once. A seek backwards finds the units behind it
+/// untranslated and shows them as waiting until they come round.
+library;
+
+import 'dart:async';
+
+import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/translate/translation_engine.dart';
+import 'package:PiliPlus/services/translate/translation_layout.dart';
+import 'package:PiliPlus/services/translate/translation_unit.dart';
+import 'package:flutter/foundation.dart';
+import 'package:get/get.dart';
+
+/// How far ahead of the playhead translation runs before it waits.
+const translationLead = Duration(seconds: 120);
+
+/// A unit that ended this long before the playhead is behind the viewer
+/// and not worth translating until they come back to it.
+const _behind = 2.0;
+
+/// This many failures in a row means the engine is not coming back.
+const _giveUpAfter = 3;
+
+enum TranslationStage { idle, loading, translating, waiting, done, failed }
+
+class TranslationState {
+  const TranslationState(this.stage, {this.message});
+  final TranslationStage stage;
+  final String? message;
+
+  bool get isBusy =>
+      stage == TranslationStage.loading ||
+      stage == TranslationStage.translating ||
+      stage == TranslationStage.waiting;
+}
+
+/// What the session reads from the transcript it translates.
+typedef TranscriptView = ({
+  List<AsrSegmentSpan> Function() segments,
+  List<AsrCue> Function() cues,
+
+  /// True once the recogniser has finished: the last unit can be settled.
+  bool Function() complete,
+});
+
+class TranslationSession {
+  TranslationSession({
+    required this.transcript,
+    required this.position,
+    required this.engine,
+    required this.target,
+  });
+
+  final TranscriptView transcript;
+
+  /// Where playback is, in seconds.
+  final double Function() position;
+
+  /// Loads the model. Called once, when there is first something to do.
+  final Future<TranslationEngine> Function() engine;
+
+  /// The language to translate into, e.g. `zh`.
+  final String target;
+
+  final state = const TranslationState(TranslationStage.idle).obs;
+
+  /// Bumped whenever [results] changes, for whoever republishes the track.
+  final revision = 0.obs;
+
+  final TranslationResults results = {};
+  List<TranslationUnit> units = const [];
+
+  TranslationEngine? _engine;
+  Completer<void>? _wake;
+  var _closed = false;
+  var _failures = 0;
+  Future<void>? _loop;
+
+  bool get isRunning => state.value.isBusy;
+
+  void start() => _loop ??= _run();
+
+  /// Something changed: new cues, a seek. The loop re-checks now rather than
+  /// at its next poll.
+  void poke() {
+    final wake = _wake;
+    if (wake != null && !wake.isCompleted) wake.complete();
+  }
+
+  Future<void> dispose() async {
+    _closed = true;
+    poke();
+    await _loop;
+  }
+
+  /// The track as it stands.
+  List<AsrCue> cues({
+    TranslationDisplay display = TranslationDisplay.translated,
+  }) {
+    final settled = units;
+    final lastEnd = settled.isEmpty ? double.negativeInfinity : settled.last.to;
+    return layOutTranslation(
+      units: settled,
+      results: results,
+      trailing: [
+        for (final cue in transcript.cues())
+          if (cue.from >= lastEnd) cue,
+      ],
+      display: display,
+    );
+  }
+
+  /// Where the stretch of settled units starting at [at] ends — translated
+  /// or failed, either way final. [at] itself if the unit there is waiting.
+  ///
+  /// This, not the furthest translated unit, is what decides whether the
+  /// viewer is about to run out: a hole in the middle would otherwise be
+  /// invisible to the publishing gate.
+  double settledFrom(double at) {
+    var end = at;
+    for (var i = 0; i < units.length; i++) {
+      final unit = units[i];
+      if (unit.to < at) continue;
+      if (!results.containsKey(i)) break;
+      end = unit.to;
+    }
+    return end;
+  }
+
+  /// The next unit to translate: the first one not behind the playhead that
+  /// has no result, if it starts within [translationLead].
+  @visibleForTesting
+  int? next() {
+    final now = position();
+    final horizon = now + translationLead.inMilliseconds / 1000;
+    for (var i = 0; i < units.length; i++) {
+      final unit = units[i];
+      if (unit.to < now - _behind) continue;
+      if (unit.from > horizon) return null;
+      if (!results.containsKey(i)) return i;
+    }
+    return null;
+  }
+
+  void _refreshUnits() {
+    units = buildTranslationUnits(
+      segments: transcript.segments(),
+      cues: transcript.cues(),
+      complete: transcript.complete(),
+    );
+  }
+
+  void _set(TranslationState value) {
+    if (!_closed) state.value = value;
+  }
+
+  Future<void> _run() async {
+    try {
+      while (!_closed) {
+        _refreshUnits();
+        final i = next();
+        if (i == null) {
+          final finished =
+              transcript.complete() &&
+              units.isNotEmpty &&
+              results.length == units.length;
+          if (finished) {
+            _set(const TranslationState(TranslationStage.done));
+            return;
+          }
+          _set(const TranslationState(TranslationStage.waiting));
+          _wake = Completer<void>();
+          await Future.any([
+            _wake!.future,
+            Future<void>.delayed(const Duration(seconds: 1)),
+          ]);
+          continue;
+        }
+        if (_engine == null) {
+          _set(const TranslationState(TranslationStage.loading));
+          _engine = await engine();
+          if (_closed) return;
+        }
+        _set(const TranslationState(TranslationStage.translating));
+        final unit = units[i];
+        String? text;
+        try {
+          final reply = await _engine!.complete(
+            translationPrompt(unit.text, target: target),
+          );
+          text = cleanTranslation(reply, source: unit.text);
+          _failures = 0;
+        } catch (e) {
+          if (kDebugMode) debugPrint('translate: unit $i failed: $e');
+          if (++_failures >= _giveUpAfter) {
+            _set(TranslationState(TranslationStage.failed, message: '$e'));
+            return;
+          }
+        }
+        if (_closed) return;
+        results[i] = text;
+        revision.value++;
+      }
+    } catch (e) {
+      _set(TranslationState(TranslationStage.failed, message: '$e'));
+    } finally {
+      final engine = _engine;
+      _engine = null;
+      await engine?.dispose();
+    }
+  }
+}
