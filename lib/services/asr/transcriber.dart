@@ -14,6 +14,7 @@ import 'dart:isolate';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
+import 'package:budoux_dart/budoux.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 /// Where the recogniser has got to, in seconds of audio.
@@ -76,6 +77,10 @@ typedef AsrJob = ({
   /// cues appear seconds into a video rather than after the whole audio has
   /// been pulled.
   bool follow,
+
+  /// BudouX's Japanese model as JSON, or null. Read on the UI isolate — an
+  /// asset bundle is not reachable from here — and passed in as text.
+  String? japaneseSegmenter,
 });
 
 class AsrTranscriber {
@@ -152,6 +157,9 @@ class AsrTranscriber {
     sherpa.VoiceActivityDetector? vad;
     try {
       sherpa.initBindings();
+      final budoux = job.japaneseSegmenter == null
+          ? null
+          : BudouX(job.japaneseSegmenter!);
       vad = sherpa.VoiceActivityDetector(
         config: sherpa.VadModelConfig(
           sileroVad: sherpa.SileroVadModelConfig(
@@ -235,7 +243,11 @@ class AsrTranscriber {
               }
             }
           }
+          final japanese =
+              AsrCueBuilder.tagValue(result.lang) == 'ja' ||
+              AsrCueBuilder.hasKana(result.text);
           final cues = AsrCueBuilder.fromSegment(
+            segmenter: japanese ? budoux?.parse : null,
             offset: start,
             duration: duration,
             text: result.text,

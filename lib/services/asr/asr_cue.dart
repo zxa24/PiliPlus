@@ -180,6 +180,43 @@ abstract final class AsrCueBuilder {
       (rune >= 0xFFE0 && rune <= 0xFFE6) ||
       (rune >= 0x20000 && rune <= 0x3FFFD); // CJK ext B and beyond
 
+  /// Indexes of the tokens that begin a phrase, or null when there is no
+  /// [segmenter] or its answer cannot be trusted.
+  ///
+  /// The phrases must concatenate back to the text exactly; if they do not,
+  /// offsets would point at the wrong tokens, and falling back to the old
+  /// behaviour is safer than breaking in places nobody chose.
+  static Set<int>? _phraseStarts(
+    List<({String text, double time})> clean,
+    List<String> Function(String text)? segmenter,
+  ) {
+    if (segmenter == null) return null;
+    final joined = clean.map((t) => t.text).join();
+    final phrases = segmenter(joined);
+    if (phrases.join() != joined) return null;
+    final starts = <int>{};
+    var offset = 0;
+    for (final phrase in phrases) {
+      starts.add(offset);
+      offset += phrase.length;
+    }
+    final tokens = <int>{};
+    offset = 0;
+    for (var i = 0; i < clean.length; i++) {
+      if (starts.contains(offset)) tokens.add(i);
+      offset += clean[i].text.length;
+    }
+    return tokens;
+  }
+
+  /// Whether [text] contains kana, which only Japanese does.
+  ///
+  /// Used alongside the recogniser's own language tag rather than instead
+  /// of it: the tag is per segment and occasionally wrong on short ones.
+  static bool hasKana(String text) => text.runes.any(
+    (r) => (r >= 0x3041 && r <= 0x309F) || (r >= 0x30A0 && r <= 0x30FF),
+  );
+
   /// Whether [next] begins a word, and so whether a cue may end before it.
   ///
   /// SenseVoice marks a word start with a **leading space**: the pieces for
@@ -235,12 +272,36 @@ abstract final class AsrCueBuilder {
     required List<AsrToken> tokens,
     String? text,
     double maxDuration = 6,
+    List<String> Function(String text)? segmenter,
   }) {
     final clean = [
       for (final token in tokens)
         if (stripTags(token.text).isNotEmpty)
           (text: token.text.replaceAll(_tag, ''), time: token.time),
     ];
+    // Where a cue may end, for a script that marks no words. SenseVoice
+    // gives Japanese one character per token and no spaces, so without this
+    // every break was wherever the width cap fell: ホテ / ル, ニュ / ーヨーク,
+    // 思っ / て, 4 / つのうち. [segmenter] splits the segment's text into
+    // phrases (BudouX); a break is allowed only before one of those.
+    final phraseStarts = _phraseStarts(clean, segmenter);
+    // How wide each phrase is, keyed by the token it starts at, so a break
+    // can be taken *before* a phrase that would not fit rather than after it.
+    // Waiting for the next legal break once over the cap let a Japanese line
+    // run on by a whole phrase: 16 characters became 24, and one 33.
+    final phraseWidth = <int, int>{};
+    if (phraseStarts != null) {
+      final sorted = phraseStarts.toList()..sort();
+      for (var k = 0; k < sorted.length; k++) {
+        final from = sorted[k];
+        final to = k + 1 < sorted.length ? sorted[k + 1] : clean.length;
+        var width = 0;
+        for (var t = from; t < to; t++) {
+          width += displayWidth(clean[t].text);
+        }
+        phraseWidth[from] = width;
+      }
+    }
     if (clean.isEmpty) {
       final fallback = stripTags(text ?? '');
       if (fallback.isEmpty) return const [];
@@ -322,16 +383,31 @@ abstract final class AsrCueBuilder {
       // technical" / "ly fully functioning". Unreadable on screen, and
       // useless as input to a translator, which would be handed fragments
       // that are not words.
-      final atWord = next == null || _startsWord(next.text);
+      final atWord =
+          next == null ||
+          (phraseStarts != null
+              ? phraseStarts.contains(i + 1) || next.text.startsWith(' ')
+              : _startsWord(next.text));
       // A tokeniser that marks no words at all must not turn the whole
       // segment into one cue: past twice the cap, break wherever we are.
       final overrun = bufferWidth >= _hardMaxWidth * 2;
+      // The next phrase would not fit on this line: end the line before it.
+      // Not below half a line, or a long phrase would leave a stub behind.
+      final nextWouldOverflow =
+          next != null &&
+          bufferWidth >= _maxWidth ~/ 2 &&
+          bufferWidth + (phraseWidth[i + 1] ?? 0) > _hardMaxWidth;
       final breakHere =
           next == null ||
+          // A pause of [_gap] is a break whatever the segmenter says: the
+          // speaker stopped, which no phrase model can overrule. Gating it
+          // on phrase starts glued ベスティ花だよ onto the sentence after it.
+          (silent && held >= _minDuration) ||
           ((atWord || overrun) &&
               (held >= maxDuration ||
                   // a hard stop, so a sentence without commas cannot run on
                   bufferWidth >= _hardMaxWidth ||
+                  nextWouldOverflow ||
                   (held >= _minDuration &&
                       (_sentenceEnd.contains(tail) ||
                           silent ||

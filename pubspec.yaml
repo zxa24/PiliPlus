@@ -184,6 +184,7 @@ dependencies:
   # Prebuilt binaries per platform; the models themselves are downloaded at
   # runtime (see lib/services/asr/model_catalog.dart), never bundled.
   sherpa_onnx: 1.13.8
+  budoux_dart: ^1.3.0
 
 dependency_overrides:
   flutter_inappwebview_android:
@@ -282,6 +283,8 @@ flutter:
     - path: assets/images/live/
     - path: assets/images/paycoins/
     - path: assets/shaders/
+    # BudouX's Japanese phrase model: where a Japanese subtitle may break
+    - packages/budoux_dart/models/ja.json
 
   fonts:
     - family: digital_id_num

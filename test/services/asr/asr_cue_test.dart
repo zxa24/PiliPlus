@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:budoux_dart/budoux.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -556,6 +560,94 @@ void main() {
       expect(out.first.to, 7.65);
       expect(out.first.to, lessThanOrEqualTo(out.last.from));
       expect(out.first.content, 'I am a designer.');
+    });
+  });
+
+  group('Japanese breaks only between phrases', () {
+    // SenseVoice gives Japanese one character per token and no spaces, so a
+    // width cap alone cut straight through words: ホテ / ル, ニュ / ーヨーク,
+    // 思っ / て. These run the real BudouX model shipped with budoux_dart.
+    late BudouX budoux;
+    setUpAll(() {
+      // `Isolate.resolvePackageUri` is unsupported under `flutter test`, so
+      // find the package the way pub recorded it
+      final config = jsonDecode(
+        File('.dart_tool/package_config.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final entry = (config['packages'] as List).cast<Map>().firstWhere(
+        (p) => p['name'] == 'budoux_dart',
+      );
+      // pub writes the root without a trailing slash, and `resolve` would
+      // then replace its last segment instead of descending into it
+      final raw = entry['rootUri'] as String;
+      final root = Uri.parse(raw.endsWith('/') ? raw : '$raw/');
+      final model = File.fromUri(root.resolve('lib/models/ja.json'));
+      budoux = BudouX(model.readAsStringSync());
+    });
+
+    List<AsrToken> chars(String text) => [
+      for (var i = 0; i < text.length; i++) (text: text[i], time: i * 0.12),
+    ];
+
+    const speech =
+        '今私はニューヨークにいますこういった感じでもうねマンハッタンのど真ん中の'
+        'ホテルだからビルがすっごいたくさんある今回は四つのバッグを持ってきた';
+
+    test('no cue ends inside a phrase BudouX would keep together', () {
+      final phrases = budoux.parse(speech);
+      final inside = <int>{};
+      var offset = 0;
+      for (final phrase in phrases) {
+        for (var k = 1; k < phrase.length; k++) {
+          inside.add(offset + k);
+        }
+        offset += phrase.length;
+      }
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 20,
+        tokens: chars(speech),
+        segmenter: budoux.parse,
+      );
+      expect(cues.length, greaterThan(1), reason: 'nothing was cut at all');
+      expect(cues.map((c) => c.content).join(), speech);
+      var at = 0;
+      for (final cue in cues.take(cues.length - 1)) {
+        at += cue.content.length;
+        expect(inside.contains(at), isFalse,
+            reason: 'cut inside a phrase after "${cue.content}"');
+      }
+    });
+
+    test('without a segmenter the old behaviour is unchanged', () {
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 20,
+        tokens: chars(speech),
+      );
+      expect(cues.map((c) => c.content).join(), speech);
+    });
+
+    test('a segmenter whose phrases do not rebuild the text is ignored', () {
+      // wrong offsets would point breaks at tokens nobody chose
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 20,
+        tokens: chars(speech),
+        segmenter: (_) => ['not', 'the', 'same'],
+      );
+      final baseline = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 20,
+        tokens: chars(speech),
+      );
+      expect(cues.map((c) => c.content).toList(),
+          baseline.map((c) => c.content).toList());
+    });
+
+    test('kana marks Japanese; Chinese has none', () {
+      expect(AsrCueBuilder.hasKana('ニューヨークにいます'), isTrue);
+      expect(AsrCueBuilder.hasKana('我在纽约'), isFalse);
     });
   });
 }

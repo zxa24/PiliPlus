@@ -21,6 +21,7 @@ import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 
@@ -135,6 +136,18 @@ class AsrSession {
         if (file.existsSync()) await file.delete();
       } catch (_) {}
     }
+  }
+}
+
+/// BudouX's Japanese phrase model, or null if it cannot be read — in which
+/// case Japanese simply breaks the way it always did.
+Future<String?> loadJapaneseSegmenter() async {
+  try {
+    return await rootBundle.loadString(
+      'packages/budoux_dart/models/ja.json',
+    );
+  } catch (_) {
+    return null;
   }
 }
 
@@ -266,6 +279,7 @@ class AsrService extends GetxService {
       final transcriber = await AsrTranscriber.start((
         pcmPath: pcmPath,
         follow: true,
+        japaneseSegmenter: await loadJapaneseSegmenter(),
         modelPath: store
             .fileOf(
               AsrModelCatalog.senseVoice,

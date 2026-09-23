@@ -1372,6 +1372,7 @@ abstract final class SelfTest {
       // line length says nothing about whether a line ends mid-word
       'ourSampleCues': ours['cues'],
       'ourRawTokens': ours['rawTokens'],
+      'ourSegments': ours['segments'],
     };
   }
 
@@ -2933,6 +2934,10 @@ abstract final class SelfTest {
     final segments = <({double start, double duration})>[];
     // what the recogniser actually emits, which decides where a cue may end
     final rawTokens = <String>[];
+    // every segment with its full token list, so the boundaries between
+    // them can be judged: is a VAD cut a sentence end, a breath, or the 20 s
+    // hard cap? That decides what unit a translator should be handed.
+    final segmentDump = <Map<String, Object?>>[];
     String? error;
     final transcriber = await AsrTranscriber.start((
       pcmPath: audio.path,
@@ -2960,6 +2965,7 @@ abstract final class SelfTest {
       // complete before this starts: measuring the recogniser, not the
       // download it now runs alongside
       follow: false,
+      japaneseSegmenter: await loadJapaneseSegmenter(),
     ));
     await for (final event in transcriber.events) {
       switch (event) {
@@ -2968,6 +2974,12 @@ abstract final class SelfTest {
         case AsrSegmentEvent(:final start, :final duration, :final tokens):
           segments.add((start: start, duration: duration));
           if (rawTokens.length < 60) rawTokens.addAll(tokens);
+          segmentDump.add({
+            'start': start,
+            'duration': duration,
+            'text': tokens.join(),
+            'tokens': tokens,
+          });
         case AsrLanguageEvent(language: final lang):
           language = lang;
           if (languageEvents.isEmpty || languageEvents.last != lang) {
@@ -3013,6 +3025,7 @@ abstract final class SelfTest {
       // the file was fine while the player was reloading the track every
       // five seconds and blinking the line off screen.
       'rawTokens': rawTokens.take(60).toList(),
+      'segments': segmentDump,
       'cueCount': shown.length,
       'builtCueCount': cues.length,
       'cueStats': _cueStats(shown, audio.durationSeconds),
