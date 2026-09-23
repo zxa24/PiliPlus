@@ -650,4 +650,42 @@ void main() {
       expect(AsrCueBuilder.hasKana('我在纽约'), isFalse);
     });
   });
+
+  group('recogniser junk', () {
+    List<({String text, double time})> t(List<String> xs) => [
+      for (var i = 0; i < xs.length; i++) (text: xs[i], time: i * 0.2),
+    ];
+    String j(List<({String text, double time})> xs) => xs.map((x) => x.text).join();
+
+    test('spoken punctuation glued to a word is removed', () {
+      // all four taken from real output on a 467 s English talk
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' a', ' light', ' switch', 'per', 'io', 'd', '.']))),
+          ' a light switch.');
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' you', ' are', ' human', 'com', 'ma', ' sometimes']))),
+          ' you are human sometimes');
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' of', ' instruction', 'io', 'd', '>', '.']))),
+          ' of instruction.');
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' missed', ' the', ' mark', '<', '.']))),
+          ' missed the mark.');
+    });
+
+    test('the word itself, when spoken, is kept', () {
+      // a leading space marks a real word; the rule never touches one
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' a', ' period', ' of', ' time']))), ' a period of time');
+      // split into pieces, stem + suffix spells the word: still the speaker
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' a', ' per', 'iod', ' of']))), ' a period of');
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' a', ' com', 'ma', ' here']))), ' a comma here');
+    });
+
+    test('ordinary words built from the same pieces survive', () {
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' super', 'power']))), ' superpower');
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' the', ' rad', 'io']))), ' the radio');
+      expect(j(AsrCueBuilder.dropRecogniserJunk(t([' com', 'ma', 'nd']))), ' command');
+    });
+
+    test('non-Latin text passes through untouched', () {
+      final ja = t(['今', '日', 'は', '。']);
+      expect(j(AsrCueBuilder.dropRecogniserJunk(ja)), '今日は。');
+    });
+  });
 }

@@ -180,6 +180,66 @@ abstract final class AsrCueBuilder {
       (rune >= 0xFFE0 && rune <= 0xFFE6) ||
       (rune >= 0x20000 && rune <= 0x3FFFD); // CJK ext B and beyond
 
+  /// Suffixes SenseVoice glues onto the end of an English word that are not
+  /// speech: a spoken-punctuation word ("switchperiod", "humancomma") or a
+  /// piece of one ("instructioniod", "switchperd").
+  static const _junkSuffixes = {'period', 'perd', 'iod', 'comma'};
+
+  /// Removes recogniser artefacts from a segment's tokens.
+  ///
+  /// Measured on a 467 s English talk: 12 of 63 segments carried them, and a
+  /// translator copied them straight into the Chinese ("照片>"). They come
+  /// from the model itself, not from inverse text normalisation — switching
+  /// ITN off left 9 and cost casing, punctuation and numerals.
+  ///
+  /// What makes them removable without touching real words is where they
+  /// sit: glued to the previous word with no leading space, while a real
+  /// word starts with one. So "a period of time" keeps its word — " period"
+  /// begins with a space — and the rule works on tokens rather than on the
+  /// joined text, where the difference is gone. A word whose stem plus
+  /// suffix spells "period" or "comma" is the speaker saying it, and stays.
+  ///
+  /// Angle brackets are dropped outright: nothing in a subtitle uses them.
+  /// "thisio" is left alone; removing "io" would also remove it from radio.
+  static List<({String text, double time})> dropRecogniserJunk(
+    List<({String text, double time})> tokens,
+  ) {
+    final out = <({String text, double time})>[];
+    for (final t in tokens) {
+      final text = t.text.replaceAll(RegExp('[<>]'), '');
+      if (text.isNotEmpty) out.add((text: text, time: t.time));
+    }
+    var i = 0;
+    while (i < out.length) {
+      if (!out[i].text.startsWith(' ')) {
+        i++;
+        continue;
+      }
+      // the word: this token and every following one that does not start a
+      // new word or a punctuation run
+      var end = i + 1;
+      while (end < out.length &&
+          !out[end].text.startsWith(' ') &&
+          RegExp(r'^[A-Za-z]').hasMatch(out[end].text)) {
+        end++;
+      }
+      if (end - i > 1) {
+        final stem = out[i].text.trim().toLowerCase();
+        final suffix = out.sublist(i + 1, end).map((t) => t.text).join().toLowerCase();
+        final whole = stem + suffix;
+        if (_junkSuffixes.contains(suffix) &&
+            whole != 'period' &&
+            whole != 'comma' &&
+            stem.length >= 2) {
+          out.removeRange(i + 1, end);
+          end = i + 1;
+        }
+      }
+      i = end;
+    }
+    return out;
+  }
+
   /// Indexes of the tokens that begin a phrase, or null when there is no
   /// [segmenter] or its answer cannot be trusted.
   ///
@@ -274,11 +334,11 @@ abstract final class AsrCueBuilder {
     double maxDuration = 6,
     List<String> Function(String text)? segmenter,
   }) {
-    final clean = [
+    final clean = dropRecogniserJunk([
       for (final token in tokens)
         if (stripTags(token.text).isNotEmpty)
           (text: token.text.replaceAll(_tag, ''), time: token.time),
-    ];
+    ]);
     // Where a cue may end, for a script that marks no words. SenseVoice
     // gives Japanese one character per token and no spaces, so without this
     // every break was wherever the width cap fell: ホテ / ル, ニュ / ーヨーク,

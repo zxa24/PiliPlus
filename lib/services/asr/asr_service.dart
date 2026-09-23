@@ -280,6 +280,7 @@ class AsrService extends GetxService {
         pcmPath: pcmPath,
         follow: true,
         japaneseSegmenter: await loadJapaneseSegmenter(),
+        itn: true,
         modelPath: store
             .fileOf(
               AsrModelCatalog.senseVoice,

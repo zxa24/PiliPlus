@@ -88,6 +88,9 @@ import 'package:PiliPlus/utils/app_exit.dart';
 abstract final class SelfTest {
   static bool isRequested(List<String> args) => args.contains('--selftest');
 
+  /// Inverse text normalisation for probe runs; see [AsrJob.itn].
+  static bool _itn = true;
+
   static String? _arg(List<String> args, String name) {
     final i = args.indexOf(name);
     return i != -1 && i + 1 < args.length ? args[i + 1] : null;
@@ -361,6 +364,7 @@ abstract final class SelfTest {
 
   static Future<void> _run(List<String> args) async {
     final out = _arg(args, '--out') ?? path.join(tmpDirPath, 'selftest.json');
+    _itn = _arg(args, '--asr-itn') != '0';
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
       'args': args,
@@ -3009,6 +3013,8 @@ abstract final class SelfTest {
       // download it now runs alongside
       follow: false,
       japaneseSegmenter: await loadJapaneseSegmenter(),
+      // `--asr-itn 0` turns it off, to see which recogniser artefacts it causes
+      itn: _itn,
     ));
     await for (final event in transcriber.events) {
       switch (event) {

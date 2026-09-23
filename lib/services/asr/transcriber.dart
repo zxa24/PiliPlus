@@ -81,6 +81,11 @@ typedef AsrJob = ({
   /// BudouX's Japanese model as JSON, or null. Read on the UI isolate — an
   /// asset bundle is not reachable from here — and passed in as text.
   String? japaneseSegmenter,
+
+  /// SenseVoice's inverse text normalisation (twenty -> 20, spoken
+  /// punctuation -> marks). On in the app; a switch here so its side effects
+  /// can be measured.
+  bool itn,
 });
 
 class AsrTranscriber {
@@ -180,7 +185,7 @@ class AsrTranscriber {
             senseVoice: sherpa.OfflineSenseVoiceModelConfig(
               model: job.modelPath,
               language: job.language,
-              useInverseTextNormalization: true,
+              useInverseTextNormalization: job.itn,
             ),
             tokens: job.tokensPath,
             numThreads: job.threads,
