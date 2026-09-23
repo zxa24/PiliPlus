@@ -1017,6 +1017,11 @@ abstract final class SelfTest {
     final detail = (await router.run((s) => s.detail(videoId))).value;
     if (detail == null) return {'pass': false, 'reason': 'no detail'};
     await Directory(dir).create(recursive: true);
+    // the video's own words about itself: what a translator would be told
+    // as background when the question is whether knowing the topic helps
+    await File(path.join(dir, '$videoId.meta.json')).writeAsString(
+      jsonEncode({'title': detail.title, 'description': detail.description}),
+    );
     final written = <Map<String, Object?>>[];
     for (final track in detail.captionTracks) {
       final body = (await router.run((s) => s.captionContent(track))).value;
