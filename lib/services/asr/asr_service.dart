@@ -193,11 +193,28 @@ class AsrService extends GetxService {
   AsrSession? sessionFor(String key) =>
       _current?.key == key ? _current : null;
 
-  Future<void> stop() async {
+  /// Whether a job is running right now.
+  bool get isBusy => _current?.isRunning ?? false;
+
+  /// Ends the current job.
+  ///
+  /// With a [reason], the session is marked failed with it *before* being
+  /// closed: a closed session no longer reports state, so without this the
+  /// page would never hear that its job ended — its loading gate would sit
+  /// out the full cap and the subtitle menu would keep showing progress for
+  /// a job that is gone. Failed, the page does what it does for any failure:
+  /// closes the gate, says why, offers a retry.
+  Future<void> stop({String? reason}) async {
     final session = _current;
     _current = null;
+    if (reason != null && session != null && session.isRunning) {
+      session._set(AsrState(stage: AsrStage.failed, message: reason));
+    }
     await session?.dispose();
   }
+
+  @visibleForTesting
+  void debugAdopt(AsrSession session) => _current = session;
 
   Future<void> _run(
     AsrSession session,
