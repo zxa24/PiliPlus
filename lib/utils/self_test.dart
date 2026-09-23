@@ -429,6 +429,10 @@ abstract final class SelfTest {
         () => _download(bvid, qn, keep: args.contains('--keep')),
       );
     }
+    if (_arg(args, '--dump-captions') case final video?) {
+      final dir = _arg(args, '--dir') ?? path.join(tmpDirPath, 'captions');
+      await scenario('dumpCaptions', () => _dumpCaptions(video, dir));
+    }
     if (_arg(args, '--bili-subtitles') case final bvid?) {
       await scenario('biliSubtitles', () => _biliSubtitles(bvid));
     }
@@ -991,6 +995,44 @@ abstract final class SelfTest {
       // a type the enum has but the list does not offer: unreachable
       'missingFromList': missing,
       'couldNotOpen': unopened,
+    };
+  }
+
+  /// LibrePili: every caption track a YouTube video ships, written to disk
+  /// as WebVTT, one file per track.
+  ///
+  /// For the translation benchmark: an author's track in another language
+  /// is a human reference translation, and the automatic track is a clean
+  /// source to set against our own recognised text.
+  static Future<Map<String, dynamic>> _dumpCaptions(
+    String input,
+    String dir,
+  ) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final router = YtSourceRouter(YtDirectSource.create());
+    final detail = (await router.run((s) => s.detail(videoId))).value;
+    if (detail == null) return {'pass': false, 'reason': 'no detail'};
+    await Directory(dir).create(recursive: true);
+    final written = <Map<String, Object?>>[];
+    for (final track in detail.captionTracks) {
+      final body = (await router.run((s) => s.captionContent(track))).value;
+      final name =
+          '$videoId.${track.languageCode}${track.isAutomatic ? '.auto' : ''}.vtt';
+      if (body != null) {
+        await File(path.join(dir, name)).writeAsString(body);
+      }
+      written.add({
+        'file': name,
+        'language': track.languageCode,
+        'automatic': track.isAutomatic,
+        'cues': body == null ? 0 : _parseVtt(body).length,
+      });
+    }
+    return {
+      'pass': written.any((w) => (w['cues'] as int) > 0),
+      'videoId': videoId,
+      'dir': dir,
+      'tracks': written,
     };
   }
 
