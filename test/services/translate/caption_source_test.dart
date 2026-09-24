@@ -1,4 +1,5 @@
 import 'package:PiliPlus/services/translate/caption_source.dart';
+import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // the opening of 5CvlKCBrPHI's automatic English track, as YouTube serves it
@@ -80,6 +81,48 @@ void main() {
           '00:03.000 --> 00:04.000\n[Applause]\n';
       expect(parseCaptionCues(vtt).map((c) => c.content), [
         "[This is not a toilet. It's over there]",
+      ]);
+    });
+
+    test("bilibili's subtitle JSON, as the page converts it", () {
+      // the `body` of a bilibili subtitle file, as VideoHttp.getSubtitles
+      // receives it and hands to json2Vtt
+      final body = [
+        {
+          'from': 0.52,
+          'to': 2.3,
+          'sid': 1,
+          'location': 2,
+          'content': 'So here we are,',
+          'music': 0.0,
+        },
+        {
+          'from': 2.3,
+          'to': 4.1,
+          'sid': 2,
+          'location': 2,
+          'content': 'in front of\nthe elephants.',
+          'music': 0.0,
+        },
+        {
+          'from': 6.0,
+          'to': 7.5,
+          'sid': 3,
+          'location': 2,
+          'content': 'That is cool.',
+          'music': 0.0,
+        },
+      ];
+      final cues = parseCaptionCues(SubtitleUtils.json2Vtt(body));
+      expect(cues.map((c) => c.content), [
+        'So here we are,',
+        'in front of the elephants.',
+        'That is cool.',
+      ]);
+      expect((cues.first.from, cues.first.to), (0.52, 2.3));
+      expect(buildCaptionUnits(cues).map((u) => u.text), [
+        'So here we are, in front of the elephants.',
+        'That is cool.',
       ]);
     });
 

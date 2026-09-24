@@ -463,11 +463,13 @@ abstract final class SelfTest {
     if (_arg(args, '--translate-page') case final video?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 45;
       final bv = IdUtils.bvRegex.firstMatch(video)?.group(0);
+      // a file opens in the same page, in its local mode
+      final local = File(video).existsSync();
       await scenario(
         'translatePage',
-        () => bv != null
+        () => bv != null || local
             ? _translatePageBili(
-                'https://www.bilibili.com/video/$bv',
+                local ? video : 'https://www.bilibili.com/video/$bv',
                 hold,
                 auto: args.contains('--auto'),
               )
@@ -1560,7 +1562,7 @@ abstract final class SelfTest {
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
-    if (auto) await _enableAutoTranslation();
+    await _setAutoTranslation(auto);
     final videoId = tryParseYouTubeVideoId(input) ?? input;
     final started = DateTime.now();
     unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
@@ -1653,18 +1655,29 @@ abstract final class SelfTest {
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
-    if (auto) await _enableAutoTranslation();
+    await _setAutoTranslation(auto);
     final opened = DateTime.now();
     int ms() => DateTime.now().difference(opened).inMilliseconds;
-    await PiliScheme.routePushFromUrl(url);
+    // a local file: the page's local mode, where the video's own subtitles
+    // are the files beside it (`<name>.<lang>.srt`)
+    const localTag = 'selftest_translate_local';
+    final local = File(url).existsSync();
+    if (local) {
+      unawaited(LocalPlayer.open(url, heroTag: localTag));
+    } else {
+      await PiliScheme.routePushFromUrl(url);
+    }
     VideoDetailController? controller;
     for (var i = 0; i < 20 && controller == null; i++) {
       await Future.delayed(const Duration(milliseconds: 500));
       try {
         controller = Get.find<VideoDetailController>(
-          tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+          tag: local
+              ? localTag
+              : Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
         );
       } catch (_) {
+        if (local) continue;
         try {
           controller = Get.find<VideoDetailController>();
         } catch (_) {}
@@ -1684,6 +1697,7 @@ abstract final class SelfTest {
         gateClosedMs ??= ms();
       }
     });
+    if (page.asrPending.value) gateOpenedMs ??= ms();
     for (var i = 0; i < 20 && !page.videoState.value; i++) {
       await Future.delayed(const Duration(seconds: 1));
     }
@@ -1709,7 +1723,10 @@ abstract final class SelfTest {
           selectedMs != null &&
           (translated?.isNotEmpty ?? false),
       'mode': auto ? 'auto' : 'menu',
+      'local': local,
       'videoOwnSubtitles': ownSubtitles,
+      // the video's own subtitles when foreign ones exist, else a transcript
+      'translated': page.asrSession.value == null ? 'captions' : 'transcript',
       'asrLanguage': page.asrSession.value?.state.value.language,
       'asrStage': page.asrSession.value?.state.value.stage.name,
       'translationStage': session?.state.value.stage.name,
@@ -1727,14 +1744,16 @@ abstract final class SelfTest {
     return result;
   }
 
-  /// Automatic transcription and translation on, in the self-test profile's
-  /// own settings (the profile has its own storage; the user's are not
-  /// touched).
-  static Future<void> _enableAutoTranslation() => GStorage.setting.putAll({
+  /// Automatic transcription and translation on or off, in the self-test
+  /// profile's own settings (the profile has its own storage; the user's
+  /// are not touched). Always set, both ways: the profile keeps them, and a
+  /// menu run after an automatic one was found starting by itself.
+  static Future<void> _setAutoTranslation(bool on) => GStorage.setting.putAll({
     SettingBoxKey.asrAsked: true,
-    SettingBoxKey.asrMode: AsrMode.foreign.index,
+    SettingBoxKey.asrMode: (on ? AsrMode.foreign : AsrMode.manual).index,
     SettingBoxKey.translateAsked: true,
-    SettingBoxKey.translateMode: TranslateMode.auto.index,
+    SettingBoxKey.translateMode:
+        (on ? TranslateMode.auto : TranslateMode.manual).index,
   });
 
   /// The text of the VTT cue showing at [seconds], if any.
