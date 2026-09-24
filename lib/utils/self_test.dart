@@ -456,6 +456,10 @@ abstract final class SelfTest {
         () => _translateLatency(video, _arg(args, '--model'), seconds),
       );
     }
+    if (_arg(args, '--translate-page') case final video?) {
+      final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 45;
+      await scenario('translatePage', () => _translatePage(video, hold));
+    }
     if (_arg(args, '--translate-probe') case final gguf?) {
       await scenario('translateProbe', () => _translateProbe(gguf));
     }
@@ -1523,6 +1527,70 @@ abstract final class SelfTest {
     };
     await track.stop();
     await asr.stop();
+    return result;
+  }
+
+  /// LibrePili: translation through the YouTube player page itself — the
+  /// menu's path, [YtVideoController.startTranslation] — and what the
+  /// player ends up showing.
+  ///
+  /// [_translateLatency] drives the service and track without a page; this
+  /// checks the wiring it skips: the page starting transcription for a
+  /// translation, starting the translation once the language is known, and
+  /// handing the player the translated track in place of the transcript.
+  static Future<Map<String, dynamic>> _translatePage(
+    String input,
+    int holdSeconds,
+  ) async {
+    if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 4));
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final started = DateTime.now();
+    await controller.startTranslation();
+    int? firstTranslatedMs;
+    final shown = <String>[];
+    for (var i = 0; i < holdSeconds; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      final track = controller
+          .plPlayerController
+          .videoPlayerController
+          ?.state
+          .track
+          .subtitle;
+      final title = track?.title;
+      if (title == '翻译') {
+        firstTranslatedMs ??= DateTime.now().difference(started).inMilliseconds;
+      }
+      if (shown.isEmpty || shown.last != '$title') shown.add('$title');
+    }
+    final session = controller.translation.session.value;
+    final translated = session?.results.values.whereType<String>().toList();
+    final hasChinese =
+        translated?.any((t) => RegExp(r'[一-鿿]').hasMatch(t)) ??
+        false;
+    final result = {
+      'pass':
+          firstTranslatedMs != null &&
+          hasChinese &&
+          controller.captionIndex.value == -2,
+      'videoId': videoId,
+      'asrLanguage': controller.asrSession.value?.state.value.language,
+      'translationStage': session?.state.value.stage.name,
+      'msToTranslatedTrack': firstTranslatedMs,
+      'subtitleTracksShown': shown,
+      'captionIndex': controller.captionIndex.value,
+      'translatedUnits': translated?.length,
+      'sample': translated?.take(4).toList(),
+    };
+    await controller.stopAsr();
+    Get.back();
     return result;
   }
 
