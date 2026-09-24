@@ -3,6 +3,7 @@ import 'package:PiliPlus/models/common/translate_mode.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/pages/local_models.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -63,6 +64,28 @@ List<SettingsModel> get asrSettings => [
       leading: Icon(Icons.subtitles_outlined),
       setKey: SettingBoxKey.translateDual,
     ),
+    NormalModel(
+      title: '常驻语言',
+      leading: const Icon(Icons.language),
+      getSubtitle: () {
+        final pinned = pinnedTranslationLanguages;
+        return pinned.isEmpty
+            ? '字幕菜单里除${translationLanguageLabel(AsrService.appLanguage)}外直接列出的语言：无'
+            : pinned.map(translationLanguageLabel).join('、');
+      },
+      onTap: (context, setState) async {
+        final chosen = await showDialog<List<String>>(
+          context: context,
+          builder: (context) => const _PinnedLanguagesDialog(),
+        );
+        if (chosen == null) return;
+        await GStorage.setting.put(
+          SettingBoxKey.translatePinnedLanguages,
+          chosen,
+        );
+        setState();
+      },
+    ),
     PopupModel<TranslationModelChoice>(
       title: '翻译模型',
       leading: const Icon(Icons.model_training_outlined),
@@ -105,3 +128,52 @@ List<SettingsModel> get asrSettings => [
     ),
   ],
 ];
+
+/// Which languages the subtitle menu lists by name, besides the app's; the
+/// rest are under 其他语言.
+class _PinnedLanguagesDialog extends StatefulWidget {
+  const _PinnedLanguagesDialog();
+
+  @override
+  State<_PinnedLanguagesDialog> createState() => _PinnedLanguagesDialogState();
+}
+
+class _PinnedLanguagesDialogState extends State<_PinnedLanguagesDialog> {
+  late final _chosen = pinnedTranslationLanguages.toSet();
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('常驻语言'),
+    contentPadding: const EdgeInsets.only(top: 12),
+    content: SizedBox(
+      width: 320,
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          for (final code in otherTranslationLanguages)
+            CheckboxListTile(
+              dense: true,
+              value: _chosen.contains(code),
+              title: Text(translationLanguageLabel(code)),
+              onChanged: (value) => setState(
+                () => value == true ? _chosen.add(code) : _chosen.remove(code),
+              ),
+            ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(onPressed: Get.back, child: const Text('取消')),
+      TextButton(
+        // in the order the languages are listed, not the order ticked
+        onPressed: () => Get.back(
+          result: [
+            for (final code in otherTranslationLanguages)
+              if (_chosen.contains(code)) code,
+          ],
+        ),
+        child: const Text('确定'),
+      ),
+    ],
+  );
+}

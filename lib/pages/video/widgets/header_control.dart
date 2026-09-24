@@ -28,8 +28,6 @@ import 'package:PiliPlus/pages/setting/models/play_settings.dart'
     show showPlayerVolumeDialog;
 import 'package:PiliPlus/pages/setting/widgets/popup_item.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
-import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
-import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
@@ -768,45 +766,8 @@ class HeaderControlState extends State<HeaderControl>
                   leading: const Icon(Icons.file_open_outlined, size: 20),
                   title: const Text('加载字幕', style: titleStyle),
                 ),
-                // LibrePili: on-device transcription for videos with no
-                // subtitles of their own
-                if (videoDetailCtr.canTranscribe)
-                  AsrMenuTile(
-                    session: videoDetailCtr.asrSession,
-                    titleStyle: titleStyle,
-                    onStart: () {
-                      Get.back();
-                      // the page's context, not the sheet's: the sheet is
-                      // gone by the time the user answers a dialog, and its
-                      // context with it
-                      AsrEntry.start(this.context, videoDetailCtr);
-                    },
-                    onStop: () {
-                      Get.back();
-                      videoDetailCtr.stopAsr();
-                    },
-                  ),
-                // LibrePili: on-device translation of that transcript
-                if (videoDetailCtr.canTranscribe && TranslateEntry.available)
-                  TranslateMenuTile(
-                    session: videoDetailCtr.translation.session,
-                    titleStyle: titleStyle,
-                    onStart: () {
-                      Get.back();
-                      TranslateEntry.startFor(
-                        // see AsrEntry.start above
-                        this.context,
-                        videoDetailCtr.startTranslation,
-                        needsTranscript:
-                            videoDetailCtr.asrSession.value == null &&
-                            videoDetailCtr.captionToTranslate == null,
-                      );
-                    },
-                    onStop: () {
-                      Get.back();
-                      videoDetailCtr.stopTranslation();
-                    },
-                  ),
+                // LibrePili: on-device subtitles are picked by language in
+                // the subtitle menu, not started from here
                 if (!videoDetailCtr.isFileSource &&
                     videoDetailCtr.subtitles.isNotEmpty)
                   ListTile(

@@ -466,6 +466,13 @@ abstract final class Pref {
   static bool get translateDual =>
       _setting.get(SettingBoxKey.translateDual, defaultValue: false);
 
+  /// Languages kept in the subtitle menu besides the app's (see
+  /// `pinnedTranslationLanguages`).
+  static List<String> get translatePinnedLanguages {
+    final value = _setting.get(SettingBoxKey.translatePinnedLanguages);
+    return value is List ? value.whereType<String>().toList() : const [];
+  }
+
   /// LibrePili: which platform the app is showing (see [PlatformMode]).
   static PlatformMode get platformMode => _enumAt(
     PlatformMode.values,

@@ -98,6 +98,7 @@ abstract final class SettingBoxKey {
       translateAsked = 'translateAsked',
       translateModel = 'translateModel',
       translateDual = 'translateDual',
+      translatePinnedLanguages = 'translatePinnedLanguages',
       platformMode = 'platformMode',
       showBangumiReply = 'showBangumiReply',
       alwaysExpandIntroPanel = 'alwaysExapndIntroPanel',

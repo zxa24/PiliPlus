@@ -34,7 +34,11 @@ import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
 import 'package:PiliPlus/pages/video/post_panel/popup_menu_text.dart';
 import 'package:PiliPlus/pages/video/post_panel/view.dart';
+import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
+import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
+import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
+import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/bottom_control_type.dart';
@@ -718,64 +722,116 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
           // subtitles, which is exactly the video on-device transcription
           // exists for — someone looking for subtitles there found no button
           // at all and no hint that the app could make one.
-          final canTranscribe = videoDetailController.canTranscribe;
-          if (videoDetailController.subtitles.isNotEmpty || canTranscribe) {
-            final val = videoDetailController.vttSubtitlesIndex.value;
-            // read so the label follows the run; it says whether it is going
-            final session = videoDetailController.asrSession.value;
+          final ctr = videoDetailController;
+          final canTranscribe = ctr.canTranscribe;
+          if (ctr.subtitles.isNotEmpty || canTranscribe) {
+            final val = ctr.vttSubtitlesIndex.value;
+            // read so the labels follow the runs
+            ctr.asrSession.value?.state.value;
+            final translating = ctr.translation.session.value;
+            translating?.state.value;
+            final picked = ctr.onDevicePicked;
+            final canTranslate =
+                TranslateEntry.available &&
+                (canTranscribe || ctr.captionToTranslate != null);
             return PopupMenuButton<int>(
               tooltip: '字幕',
               requestFocus: false,
-              initialValue: val,
+              initialValue: OnDeviceMenu.valueOfPicked(picked) ?? val,
               color: Colors.black.withValues(alpha: 0.8),
               itemBuilder: (context) {
+                Widget label(String text) => Text(
+                  text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                );
+                // picking an on-device subtitle shows it, and makes it first
+                // if there is none — asking what a first run asks
+                void showTranslation(String code) {
+                  if (ctr.hasTranslationInto(code)) {
+                    ctr.showTranslation(code);
+                    return;
+                  }
+                  TranslateEntry.startFor(
+                    context,
+                    ({mayTranscribe}) =>
+                        ctr.showTranslation(code, mayTranscribe: mayTranscribe),
+                    needsTranscript:
+                        ctr.asrSession.value == null &&
+                        ctr.captionToTranslateInto(code) == null,
+                  );
+                }
+
+                final current = translating == null
+                    ? picked
+                    : ctr.translation.into;
                 return [
                   PopupMenuItem<int>(
                     value: 0,
                     height: 35,
-                    onTap: () => videoDetailController.setSubtitle(0),
-                    child: const Text(
-                      "关闭字幕",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                      ),
-                    ),
+                    onTap: () => ctr.setSubtitle(0),
+                    child: label('关闭字幕'),
                   ),
-                  ...videoDetailController.subtitles.mapIndexed((i, e) {
-                    return PopupMenuItem<int>(
-                      value: i + 1,
-                      height: 35,
-                      onTap: () => videoDetailController.setSubtitle(i + 1),
-                      child: Text(
-                        e.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const .new(color: Colors.white, fontSize: 13),
+                  // the video's own; those made here are listed by language
+                  // below
+                  for (final (i, e) in ctr.subtitles.indexed)
+                    if (e.source != SubtitleSource.device)
+                      PopupMenuItem<int>(
+                        value: i + 1,
+                        height: 35,
+                        onTap: () => ctr.setSubtitle(i + 1),
+                        child: label(e.displayName),
                       ),
-                    );
-                  }),
                   if (canTranscribe)
                     PopupMenuItem<int>(
-                      // a value no subtitle index can take
-                      value: -99,
+                      value: OnDeviceMenu.original,
                       height: 35,
                       onTap: () {
-                        if (session?.state.value.isBusy ?? false) {
-                          videoDetailController.stopAsr();
+                        if (ctr.hasTranscript || ctr.asrSession.value != null) {
+                          ctr.showTranscript();
                         } else {
-                          AsrEntry.start(context, videoDetailController);
+                          AsrEntry.startFor(context, ctr.showTranscript);
                         }
                       },
-                      child: Text(
-                        AsrEntry.menuLabel(session),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
+                      child: label(
+                        OnDeviceMenu.itemLabel(
+                          onDeviceLabel(null),
+                          ctr.onDeviceStatus('asr'),
                         ),
                       ),
+                    ),
+                  if (canTranslate) ...[
+                    for (final code in OnDeviceMenu.listed(current))
+                      PopupMenuItem<int>(
+                        value: OnDeviceMenu.valueOf(code),
+                        height: 35,
+                        onTap: () => showTranslation(code),
+                        child: label(
+                          OnDeviceMenu.itemLabel(
+                            onDeviceLabel(code),
+                            ctr.onDeviceStatus(code),
+                          ),
+                        ),
+                      ),
+                    PopupMenuItem<int>(
+                      value: OnDeviceMenu.other,
+                      height: 35,
+                      onTap: () async {
+                        final code = await OnDeviceMenu.pickOther(context);
+                        if (code != null && context.mounted) {
+                          showTranslation(code);
+                        }
+                      },
+                      child: label('其他语言…'),
+                    ),
+                  ],
+                  if (ctr.onDeviceBusy)
+                    PopupMenuItem<int>(
+                      value: OnDeviceMenu.stop,
+                      height: 35,
+                      onTap: ctr.stopOnDevice,
+                      child: label('停止端侧生成'),
                     ),
                 ];
               },

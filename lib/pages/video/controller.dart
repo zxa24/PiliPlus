@@ -61,7 +61,9 @@ import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
+import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
+import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -1085,12 +1087,20 @@ class VideoDetailController extends GetxController
       final index = _asrTrackIndex = subtitles.length;
       vttSubtitles[index] = (isData: true, id: cues.toVtt());
       subtitles.add(
-        Subtitle(lan: 'asr', lanDoc: '语音识别', source: SubtitleSource.device),
+        Subtitle(
+          lan: 'asr',
+          lanDoc: onDeviceLabel(null),
+          source: SubtitleSource.device,
+        ),
       );
     } else if (made['asr'] case final track?) {
       vttSubtitles[subtitles.length] = track;
       subtitles.add(
-        Subtitle(lan: 'asr', lanDoc: '语音识别', source: SubtitleSource.device),
+        Subtitle(
+          lan: 'asr',
+          lanDoc: onDeviceLabel(null),
+          source: SubtitleSource.device,
+        ),
       );
     }
     final live = translation.currentVtt;
@@ -1106,7 +1116,7 @@ class VideoDetailController extends GetxController
       subtitles.add(
         Subtitle(
           lan: 'asr-translated',
-          lanDoc: '翻译',
+          lanDoc: onDeviceLabel(translation.into ?? AsrService.appLanguage),
           source: SubtitleSource.device,
         ),
       );
@@ -1406,6 +1416,7 @@ class VideoDetailController extends GetxController
   /// through [_applySubtitle].
   Future<void> setSubtitle(int index) {
     _viewerChoseSubtitle = true;
+    _wantedOnDevice = null;
     // a generated track kept running while hidden: bring its data up to date
     final picked = index - 1;
     if (picked >= 0 && picked == _translationTrackIndex) {
@@ -1926,17 +1937,20 @@ class VideoDetailController extends GetxController
     if (!Get.isRegistered<TranslationService>()) return;
     final service = TranslationService.to;
     final language = session.state.value.language;
+    // asked from the menu, which has already offered the download: the
+    // session fetches the model itself, into the language picked there
+    final requested =
+        _translationRequested && service.needed(language, into: _requestedInto);
     final wanted =
-        (!_autoTranslateOff && service.shouldAutoStart(language)) ||
-        // asked from the menu, which has already offered the download: the
-        // session fetches the model itself
-        (_translationRequested && service.needed(language));
+        requested || (!_autoTranslateOff && service.shouldAutoStart(language));
     if (!wanted) return;
     _autoTranslateOff = true;
     _translatingTranscript = true;
     // an automatic run holds the page until the translation has a line
     if (auto && asrPending.value) _gateOnTranslation = true;
-    _startUnawaited(translation.start(session));
+    _startUnawaited(
+      translation.start(session, into: requested ? _requestedInto : null),
+    );
   }
 
   /// A translation start nobody awaits. What it throws — a fetch, a model
@@ -1981,7 +1995,11 @@ class VideoDetailController extends GetxController
 
   /// The video's own track to translate, if one should be: none is in the
   /// app's language, and one is in another (see [pickCaptionToTranslate]).
-  int? get captionToTranslate => pickCaptionToTranslate(
+  int? get captionToTranslate => captionToTranslateInto(null);
+
+  /// The video's own track to translate into [into] (the app's language by
+  /// default), if there is one to.
+  int? captionToTranslateInto(String? into) => pickCaptionToTranslate(
     [
       for (final s in subtitles)
         (
@@ -1990,7 +2008,7 @@ class VideoDetailController extends GetxController
           generated: s.isAi,
         ),
     ],
-    appLanguage: AsrService.appLanguage,
+    appLanguage: into ?? AsrService.appLanguage,
   );
 
   /// Translates the video's own foreign captions by itself when the user
@@ -2009,8 +2027,9 @@ class VideoDetailController extends GetxController
     _startUnawaited(_translateCaptions(index));
   }
 
-  /// Fetches track [index] if need be and translates it.
-  Future<bool> _translateCaptions(int index) async {
+  /// Fetches track [index] if need be and translates it, into [into] (the
+  /// app's language by default).
+  Future<bool> _translateCaptions(int index, {String? into}) async {
     var content = vttSubtitles[index]?.id;
     if (content == null) {
       // a part switch reuses this controller: the answer may belong to the
@@ -2036,7 +2055,7 @@ class VideoDetailController extends GetxController
       return false;
     }
     _translatingTranscript = false;
-    await translation.startCaptions(cues);
+    await translation.startCaptions(cues, into: into);
     return true;
   }
 
@@ -2050,9 +2069,10 @@ class VideoDetailController extends GetxController
   Future<void> startTranslation({
     Future<bool> Function()? mayTranscribe,
   }) async {
+    final into = _requestedInto;
     if (asrSession.value == null) {
-      if (captionToTranslate case final index?) {
-        if (await _translateCaptions(index)) return;
+      if (captionToTranslateInto(into) case final index?) {
+        if (await _translateCaptions(index, into: into)) return;
       }
     }
     _translationRequested = true;
@@ -2070,8 +2090,15 @@ class VideoDetailController extends GetxController
       return;
     }
     if (session.state.value.language == null) return;
-    if (!TranslationService.to.needed(session.state.value.language)) {
-      SmartDialog.showToast('语音已是界面语言，无需翻译');
+    if (!TranslationService.to.needed(
+      session.state.value.language,
+      into: into,
+    )) {
+      // the transcript is already in that language, and is what is shown
+      SmartDialog.showToast(
+        '原声即为${translationLanguageLabel(into ?? AsrService.appLanguage)}',
+      );
+      if (_wantedOnDevice != null) await showTranscript();
       return;
     }
     // a finished or failed translation is started over (重新翻译, 点击重试):
@@ -2090,6 +2117,124 @@ class VideoDetailController extends GetxController
     await translation.stop(finish: true);
   }
 
+  /// Which on-device subtitle the viewer picked from the menu: `asr` for
+  /// the transcript, or the language of a translation. Shown as soon as it
+  /// exists, and kept current while it grows; any other pick ends it.
+  String? _wantedOnDevice;
+
+  /// The language a translation asked for from the menu is into: the app's
+  /// when null.
+  String? _requestedInto;
+
+  int? _deviceTrack(String lan) {
+    final index = subtitles.indexWhere(
+      (s) => s.source == SubtitleSource.device && s.lan == lan,
+    );
+    return index == -1 ? null : index;
+  }
+
+  /// The on-device subtitle on screen: `asr`, the language of the
+  /// translation, or null.
+  String? get onDeviceShown {
+    final shown = vttSubtitlesIndex.value - 1;
+    if (shown < 0) return null;
+    if (shown == _deviceTrack('asr')) return 'asr';
+    if (shown == _deviceTrack('asr-translated')) {
+      return translation.into ?? AsrService.appLanguage;
+    }
+    return null;
+  }
+
+  /// The on-device subtitle the menu shows as picked: the one on screen, or
+  /// the one picked and not there yet.
+  String? get onDevicePicked => onDeviceShown ?? _wantedOnDevice;
+
+  /// Whether transcription or translation is at work, for the menu's stop.
+  bool get onDeviceBusy =>
+      (asrSession.value?.state.value.isBusy ?? false) ||
+      (translation.session.value?.isActive ?? false);
+
+  /// A word for the menu on where the on-device subtitle [code] — `asr`, or
+  /// a language — stands; null with nothing to say.
+  String? onDeviceStatus(String code) {
+    final asr = asrSession.value?.state.value;
+    String? asrStatus() => switch (asr?.stage) {
+      AsrStage.models => asr!.message ?? '准备模型',
+      AsrStage.extracting || AsrStage.transcribing => '生成中',
+      AsrStage.failed => '失败，点击重试',
+      _ => null,
+    };
+    if (code == 'asr') return asrStatus();
+    final state = translation.session.value?.state.value;
+    if (state != null && (translation.into ?? AsrService.appLanguage) == code) {
+      return switch (state.stage) {
+        TranslationStage.loading => state.message ?? '准备模型',
+        TranslationStage.translating || TranslationStage.waiting => '生成中',
+        TranslationStage.paused => '已暂停',
+        TranslationStage.failed => '失败，点击重试',
+        _ => null,
+      };
+    }
+    // picked and waiting for the transcript it is to be made from
+    if (_wantedOnDevice == code && _translationRequested) {
+      return asrStatus() ?? '准备中';
+    }
+    return null;
+  }
+
+  /// Whether a transcript can be shown without starting one.
+  bool get hasTranscript => _deviceTrack('asr') != null;
+
+  /// Whether a translation into [into] can be shown without starting one.
+  bool hasTranslationInto(String into) =>
+      _deviceTrack('asr-translated') != null &&
+      (translation.into ?? AsrService.appLanguage) == into &&
+      translation.session.value?.state.value.stage != TranslationStage.failed;
+
+  /// Shows the transcript, starting transcription if there is none to show
+  /// (or the last one failed).
+  Future<void> showTranscript() async {
+    final index = _deviceTrack('asr');
+    if (index != null) {
+      await setSubtitle(index + 1);
+    } else {
+      _viewerChoseSubtitle = true;
+    }
+    _wantedOnDevice = 'asr';
+    final session = asrSession.value;
+    if ((index == null && session == null) ||
+        session?.state.value.stage == AsrStage.failed) {
+      await startAsr();
+    }
+  }
+
+  /// Shows the translation into [into], starting it if there is none — a
+  /// running one into another language is replaced.
+  Future<void> showTranslation(
+    String into, {
+    Future<bool> Function()? mayTranscribe,
+  }) async {
+    if (hasTranslationInto(into)) {
+      await setSubtitle(_deviceTrack('asr-translated')! + 1);
+      _wantedOnDevice = into;
+      return;
+    }
+    _viewerChoseSubtitle = true;
+    _wantedOnDevice = into;
+    if (translation.isActive) {
+      _translationStops++;
+      await translation.stop();
+    }
+    _requestedInto = into == AsrService.appLanguage ? null : into;
+    await startTranslation(mayTranscribe: mayTranscribe);
+  }
+
+  /// The menu's 停止端侧生成: both, what they made stays in the menu.
+  Future<void> stopOnDevice() async {
+    await stopTranslation();
+    await stopAsr();
+  }
+
   void _publishTranslation(String vtt, {required bool first}) {
     if (isClosed) return;
     // stopAsr lets go of the entry but leaves it in the menu (停止转录 keeps
@@ -2100,23 +2245,32 @@ class VideoDetailController extends GetxController
         subtitles.indexWhere(
           (s) => s.source == SubtitleSource.device && s.lan == 'asr-translated',
         );
+    // named for the language it is in, which a restart can change
+    final label = onDeviceLabel(translation.into ?? AsrService.appLanguage);
     if (index == -1) {
       index = subtitles.length;
       subtitles.add(
         Subtitle(
           lan: 'asr-translated',
-          lanDoc: '翻译',
+          lanDoc: label,
           source: SubtitleSource.device,
         ),
       );
+    } else if (subtitles[index].lanDoc != label) {
+      subtitles[index].lanDoc = label;
+      subtitles.refresh();
     }
     _translationTrackIndex = index;
     vttSubtitles[index] = (isData: true, id: vtt);
     // shown the first time — it is what the translation was started for —
-    // unless the viewer has picked a subtitle, and refreshed while shown.
-    // Nor onto another page's video: the player is one for the app, and a
+    // unless the viewer has picked a subtitle, and refreshed while shown;
+    // and shown when it is the language picked from the menu. Nor onto
+    // another page's video: the player is one for the app, and a
     // translation replaced by that page's own still hands over its last track
+    final wanted =
+        _wantedOnDevice != null && _wantedOnDevice == translation.into;
     if (((first && !_viewerChoseSubtitle) ||
+            wanted ||
             vttSubtitlesIndex.value == index + 1) &&
         _ownsPlayer) {
       _applySubtitle(index + 1);
@@ -2159,7 +2313,7 @@ class VideoDetailController extends GetxController
       subtitles.add(
         Subtitle(
           lan: 'asr',
-          lanDoc: '语音识别',
+          lanDoc: onDeviceLabel(null),
           source: SubtitleSource.device,
         ),
       );
@@ -2167,8 +2321,10 @@ class VideoDetailController extends GetxController
     }
     vttSubtitles[index] = (isData: true, id: vtt);
     // reselect so mpv picks up the longer text; only when this track is the
-    // one being shown, otherwise the user's choice would be overridden
+    // one being shown or the one picked from the menu, otherwise the user's
+    // choice would be overridden
     if ((select && !_viewerChoseSubtitle) ||
+        _wantedOnDevice == 'asr' ||
         vttSubtitlesIndex.value == index + 1) {
       _applyOwnSubtitle(index + 1);
     }
@@ -2417,6 +2573,8 @@ class VideoDetailController extends GetxController
     // and the viewer's pick of subtitle
     _autoTranslateOff = false;
     _viewerChoseSubtitle = false;
+    _wantedOnDevice = null;
+    _requestedInto = null;
     _pastOpening = false;
     _stopWatchingPlayback();
     _shownAt = null;
