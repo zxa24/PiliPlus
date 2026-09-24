@@ -121,13 +121,21 @@ class TranslationTrack {
 
   /// Translates a transcript as it is being written.
   Future<void> start(AsrSession asr) => _startWith(
-    () => TranslationService.to.start(asr: asr, position: position),
+    () => TranslationService.to.start(
+      asr: asr,
+      position: position,
+      ownsPlayer: ownsPlayer,
+    ),
     onAttach: (current) => _cueSub = asr.cues.listen((_) => current.poke()),
   );
 
   /// Translates a video's own captions.
   Future<void> startCaptions(List<AsrCue> cues) => _startWith(
-    () => TranslationService.to.startCaptions(cues: cues, position: position),
+    () => TranslationService.to.startCaptions(
+      cues: cues,
+      position: position,
+      ownsPlayer: ownsPlayer,
+    ),
   );
 
   Future<void> _startWith(
@@ -174,11 +182,6 @@ class TranslationTrack {
     final started = DateTime.now();
     void startRefresh() {
       _refresh ??= Timer.periodic(const Duration(seconds: 5), (_) {
-        // ended as a failure, so the page hears why and offers a retry
-        if (ownsPlayer?.call() == false && current.isRunning) {
-          TranslationService.to.stop(reason: '播放器已切换到其他视频', only: current);
-          return;
-        }
         // a phone too slow to build the lead in time shows what it has, when
         // the page would have stopped waiting anyway
         if (!_readySent &&
@@ -220,6 +223,11 @@ class TranslationTrack {
             );
           }
           onFailed(state.message ?? '');
+        case TranslationStage.paused:
+          // another video has the player; the session goes on by itself
+          // once this page has it back
+          _refresh?.cancel();
+          _refresh = null;
         case TranslationStage.idle:
           break;
         case _:
@@ -357,7 +365,7 @@ class TranslationTrack {
     if (finish &&
         _published &&
         current != null &&
-        (current.isRunning ||
+        (current.isActive ||
             (current.state.value.stage == TranslationStage.done &&
                 current.results.length < current.units.length))) {
       onPublish(

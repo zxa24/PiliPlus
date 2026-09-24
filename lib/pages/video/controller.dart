@@ -1412,7 +1412,10 @@ class VideoDetailController extends GetxController
     ownsPlayer: () => _ownsPlayer,
     onPublish: _publishTranslation,
     onReady: _closeAsrGate,
-    onFailed: (message) => SmartDialog.showToast('翻译失败：$message'),
+    // not over another video's page: this one's menu says it when it is back
+    onFailed: (message) {
+      if (_ownsPlayer) SmartDialog.showToast('翻译失败：$message');
+    },
   );
   int? _translationTrackIndex;
 
@@ -1562,8 +1565,12 @@ class VideoDetailController extends GetxController
           _stopTranscriptTranslation();
           // errors are the one thing still worth interrupting for: everything
           // else about a transcription is visible in the subtitle menu, and a
-          // toast per stage turned a background job into a stream of popups
-          SmartDialog.showToast('转录失败：${state.message ?? ''}');
+          // toast per stage turned a background job into a stream of popups.
+          // Not over another video's page, whose transcription this may be
+          // the one displaced by
+          if (_ownsPlayer) {
+            SmartDialog.showToast('转录失败：${state.message ?? ''}');
+          }
         case AsrStage.idle:
           _closeAsrGate();
           // stopped before its track comes off, or it would put it back

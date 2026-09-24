@@ -42,7 +42,7 @@ class TranslateMenuTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Obx(() {
     final state = session.value?.state.value;
-    final running = state?.isBusy ?? false;
+    final running = (state?.isBusy ?? false) || (state?.isPaused ?? false);
     final failed = state?.stage == TranslationStage.failed;
     return ListTile(
       dense: true,
@@ -82,6 +82,7 @@ abstract final class TranslateEntry {
     return switch (state?.stage) {
       TranslationStage.loading => '停止翻译（${state!.message ?? '准备模型'}）',
       TranslationStage.translating || TranslationStage.waiting => '停止翻译',
+      TranslationStage.paused => '停止翻译（已暂停）',
       TranslationStage.failed => '翻译失败，点击重试',
       TranslationStage.done => '重新翻译',
       _ => '翻译字幕',

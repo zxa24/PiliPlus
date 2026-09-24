@@ -593,7 +593,8 @@ class YtVideoController extends GetxController {
     onPublish: _publishTranslation,
     onReady: _closeAsrGate,
     onFailed: (message) {
-      SmartDialog.showToast('翻译失败：$message');
+      // not over another video's page (see VideoDetailController)
+      if (_ownsPlayer) SmartDialog.showToast('翻译失败：$message');
       _showUntranslated();
     },
   );
@@ -734,8 +735,11 @@ class YtVideoController extends GetxController {
         case AsrStage.failed:
           _closeAsrGate();
           _stopTranscriptTranslation();
-          // only errors interrupt; progress lives in the subtitle menu
-          SmartDialog.showToast('转录失败：${state.message ?? ''}');
+          // only errors interrupt; progress lives in the subtitle menu. Not
+          // over another video's page (see VideoDetailController)
+          if (_ownsPlayer) {
+            SmartDialog.showToast('转录失败：${state.message ?? ''}');
+          }
         case AsrStage.idle:
           _closeAsrGate();
           _stopTranscriptTranslation();

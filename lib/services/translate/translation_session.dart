@@ -32,7 +32,19 @@ const _behind = 2.0;
 /// This many failures in a row means the engine is not coming back.
 const _giveUpAfter = 3;
 
-enum TranslationStage { idle, loading, translating, waiting, done, failed }
+enum TranslationStage {
+  idle,
+  loading,
+  translating,
+  waiting,
+
+  /// Its page is covered by another video's: the model is let go of, what is
+  /// translated is kept, and it goes on from where the viewer is once the
+  /// page has the player back.
+  paused,
+  done,
+  failed,
+}
 
 class TranslationState {
   const TranslationState(this.stage, {this.message});
@@ -43,6 +55,8 @@ class TranslationState {
       stage == TranslationStage.loading ||
       stage == TranslationStage.translating ||
       stage == TranslationStage.waiting;
+
+  bool get isPaused => stage == TranslationStage.paused;
 }
 
 /// What the session reads from the text it translates: a transcript still
@@ -79,6 +93,7 @@ class TranslationSession {
     required this.position,
     required this.engine,
     required this.target,
+    this.ownsPlayer,
   });
 
   final TranscriptView transcript;
@@ -102,6 +117,11 @@ class TranslationSession {
   /// video's playhead sitting before what was skipped.
   bool Function()? ownsPlayer;
 
+  /// Asked before the model is loaded, by the service running one
+  /// translation at a time: whether this one may load it now. A session
+  /// paused under another page's gets its turn back here.
+  Future<bool> Function(TranslationSession session)? claim;
+
   final state = const TranslationState(TranslationStage.idle).obs;
 
   /// Bumped whenever [results] changes, for whoever republishes the track.
@@ -115,8 +135,12 @@ class TranslationSession {
   var _closed = false;
   var _failures = 0;
   Future<void>? _loop;
+  Completer<void>? _parking;
 
   bool get isRunning => state.value.isBusy;
+
+  /// Running, or paused to go on later.
+  bool get isActive => isRunning || state.value.isPaused;
 
   void start() => _loop ??= _run();
 
@@ -125,6 +149,19 @@ class TranslationSession {
   void poke() {
     final wake = _wake;
     if (wake != null && !wake.isCompleted) wake.complete();
+  }
+
+  /// Lets go of the model for another page's translation, keeping what is
+  /// translated. Done once the model is released; the session loads it
+  /// again through [claim] when its page has the player.
+  Future<void> park() async {
+    final loop = _loop;
+    if (loop == null || _closed) return;
+    final parking = _parking ??= Completer<void>();
+    // the unit being generated is not worth holding the other page up for
+    _engine?.cancel();
+    poke();
+    await Future.any([parking.future, loop]);
   }
 
   Future<void> dispose() async {
@@ -240,6 +277,25 @@ class TranslationSession {
   Future<void> _run() async {
     try {
       while (!_closed) {
+        final parking = _parking;
+        final covered = ownsPlayer?.call() == false;
+        if (parking != null || covered) {
+          // another video has the player, or another page's translation the
+          // model: [position] reads a playhead that is not this video's
+          final loaded = _engine;
+          _engine = null;
+          await loaded?.dispose();
+          if (_closed) return;
+          if (state.value.isBusy) {
+            _set(const TranslationState(TranslationStage.paused));
+          }
+          _parking = null;
+          parking?.complete();
+          if (covered) {
+            await _nap();
+            continue;
+          }
+        }
         _refreshUnits();
         final i = next();
         if (i == null) {
@@ -261,24 +317,38 @@ class TranslationSession {
             await _nap();
             continue;
           }
-          _set(const TranslationState(TranslationStage.waiting));
-          await _nap();
-          continue;
-        }
-        if (_engine == null && ownsPlayer?.call() == false) {
-          // as it is: a running one is stopped by its track, a done one waits
-          // for the page to have the player back
+          // paused under another page's translation until it has its turn
+          if (!state.value.isPaused || (await claim?.call(this) ?? true)) {
+            if (_closed) return;
+            _set(const TranslationState(TranslationStage.waiting));
+          }
           await _nap();
           continue;
         }
         if (_engine == null) {
-          _set(const TranslationState(TranslationStage.loading));
-          _engine = await engine(
-            (message) => _set(
-              TranslationState(TranslationStage.loading, message: message),
-            ),
-          );
+          if (!(await claim?.call(this) ?? true)) {
+            // another page's translation has the model and is at work
+            await _nap();
+            continue;
+          }
           if (_closed) return;
+          if (_parking != null || ownsPlayer?.call() == false) continue;
+          _set(const TranslationState(TranslationStage.loading));
+          try {
+            _engine = await engine(
+              (message) => _set(
+                TranslationState(TranslationStage.loading, message: message),
+              ),
+            );
+          } catch (_) {
+            // a download cancelled to hand over to another page is not a
+            // failure of this one
+            if (_closed) return;
+            if (_parking != null || ownsPlayer?.call() == false) continue;
+            rethrow;
+          }
+          if (_closed) return;
+          if (_parking != null) continue;
         }
         _set(const TranslationState(TranslationStage.translating));
         final unit = units[i];
@@ -290,6 +360,9 @@ class TranslationSession {
           text = cleanTranslation(reply, source: unit.text);
           _failures = 0;
         } catch (e) {
+          if (_closed) return;
+          // cancelled to let go of the model: the unit is translated later
+          if (_parking != null || ownsPlayer?.call() == false) continue;
           if (kDebugMode) debugPrint('translate: unit $i failed: $e');
           if (++_failures >= _giveUpAfter) {
             _set(TranslationState(TranslationStage.failed, message: '$e'));

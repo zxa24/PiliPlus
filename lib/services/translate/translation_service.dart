@@ -4,6 +4,10 @@
 /// captions, and is tied to the page that started it. Only one runs at once
 /// — a second model resident alongside the first is up to 2.8 GB of mapped
 /// file the phone does not have.
+///
+/// A page covered by another video's keeps its translation, paused: the one
+/// started over it takes the model, and the paused one takes it back when
+/// its page has the player again (see [TranslationSession.park]).
 library;
 
 import 'dart:ffi' show IntPtr, sizeOf;
@@ -16,6 +20,7 @@ import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/llama_engine.dart';
+import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -40,6 +45,10 @@ class TranslationService extends GetxService {
 
   TranslationSession? _current;
   AsrCancelToken? _download;
+
+  /// Translations that gave the model up for another page's and wait for
+  /// their own page to have the player again. None holds a model.
+  final _parked = <TranslationSession>{};
 
   /// Starts run one after another. Two overlapping ones would each stop the
   /// other's predecessor and then both run, the loser with a model loaded
@@ -92,9 +101,13 @@ class TranslationService extends GetxService {
   ///
   /// [position] is where playback is, in seconds: translation follows the
   /// viewer, not the recogniser.
+  ///
+  /// [ownsPlayer] tells whether the page asking still has the player (see
+  /// [TranslationSession.ownsPlayer]).
   Future<TranslationSession> start({
     required AsrSession asr,
     required double Function() position,
+    bool Function()? ownsPlayer,
   }) => _start(
     transcriptView(
       segments: () => asr.segments,
@@ -102,28 +115,32 @@ class TranslationService extends GetxService {
       complete: () => asr.state.value.stage == AsrStage.done,
     ),
     position,
+    ownsPlayer,
   );
 
   /// Starts translating a video's own captions, all known up front.
   Future<TranslationSession> startCaptions({
     required List<AsrCue> cues,
     required double Function() position,
+    bool Function()? ownsPlayer,
   }) {
     final units = buildCaptionUnits(cues);
     return _start(
       (units: () => units, cues: () => cues, complete: () => true),
       position,
+      ownsPlayer,
     );
   }
 
   Future<TranslationSession> _start(
     TranscriptView transcript,
     double Function() position,
+    bool Function()? ownsPlayer,
   ) {
     final stops = _stops;
     _pending++;
     final started = _starting.then(
-      (_) => _startNow(transcript, position, stops),
+      (_) => _startNow(transcript, position, ownsPlayer, stops),
     );
     _starting = started.then((_) {}, onError: (_) {});
     return started;
@@ -132,49 +149,76 @@ class TranslationService extends GetxService {
   Future<TranslationSession> _startNow(
     TranscriptView transcript,
     double Function() position,
+    bool Function()? ownsPlayer,
     int stops,
   ) async {
     try {
-      // the page whose translation this replaces has to hear it ended
-      await _stop(reason: '已被另一个翻译取代');
+      // the one this replaces belongs to a page this one's covers: it waits
+      // for that page to be back rather than being stopped. A page starting
+      // again stops its own first (see TranslationTrack).
+      await _park();
       await _disposing;
-      return _create(transcript, position, stopped: stops != _stops);
+      return _create(
+        transcript,
+        position,
+        ownsPlayer,
+        stopped: stops != _stops,
+      );
     } finally {
       _pending--;
     }
   }
 
+  /// Moves the current translation aside, once it has let go of the model.
+  Future<void> _park() async {
+    final session = _current;
+    if (session == null) return;
+    _current = null;
+    _parked.add(session);
+    _download?.cancel();
+    _download = null;
+    await session.park();
+  }
+
+  /// See [TranslationSession.claim]: a paused session gets the model back
+  /// while no other is at work with it — the current one paused, finished or
+  /// failed, and no start on its way.
+  Future<bool> _claim(TranslationSession session) async {
+    if (identical(_current, session)) return true;
+    if (!_parked.contains(session) || _pending > 0) return false;
+    final holder = _current;
+    if (holder != null) {
+      final stage = holder.state.value.stage;
+      final resting =
+          stage == TranslationStage.paused ||
+          stage == TranslationStage.done ||
+          stage == TranslationStage.failed;
+      if (!resting) return false;
+      await _park();
+      // another claim or start may have got in while that one let go
+      if (_current != null || _pending > 0 || !_parked.contains(session)) {
+        return false;
+      }
+    }
+    _parked.remove(session);
+    _current = session;
+    await _disposing;
+    return identical(_current, session);
+  }
+
   TranslationSession _create(
     TranscriptView transcript,
-    double Function() position, {
+    double Function() position,
+    bool Function()? ownsPlayer, {
     required bool stopped,
   }) {
-    // read once: a change of model in settings mid-start must not load one
-    // file while checking and downloading another
-    final model = this.model;
-    final file = store.fileOf(model, model.files.first).path;
     final session = TranslationSession(
       transcript: transcript,
       position: position,
-      engine: (report) async {
-        if (!store.isInstalled(model)) {
-          final token = _download = AsrCancelToken();
-          await store.ensure(
-            model,
-            token: token,
-            onProgress: (p) => report(
-              p.verifying
-                  ? '校验模型'
-                  : '下载模型 ${p.total == 0 ? '' : '${(p.received * 100 ~/ p.total)}%'}',
-            ),
-          );
-          _download = null;
-        }
-        report('加载模型');
-        return LlamaTranslationEngine.load(file);
-      },
+      engine: debugEngine ?? _loader(),
       target: target,
-    );
+      ownsPlayer: ownsPlayer,
+    )..claim = _claim;
     if (stopped) {
       // stopped before it began: nothing is loaded, and its page hears why
       // as it would have had it been running
@@ -186,18 +230,62 @@ class TranslationService extends GetxService {
     return session;
   }
 
+  /// Loads the model chosen now, downloading it first if need be.
+  Future<TranslationEngine> Function(ValueChanged<String> report) _loader() {
+    // read once: a change of model in settings mid-start must not load one
+    // file while checking and downloading another
+    final model = this.model;
+    final file = store.fileOf(model, model.files.first).path;
+    return (report) async {
+      if (!store.isInstalled(model)) {
+        final token = _download = AsrCancelToken();
+        await store.ensure(
+          model,
+          token: token,
+          onProgress: (p) => report(
+            p.verifying
+                ? '校验模型'
+                : '下载模型 ${p.total == 0 ? '' : '${(p.received * 100 ~/ p.total)}%'}',
+          ),
+        );
+        _download = null;
+      }
+      report('加载模型');
+      return LlamaTranslationEngine.load(file);
+    };
+  }
+
   /// Ends the current translation. With a [reason] it is marked failed first,
   /// so the page hears why (see [AsrService.stop]).
   ///
-  /// With [only], nothing happens unless that is the current translation: a
-  /// page stopping its own must not stop another page's that replaced it.
+  /// With [only], nothing happens unless that is the current translation or
+  /// a paused one: a page stopping its own must not stop another page's that
+  /// replaced it.
   ///
   /// Without [only] it reaches starts not yet running as well, and waits
-  /// until every stopped session has let go of the model file.
-  Future<void> stop({String? reason, TranslationSession? only}) async {
+  /// until every stopped session has let go of the model file. Paused ones
+  /// hold no model and are left to go on, unless [paused] — for the model
+  /// being deleted, which they would load again.
+  Future<void> stop({
+    String? reason,
+    TranslationSession? only,
+    bool paused = false,
+  }) async {
     if (only == null) {
       _stops++;
       _stopReason = reason;
+    }
+    if (only != null && _parked.remove(only)) {
+      await _dispose(only);
+      return;
+    }
+    if (only == null && paused) {
+      final parked = _parked.toList();
+      _parked.clear();
+      for (final session in parked) {
+        if (reason != null && session.isActive) session.fail(reason);
+        _dispose(session);
+      }
     }
     await _stop(reason: reason, only: only);
     // one replaced earlier may still have the file mapped, and the model
@@ -212,12 +300,26 @@ class TranslationService extends GetxService {
     _download?.cancel();
     _download = null;
     if (session == null) return;
-    if (reason != null && session.isRunning) session.fail(reason);
+    if (reason != null && session.isActive) session.fail(reason);
+    await _dispose(session);
+  }
+
+  Future<void> _dispose(TranslationSession session) {
     final disposed = session.dispose();
     final before = _disposing;
     _disposing = Future.wait([before, disposed]).then((_) {}, onError: (_) {});
-    await disposed;
+    return disposed;
   }
+
+  /// Stands in for loading the model, in tests.
+  @visibleForTesting
+  Future<TranslationEngine> Function(ValueChanged<String> report)? debugEngine;
+
+  @visibleForTesting
+  bool debugIsParked(TranslationSession session) => _parked.contains(session);
+
+  @visibleForTesting
+  TranslationSession? get debugCurrent => _current;
 
   @visibleForTesting
   void debugAdopt(TranslationSession session) => _current = session;

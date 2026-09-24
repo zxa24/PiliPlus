@@ -98,7 +98,7 @@ List<SettingsModel> get asrSettings => [
         );
         if (confirmed != true) return;
         // a running translation has the file mapped; its page hears why it ended
-        await service.stop(reason: '翻译模型已删除');
+        await service.stop(reason: '翻译模型已删除', paused: true);
         await service.store.removeAll();
         setState();
       },
