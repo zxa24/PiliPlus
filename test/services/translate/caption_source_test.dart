@@ -137,6 +137,22 @@ void main() {
       const srt = '1\n00:00:01,000 --> 00:00:02,000\nOne.\n';
       expect(parseCaptionCues(srt).single.from, 1.0);
     });
+
+    test('an ordinary track says a line twice when it is said twice', () {
+      // back to back, as a rolling track's cues are, but with none of its
+      // timing tags or hold cues
+      const vtt =
+          'WEBVTT\n\n00:01.000 --> 00:02.000\nNo!\n\n'
+          '00:02.000 --> 00:03.000\nNo!\n';
+      expect(parseCaptionCues(vtt).map((c) => c.content), ['No!', 'No!']);
+      const srt =
+          '1\n00:00:01,000 --> 00:00:02,000\nNo!\n\n'
+          '2\n00:00:02,000 --> 00:00:03,000\nNo!\nNot again.\n';
+      expect(parseCaptionCues(srt).map((c) => c.content), [
+        'No!',
+        'No! Not again.',
+      ]);
+    });
   });
 
   group('buildCaptionUnits', () {

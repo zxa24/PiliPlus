@@ -183,7 +183,9 @@ class AsrService extends GetxService {
     String? userAgent,
     bool auto = false,
   }) async {
-    await stop();
+    // one job at a time: a job another page still has is failed, not merely
+    // closed, so that page hears it is gone (see [stop])
+    await stop(reason: '已被另一个视频的转录取代');
     final session = AsrSession._(key);
     _current = session;
     unawaited(_run(session, source, referer, userAgent, auto));
@@ -204,8 +206,12 @@ class AsrService extends GetxService {
   /// out the full cap and the subtitle menu would keep showing progress for
   /// a job that is gone. Failed, the page does what it does for any failure:
   /// closes the gate, says why, offers a retry.
-  Future<void> stop({String? reason}) async {
+  ///
+  /// With [only], nothing happens unless that is the current job: a page
+  /// tearing its own down late must not stop another page's that replaced it.
+  Future<void> stop({String? reason, AsrSession? only}) async {
     final session = _current;
+    if (only != null && session != only) return;
     _current = null;
     if (reason != null && session != null && session.isRunning) {
       session._set(AsrState(stage: AsrStage.failed, message: reason));

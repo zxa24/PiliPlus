@@ -53,6 +53,7 @@ class TranslationTrack {
     required this.onPublish,
     required this.onReady,
     required this.onFailed,
+    this.ownsPlayer,
   });
 
   /// Where playback is, in seconds.
@@ -65,7 +66,15 @@ class TranslationTrack {
   /// stop waiting for it.
   final VoidCallback onReady;
 
+  /// The translation failed, after its track was last handed over: what is
+  /// shown from here on is the page's to decide.
   final ValueChanged<String> onFailed;
+
+  /// Whether the player is still playing this page's video. The player is
+  /// one for the whole app: with another video's page opened over this one,
+  /// [position] reads that video's playhead, and a translation going on
+  /// would translate this video's speech wherever that one happens to be.
+  final bool Function()? ownsPlayer;
 
   final session = Rxn<TranslationSession>();
 
@@ -171,7 +180,11 @@ class TranslationTrack {
           _refresh = null;
           _ready();
           // a track already handed over keeps what was translated, without
-          // the marks on lines that never will be
+          // the marks on lines that never will be. What is shown after a
+          // failure is the page's to decide, in [onFailed], which comes after
+          // this: a page with a track list keeps this one in it, and a page
+          // that showed the translation in place of its source (YouTube's)
+          // puts the source back over it
           if (_published) {
             onPublish(
               current.cues(display: _display, markPending: false).toVtt(),
@@ -187,6 +200,11 @@ class TranslationTrack {
     // the playhead moves without telling anyone; check on a timer too
     final started = DateTime.now();
     _refresh = Timer.periodic(const Duration(seconds: 5), (_) {
+      // ended as a failure, so the page hears why and offers a retry
+      if (ownsPlayer?.call() == false && current.isRunning) {
+        TranslationService.to.stop(reason: '播放器已切换到其他视频', only: current);
+        return;
+      }
       // a phone too slow to build the lead in time shows what it has, when
       // the page would have stopped waiting anyway
       if (!_readySent && DateTime.now().difference(started) >= _readyCap) {
@@ -300,7 +318,17 @@ class TranslationTrack {
     return end;
   }
 
-  Future<void> stop() async {
+  /// With [finish], a track already handed over is handed over once more
+  /// without the marks on lines that will now never be translated: for a
+  /// stop that leaves what was translated with the page.
+  Future<void> stop({bool finish = false}) async {
+    final current = session.value;
+    if (finish && _published && current != null && current.isRunning) {
+      onPublish(
+        current.cues(display: _display, markPending: false).toVtt(),
+        first: false,
+      );
+    }
     _generation++;
     await _detach();
   }

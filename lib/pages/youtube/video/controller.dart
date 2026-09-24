@@ -11,6 +11,7 @@ import 'dart:async';
 
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
@@ -89,8 +90,13 @@ class YtVideoController extends GetxController {
     // linkage this app exists to avoid. Google serves these URLs without any
     // of it (measured), so they are cleared for the duration.
     plPlayerController.videoPlayerController?.setMediaHeader();
+    final source = NetworkSource(
+      videoSource: pair.videoUrl,
+      audioSource: pair.audioUrl,
+    );
+    _ownSource = source;
     await plPlayerController.setDataSource(
-      NetworkSource(videoSource: pair.videoUrl, audioSource: pair.audioUrl),
+      source,
       seekTo: seekTo,
       duration: detail.value?.duration,
       width: pair.video?.width,
@@ -573,6 +579,7 @@ class YtVideoController extends GetxController {
   late final translation = TranslationTrack(
     // the player counts whole seconds
     position: () => plPlayerController.position.value.toDouble(),
+    ownsPlayer: () => _ownsPlayer,
     onPublish: _publishTranslation,
     onReady: _closeAsrGate,
     onFailed: (message) {
@@ -589,11 +596,17 @@ class YtVideoController extends GetxController {
   /// one it is playing that page's video, and this page's subtitles do not
   /// go on it. A translation replaced by that page's own is the case that
   /// reaches here, and this page's transcript refresh keeps running under it.
+  ///
+  /// Owned while the player still has the very source this page gave it: the
+  /// same video opened on another page has the same URL, but not the same
+  /// source object.
   bool get _ownsPlayer {
-    final streams = _streams;
-    return streams != null &&
-        plPlayerController.dataSource.videoSource == streams.videoUrl;
+    final own = _ownSource;
+    return own != null && identical(plPlayerController.dataSource, own);
   }
+
+  /// The source this page last handed the player: its token of ownership.
+  DataSource? _ownSource;
 
   /// Back to what was there before the translation took its place: the
   /// caption track it was made from, or the transcript. Only while the
@@ -721,33 +734,99 @@ class YtVideoController extends GetxController {
     _asrGate?.cancel();
     asrPending.value = true;
     _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
+    _holdPlayback();
   }
 
   void _closeAsrGate() {
     _asrGate?.cancel();
     _asrGate = null;
+    // nothing waits for the translation once the gate is down
+    _gateOnTranslation = false;
     if (asrPending.value) {
       asrPending.value = false;
       // the player has been released: the gate had its one chance
       _released = true;
+      _resumeHeldPlayback();
     }
   }
 
-  Future<void> stopAsr() async {
+  /// See [VideoDetailController._playOnRelease]. Here the gate opens once the
+  /// stream is loaded, with its autoplay already started or on its way.
+  var _playOnRelease = false;
+  Worker? _gatePlaybackWorker;
+
+  /// See [VideoDetailController._holdPlayback].
+  void _holdPlayback() {
+    _gatePlaybackWorker ??= ever<PlayerStatus>(
+      plPlayerController.playerStatus,
+      (status) {
+        if (!asrPending.value) return;
+        // another page has the player now: what it plays is not this gate's
+        if (!_ownsPlayer) {
+          _releaseHold();
+        } else if (status.isPlaying) {
+          _pauseForGate();
+        }
+      },
+    );
+    if (_ownsPlayer && plPlayerController.playerStatus.isPlaying) {
+      _pauseForGate();
+    }
+  }
+
+  void _pauseForGate() {
+    _playOnRelease = true;
+    plPlayerController.pause();
+  }
+
+  /// See [VideoDetailController._releaseHold].
+  void _releaseHold() {
+    _playOnRelease = false;
+    _gatePlaybackWorker?.dispose();
+    _gatePlaybackWorker = null;
+  }
+
+  void _resumeHeldPlayback() {
+    if (!_playOnRelease || asrPending.value) return;
+    if (isClosed || !_ownsPlayer) {
+      _releaseHold();
+      return;
+    }
+    _playOnRelease = false;
+    plPlayerController.play();
+  }
+
+  /// See [VideoDetailController.stopAsr]: a translation of the video's own
+  /// captions goes on unless the page is [leaving].
+  Future<void> stopAsr({bool leaving = false}) async {
     _closeAsrGate();
     _gateOnTranslation = false;
-    _translatedCaption = null;
     _translationRequested = false;
-    await translation.stop();
+    final stopsTranslation = leaving || _translatedCaption == null;
+    // the transcript's listeners go before anything is awaited: the
+    // translation can take seconds to release its model, and meanwhile the
+    // refresh would put the old transcript back on screen and a state event
+    // would start translating it again
     _asrRefresh?.cancel();
     _asrRefresh = null;
     _asrStateWorker?.dispose();
     _asrStateWorker = null;
-    await _asrCueSub?.cancel();
+    // cancelled at once, awaited after: no event arrives past the call
+    final cueSub = _asrCueSub?.cancel();
     _asrCueSub = null;
+    // and let go of: another page may start a transcription meanwhile,
+    // which is not this one to stop
+    final session = asrSession.value;
     asrSession.value = null;
     _asrPublished = false;
-    if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
+    if (stopsTranslation) {
+      _translatedCaption = null;
+      await translation.stop();
+    }
+    await cueSub;
+    if (session != null && Get.isRegistered<AsrService>()) {
+      await AsrService.to.stop(only: session);
+    }
   }
 
   /// Shows what has been recognised so far. The page has no track list of its
@@ -840,7 +919,8 @@ class YtVideoController extends GetxController {
     if (index == null) return;
     _autoTranslateOff = true;
     _openAsrGate();
-    _gateOnTranslation = true;
+    // past the opening no gate opens, and nothing is to wait for this
+    if (asrPending.value) _gateOnTranslation = true;
     _translateCaptions(index);
   }
 
@@ -1002,7 +1082,9 @@ class YtVideoController extends GetxController {
   @override
   void onClose() {
     _stopWatchingPlayback();
-    stopAsr();
+    // the gate coming down on the way out must not start the player again
+    _releaseHold();
+    stopAsr(leaving: true);
     plPlayerController.dispose();
     super.onClose();
   }

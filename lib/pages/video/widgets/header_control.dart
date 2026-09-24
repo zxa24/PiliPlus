@@ -774,7 +774,10 @@ class HeaderControlState extends State<HeaderControl>
                     titleStyle: titleStyle,
                     onStart: () {
                       Get.back();
-                      AsrEntry.start(context, videoDetailCtr);
+                      // the page's context, not the sheet's: the sheet is
+                      // gone by the time the user answers a dialog, and its
+                      // context with it
+                      AsrEntry.start(this.context, videoDetailCtr);
                     },
                     onStop: () {
                       Get.back();
@@ -789,7 +792,8 @@ class HeaderControlState extends State<HeaderControl>
                     onStart: () {
                       Get.back();
                       TranslateEntry.startFor(
-                        context,
+                        // see AsrEntry.start above
+                        this.context,
                         videoDetailCtr.startTranslation,
                         needsTranscript:
                             videoDetailCtr.asrSession.value == null &&

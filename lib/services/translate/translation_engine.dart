@@ -74,7 +74,11 @@ String? cleanTranslation(String reply, {required String source}) {
         text.startsWith(open) &&
         text.endsWith(close) &&
         !source.trim().startsWith(open)) {
-      text = text.substring(open.length, text.length - close.length).trim();
+      final inner = text.substring(open.length, text.length - close.length);
+      // only a pair around the whole reply: `"Yes," he said, "no."` starts
+      // and ends with a quote, but they are two quotations
+      if (inner.contains(open) || inner.contains(close)) continue;
+      text = inner.trim();
     }
   }
   if (text.isEmpty) return null;

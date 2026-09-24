@@ -16,6 +16,9 @@ final _timing = RegExp(
 );
 final _tag = RegExp(r'<[^>]*>');
 
+/// A per-word timing tag, `<00:00:04.520>`, as the rolling format has.
+final _wordTiming = RegExp(r'<(?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3}>');
+
 /// A line that is only a sound event: `[Music]`, `[音楽]`, `(laughs)`, `♪`.
 ///
 /// Short on purpose: TED's tracks put on-screen text in brackets too —
@@ -41,13 +44,19 @@ double _seconds(String stamp) {
 /// the cue running straight into this one already showed is dropped, cues
 /// too brief to be seen are skipped, and sound events (`[Music]`) are not
 /// speech.
+///
+/// Only a track that has the rolling format's marks — the timing tags, the
+/// hold cues — is read as rolling: in an ordinary one (bilibili's, a local
+/// SRT) two cues in a row saying "No!" are said twice.
 List<AsrCue> parseCaptionCues(String text) {
   // Line by line, not block by block: the rolling format pads its cues with
   // lines holding a single space, which a split on blank lines took for a
   // cue boundary and so lost every cue's first line.
   final blocks = <({double from, double to, List<String> body})>[];
   var above = '';
+  var wordTimed = false;
   for (final line in text.replaceAll('\r\n', '\n').split('\n')) {
+    if (!wordTimed && _wordTiming.hasMatch(line)) wordTimed = true;
     final match = _timing.firstMatch(line);
     final raw = above;
     above = line;
@@ -72,6 +81,7 @@ List<AsrCue> parseCaptionCues(String text) {
     if (clean.isNotEmpty && blocks.isNotEmpty) blocks.last.body.add(clean);
   }
 
+  final rollingTrack = wordTimed || blocks.any((b) => b.to - b.from < 0.05);
   final cues = <AsrCue>[];
   var previous = const <String>[];
   var previousTo = double.negativeInfinity;
@@ -84,7 +94,7 @@ List<AsrCue> parseCaptionCues(String text) {
     }
     // A rolling cue starts where the one before it ended. After a pause the
     // same words are said again, not carried over: "Yes." twice is two lines.
-    final rolling = from - previousTo < 0.05;
+    final rolling = rollingTrack && from - previousTo < 0.05;
     final fresh = [
       for (final line in body)
         if (!(rolling && previous.contains(line)) && !_event.hasMatch(line))

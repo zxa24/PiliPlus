@@ -853,20 +853,27 @@ class VideoDetailController extends GetxController
     // a new part, whose subtitle list is only asked for once the player is
     // up (see [_holdForSubtitles])
     if (vttSubtitlesIndex.value == -1) _holdForSubtitles();
+    final play = autoplay ?? _autoPlay.value;
+    // the gate hides the player, and playback waits behind it too
+    final held = asrPending.value;
+    if (held) _playOnRelease = play;
+    final DataSource source = isFileSource
+        ? FileSource(
+            dir: args['dirPath'],
+            typeTag: entry.streamTypeTag,
+            isMp4: entry.mediaType == 1,
+            hasDashAudio: entry.hasDashAudio,
+            mergedPath: entry.mergedPath,
+            uri: entry.playUri,
+          )
+        : NetworkSource(
+            videoSource: videoUrl!,
+            audioSource: audioUrl,
+          );
+    _ownSource = source;
+    _loadingSource = true;
     await plPlayerController.setDataSource(
-      isFileSource
-          ? FileSource(
-              dir: args['dirPath'],
-              typeTag: entry.streamTypeTag,
-              isMp4: entry.mediaType == 1,
-              hasDashAudio: entry.hasDashAudio,
-              mergedPath: entry.mergedPath,
-              uri: entry.playUri,
-            )
-          : NetworkSource(
-              videoSource: videoUrl!,
-              audioSource: audioUrl,
-            ),
+      source,
       seekTo: seek,
       duration: data.timeLength == null
           ? null
@@ -875,7 +882,7 @@ class VideoDetailController extends GetxController
       aid: aid,
       bvid: bvid,
       cid: cid.value,
-      autoplay: autoplay ?? _autoPlay.value,
+      autoplay: play && !held,
       epid: isUgc ? null : epId,
       seasonId: isUgc ? null : seasonId,
       pgcType: isUgc ? null : pgcType,
@@ -890,6 +897,9 @@ class VideoDetailController extends GetxController
       volume: volume,
       autoFullScreenFlag: autoFullScreenFlag,
     );
+    _loadingSource = false;
+    // the gate may have let go while the source was loading
+    _resumeHeldPlayback();
 
     if (isClosed) return;
 
@@ -1315,6 +1325,7 @@ class VideoDetailController extends GetxController
   late final translation = TranslationTrack(
     // the player counts whole seconds
     position: () => plPlayerController.position.value.toDouble(),
+    ownsPlayer: () => _ownsPlayer,
     onPublish: _publishTranslation,
     onReady: _closeAsrGate,
     onFailed: (message) => SmartDialog.showToast('翻译失败：$message'),
@@ -1532,27 +1543,100 @@ class VideoDetailController extends GetxController
     _asrGate?.cancel();
     asrPending.value = true;
     _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
+    _holdPlayback();
   }
 
   void _closeAsrGate() {
     _asrGate?.cancel();
     _asrGate = null;
+    // nothing waits for the translation once the gate is down
+    _gateOnTranslation = false;
     if (asrPending.value) {
       asrPending.value = false;
       // the player has been released: the gate had its one chance
       _pastOpening = true;
+      _resumeHeldPlayback();
     }
   }
 
-  Future<void> stopAsr({bool keepGate = false}) async {
+  /// Playback the gate is holding back, to go on when it lets go. The player
+  /// is hidden behind the gate, and a video playing on unseen would spend its
+  /// opening — the stretch the gate waits to have subtitles for — with no
+  /// picture at all.
+  var _playOnRelease = false;
+  Worker? _gatePlaybackWorker;
+
+  /// [plPlayerController.setDataSource] is under way for this page.
+  var _loadingSource = false;
+
+  /// The source this page last handed the player: its token of ownership.
+  DataSource? _ownSource;
+
+  /// The player is one for the whole app, and still playing what this page
+  /// gave it. The very source object, not its cid: every ordinary local file
+  /// has cid 0, and another page opening another one would look like this.
+  bool get _ownsPlayer {
+    final own = _ownSource;
+    return own != null && identical(plPlayerController.dataSource, own);
+  }
+
+  /// Keeps playback paused while the gate is up: whatever starts it then —
+  /// an autoplay already in flight — is paused again at once.
+  void _holdPlayback() {
+    _gatePlaybackWorker ??= ever<PlayerStatus>(
+      plPlayerController.playerStatus,
+      (status) {
+        if (!asrPending.value) return;
+        // another page has the player now: what it plays is not this gate's
+        if (!_ownsPlayer) {
+          _releaseHold();
+        } else if (status.isPlaying) {
+          _pauseForGate();
+        }
+      },
+    );
+    if (_ownsPlayer && plPlayerController.playerStatus.isPlaying) {
+      _pauseForGate();
+    }
+  }
+
+  void _pauseForGate() {
+    _playOnRelease = true;
+    plPlayerController.pause();
+  }
+
+  /// Stops touching the player at all: nothing is paused or resumed for this
+  /// page any more.
+  void _releaseHold() {
+    _playOnRelease = false;
+    _gatePlaybackWorker?.dispose();
+    _gatePlaybackWorker = null;
+  }
+
+  /// Lets held-back playback go on, once the gate is down and the player has
+  /// this part loaded.
+  void _resumeHeldPlayback() {
+    if (!_playOnRelease || asrPending.value || _loadingSource) return;
+    if (isClosed || !_ownsPlayer) {
+      _releaseHold();
+      return;
+    }
+    _playOnRelease = false;
+    PlPlayerController.playIfExists();
+  }
+
+  /// Stops transcription, and the translation made from it. A translation of
+  /// the video's own captions has nothing to do with the transcript and goes
+  /// on, unless the part or the page is [leaving].
+  Future<void> stopAsr({bool keepGate = false, bool leaving = false}) async {
     if (!keepGate) {
       _holdingForSubtitles = false;
       _closeAsrGate();
     }
     _gateOnTranslation = false;
     _translationRequested = false;
-    _translatingTranscript = false;
-    _translationTrackIndex = null;
+    final stopsTranslation = leaving || _translatingTranscript;
+    if (stopsTranslation) _translatingTranscript = false;
     // the transcript's listeners go before anything is awaited: a part
     // switch does not wait for this, and a progress event from the old run
     // in the meantime would start translating it all over again
@@ -1563,11 +1647,23 @@ class VideoDetailController extends GetxController
     // cancelled at once, awaited after: no event arrives past the call
     final cueSub = _asrCueSub?.cancel();
     _asrCueSub = null;
-    await translation.stop();
-    await cueSub;
+    // let go of before anything is awaited as well: the translation can take
+    // seconds to release its model, and a part switch or another page may
+    // start a transcription meanwhile — which is not this one to stop
+    final session = asrSession.value;
     asrSession.value = null;
     _asrTrackIndex = null;
-    if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
+    if (stopsTranslation) {
+      // what was translated stays in the menu, without its waiting marks,
+      // unless the part it belongs to is going away
+      final stopped = translation.stop(finish: !leaving);
+      _translationTrackIndex = null;
+      await stopped;
+    }
+    await cueSub;
+    if (session != null && Get.isRegistered<AsrService>()) {
+      await AsrService.to.stop(only: session);
+    }
   }
 
   /// Drops the transcription track again, but only while it is still the last
@@ -1626,7 +1722,8 @@ class VideoDetailController extends GetxController
     if (!_translatingTranscript || !translation.isActive) return;
     if (ended && !always) return;
     _translatingTranscript = false;
-    translation.stop();
+    // one whose track is about to come off has nothing to leave behind
+    translation.stop(finish: !always);
   }
 
   /// The video's own track to translate, if one should be: none is in the
@@ -1654,7 +1751,8 @@ class VideoDetailController extends GetxController
     if (index == null) return;
     _autoTranslateOff = true;
     _openAsrGate();
-    _gateOnTranslation = true;
+    // past the opening no gate opens, and nothing is to wait for this
+    if (asrPending.value) _gateOnTranslation = true;
     _translateCaptions(index);
   }
 
@@ -1736,7 +1834,7 @@ class VideoDetailController extends GetxController
     _translationRequested = false;
     // nor does automatic translation start it again for this part
     _autoTranslateOff = true;
-    await translation.stop();
+    await translation.stop(finish: true);
   }
 
   void _publishTranslation(String vtt, {required bool first}) {
@@ -1767,7 +1865,7 @@ class VideoDetailController extends GetxController
     // translation replaced by that page's own still hands over its last track
     if (((first && !_viewerChoseSubtitle) ||
             vttSubtitlesIndex.value == index + 1) &&
-        plPlayerController.cid == cid.value) {
+        _ownsPlayer) {
       _applySubtitle(index + 1);
     }
   }
@@ -2015,7 +2113,9 @@ class VideoDetailController extends GetxController
       ..dispose();
     subtitles.clear();
     vttSubtitles.clear();
-    stopAsr();
+    // the gate coming down on the way out must not start the player again
+    _releaseHold();
+    stopAsr(leaving: true);
     if (plPlayerController.onCdnFailover == switchToNextCdn) {
       plPlayerController.onCdnFailover = null;
     }
@@ -2042,8 +2142,10 @@ class VideoDetailController extends GetxController
     subtitles.clear();
     vttSubtitlesIndex.value = -1;
     vttSubtitles.clear();
-    // a transcription belongs to the part it was started for
-    stopAsr();
+    // a transcription belongs to the part it was started for; the next part
+    // plays as its own opening decides, not as this one's gate held back
+    _playOnRelease = false;
+    stopAsr(leaving: true);
     // and so do the once-per-part automatic translation and loading gate,
     // and the viewer's pick of subtitle
     _autoTranslateOff = false;
