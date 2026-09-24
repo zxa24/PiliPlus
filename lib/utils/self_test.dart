@@ -595,6 +595,7 @@ abstract final class SelfTest {
             sampleMs: int.tryParse(_arg(args, '--sample-ms') ?? '') ?? 2000,
             seekTo: int.tryParse(_arg(args, '--seek-to') ?? ''),
             seekAfterMs: int.tryParse(_arg(args, '--seek-after') ?? '') ?? 0,
+            dumpUrls: args.contains('--dump-urls'),
           ),
         );
       } finally {
@@ -2257,6 +2258,7 @@ abstract final class SelfTest {
     int sampleMs = 2000,
     int? seekTo,
     int seekAfterMs = 0,
+    bool dumpUrls = false,
   }) async {
     // the control for a recovery: what the viewer got before it existed.
     // Set before the page opens: the cut shows within its first seconds
@@ -2343,8 +2345,14 @@ abstract final class SelfTest {
     final states = <String>[];
     // 50 s whatever the interval: a finer one shows how the playhead moves
     // in the first seconds (a jump back to the start before a resume)
+    // when each sample was really taken: the interval asked for is not what
+    // passes between two samples, and a playhead compared against it showed
+    // a jump that was only a late sample
+    final sampledAt = <int>[];
+    final clock = Stopwatch()..start();
     for (var i = 0; i < 50000 ~/ sampleMs; i++) {
       await Future.delayed(Duration(milliseconds: sampleMs));
+      sampledAt.add(clock.elapsedMilliseconds);
       timeline.add(
         player.videoPlayerController?.state.position.inMilliseconds ?? -1,
       );
@@ -2502,6 +2510,13 @@ abstract final class SelfTest {
       'positionTimeline': timeline,
       'hostTimeline': hosts,
       'cacheEndTimeline': cacheEnds,
+      'sampledAtMs': sampledAt,
+      // the URLs themselves, for probing the same streams outside the app
+      // (they carry a signature, and expire)
+      if (dumpUrls) ...{
+        'videoUrlFull': controller.videoUrl,
+        'audioUrlFull': controller.audioUrl,
+      },
       'seekLog': seekLog,
       'stateTimeline': states,
       'videoFile': Uri.tryParse(controller.videoUrl ?? '')?.pathSegments.last,

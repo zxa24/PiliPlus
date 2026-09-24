@@ -1037,7 +1037,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         buffered.value = buffer.inSeconds;
       }),
       stream.buffering.listen((bool buffering) {
-        isBuffering.value = buffering;
+        // a replacement in place holds the last frame rather than showing
+        // the loading spinner over it (see [_replaceCutStreams])
+        isBuffering.value = buffering && !_replacing;
         if (buffering) _stopWakeLockTimer();
         final playerStatus = this.playerStatus.value;
         if (!playerStatus.isCompleted) {
@@ -1217,6 +1219,27 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           player.setProperty('aid', id);
         }
       }
+      // A newly selected external track is not positioned: mpv decodes it
+      // from its start up to the playhead, and at 400 s into a video the
+      // picture stood still for 10 s and then ran ahead of the sound by up
+      // to 6.8 s (probed on this libmpv). An exact seek to where playback is
+      // positions it; it stops sound and picture briefly, not more the
+      // further in (measured: 0.55 s at 1.6 s, 1.75 s at 400 s). Nothing gets the new track in place with the sound
+      // going on: a delay-open second track in the same EDL stopped
+      // playback for 5–6 s instead.
+      final here = double.tryParse(player.getProperty('time-pos'));
+      if (here != null) {
+        await player.command(['seek', '$here', 'absolute+exact']);
+        // the replacement is not done until playback is going again
+        final until = DateTime.now().add(const Duration(seconds: 10));
+        while (DateTime.now().isBefore(until) &&
+            identical(dataSource, source) &&
+            !player.disposed) {
+          final now = double.tryParse(player.getProperty('time-pos'));
+          if (now != null && now > here + 0.2) break;
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      }
       _cutAt.clear();
       // the cut stream's cache stays where it ended until mpv lets go of it
       _dryTicks = -3;
@@ -1224,6 +1247,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (identical(dataSource, source)) _switchCdn(fallback: true);
     } finally {
       _replacing = false;
+      // what was held back while replacing
+      isBuffering.value = _videoPlayerController?.state.buffering ?? false;
     }
   }
 
