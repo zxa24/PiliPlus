@@ -850,6 +850,9 @@ class VideoDetailController extends GetxController
     Duration? seek = defaultST ?? playedTime;
     if (seek == .zero) seek = null;
     seek ??= getFirstSegment();
+    // a new part, whose subtitle list is only asked for once the player is
+    // up (see [_holdForSubtitles])
+    if (vttSubtitlesIndex.value == -1) _holdForSubtitles();
     await plPlayerController.setDataSource(
       isFileSource
           ? FileSource(
@@ -880,7 +883,7 @@ class VideoDetailController extends GetxController
       onInit: () {
         _watchPlayback();
         videoState.value = true;
-        setSubtitle(vttSubtitlesIndex.value);
+        _applySubtitle(vttSubtitlesIndex.value);
       },
       width: firstVideo.width,
       height: firstVideo.height,
@@ -1221,8 +1224,34 @@ class VideoDetailController extends GetxController
   late final showVP = true.obs;
   late final viewPointList = <ViewPointSegment>[].obs;
 
+  /// The viewer picked a subtitle themselves — off, or a track — for this
+  /// part. From then on nothing automatic changes which one is shown: not a
+  /// transcript or translation arriving, finishing or failing. Turning them
+  /// off does not stop either; they keep their tracks current, and picking
+  /// one again shows it as it stands.
+  var _viewerChoseSubtitle = false;
+
   // 设定字幕轨道
-  Future<void> setSubtitle(int index) async {
+  /// The viewer's choice (see [_viewerChoseSubtitle]); automatic changes go
+  /// through [_applySubtitle].
+  Future<void> setSubtitle(int index) {
+    _viewerChoseSubtitle = true;
+    // a generated track kept running while hidden: bring its data up to date
+    final picked = index - 1;
+    if (picked >= 0 && picked == _translationTrackIndex) {
+      if (translation.currentVtt case final vtt?) {
+        vttSubtitles[picked] = (isData: true, id: vtt);
+      }
+    } else if (picked >= 0 && picked == _asrTrackIndex) {
+      final cues = asrSession.value?.cues;
+      if (cues != null && cues.isNotEmpty) {
+        vttSubtitles[picked] = (isData: true, id: cues.toVtt());
+      }
+    }
+    return _applySubtitle(index);
+  }
+
+  Future<void> _applySubtitle(int index) async {
     if (index <= 0) {
       await plPlayerController.videoPlayerController?.setSubtitleTrack(.no());
       vttSubtitlesIndex.value = index;
@@ -1298,6 +1327,9 @@ class VideoDetailController extends GetxController
   /// The user asked for a translation of this run from the menu.
   var _translationRequested = false;
 
+  /// Bumped by [stopTranslation], so a start waiting on a fetch can tell.
+  var _translationStops = 0;
+
   /// The translation running is of the transcript, not of captions.
   var _translatingTranscript = false;
 
@@ -1359,18 +1391,23 @@ class VideoDetailController extends GetxController
       SmartDialog.showToast('没有可转录的音频');
       return;
     }
+    // an automatic start takes over the hold for the subtitle list rather
+    // than letting the player go in between (see [_holdForSubtitles])
+    final holding = auto && _holdingForSubtitles;
+    _holdingForSubtitles = false;
     // a document opened through Android's picker has no path, only a content
     // URI, and the descriptor the player holds is its own — transcription
     // needs a second one, which mpv closes itself via `fdclose://`
     if (source.startsWith('content://')) {
       final fd = await LocalDocuments.openFd(source);
       if (fd == null) {
+        if (holding) _closeAsrGate();
         SmartDialog.showToast('无法读取该视频文件');
         return;
       }
       source = 'fdclose://$fd';
     }
-    await stopAsr();
+    await stopAsr(keepGate: holding);
     if (auto) _openAsrGate();
     final service = AsrService.to;
     final session = await service.start(
@@ -1432,12 +1469,47 @@ class VideoDetailController extends GetxController
     });
   }
 
+  /// The page is being held until the subtitle list is known.
+  var _holdingForSubtitles = false;
+
+  /// Holds a new part's page, when automatic translation could apply, until
+  /// its subtitle list is known. The list is asked for only after the player
+  /// is up, and an answer arriving once playback had shown could no longer
+  /// hold the page for a translation of the captions it names — the
+  /// playhead counts whole seconds, so a first second of playback went by
+  /// unnoticed. Decided before the player is shown instead: whatever holds
+  /// the page takes this over when the list comes, and otherwise it is let
+  /// go at once (see [_releaseSubtitleHold]).
+  void _holdForSubtitles() {
+    if (_autoTranslateOff || !Get.isRegistered<TranslationService>()) return;
+    if (!TranslationService.to.shouldAutoTranslate) return;
+    _openAsrGate();
+    _holdingForSubtitles = asrPending.value;
+  }
+
+  /// The subtitle list is known, or will not be: the hold for it ends,
+  /// unless a translation of the captions or an automatic transcription has
+  /// taken it over.
+  void _releaseSubtitleHold() {
+    if (!_holdingForSubtitles) return;
+    _holdingForSubtitles = false;
+    if (!_gateOnTranslation) _closeAsrGate();
+  }
+
   /// Starts transcription by itself when the user has said it should and the
   /// video has nothing of its own. Never asks anything here: an automatic run
   /// that popped a dialog would be worse than no automatic run.
   ///
   /// [opening] is the check made as the part is first loaded.
   void _maybeAutoTranscribe({bool opening = false}) {
+    try {
+      _autoTranscribe(opening: opening);
+    } finally {
+      _releaseSubtitleHold();
+    }
+  }
+
+  void _autoTranscribe({required bool opening}) {
     if (!opening) _pastOpening = true;
     // a video with captions in a language the user does not read has them
     // translated instead; transcription is for videos with none
@@ -1472,19 +1544,27 @@ class VideoDetailController extends GetxController
     }
   }
 
-  Future<void> stopAsr() async {
-    _closeAsrGate();
+  Future<void> stopAsr({bool keepGate = false}) async {
+    if (!keepGate) {
+      _holdingForSubtitles = false;
+      _closeAsrGate();
+    }
     _gateOnTranslation = false;
     _translationRequested = false;
     _translatingTranscript = false;
     _translationTrackIndex = null;
-    await translation.stop();
+    // the transcript's listeners go before anything is awaited: a part
+    // switch does not wait for this, and a progress event from the old run
+    // in the meantime would start translating it all over again
     _asrRefresh?.cancel();
     _asrRefresh = null;
     _asrStateWorker?.dispose();
     _asrStateWorker = null;
-    await _asrCueSub?.cancel();
+    // cancelled at once, awaited after: no event arrives past the call
+    final cueSub = _asrCueSub?.cancel();
     _asrCueSub = null;
+    await translation.stop();
+    await cueSub;
     asrSession.value = null;
     _asrTrackIndex = null;
     if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
@@ -1502,14 +1582,14 @@ class VideoDetailController extends GetxController
       _translationTrackIndex = null;
       subtitles.removeLast();
       vttSubtitles.remove(translated);
-      if (vttSubtitlesIndex.value == translated + 1) setSubtitle(0);
+      if (vttSubtitlesIndex.value == translated + 1) _applySubtitle(0);
     }
     final index = _asrTrackIndex;
     if (index == null || index != subtitles.length - 1) return;
     _asrTrackIndex = null;
     subtitles.removeLast();
     vttSubtitles.remove(index);
-    if (vttSubtitlesIndex.value == index + 1) setSubtitle(0);
+    if (vttSubtitlesIndex.value == index + 1) _applySubtitle(0);
   }
 
   /// Starts translating [session] once its language is known, if it should
@@ -1585,9 +1665,16 @@ class VideoDetailController extends GetxController
       // a part switch reuses this controller: the answer may belong to the
       // part before, and must not land in this one's tracks
       final part = cid.value;
+      final stops = _translationStops;
       final url = subtitles[index].subtitleUrl;
       content = url == null ? null : await VideoHttp.getSubtitles(url);
-      if (isClosed) return false;
+      // gone, or stopped while fetching: nothing more to do, and above all
+      // no falling back to transcription
+      if (isClosed) return true;
+      if (stops != _translationStops) {
+        _closeAsrGate();
+        return true;
+      }
       // nothing more to do for a part that is no longer playing
       if (cid.value != part) return true;
       if (content != null) vttSubtitles[index] = (isData: true, id: content);
@@ -1606,7 +1693,12 @@ class VideoDetailController extends GetxController
   /// language the user does not read, otherwise the transcript — now if one
   /// is running or finished, else as soon as transcription has found the
   /// language.
-  Future<void> startTranslation() async {
+  ///
+  /// [mayTranscribe] asks whether falling back to transcription may fetch
+  /// the recogniser's models; without it, missing models are not fetched.
+  Future<void> startTranslation({
+    Future<bool> Function()? mayTranscribe,
+  }) async {
     if (asrSession.value == null) {
       if (captionToTranslate case final index?) {
         if (await _translateCaptions(index)) return;
@@ -1615,6 +1707,13 @@ class VideoDetailController extends GetxController
     _translationRequested = true;
     final session = asrSession.value;
     if (session == null || session.state.value.stage == AsrStage.failed) {
+      // captions that could not be fetched land here too, and the menu has
+      // not asked about the recogniser's download for them
+      if (!AsrService.to.modelsReady &&
+          (mayTranscribe == null || !await mayTranscribe())) {
+        return;
+      }
+      if (isClosed) return;
       await startAsr();
       _translationRequested = true;
       return;
@@ -1633,6 +1732,7 @@ class VideoDetailController extends GetxController
   /// Stops translating; what has been translated stays in the menu, in the
   /// entry a restart then refreshes rather than adding another beside it.
   Future<void> stopTranslation() async {
+    _translationStops++;
     _translationRequested = false;
     // nor does automatic translation start it again for this part
     _autoTranslateOff = true;
@@ -1641,10 +1741,16 @@ class VideoDetailController extends GetxController
 
   void _publishTranslation(String vtt, {required bool first}) {
     if (isClosed) return;
-    var index = _translationTrackIndex;
-    if (index == null) {
+    // stopAsr lets go of the entry but leaves it in the menu (停止转录 keeps
+    // what was made); a restart — 重新转录, a retry, a switch from captions
+    // to the transcript — refreshes that one rather than adding a second
+    var index =
+        _translationTrackIndex ??
+        subtitles.indexWhere(
+          (s) => s.source == SubtitleSource.device && s.lan == 'asr-translated',
+        );
+    if (index == -1) {
       index = subtitles.length;
-      _translationTrackIndex = index;
       subtitles.add(
         Subtitle(
           lan: 'asr-translated',
@@ -1653,11 +1759,16 @@ class VideoDetailController extends GetxController
         ),
       );
     }
+    _translationTrackIndex = index;
     vttSubtitles[index] = (isData: true, id: vtt);
     // shown the first time — it is what the translation was started for —
-    // and refreshed while shown; never switched to over the user's choice
-    if (first || vttSubtitlesIndex.value == index + 1) {
-      setSubtitle(index + 1);
+    // unless the viewer has picked a subtitle, and refreshed while shown.
+    // Nor onto another page's video: the player is one for the app, and a
+    // translation replaced by that page's own still hands over its last track
+    if (((first && !_viewerChoseSubtitle) ||
+            vttSubtitlesIndex.value == index + 1) &&
+        plPlayerController.cid == cid.value) {
+      _applySubtitle(index + 1);
     }
   }
 
@@ -1706,8 +1817,9 @@ class VideoDetailController extends GetxController
     vttSubtitles[index] = (isData: true, id: vtt);
     // reselect so mpv picks up the longer text; only when this track is the
     // one being shown, otherwise the user's choice would be overridden
-    if (select || vttSubtitlesIndex.value == index + 1) {
-      setSubtitle(index + 1);
+    if ((select && !_viewerChoseSubtitle) ||
+        vttSubtitlesIndex.value == index + 1) {
+      _applySubtitle(index + 1);
     }
   }
 
@@ -1829,6 +1941,9 @@ class VideoDetailController extends GetxController
       }
       // LibrePili: nothing of its own to show — offer the device's own ears
       _maybeAutoTranscribe(opening: true);
+    } else {
+      // no list is coming
+      _releaseSubtitleHold();
     }
   }
 
@@ -1845,7 +1960,7 @@ class VideoDetailController extends GetxController
             ? 1
             : 0,
     };
-    await setSubtitle(idx);
+    await _applySubtitle(idx);
   }
 
   void updateMediaListHistory(int aid) {
@@ -1929,8 +2044,10 @@ class VideoDetailController extends GetxController
     vttSubtitles.clear();
     // a transcription belongs to the part it was started for
     stopAsr();
-    // and so do the once-per-part automatic translation and loading gate
+    // and so do the once-per-part automatic translation and loading gate,
+    // and the viewer's pick of subtitle
     _autoTranslateOff = false;
+    _viewerChoseSubtitle = false;
     _pastOpening = false;
     _stopWatchingPlayback();
     _shownAt = null;

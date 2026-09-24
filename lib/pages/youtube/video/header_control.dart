@@ -416,6 +416,17 @@ class YtHeaderControlState extends State<YtHeaderControl>
                       controller.stopTranslation();
                     },
                   ),
+                // hidden by the viewer but still there, and still being made
+                if (controller.showGeneratedLabel case final label?)
+                  ListTile(
+                    dense: true,
+                    onTap: () {
+                      Get.back();
+                      controller.showGenerated();
+                    },
+                    leading: const Icon(Icons.subtitles_outlined, size: 20),
+                    title: Text(label, style: titleStyle),
+                  ),
                 if (plPlayerController.videoPlayerController case final player?)
                   ListTile(
                     dense: true,

@@ -127,8 +127,20 @@ class YtVideoController extends GetxController {
     if (kDebugMode) debugPrint('youtube: $verdict');
   }
 
-  /// Shows a caption track, or hides captions when [index] is negative.
-  Future<void> setCaption(int index) async {
+  /// The viewer picked a subtitle themselves — off, or a caption track. From
+  /// then on nothing automatic changes which one is shown: not a transcript
+  /// or translation arriving, finishing or failing. Turning them off does not
+  /// stop either; [showGenerated] puts them back as they stand.
+  var _viewerChose = false;
+
+  /// Shows a caption track, or hides captions when [index] is negative: the
+  /// viewer's choice (see [_viewerChose]).
+  Future<void> setCaption(int index) {
+    _viewerChose = true;
+    return _showCaption(index);
+  }
+
+  Future<void> _showCaption(int index) async {
     final player = plPlayerController.videoPlayerController;
     if (player == null) return;
     if (index < 0 || index >= captions.length) {
@@ -572,11 +584,25 @@ class YtVideoController extends GetxController {
   /// The caption track being translated, when it is the video's own.
   int? _translatedCaption;
 
+  /// The player is one for the whole app (see
+  /// [PlPlayerController.getInstance]): with another page opened over this
+  /// one it is playing that page's video, and this page's subtitles do not
+  /// go on it. A translation replaced by that page's own is the case that
+  /// reaches here, and this page's transcript refresh keeps running under it.
+  bool get _ownsPlayer {
+    final streams = _streams;
+    return streams != null &&
+        plPlayerController.dataSource.videoSource == streams.videoUrl;
+  }
+
   /// Back to what was there before the translation took its place: the
-  /// caption track it was made from, or the transcript.
+  /// caption track it was made from, or the transcript. Only while the
+  /// translation is still what is shown — the viewer may have turned
+  /// subtitles off or picked a track meanwhile.
   void _showUntranslated() {
+    if (!_ownsPlayer || _viewerChose || captionIndex.value != -2) return;
     if (_translatedCaption case final index?) {
-      setCaption(index);
+      _showCaption(index);
     } else {
       _publishAsrSubtitle(isFinal: true);
     }
@@ -584,6 +610,9 @@ class YtVideoController extends GetxController {
 
   var _gateOnTranslation = false;
   var _translationRequested = false;
+
+  /// Bumped by [stopTranslation], so a start waiting on a fetch can tell.
+  var _translationStops = 0;
 
   /// See [VideoDetailController._autoTranslateOff]; here a stream refresh is
   /// what comes back through [_maybeAutoTranscribe].
@@ -717,6 +746,7 @@ class YtVideoController extends GetxController {
     await _asrCueSub?.cancel();
     _asrCueSub = null;
     asrSession.value = null;
+    _asrPublished = false;
     if (Get.isRegistered<AsrService>()) await AsrService.to.stop();
   }
 
@@ -725,18 +755,25 @@ class YtVideoController extends GetxController {
   /// How far the published track reaches; see [shouldPublishAsr].
   Duration _asrPublishedTo = Duration.zero;
 
+  /// This run's transcript has been put on screen once.
+  var _asrPublished = false;
+
   void _publishAsrSubtitle({bool isFinal = false}) {
     final session = asrSession.value;
     final player = plPlayerController.videoPlayerController;
     if (session == null || player == null || session.cues.isEmpty) return;
+    if (!_ownsPlayer || _viewerChose) return;
     // one subtitle at a time here, and a translation takes the place
     if (_showingTranslation) return;
+    // shown the first time; after that refreshed only while it is still what
+    // is shown — the viewer may have turned subtitles off or picked a track
+    if (_asrPublished && captionIndex.value != -2) return;
     // each of these reloads the track and blinks whatever is on screen
     if (!shouldPublishAsr(
       publishedTo: _asrPublishedTo,
       // the player counts whole seconds
       position: Duration(seconds: plPlayerController.position.value),
-      isFirst: captionIndex.value != -2,
+      isFirst: !_asrPublished,
       isFinal: isFinal,
     )) {
       return;
@@ -752,6 +789,7 @@ class YtVideoController extends GetxController {
         uri: true,
       ),
     );
+    _asrPublished = true;
     captionIndex.value = -2;
   }
 
@@ -809,8 +847,15 @@ class YtVideoController extends GetxController {
   Future<bool> _translateCaptions(int index) async {
     var content = _captionCache[index];
     if (content == null) {
+      final stops = _translationStops;
       final result = await router.run((s) => s.captionContent(captions[index]));
-      if (isClosed) return false;
+      // gone, or stopped while fetching: nothing more to do, and above all
+      // no falling back to transcription
+      if (isClosed) return true;
+      if (stops != _translationStops) {
+        _closeAsrGate();
+        return true;
+      }
       content = result.ok ? result.value : null;
       if (content != null) _captionCache[index] = content;
     }
@@ -825,7 +870,12 @@ class YtVideoController extends GetxController {
   }
 
   /// See [VideoDetailController.startTranslation].
-  Future<void> startTranslation() async {
+  ///
+  /// [mayTranscribe] asks whether falling back to transcription may fetch
+  /// the recogniser's models; without it, missing models are not fetched.
+  Future<void> startTranslation({
+    Future<bool> Function()? mayTranscribe,
+  }) async {
     if (asrSession.value == null) {
       if (captionToTranslate case final index?) {
         if (await _translateCaptions(index)) return;
@@ -834,6 +884,13 @@ class YtVideoController extends GetxController {
     _translationRequested = true;
     final session = asrSession.value;
     if (session == null || session.state.value.stage == AsrStage.failed) {
+      // captions that could not be fetched land here too, and the menu has
+      // not asked about the recogniser's download for them
+      if (!AsrService.to.modelsReady &&
+          (mayTranscribe == null || !await mayTranscribe())) {
+        return;
+      }
+      if (isClosed) return;
       await startAsr();
       _translationRequested = true;
       return;
@@ -850,6 +907,7 @@ class YtVideoController extends GetxController {
 
   /// Stops translating and goes back to what was shown before.
   Future<void> stopTranslation() async {
+    _translationStops++;
     _translationRequested = false;
     // nor does automatic translation start it again
     _autoTranslateOff = true;
@@ -860,13 +918,49 @@ class YtVideoController extends GetxController {
 
   void _publishTranslation(String vtt, {required bool first}) {
     final player = plPlayerController.videoPlayerController;
-    if (player == null || isClosed) return;
+    if (player == null || isClosed || !_ownsPlayer || _viewerChose) return;
     // shown the first time; after that refreshed only while it is still what
     // is shown — the viewer may have turned subtitles off or picked a track
     if (!first && captionIndex.value != -2) return;
     player.setSubtitleTrack(
       SubtitleTrack('memory://$vtt', '翻译', 'asr-translated', uri: true),
     );
+    captionIndex.value = -2;
+  }
+
+  /// What [showGenerated] would put back on screen while the viewer has it
+  /// hidden — 显示翻译 or 显示转录 — or null when it is shown or there is
+  /// nothing to show.
+  String? get showGeneratedLabel {
+    if (captionIndex.value == -2) return null;
+    if (_showingTranslation) return '显示翻译';
+    final session = asrSession.value;
+    if (session != null && session.cues.isNotEmpty) return '显示转录';
+    return null;
+  }
+
+  /// Shows the translation, or else the transcript, again after the viewer
+  /// hid it: both went on running, and what they have now is shown at once.
+  void showGenerated() {
+    _viewerChose = false;
+    final player = plPlayerController.videoPlayerController;
+    if (player == null || isClosed || !_ownsPlayer) return;
+    if (_showingTranslation) {
+      if (translation.currentVtt case final vtt?) {
+        player.setSubtitleTrack(
+          SubtitleTrack('memory://$vtt', '翻译', 'asr-translated', uri: true),
+        );
+        captionIndex.value = -2;
+      }
+      return;
+    }
+    final cues = asrSession.value?.cues;
+    if (cues == null || cues.isEmpty) return;
+    _asrPublishedTo = Duration(milliseconds: (cues.last.to * 1000).round());
+    player.setSubtitleTrack(
+      SubtitleTrack('memory://${cues.toVtt()}', '语音识别', 'asr', uri: true),
+    );
+    _asrPublished = true;
     captionIndex.value = -2;
   }
 

@@ -1189,6 +1189,8 @@ class _YtVideoPageState extends State<YtVideoPage>
             // whether it is running
             final session = controller.asrSession.value;
             final translation = controller.translation.session.value;
+            // hidden by the viewer but still there, and still being made
+            final showLabel = controller.showGeneratedLabel;
             return _popup<int>(
               tooltip: '字幕',
               initialValue: index,
@@ -1208,8 +1210,14 @@ class _YtVideoPageState extends State<YtVideoPage>
                     label: TranslateEntry.menuLabel(translation),
                     enabled: true,
                   ),
+                if (showLabel != null)
+                  (value: _showValue, label: showLabel, enabled: true),
               ],
               onSelected: (value) {
+                if (value == _showValue) {
+                  controller.showGenerated();
+                  return;
+                }
                 if (value == _translateValue) {
                   if (translation?.state.value.isBusy ?? false) {
                     controller.stopTranslation();
@@ -1294,6 +1302,7 @@ class _YtVideoPageState extends State<YtVideoPage>
   /// A value no caption index can take, for the transcription row.
   static const _transcribeValue = -99;
   static const _translateValue = -98;
+  static const _showValue = -97;
 
   /// The dark popup the bilibili bar uses for every one of these buttons.
   Widget _popup<T>({

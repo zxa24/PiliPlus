@@ -89,8 +89,29 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
   );
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) =>
-      _apply(lifecycle: state);
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _watchPlayback(state);
+    _apply(lifecycle: state);
+  }
+
+  Worker? _playback;
+
+  /// Away while something plays, nothing is stopped — and pausing it from
+  /// the notification afterwards, or reaching its end, brings no lifecycle
+  /// change and not necessarily a memory warning, while the foreground
+  /// service that protected the work goes. So the player is watched while
+  /// away, and the same check made again when it stops.
+  void _watchPlayback(AppLifecycleState state) {
+    _playback?.dispose();
+    _playback = null;
+    if (state == AppLifecycleState.resumed) return;
+    final player = PlPlayerController.instance;
+    if (player == null) return;
+    _playback = ever<PlayerStatus>(player.playerStatus, (status) {
+      if (status.isPlaying) return;
+      _apply(lifecycle: WidgetsBinding.instance.lifecycleState);
+    });
+  }
 
   void _apply({bool memoryPressure = false, AppLifecycleState? lifecycle}) {
     // lazily registered and never created means nothing can be running, and

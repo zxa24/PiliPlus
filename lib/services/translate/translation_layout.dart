@@ -50,17 +50,21 @@ typedef TranslationResults = Map<int, String?>;
 /// each, by index. [trailing] are cues the recogniser has produced that are
 /// not in a unit yet; they are shown as waiting. The result is laid out
 /// the same way a transcript is (small holes closed, no overlaps).
+///
+/// Without [markPending] nothing is shown as waiting: a translation that has
+/// failed will not fill those lines in, so they are shown as they are.
 List<AsrCue> layOutTranslation({
   required List<TranslationUnit> units,
   required TranslationResults results,
   List<AsrCue> trailing = const [],
   TranslationDisplay display = TranslationDisplay.translated,
+  bool markPending = true,
 }) {
   final out = <AsrCue>[];
   for (var i = 0; i < units.length; i++) {
     final unit = units[i];
     if (!results.containsKey(i)) {
-      out.addAll(_pending(unit.cues));
+      out.addAll(markPending ? _pending(unit.cues) : unit.cues);
       continue;
     }
     final text = results[i];
@@ -97,7 +101,7 @@ List<AsrCue> layOutTranslation({
           : lines,
     );
   }
-  out.addAll(_pending(trailing));
+  out.addAll(markPending ? _pending(trailing) : trailing);
   return AsrCueBuilder.layOut(out);
 }
 

@@ -165,17 +165,25 @@ class TranslationTrack {
           _ready();
           publish(isFinal: true);
         case TranslationStage.failed:
+          // nothing more is coming: the timer would go on handing over lines
+          // marked as waiting, over whatever the page puts back
+          _refresh?.cancel();
+          _refresh = null;
           _ready();
+          // a track already handed over keeps what was translated, without
+          // the marks on lines that never will be
+          if (_published) {
+            onPublish(
+              current.cues(display: _display, markPending: false).toVtt(),
+              first: false,
+            );
+          }
           onFailed(state.message ?? '');
         case _:
           break;
       }
     }
 
-    _stateWorker = ever(current.state, onState);
-    // an empty transcript is done before the service even hands the session
-    // over, and a worker only hears later changes
-    onState(current.state.value);
     // the playhead moves without telling anyone; check on a timer too
     final started = DateTime.now();
     _refresh = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -186,6 +194,11 @@ class TranslationTrack {
       }
       if (_readySent) publish();
     });
+    _stateWorker = ever(current.state, onState);
+    // an empty transcript is done before the service even hands the session
+    // over, and a worker only hears later changes. After the timer: one that
+    // has failed by now stops it.
+    onState(current.state.value);
   }
 
   /// How much translated speech must lie ahead before the page stops
@@ -211,15 +224,32 @@ class TranslationTrack {
     onReady();
   }
 
+  static TranslationDisplay get _display => Pref.translateDual
+      ? TranslationDisplay.dual
+      : TranslationDisplay.translated;
+
+  /// The track as it stands, for a page showing it again after the viewer
+  /// hid it: the translation went on meanwhile, and what it has is shown at
+  /// once. Null with nothing to show.
+  String? get currentVtt {
+    final current = session.value;
+    if (current == null) return null;
+    final cues = current.cues(
+      display: _display,
+      markPending: current.state.value.stage != TranslationStage.failed,
+    );
+    return cues.isEmpty ? null : cues.toVtt();
+  }
+
   /// Rebuilds and hands over the track if the viewer would gain from it.
   void publish({bool isFinal = false}) {
     final current = session.value;
-    if (current == null) return;
-    final cues = current.cues(
-      display: Pref.translateDual
-          ? TranslationDisplay.dual
-          : TranslationDisplay.translated,
-    );
+    // a failed one has had its last publication (see [_attach])
+    if (current == null ||
+        current.state.value.stage == TranslationStage.failed) {
+      return;
+    }
+    final cues = current.cues(display: _display);
     if (cues.isEmpty) return;
     final now = position();
     final at = _publishedAt;

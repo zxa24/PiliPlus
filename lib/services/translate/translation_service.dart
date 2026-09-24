@@ -50,7 +50,17 @@ class TranslationService extends GetxService {
 
   int get downloadSize => modelReady ? 0 : model.totalSize;
 
-  bool get isBusy => _current?.isRunning ?? false;
+  /// Starts asked for and not yet running: queued behind [_starting], or
+  /// waiting for their predecessor to let go of its model.
+  var _pending = 0;
+
+  /// Bumped by a stop of everything — memory, the background, the model
+  /// being deleted — so a start asked for before it does not go on to load
+  /// the model after it. [_stopReason] is what that start reports.
+  var _stops = 0;
+  String? _stopReason;
+
+  bool get isBusy => _pending > 0 || (_current?.isRunning ?? false);
 
   /// The language translations are made into: the app's.
   String get target => AsrService.appLanguage;
@@ -102,7 +112,11 @@ class TranslationService extends GetxService {
     TranscriptView transcript,
     double Function() position,
   ) {
-    final started = _starting.then((_) => _startNow(transcript, position));
+    final stops = _stops;
+    _pending++;
+    final started = _starting.then(
+      (_) => _startNow(transcript, position, stops),
+    );
     _starting = started.then((_) {}, onError: (_) {});
     return started;
   }
@@ -110,10 +124,23 @@ class TranslationService extends GetxService {
   Future<TranslationSession> _startNow(
     TranscriptView transcript,
     double Function() position,
+    int stops,
   ) async {
-    // the page whose translation this replaces has to hear it ended
-    await stop(reason: '已被另一个翻译取代');
-    await _disposing;
+    try {
+      // the page whose translation this replaces has to hear it ended
+      await _stop(reason: '已被另一个翻译取代');
+      await _disposing;
+      return _create(transcript, position, stopped: stops != _stops);
+    } finally {
+      _pending--;
+    }
+  }
+
+  TranslationSession _create(
+    TranscriptView transcript,
+    double Function() position, {
+    required bool stopped,
+  }) {
     // read once: a change of model in settings mid-start must not load one
     // file while checking and downloading another
     final model = this.model;
@@ -140,6 +167,12 @@ class TranslationService extends GetxService {
       },
       target: target,
     );
+    if (stopped) {
+      // stopped before it began: nothing is loaded, and its page hears why
+      // as it would have had it been running
+      session.fail(_stopReason ?? '');
+      return session;
+    }
     _current = session;
     session.start();
     return session;
@@ -150,7 +183,21 @@ class TranslationService extends GetxService {
   ///
   /// With [only], nothing happens unless that is the current translation: a
   /// page stopping its own must not stop another page's that replaced it.
+  ///
+  /// Without [only] it reaches starts not yet running as well, and waits
+  /// until every stopped session has let go of the model file.
   Future<void> stop({String? reason, TranslationSession? only}) async {
+    if (only == null) {
+      _stops++;
+      _stopReason = reason;
+    }
+    await _stop(reason: reason, only: only);
+    // one replaced earlier may still have the file mapped, and the model
+    // being deleted is one of the reasons to stop everything
+    if (only == null) await _disposing;
+  }
+
+  Future<void> _stop({String? reason, TranslationSession? only}) async {
     final session = _current;
     if (only != null && session != only) return;
     _current = null;

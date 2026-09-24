@@ -86,9 +86,15 @@ abstract final class TranslateEntry {
   /// Asks what still needs asking, then [start]s. [needsTranscript] is true
   /// when no transcript exists yet, in which case the transcription's own
   /// questions come after these.
+  ///
+  /// [start] is handed a way to ask whether it may transcribe after all:
+  /// captions to translate need no transcript — unless they cannot be
+  /// fetched and the page falls back to transcribing, which then asks what
+  /// any start of transcription asks before it downloads anything. Scoped to
+  /// this one start, so an overlapping one cannot take it away.
   static Future<void> startFor(
     BuildContext context,
-    Future<void> Function() start, {
+    Future<void> Function({Future<bool> Function()? mayTranscribe}) start, {
     required bool needsTranscript,
   }) async {
     final service = TranslationService.to;
@@ -101,9 +107,20 @@ abstract final class TranslateEntry {
       if (!context.mounted) return;
     }
     if (needsTranscript && !AsrService.to.modelsReady) {
-      return AsrEntry.startFor(context, start);
+      // asked just now, by the transcription's own questions
+      return AsrEntry.startFor(
+        context,
+        () => start(mayTranscribe: () async => true),
+      );
     }
-    await start();
+    await start(
+      mayTranscribe: () async {
+        if (!context.mounted) return false;
+        var proceed = false;
+        await AsrEntry.startFor(context, () async => proceed = true);
+        return proceed;
+      },
+    );
   }
 
   static Future<void> _askForMode(BuildContext context) async {
