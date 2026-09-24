@@ -119,32 +119,45 @@ class TranslationTrack {
   /// ignored.
   bool get isActive => _starting == _generation || session.value != null;
 
-  /// Translates a transcript as it is being written.
-  Future<void> start(AsrSession asr) => _startWith(
+  /// The language the translation being shown or started is in. Null
+  /// before the first start.
+  String? get into => _into;
+  String? _into;
+
+  /// Translates a transcript as it is being written, into [into] (the app's
+  /// language by default).
+  Future<void> start(AsrSession asr, {String? into}) => _startWith(
+    into,
     () => TranslationService.to.start(
       asr: asr,
       position: position,
       ownsPlayer: ownsPlayer,
+      into: into,
     ),
     onAttach: (current) => _cueSub = asr.cues.listen((_) => current.poke()),
   );
 
-  /// Translates a video's own captions.
-  Future<void> startCaptions(List<AsrCue> cues) => _startWith(
+  /// Translates a video's own captions, into [into] (the app's language by
+  /// default).
+  Future<void> startCaptions(List<AsrCue> cues, {String? into}) => _startWith(
+    into,
     () => TranslationService.to.startCaptions(
       cues: cues,
       position: position,
       ownsPlayer: ownsPlayer,
+      into: into,
     ),
   );
 
   Future<void> _startWith(
+    String? into,
     Future<TranslationSession> Function() create, {
     void Function(TranslationSession current)? onAttach,
   }) async {
     // taken before anything is awaited: a stop that lands while the one
     // before this is being torn down must still count
     final generation = _starting = ++_generation;
+    _into = into ?? TranslationService.to.target;
     try {
       await _detach();
       if (generation != _generation) return;

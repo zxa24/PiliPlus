@@ -14,6 +14,51 @@ AsrCue cue(double from, double to, String text) =>
 void main() {
   setUpAll(() => appSupportDirPath = Directory.systemTemp.path);
 
+  group('TranslationService: the language translated into', () {
+    late TranslationService service;
+    late List<FakeEngine> engines;
+    final cues = [cue(0, 3, 'Bonjour.')];
+
+    setUp(() {
+      engines = [];
+      service = TranslationService()
+        ..debugEngine = (_) async {
+          final engine = FakeEngine();
+          engines.add(engine);
+          return engine;
+        };
+    });
+
+    tearDown(() => service.stop(paused: true));
+
+    test("the app's unless another is asked for", () async {
+      final own = await service.startCaptions(cues: cues, position: () => 0);
+      expect(own.target, service.target);
+      final other = await service.startCaptions(
+        cues: cues,
+        position: () => 0,
+        into: 'fr',
+      );
+      expect(other.target, 'fr');
+      await pumpUntil(
+        () => engines.length == 2 && engines.last.prompts.isNotEmpty,
+      );
+      expect(
+        engines.last.prompts.single,
+        startsWith('Translate the following text into French. '),
+      );
+    });
+
+    test(
+      'whether a language needs translating depends on the one asked for',
+      () {
+        expect(service.needed('fr', into: 'fr'), isFalse);
+        expect(service.needed('en', into: 'fr'), isTrue);
+        expect(service.needed('zh'), isFalse);
+      },
+    );
+  });
+
   group('TranslationService: a page covered by another video', () {
     late TranslationService service;
     late List<FakeEngine> engines;

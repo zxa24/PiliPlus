@@ -78,14 +78,16 @@ class TranslationService extends GetxService {
 
   bool get isBusy => _pending > 0 || (_current?.isRunning ?? false);
 
-  /// The language translations are made into: the app's.
+  /// The language translations are made into unless another is asked for:
+  /// the app's.
   String get target => AsrService.appLanguage;
 
-  /// Whether a transcript in [spoken] needs translating at all.
-  bool needed(String? spoken) =>
+  /// Whether a transcript in [spoken] needs translating into [into] (the
+  /// app's language by default) at all.
+  bool needed(String? spoken, {String? into}) =>
       spoken != null &&
       spoken.isNotEmpty &&
-      !AsrService.isSameMajorLanguage(spoken, target);
+      !AsrService.isSameMajorLanguage(spoken, into ?? target);
 
   /// Whether the user chose automatic translation and it can run now.
   bool get shouldAutoTranslate =>
@@ -104,10 +106,13 @@ class TranslationService extends GetxService {
   ///
   /// [ownsPlayer] tells whether the page asking still has the player (see
   /// [TranslationSession.ownsPlayer]).
+  ///
+  /// [into] is the language to translate into, the app's by default.
   Future<TranslationSession> start({
     required AsrSession asr,
     required double Function() position,
     bool Function()? ownsPlayer,
+    String? into,
   }) => _start(
     transcriptView(
       segments: () => asr.segments,
@@ -116,6 +121,7 @@ class TranslationService extends GetxService {
     ),
     position,
     ownsPlayer,
+    into ?? target,
   );
 
   /// Starts translating a video's own captions, all known up front.
@@ -123,12 +129,14 @@ class TranslationService extends GetxService {
     required List<AsrCue> cues,
     required double Function() position,
     bool Function()? ownsPlayer,
+    String? into,
   }) {
     final units = buildCaptionUnits(cues);
     return _start(
       (units: () => units, cues: () => cues, complete: () => true),
       position,
       ownsPlayer,
+      into ?? target,
     );
   }
 
@@ -136,11 +144,12 @@ class TranslationService extends GetxService {
     TranscriptView transcript,
     double Function() position,
     bool Function()? ownsPlayer,
+    String into,
   ) {
     final stops = _stops;
     _pending++;
     final started = _starting.then(
-      (_) => _startNow(transcript, position, ownsPlayer, stops),
+      (_) => _startNow(transcript, position, ownsPlayer, into, stops),
     );
     _starting = started.then((_) {}, onError: (_) {});
     return started;
@@ -150,6 +159,7 @@ class TranslationService extends GetxService {
     TranscriptView transcript,
     double Function() position,
     bool Function()? ownsPlayer,
+    String into,
     int stops,
   ) async {
     try {
@@ -162,6 +172,7 @@ class TranslationService extends GetxService {
         transcript,
         position,
         ownsPlayer,
+        into,
         stopped: stops != _stops,
       );
     } finally {
@@ -209,14 +220,15 @@ class TranslationService extends GetxService {
   TranslationSession _create(
     TranscriptView transcript,
     double Function() position,
-    bool Function()? ownsPlayer, {
+    bool Function()? ownsPlayer,
+    String into, {
     required bool stopped,
   }) {
     final session = TranslationSession(
       transcript: transcript,
       position: position,
       engine: debugEngine ?? _loader(),
-      target: target,
+      target: into,
       ownsPlayer: ownsPlayer,
     )..claim = _claim;
     if (stopped) {

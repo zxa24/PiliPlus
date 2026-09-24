@@ -42,14 +42,36 @@ String translationPrompt(
 }) => switch (target) {
   'zh' => '将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释：\n\n$text',
   _ =>
-    'Translate the following text into ${_languageNames[target] ?? target}. '
+    'Translate the following text into ${translationLanguageNames[target] ?? target}. '
         'Output only the translation, with no explanation:\n\n$text',
 };
 
-const _languageNames = {
+/// The languages offered to translate into besides Chinese, named as they
+/// were when each passed on FLORES (research/translation-targets-
+/// 2026-09-24.md, Gemma 4 E2B, English/Japanese/Chinese sources). Traditional
+/// Chinese is not asked of the model: it wrote simplified characters too
+/// often, and is converted from the Chinese translation instead.
+const translationLanguageNames = {
   'en': 'English',
   'ja': 'Japanese',
   'ko': 'Korean',
+  'fr': 'French',
+  'de': 'German',
+  'es': 'Spanish',
+  'pt': 'Portuguese',
+  'it': 'Italian',
+  'ru': 'Russian',
+  'ar': 'Arabic',
+  'hi': 'Hindi',
+  'id': 'Indonesian',
+  'vi': 'Vietnamese',
+  'th': 'Thai',
+  'tr': 'Turkish',
+  'pl': 'Polish',
+  'nl': 'Dutch',
+  'uk': 'Ukrainian',
+  'ms': 'Malay',
+  'fil': 'Filipino',
 };
 
 final _think = RegExp(r'<think>.*?</think>', dotAll: true);
