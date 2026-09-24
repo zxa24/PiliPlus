@@ -8,9 +8,11 @@ library;
 import 'dart:io';
 
 import 'package:PiliPlus/models/common/translate_mode.dart';
+import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/llama_engine.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -48,12 +50,14 @@ class TranslationService extends GetxService {
       spoken.isNotEmpty &&
       !AsrService.isSameMajorLanguage(spoken, target);
 
-  /// Whether [spoken] should be translated without being asked.
-  bool shouldAutoStart(String? spoken) =>
+  /// Whether the user chose automatic translation and it can run now.
+  bool get shouldAutoTranslate =>
       Pref.translateAsked &&
       Pref.translateMode == TranslateMode.auto &&
-      modelReady &&
-      needed(spoken);
+      modelReady;
+
+  /// Whether [spoken] should be translated without being asked.
+  bool shouldAutoStart(String? spoken) => shouldAutoTranslate && needed(spoken);
 
   /// Starts translating [asr], replacing whatever was running.
   ///
@@ -62,15 +66,35 @@ class TranslationService extends GetxService {
   Future<TranslationSession> start({
     required AsrSession asr,
     required double Function() position,
-  }) async {
+  }) => _start(
+    transcriptView(
+      segments: () => asr.segments,
+      cues: () => asr.cues,
+      complete: () => asr.state.value.stage == AsrStage.done,
+    ),
+    position,
+  );
+
+  /// Starts translating a video's own captions, all known up front.
+  Future<TranslationSession> startCaptions({
+    required List<AsrCue> cues,
+    required double Function() position,
+  }) {
+    final units = buildCaptionUnits(cues);
+    return _start(
+      (units: () => units, cues: () => cues, complete: () => true),
+      position,
+    );
+  }
+
+  Future<TranslationSession> _start(
+    TranscriptView transcript,
+    double Function() position,
+  ) async {
     await stop();
     final file = store.fileOf(model, model.files.first).path;
     final session = TranslationSession(
-      transcript: (
-        segments: () => asr.segments,
-        cues: () => asr.cues,
-        complete: () => asr.state.value.stage == AsrStage.done,
-      ),
+      transcript: transcript,
       position: position,
       engine: (report) async {
         if (!store.isInstalled(model)) {

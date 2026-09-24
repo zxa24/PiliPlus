@@ -94,14 +94,30 @@ class TranslationTrack {
 
   bool get isRunning => session.value?.isRunning ?? false;
 
+  /// Translates a transcript as it is being written.
   Future<void> start(AsrSession asr) async {
     await stop();
     final current = await TranslationService.to.start(
       asr: asr,
       position: position,
     );
-    session.value = current;
     _cueSub = asr.cues.listen((_) => current.poke());
+    _attach(current);
+  }
+
+  /// Translates a video's own captions.
+  Future<void> startCaptions(List<AsrCue> cues) async {
+    await stop();
+    _attach(
+      await TranslationService.to.startCaptions(
+        cues: cues,
+        position: position,
+      ),
+    );
+  }
+
+  void _attach(TranslationSession current) {
+    session.value = current;
     _revisionWorker = ever(current.revision, (_) {
       // Ready once there is a stretch ahead to watch, not at the first line:
       // released at one unit, a real run reached the next one — still

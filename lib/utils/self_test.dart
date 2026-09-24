@@ -471,7 +471,7 @@ abstract final class SelfTest {
                 hold,
                 auto: args.contains('--auto'),
               )
-            : _translatePage(video, hold),
+            : _translatePage(video, hold, auto: args.contains('--auto')),
       );
     }
     if (_arg(args, '--translate-probe') case final gguf?) {
@@ -1554,20 +1554,40 @@ abstract final class SelfTest {
   /// handing the player the translated track in place of the transcript.
   static Future<Map<String, dynamic>> _translatePage(
     String input,
-    int holdSeconds,
-  ) async {
+    int holdSeconds, {
+    required bool auto,
+  }) async {
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
+    if (auto) await _enableAutoTranslation();
     final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final started = DateTime.now();
     unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
-    await Future.delayed(const Duration(seconds: 4));
+    await Future.delayed(const Duration(seconds: 2));
     final controller = Get.find<YtVideoController>(tag: videoId);
+    int? gateOpenedMs;
+    int? gateClosedMs;
+    final gate = ever(controller.asrPending, (pending) {
+      final ms = DateTime.now().difference(started).inMilliseconds;
+      if (pending) {
+        gateOpenedMs ??= ms;
+      } else if (gateOpenedMs != null) {
+        gateClosedMs ??= ms;
+      }
+    });
+    // it may have started waiting before the listener was attached
+    if (controller.asrPending.value) {
+      gateOpenedMs ??= DateTime.now().difference(started).inMilliseconds;
+    }
     for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
       await Future.delayed(const Duration(seconds: 1));
     }
-    final started = DateTime.now();
-    await controller.startTranslation();
+    final ownCaptions = [
+      for (final c in controller.captions)
+        '${c.languageCode}${c.isAutomatic ? '(auto)' : ''}',
+    ];
+    if (!auto) await controller.startTranslation();
     int? firstTranslatedMs;
     final shown = <String>[];
     for (var i = 0; i < holdSeconds; i++) {
@@ -1584,6 +1604,7 @@ abstract final class SelfTest {
       }
       if (shown.isEmpty || shown.last != '$title') shown.add('$title');
     }
+    gate.dispose();
     final session = controller.translation.session.value;
     final translated = session?.results.values.whereType<String>().toList();
     final hasChinese =
@@ -1595,6 +1616,14 @@ abstract final class SelfTest {
           hasChinese &&
           controller.captionIndex.value == -2,
       'videoId': videoId,
+      'mode': auto ? 'auto' : 'menu',
+      'videoOwnCaptions': ownCaptions,
+      // the video's own captions when it has foreign ones, else a transcript
+      'translated': controller.asrSession.value == null
+          ? 'captions'
+          : 'transcript',
+      'gateOpenedMs': gateOpenedMs,
+      'gateClosedMs': gateClosedMs,
       'asrLanguage': controller.asrSession.value?.state.value.language,
       'translationStage': session?.state.value.stage.name,
       'msToTranslatedTrack': firstTranslatedMs,
@@ -1624,14 +1653,7 @@ abstract final class SelfTest {
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
-    if (auto) {
-      await GStorage.setting.putAll({
-        SettingBoxKey.asrAsked: true,
-        SettingBoxKey.asrMode: AsrMode.foreign.index,
-        SettingBoxKey.translateAsked: true,
-        SettingBoxKey.translateMode: TranslateMode.auto.index,
-      });
-    }
+    if (auto) await _enableAutoTranslation();
     final opened = DateTime.now();
     int ms() => DateTime.now().difference(opened).inMilliseconds;
     await PiliScheme.routePushFromUrl(url);
@@ -1704,6 +1726,16 @@ abstract final class SelfTest {
     Get.back();
     return result;
   }
+
+  /// Automatic transcription and translation on, in the self-test profile's
+  /// own settings (the profile has its own storage; the user's are not
+  /// touched).
+  static Future<void> _enableAutoTranslation() => GStorage.setting.putAll({
+    SettingBoxKey.asrAsked: true,
+    SettingBoxKey.asrMode: AsrMode.foreign.index,
+    SettingBoxKey.translateAsked: true,
+    SettingBoxKey.translateMode: TranslateMode.auto.index,
+  });
 
   /// The text of the VTT cue showing at [seconds], if any.
   static String? _vttLineAt(String vtt, double seconds) {

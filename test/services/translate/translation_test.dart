@@ -342,7 +342,7 @@ void main() {
     late FakeEngine engine;
 
     TranslationSession make() => TranslationSession(
-      transcript: (
+      transcript: transcriptView(
         segments: () => segments,
         cues: () => cues,
         complete: () => complete,

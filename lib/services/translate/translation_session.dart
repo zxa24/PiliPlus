@@ -45,14 +45,33 @@ class TranslationState {
       stage == TranslationStage.waiting;
 }
 
-/// What the session reads from the transcript it translates.
+/// What the session reads from the text it translates: a transcript still
+/// being written, or a video's own captions.
 typedef TranscriptView = ({
-  List<AsrSegmentSpan> Function() segments,
+  /// The settled units so far; later calls return the same ones first.
+  List<TranslationUnit> Function() units,
+
+  /// Every source line so far, including those not in a unit yet.
   List<AsrCue> Function() cues,
 
-  /// True once the recogniser has finished: the last unit can be settled.
+  /// True once no more text is coming: the last unit is settled.
   bool Function() complete,
 });
+
+/// A transcript as a [TranscriptView]: units along its VAD segments.
+TranscriptView transcriptView({
+  required List<AsrSegmentSpan> Function() segments,
+  required List<AsrCue> Function() cues,
+  required bool Function() complete,
+}) => (
+  units: () => buildTranslationUnits(
+    segments: segments(),
+    cues: cues(),
+    complete: complete(),
+  ),
+  cues: cues,
+  complete: complete,
+);
 
 class TranslationSession {
   TranslationSession({
@@ -155,13 +174,7 @@ class TranslationSession {
     return null;
   }
 
-  void _refreshUnits() {
-    units = buildTranslationUnits(
-      segments: transcript.segments(),
-      cues: transcript.cues(),
-      complete: transcript.complete(),
-    );
-  }
+  void _refreshUnits() => units = transcript.units();
 
   /// Marks the session failed with [reason], for a stop the page must hear
   /// about (see TranslationService.stop).

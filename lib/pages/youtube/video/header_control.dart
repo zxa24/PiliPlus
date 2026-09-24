@@ -224,8 +224,12 @@ class YtHeaderControlState extends State<YtHeaderControl>
                       ? ShutdownPanel(
                           buildCountdownText: (text) =>
                               Text(text == null ? '已结束' : '剩余 $text'),
-                          builder: (context, countdown, onCountdown, setState) =>
-                              countdown,
+                          builder: (
+                            context,
+                            countdown,
+                            onCountdown,
+                            setState,
+                          ) => countdown,
                         )
                       : null,
                 ),
@@ -269,7 +273,8 @@ class YtHeaderControlState extends State<YtHeaderControl>
                   descStyle: subTitleStyle,
                 ),
                 if (PlatformUtils.isMobile)
-                  if (plPlayerController.videoPlayerController case final player?)
+                  if (plPlayerController.videoPlayerController
+                      case final player?)
                     Builder(
                       builder: (context) => ListTile(
                         dense: true,
@@ -401,7 +406,9 @@ class YtHeaderControlState extends State<YtHeaderControl>
                       TranslateEntry.startFor(
                         this.context,
                         controller.startTranslation,
-                        needsTranscript: controller.asrSession.value == null,
+                        needsTranscript:
+                            controller.asrSession.value == null &&
+                            controller.captionToTranslate == null,
                       );
                     },
                     onStop: () {
@@ -414,8 +421,10 @@ class YtHeaderControlState extends State<YtHeaderControl>
                     dense: true,
                     leading: const Icon(Icons.info_outline, size: 20),
                     title: const Text('播放信息', style: titleStyle),
-                    onTap: () =>
-                        HeaderControlState.showPlayerInfo(context, player: player),
+                    onTap: () => HeaderControlState.showPlayerInfo(
+                      context,
+                      player: player,
+                    ),
                   ),
               ],
             ),

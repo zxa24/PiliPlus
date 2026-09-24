@@ -14,6 +14,7 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
@@ -561,10 +562,23 @@ class YtVideoController extends GetxController {
     onReady: _closeAsrGate,
     onFailed: (message) {
       SmartDialog.showToast('翻译失败：$message');
-      // back to the transcript, which stopped being published meanwhile
-      _publishAsrSubtitle(isFinal: true);
+      _showUntranslated();
     },
   );
+
+  /// The caption track being translated, when it is the video's own.
+  int? _translatedCaption;
+
+  /// Back to what was there before the translation took its place: the
+  /// caption track it was made from, or the transcript.
+  void _showUntranslated() {
+    if (_translatedCaption case final index?) {
+      setCaption(index);
+    } else {
+      _publishAsrSubtitle(isFinal: true);
+    }
+  }
+
   var _gateOnTranslation = false;
   var _translationRequested = false;
 
@@ -637,6 +651,7 @@ class YtVideoController extends GetxController {
   Future<void> stopAsr() async {
     _closeAsrGate();
     _gateOnTranslation = false;
+    _translatedCaption = null;
     _translationRequested = false;
     await translation.stop();
     _asrRefresh?.cancel();
@@ -674,8 +689,12 @@ class YtVideoController extends GetxController {
       milliseconds: (session.cues.last.to * 1000).round(),
     );
     player.setSubtitleTrack(
-      SubtitleTrack('memory://${session.cues.toVtt()}', '语音识别', 'asr',
-          uri: true),
+      SubtitleTrack(
+        'memory://${session.cues.toVtt()}',
+        '语音识别',
+        'asr',
+        uri: true,
+      ),
     );
     captionIndex.value = -2;
   }
@@ -696,8 +715,52 @@ class YtVideoController extends GetxController {
     translation.start(session);
   }
 
+  /// See [VideoDetailController.captionToTranslate].
+  int? get captionToTranslate => pickCaptionToTranslate(
+    [
+      for (final c in captions)
+        (language: c.languageCode, generated: c.isAutomatic),
+    ],
+    appLanguage: AsrService.appLanguage,
+  );
+
+  /// See [VideoDetailController._maybeAutoTranslateCaptions].
+  void _maybeAutoTranslateCaptions() {
+    if (translation.session.value != null || isClosed) return;
+    if (!Get.isRegistered<TranslationService>()) return;
+    if (!TranslationService.to.shouldAutoTranslate) return;
+    final index = captionToTranslate;
+    if (index == null) return;
+    _openAsrGate();
+    _gateOnTranslation = true;
+    _translateCaptions(index);
+  }
+
+  Future<bool> _translateCaptions(int index) async {
+    var content = _captionCache[index];
+    if (content == null) {
+      final result = await router.run((s) => s.captionContent(captions[index]));
+      if (isClosed) return false;
+      content = result.ok ? result.value : null;
+      if (content != null) _captionCache[index] = content;
+    }
+    final cues = content == null ? const <AsrCue>[] : parseCaptionCues(content);
+    if (cues.isEmpty) {
+      _closeAsrGate();
+      return false;
+    }
+    _translatedCaption = index;
+    await translation.startCaptions(cues);
+    return true;
+  }
+
   /// See [VideoDetailController.startTranslation].
   Future<void> startTranslation() async {
+    if (asrSession.value == null) {
+      if (captionToTranslate case final index?) {
+        if (await _translateCaptions(index)) return;
+      }
+    }
     _translationRequested = true;
     final session = asrSession.value;
     if (session == null || session.state.value.stage == AsrStage.failed) {
@@ -713,11 +776,12 @@ class YtVideoController extends GetxController {
     _maybeTranslate(session, auto: false);
   }
 
-  /// Stops translating and goes back to showing the transcript.
+  /// Stops translating and goes back to what was shown before.
   Future<void> stopTranslation() async {
     _translationRequested = false;
     await translation.stop();
-    _publishAsrSubtitle(isFinal: true);
+    _showUntranslated();
+    _translatedCaption = null;
   }
 
   void _publishTranslation(String vtt, {required bool first}) {
@@ -733,6 +797,8 @@ class YtVideoController extends GetxController {
   /// for that. A video with captions is left alone: YouTube's own are better
   /// than ours and cost nothing.
   void _maybeAutoTranscribe() {
+    // captions in a language the user does not read are translated instead
+    _maybeAutoTranslateCaptions();
     if (!Get.isRegistered<AsrService>()) return;
     if (asrSession.value != null || !canTranscribe) return;
     if (!AsrService.to.shouldAutoStart(hasSubtitles: captions.isNotEmpty)) {

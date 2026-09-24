@@ -59,6 +59,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
@@ -1380,6 +1381,9 @@ class VideoDetailController extends GetxController
   /// video has nothing of its own. Never asks anything here: an automatic run
   /// that popped a dialog would be worse than no automatic run.
   void _maybeAutoTranscribe() {
+    // a video with captions in a language the user does not read has them
+    // translated instead; transcription is for videos with none
+    _maybeAutoTranslateCaptions();
     if (!Get.isRegistered<AsrService>()) return;
     // the source is resolved by queryVideoUrl, the subtitles by
     // _queryPlayInfo: whichever finishes last is the one that starts this
@@ -1462,9 +1466,62 @@ class VideoDetailController extends GetxController
     translation.start(session);
   }
 
-  /// Translates the transcript from the menu: now if one is running or
-  /// finished, otherwise as soon as transcription has found the language.
+  /// The video's own track to translate, if one should be: none is in the
+  /// app's language, and one is in another (see [pickCaptionToTranslate]).
+  int? get captionToTranslate => pickCaptionToTranslate(
+    [
+      for (final s in subtitles)
+        (
+          // tracks made on the device are not the video's own
+          language: s.source == SubtitleSource.device ? '' : s.lan,
+          generated: s.isAi,
+        ),
+    ],
+    appLanguage: AsrService.appLanguage,
+  );
+
+  /// Translates the video's own foreign captions by itself when the user
+  /// chose automatic translation. Holds the page like an automatic
+  /// transcription does.
+  void _maybeAutoTranslateCaptions() {
+    if (translation.session.value != null || isClosed) return;
+    if (!Get.isRegistered<TranslationService>()) return;
+    if (!TranslationService.to.shouldAutoTranslate) return;
+    final index = captionToTranslate;
+    if (index == null) return;
+    _openAsrGate();
+    _gateOnTranslation = true;
+    _translateCaptions(index);
+  }
+
+  /// Fetches track [index] if need be and translates it.
+  Future<bool> _translateCaptions(int index) async {
+    var content = vttSubtitles[index]?.id;
+    if (content == null) {
+      final url = subtitles[index].subtitleUrl;
+      content = url == null ? null : await VideoHttp.getSubtitles(url);
+      if (isClosed) return false;
+      if (content != null) vttSubtitles[index] = (isData: true, id: content);
+    }
+    final cues = content == null ? const <AsrCue>[] : parseCaptionCues(content);
+    if (cues.isEmpty) {
+      _closeAsrGate();
+      return false;
+    }
+    await translation.startCaptions(cues);
+    return true;
+  }
+
+  /// Translates from the menu: the video's own captions when they are in a
+  /// language the user does not read, otherwise the transcript — now if one
+  /// is running or finished, else as soon as transcription has found the
+  /// language.
   Future<void> startTranslation() async {
+    if (asrSession.value == null) {
+      if (captionToTranslate case final index?) {
+        if (await _translateCaptions(index)) return;
+      }
+    }
     _translationRequested = true;
     final session = asrSession.value;
     if (session == null || session.state.value.stage == AsrStage.failed) {

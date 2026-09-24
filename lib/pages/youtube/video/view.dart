@@ -149,7 +149,10 @@ class _YtVideoPageState extends State<YtVideoPage>
         isScrollable: true,
         tabAlignment: TabAlignment.start,
         dividerHeight: 0,
-        tabs: const [Tab(text: '相关视频'), Tab(text: '评论')],
+        tabs: const [
+          Tab(text: '相关视频'),
+          Tab(text: '评论'),
+        ],
       ),
       Expanded(
         child: TabBarView(
@@ -274,7 +277,10 @@ class _YtVideoPageState extends State<YtVideoPage>
         isScrollable: true,
         tabAlignment: TabAlignment.start,
         dividerHeight: 0,
-        tabs: const [Tab(text: '简介'), Tab(text: '评论')],
+        tabs: const [
+          Tab(text: '简介'),
+          Tab(text: '评论'),
+        ],
       ),
       Expanded(
         child: TabBarView(
@@ -336,7 +342,8 @@ class _YtVideoPageState extends State<YtVideoPage>
                       ),
                     ),
                     Obx(() {
-                      final subscribers = controller.extra.value?.subscriberText;
+                      final subscribers =
+                          controller.extra.value?.subscriberText;
                       if (subscribers == null) return const SizedBox.shrink();
                       return Text(
                         subscribers,
@@ -577,8 +584,7 @@ class _YtVideoPageState extends State<YtVideoPage>
   /// sheet *inside* it, the way the bilibili page does it
   /// (reply/view.dart:245): the detail takes over the comment area and
   /// leaves the video where it is, rather than covering the window.
-  Widget _comments(ThemeData theme) =>
-      MiniScaffold(body: _commentList(theme));
+  Widget _comments(ThemeData theme) => MiniScaffold(body: _commentList(theme));
 
   Widget _commentList(ThemeData theme) => Obx(() {
     final items = controller.comments;
@@ -888,7 +894,9 @@ class _YtVideoPageState extends State<YtVideoPage>
       PageUtils.showVideoBottomSheet(
         host,
         maxWidth: 640,
-        child: Builder(builder: (context) => _threadPanel(context, comment, id)),
+        child: Builder(
+          builder: (context) => _threadPanel(context, comment, id),
+        ),
       );
       return;
     }
@@ -1209,7 +1217,9 @@ class _YtVideoPageState extends State<YtVideoPage>
                     TranslateEntry.startFor(
                       context,
                       controller.startTranslation,
-                      needsTranscript: session == null,
+                      needsTranscript:
+                          session == null &&
+                          controller.captionToTranslate == null,
                     );
                   }
                   return;

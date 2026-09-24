@@ -791,7 +791,9 @@ class HeaderControlState extends State<HeaderControl>
                       TranslateEntry.startFor(
                         context,
                         videoDetailCtr.startTranslation,
-                        needsTranscript: videoDetailCtr.asrSession.value == null,
+                        needsTranscript:
+                            videoDetailCtr.asrSession.value == null &&
+                            videoDetailCtr.captionToTranslate == null,
                       );
                     },
                     onStop: () {
