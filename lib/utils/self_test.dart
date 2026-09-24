@@ -77,6 +77,8 @@ import 'package:path/path.dart' as path;
 import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/utils/app_exit.dart';
+import 'package:PiliPlus/services/translate/llama_engine.dart';
+import 'package:PiliPlus/services/translate/translation_engine.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
 ///
@@ -442,6 +444,9 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--asr-latency') case final video?) {
       await scenario('asrLatency', () => _asrLatency(video));
+    }
+    if (_arg(args, '--translate-probe') case final gguf?) {
+      await scenario('translateProbe', () => _translateProbe(gguf));
     }
     if (_arg(args, '--caption-compare') case final video?) {
       await scenario('captionCompare', () => _captionCompare(video));
@@ -1008,6 +1013,73 @@ abstract final class SelfTest {
   /// For the translation benchmark: an author's track in another language
   /// is a human reference translation, and the automatic track is a clean
   /// source to set against our own recognised text.
+  /// Loads a translation model in the app process itself and translates a
+  /// few fixed lines, recording memory at each step.
+  ///
+  /// The benchmarks ran the model in a separate llama-server; this is the
+  /// same model through the path the app uses (llamadart, patched), which is
+  /// the only way to see what the app will actually hold — including whether
+  /// weight repacking is really off on a phone: with it on, anonymous memory
+  /// after loading grows by about 1.8 GB.
+  static Future<Map<String, dynamic>> _translateProbe(String gguf) async {
+    Map<String, Object?> memory() {
+      if (Platform.isAndroid || Platform.isLinux) {
+        final status = File('/proc/self/status').readAsLinesSync();
+        int? kb(String key) => int.tryParse(
+          status
+                  .firstWhere((l) => l.startsWith('$key:'), orElse: () => '')
+                  .replaceAll(RegExp(r'[^0-9]'), ''),
+        );
+        return {
+          'rssMb': (kb('VmRSS') ?? 0) ~/ 1024,
+          'anonMb': (kb('RssAnon') ?? 0) ~/ 1024,
+          'fileMb': (kb('RssFile') ?? 0) ~/ 1024,
+        };
+      }
+      return {'rssMb': ProcessInfo.currentRss ~/ (1024 * 1024)};
+    }
+
+    const lines = [
+      'My name is Kate. I am a designer.',
+      "But it's not really usable without this extra layer of instruction.",
+      '私はこの提案に賛成しません。',
+      '実は今日は朝早く起きることに成功して、セントラルパークに行くんです。',
+    ];
+    final before = memory();
+    final loadWatch = Stopwatch()..start();
+    final engine = await LlamaTranslationEngine.load(gguf);
+    final loadMs = loadWatch.elapsedMilliseconds;
+    final loaded = memory();
+    final outputs = <Map<String, Object?>>[];
+    try {
+      for (final line in lines) {
+        final watch = Stopwatch()..start();
+        final reply = await engine.complete(
+          translationPrompt(line, target: 'zh'),
+        );
+        outputs.add({
+          'source': line,
+          'reply': reply,
+          'cleaned': cleanTranslation(reply, source: line),
+          'ms': watch.elapsedMilliseconds,
+        });
+      }
+    } finally {
+      await engine.dispose();
+    }
+    final translated = memory();
+    return {
+      'pass': outputs.every((o) => o['cleaned'] != null),
+      'model': gguf,
+      'useExtraBuffers': LlamaTranslationEngine.repacks,
+      'loadMs': loadMs,
+      'memoryBefore': before,
+      'memoryLoaded': loaded,
+      'memoryAfterDispose': translated,
+      'outputs': outputs,
+    };
+  }
+
   static Future<Map<String, dynamic>> _dumpCaptions(
     String input,
     String dir,

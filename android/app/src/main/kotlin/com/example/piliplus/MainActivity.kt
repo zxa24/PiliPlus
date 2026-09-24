@@ -1,6 +1,7 @@
 package com.example.piliplus
 
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -20,6 +21,31 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : AudioServiceActivity() {
+    // LibrePili: lets `adb shell am start ... --esa selftest_args a,b,c` run
+    // the in-app self test (lib/utils/self_test.dart) on a phone. Flutter's
+    // own extra wants a serialised java List, which `am` cannot build.
+    // An intent can come from any app, so the extra is honoured only in a
+    // debuggable build or once `adb shell setprop debug.librepili.selftest 1`
+    // has been run: `debug.*` properties can be set by the shell and root,
+    // never by another app. (Builds for the phone come from CI and are
+    // release builds, so debuggable alone would not do.)
+    override fun getDartEntrypointArgs(): List<String>? {
+        val args = intent?.getStringArrayExtra("selftest_args")
+        if (args != null && selfTestAllowed()) return args.toList()
+        return super.getDartEntrypointArgs()
+    }
+
+    private fun selfTestAllowed(): Boolean {
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) return true
+        return try {
+            // SystemProperties is hidden API; getprop is not
+            val process = Runtime.getRuntime().exec(arrayOf("getprop", "debug.librepili.selftest"))
+            process.inputStream.bufferedReader().use { it.readText().trim() } == "1"
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // LibrePili: index files written to shared storage (e.g. finished
