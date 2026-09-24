@@ -1,5 +1,6 @@
 package com.example.piliplus
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
@@ -14,7 +15,10 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.view.WindowManager.LayoutParams
 import com.ryanheise.audioservice.AudioServiceActivity
+import com.ryanheise.audioservice.AudioServicePlugin
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
+import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.ExecutorService
@@ -22,17 +26,37 @@ import java.util.concurrent.Executors
 
 class MainActivity : AudioServiceActivity() {
     // LibrePili: lets `adb shell am start ... --esa selftest_args a,b,c` run
-    // the in-app self test (lib/utils/self_test.dart) on a phone. Flutter's
-    // own extra wants a serialised java List, which `am` cannot build.
+    // the in-app self test (lib/utils/self_test.dart) on a phone.
+    //
+    // Not through getDartEntrypointArgs: audio_service creates and caches the
+    // engine itself and starts Dart with no arguments, so Flutter's own extra
+    // never reaches main() (and it wants a serialised java List, which `am`
+    // cannot build anyway). Instead the engine is made here, with the
+    // arguments, and put in audio_service's cache so its service reuses it
+    // rather than starting a second copy of the app. Start from a stopped
+    // app: an engine already running cannot be given arguments.
+    //
     // An intent can come from any app, so the extra is honoured only in a
     // debuggable build or once `adb shell setprop debug.librepili.selftest 1`
     // has been run: `debug.*` properties can be set by the shell and root,
     // never by another app. (Builds for the phone come from CI and are
     // release builds, so debuggable alone would not do.)
-    override fun getDartEntrypointArgs(): List<String>? {
+    override fun provideFlutterEngine(context: Context): FlutterEngine? {
         val args = intent?.getStringArrayExtra("selftest_args")
-        if (args != null && selfTestAllowed()) return args.toList()
-        return super.getDartEntrypointArgs()
+        if (args != null && selfTestAllowed()) {
+            val cache = FlutterEngineCache.getInstance()
+            val id = AudioServicePlugin.getFlutterEngineId()
+            cache.get(id)?.let { return it }
+            val engine = FlutterEngine(context.applicationContext)
+            engine.navigationChannel.setInitialRoute("/")
+            engine.dartExecutor.executeDartEntrypoint(
+                DartExecutor.DartEntrypoint.createDefault(),
+                args.toList(),
+            )
+            cache.put(id, engine)
+            return engine
+        }
+        return super.provideFlutterEngine(context)
     }
 
     private fun selfTestAllowed(): Boolean {
