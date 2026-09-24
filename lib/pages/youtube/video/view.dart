@@ -20,6 +20,8 @@ import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
+import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
+import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
@@ -1185,63 +1187,91 @@ class _YtVideoPageState extends State<YtVideoPage>
               return const SizedBox.shrink();
             }
             final index = controller.captionIndex.value;
-            // read so this rebuilds as the run progresses; the label says
-            // whether it is running
-            final session = controller.asrSession.value;
-            final translation = controller.translation.session.value;
-            // hidden by the viewer but still there, and still being made
-            final showLabel = controller.showGeneratedLabel;
+            // read so this rebuilds as the runs progress: the labels say
+            // where each stands
+            controller.asrSession.value?.state.value;
+            final translating = controller.translation.session.value;
+            translating?.state.value;
+            final picked = controller.onDevicePicked;
+            final canTranslate =
+                TranslateEntry.available &&
+                (canTranscribe || controller.captionToTranslate != null);
+            final current = translating == null
+                ? picked
+                : controller.translation.into;
+            // picking an on-device subtitle shows it, and makes it first if
+            // there is none — asking what a first run asks
+            void showTranslation(String code) {
+              if (controller.hasTranslationInto(code)) {
+                controller.showTranslation(code);
+                return;
+              }
+              TranslateEntry.startFor(
+                context,
+                ({mayTranscribe}) => controller.showTranslation(
+                  code,
+                  mayTranscribe: mayTranscribe,
+                ),
+                needsTranscript:
+                    controller.asrSession.value == null &&
+                    controller.captionToTranslateInto(code) == null,
+              );
+            }
+
             return _popup<int>(
               tooltip: '字幕',
-              initialValue: index,
+              initialValue: OnDeviceMenu.valueOfPicked(picked) ?? index,
               items: [
                 (value: -1, label: '关闭字幕', enabled: true),
                 for (final (i, track) in captions.indexed)
                   (value: i, label: _label(track), enabled: true),
                 if (canTranscribe)
                   (
-                    value: _transcribeValue,
-                    label: AsrEntry.menuLabel(session),
+                    value: OnDeviceMenu.original,
+                    label: OnDeviceMenu.itemLabel(
+                      onDeviceLabel(null),
+                      controller.onDeviceStatus('asr'),
+                    ),
                     enabled: true,
                   ),
-                if (canTranscribe && TranslateEntry.available)
-                  (
-                    value: _translateValue,
-                    label: TranslateEntry.menuLabel(translation),
-                    enabled: true,
-                  ),
-                if (showLabel != null)
-                  (value: _showValue, label: showLabel, enabled: true),
+                if (canTranslate) ...[
+                  for (final code in OnDeviceMenu.listed(current))
+                    (
+                      value: OnDeviceMenu.valueOf(code),
+                      label: OnDeviceMenu.itemLabel(
+                        onDeviceLabel(code),
+                        controller.onDeviceStatus(code),
+                      ),
+                      enabled: true,
+                    ),
+                  (value: OnDeviceMenu.other, label: '其他语言…', enabled: true),
+                ],
+                if (controller.onDeviceBusy)
+                  (value: OnDeviceMenu.stop, label: '停止端侧生成', enabled: true),
               ],
-              onSelected: (value) {
-                if (value == _showValue) {
-                  controller.showGenerated();
-                  return;
+              onSelected: (value) async {
+                switch (value) {
+                  case OnDeviceMenu.original:
+                    if (controller.asrSession.value != null) {
+                      controller.showTranscript();
+                    } else {
+                      AsrEntry.startFor(context, controller.showTranscript);
+                    }
+                  case OnDeviceMenu.other:
+                    final code = await OnDeviceMenu.pickOther(context);
+                    if (code != null && context.mounted) showTranslation(code);
+                  case OnDeviceMenu.stop:
+                    controller.stopOnDevice();
+                  case >= 0 || -1:
+                    controller.setCaption(value);
+                  default:
+                    // a language
+                    for (final code in OnDeviceMenu.listed(current)) {
+                      if (OnDeviceMenu.valueOf(code) == value) {
+                        showTranslation(code);
+                      }
+                    }
                 }
-                if (value == _translateValue) {
-                  if (translation?.state.value.isBusy ?? false) {
-                    controller.stopTranslation();
-                  } else {
-                    TranslateEntry.startFor(
-                      context,
-                      controller.startTranslation,
-                      needsTranscript:
-                          session == null &&
-                          controller.captionToTranslate == null,
-                    );
-                  }
-                  return;
-                }
-                if (value == _transcribeValue) {
-                  final running = session?.state.value.isBusy ?? false;
-                  if (running) {
-                    controller.stopAsr();
-                  } else {
-                    AsrEntry.startFor(context, controller.startAsr);
-                  }
-                  return;
-                }
-                controller.setCaption(value);
               },
               child: SizedBox(
                 width: width,
@@ -1300,9 +1330,6 @@ class _YtVideoPageState extends State<YtVideoPage>
   }
 
   /// A value no caption index can take, for the transcription row.
-  static const _transcribeValue = -99;
-  static const _translateValue = -98;
-  static const _showValue = -97;
 
   /// The dark popup the bilibili bar uses for every one of these buttons.
   Widget _popup<T>({

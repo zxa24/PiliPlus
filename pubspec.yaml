@@ -291,6 +291,14 @@ flutter:
     - path: assets/shaders/
     # BudouX's Japanese phrase model: where a Japanese subtitle may break
     - packages/budoux_dart/models/ja.json
+    # OpenCC's s2twp dictionaries: Traditional Chinese subtitles
+    - assets/opencc/STPhrases.txt
+    - assets/opencc/STPhrases_GeneratedFromRegionalPhrases.txt
+    - assets/opencc/STCharacters.txt
+    - assets/opencc/TWPhrases.txt
+    - assets/opencc/TWVariantsPhrases.txt
+    - assets/opencc/TWVariants.txt
+    - assets/opencc/CJK_Compatibility_Ideographs.txt
 
   fonts:
     - family: digital_id_num

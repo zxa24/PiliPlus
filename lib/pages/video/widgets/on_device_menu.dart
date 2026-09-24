@@ -8,7 +8,6 @@ library;
 import 'package:PiliPlus/models/common/setting_type.dart';
 import 'package:PiliPlus/pages/setting/common_setting.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
-import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -24,9 +23,7 @@ abstract final class OnDeviceMenu {
   /// Every language that can be translated into, the app's first.
   static List<String> get _languages => [
     AsrService.appLanguage,
-    ...translationLanguageNames.keys.where(
-      (code) => !AsrService.isSameMajorLanguage(code, AsrService.appLanguage),
-    ),
+    ...otherTranslationLanguages,
   ];
 
   static int valueOf(String code) =>

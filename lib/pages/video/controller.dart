@@ -1643,7 +1643,13 @@ class VideoDetailController extends GetxController
       if (state.language != null) {
         // a corrected language can turn out to be the user's own
         if (_translatingTranscript &&
-            !TranslationService.to.needed(state.language)) {
+            !TranslationService.to.needed(
+              state.language,
+              // the language it is being translated into, which is not the
+              // app's when picked from the menu (Chinese speech in
+              // Traditional Chinese is still to be converted)
+              into: translation.into,
+            )) {
           _stopTranscriptTranslation();
         }
         _maybeTranslate(session, auto: auto);
@@ -1999,7 +2005,7 @@ class VideoDetailController extends GetxController
 
   /// The video's own track to translate into [into] (the app's language by
   /// default), if there is one to.
-  int? captionToTranslateInto(String? into) => pickCaptionToTranslate(
+  int? captionToTranslateInto(String? into) => pickCaptionToTranslateInto(
     [
       for (final s in subtitles)
         (
@@ -2008,7 +2014,7 @@ class VideoDetailController extends GetxController
           generated: s.isAi,
         ),
     ],
-    appLanguage: into ?? AsrService.appLanguage,
+    into: into ?? AsrService.appLanguage,
   );
 
   /// Translates the video's own foreign captions by itself when the user
@@ -2055,7 +2061,11 @@ class VideoDetailController extends GetxController
       return false;
     }
     _translatingTranscript = false;
-    await translation.startCaptions(cues, into: into);
+    await translation.startCaptions(
+      cues,
+      into: into,
+      from: captionLanguage(subtitles[index].lan),
+    );
     return true;
   }
 

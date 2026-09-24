@@ -94,6 +94,8 @@ class TranslationSession {
     required this.engine,
     required this.target,
     this.ownsPlayer,
+    this.convert,
+    this.modelFree = false,
   });
 
   final TranscriptView transcript;
@@ -108,6 +110,16 @@ class TranslationSession {
 
   /// The language to translate into, e.g. `zh`.
   final String target;
+
+  /// Applied to each translation before it is kept: Traditional Chinese is
+  /// the model's Chinese, converted (see S2twpConverter). Loaded when first
+  /// needed.
+  final Future<String Function(String)> Function()? convert;
+  String Function(String)? _converter;
+
+  /// No model at all: each unit is only [convert]ed — Chinese speech or
+  /// captions shown in Traditional Chinese.
+  final bool modelFree;
 
   /// Whether the page this translates for still has the player, set by the
   /// page's track. The player is one for the whole app: while another video
@@ -325,6 +337,14 @@ class TranslationSession {
           await _nap();
           continue;
         }
+        if (modelFree) {
+          _set(const TranslationState(TranslationStage.translating));
+          final converter = _converter ??= await convert!();
+          if (_closed) return;
+          results[i] = converter(units[i].text);
+          revision.value++;
+          continue;
+        }
         if (_engine == null) {
           if (!(await claim?.call(this) ?? true)) {
             // another page's translation has the model and is at work
@@ -358,6 +378,9 @@ class TranslationSession {
             translationPrompt(unit.text, target: target),
           );
           text = cleanTranslation(reply, source: unit.text);
+          if (text != null && convert != null) {
+            text = (_converter ??= await convert!())(text);
+          }
           _failures = 0;
         } catch (e) {
           if (_closed) return;

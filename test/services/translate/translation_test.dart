@@ -553,8 +553,8 @@ class FakeEngine implements TranslationEngine {
   Future<void> dispose() async => disposed = true;
 }
 
-Future<void> pumpUntil(bool Function() done) async {
-  for (var i = 0; i < 400 && !done(); i++) {
+Future<void> pumpUntil(bool Function() done, {int tries = 400}) async {
+  for (var i = 0; i < tries && !done(); i++) {
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
   expect(done(), isTrue, reason: 'condition not reached');

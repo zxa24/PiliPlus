@@ -14,8 +14,6 @@ import 'package:PiliPlus/pages/setting/models/play_settings.dart'
     show showPlayerVolumeDialog;
 import 'package:PiliPlus/pages/setting/widgets/popup_item.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
-import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
-import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart'
     show HeaderControlState;
 import 'package:PiliPlus/pages/video/widgets/header_mixin.dart';
@@ -383,50 +381,8 @@ class YtHeaderControlState extends State<YtHeaderControl>
                   leading: const Icon(Icons.subtitles_outlined, size: 20),
                   title: const Text('字幕设置', style: titleStyle),
                 ),
-                // on-device transcription, for a video that offers no captions
-                if (controller.canTranscribe)
-                  AsrMenuTile(
-                    session: controller.asrSession,
-                    titleStyle: titleStyle,
-                    onStart: () {
-                      Get.back();
-                      AsrEntry.startFor(this.context, controller.startAsr);
-                    },
-                    onStop: () {
-                      Get.back();
-                      controller.stopAsr();
-                    },
-                  ),
-                if (controller.canTranscribe && TranslateEntry.available)
-                  TranslateMenuTile(
-                    session: controller.translation.session,
-                    titleStyle: titleStyle,
-                    onStart: () {
-                      Get.back();
-                      TranslateEntry.startFor(
-                        this.context,
-                        controller.startTranslation,
-                        needsTranscript:
-                            controller.asrSession.value == null &&
-                            controller.captionToTranslate == null,
-                      );
-                    },
-                    onStop: () {
-                      Get.back();
-                      controller.stopTranslation();
-                    },
-                  ),
-                // hidden by the viewer but still there, and still being made
-                if (controller.showGeneratedLabel case final label?)
-                  ListTile(
-                    dense: true,
-                    onTap: () {
-                      Get.back();
-                      controller.showGenerated();
-                    },
-                    leading: const Icon(Icons.subtitles_outlined, size: 20),
-                    title: Text(label, style: titleStyle),
-                  ),
+                // on-device subtitles are picked by language in the subtitle
+                // menu, not started from here
                 if (plPlayerController.videoPlayerController case final player?)
                   ListTile(
                     dense: true,

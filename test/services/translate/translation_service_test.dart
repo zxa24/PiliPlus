@@ -12,6 +12,7 @@ AsrCue cue(double from, double to, String text) =>
     AsrCue(from: from, to: to, content: text);
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() => appSupportDirPath = Directory.systemTemp.path);
 
   group('TranslationService: the language translated into', () {
@@ -48,6 +49,45 @@ void main() {
         startsWith('Translate the following text into French. '),
       );
     });
+
+    test(
+      'Traditional Chinese from Chinese is a conversion, no model',
+      () async {
+        final session = await service.startCaptions(
+          cues: [cue(0, 3, '软件和网络。')],
+          position: () => 0,
+          into: TranslationService.traditionalChinese,
+          from: 'zh',
+        );
+        expect(session.modelFree, isTrue);
+        expect(session.target, 'zh');
+        // the dictionaries come from the app's assets
+        await pumpUntil(() => session.results.isNotEmpty, tries: 2000);
+        expect(session.results.values.single, '軟體和網路。');
+        expect(engines, isEmpty);
+      },
+    );
+
+    test(
+      'Traditional Chinese from another language: Chinese, converted',
+      () async {
+        final session = await service.startCaptions(
+          cues: [cue(0, 3, 'Software.')],
+          position: () => 0,
+          into: TranslationService.traditionalChinese,
+          from: 'en',
+        );
+        expect(session.modelFree, isFalse);
+        expect(session.target, 'zh');
+        await pumpUntil(() => session.results.isNotEmpty, tries: 2000);
+        // the fake engine answers '译:<text>', which comes out converted
+        expect(session.results.values.single, '譯:Software.');
+        expect(
+          engines.single.prompts.single,
+          startsWith('将以下文本翻译为中文'),
+        );
+      },
+    );
 
     test(
       'whether a language needs translating depends on the one asked for',

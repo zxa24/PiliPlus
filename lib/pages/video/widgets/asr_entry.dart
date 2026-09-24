@@ -21,93 +21,12 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// The subtitle-menu entry. Its own widget so it can be pumped in a test:
-/// the first version was an inline `Obx` that read nothing observable when no
-/// transcription was running, which GetX turns into an exception — on a phone
-/// it rendered as a grey error box and took the rest of the menu with it.
-class AsrMenuTile extends StatelessWidget {
-  const AsrMenuTile({
-    super.key,
-    required this.session,
-    required this.onStart,
-    required this.onStop,
-    this.titleStyle,
-  });
-
-  final Rxn<AsrSession> session;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
-  final TextStyle? titleStyle;
-
-  @override
-  Widget build(BuildContext context) => Obx(() {
-    final current = session.value;
-    final state = current?.state.value;
-    final running = state?.isBusy ?? false;
-    final failed = state?.stage == AsrStage.failed;
-    // a finished run used to look exactly like one that never started, which
-    // is no use to the user and was no use debugging it either
-    final done = state?.stage == AsrStage.done;
-    final cues = done ? current!.cues.length : 0;
-    return ListTile(
-      dense: true,
-      onTap: running ? onStop : onStart,
-      leading: Icon(
-        running
-            ? Icons.stop_circle_outlined
-            : (failed
-                  ? Icons.error_outline
-                  : Icons.record_voice_over_outlined),
-        size: 20,
-      ),
-      title: Text(
-        running
-            ? '停止转录（${state!.label}）'
-            : (failed ? '转录失败，点击重试' : '自动转录字幕'),
-        style: titleStyle,
-      ),
-      // the reason stays on screen: a toast that has come and gone leaves the
-      // user (and anyone debugging) with nothing at all
-      subtitle: switch (true) {
-        _ when running && state!.progress != null => LinearProgressIndicator(
-          value: state.progress,
-        ),
-        _ when failed && state!.message != null => Text(
-          state.message!,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 11),
-        ),
-        _ when done => Text(
-          cues == 0 ? '没有识别到语音' : '已生成 $cues 条字幕，点击可重新转录',
-          style: const TextStyle(fontSize: 11),
-        ),
-        _ => null,
-      },
-    );
-  });
-}
-
 abstract final class AsrEntry {
   /// Asks whatever still needs asking, then starts transcription.
   static Future<void> start(
     BuildContext context,
     VideoDetailController controller,
   ) => startFor(context, controller.startAsr);
-
-  /// A one-line label for a popup item, where [AsrMenuTile]'s two lines and
-  /// progress bar do not fit.
-  ///
-  /// This exists because the caption popup is where someone stands when they
-  /// have just found out a video has no subtitles, and that is exactly when
-  /// transcription is worth offering.
-  static String menuLabel(AsrSession? session) {
-    final state = session?.state.value;
-    if (state?.isBusy ?? false) return '停止转录（${state!.label}）';
-    if (state?.stage == AsrStage.failed) return '转录失败，点击重试';
-    if (state?.stage == AsrStage.done) return '重新转录';
-    return '语音识别字幕';
-  }
 
   /// The same prompts for any page that can transcribe — the bilibili video
   /// page and the YouTube one ask the user exactly the same things.

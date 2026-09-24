@@ -9,6 +9,7 @@ library;
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_unit.dart';
 
 final _timing = RegExp(
@@ -203,6 +204,31 @@ String captionLanguage(String tag) {
 /// German first, and is in English. With the spoken language known and no
 /// author's track in it, the generated track itself: a transcript of the
 /// audio beats a translation into a third language.
+/// The track [pickCaptionToTranslate] would pick for [into], except that
+/// for Traditional Chinese a Chinese track is taken as it is — it becomes
+/// Traditional by conversion alone — an author's before a generated one.
+int? pickCaptionToTranslateInto(
+  List<CaptionChoice> tracks, {
+  required String into,
+}) {
+  if (into == TranslationService.traditionalChinese) {
+    int? chinese({required bool generated}) {
+      for (final (i, t) in tracks.indexed) {
+        if (t.generated == generated &&
+            AsrService.isSameMajorLanguage(captionLanguage(t.language), 'zh')) {
+          return i;
+        }
+      }
+      return null;
+    }
+
+    return chinese(generated: false) ??
+        chinese(generated: true) ??
+        pickCaptionToTranslate(tracks, appLanguage: 'zh');
+  }
+  return pickCaptionToTranslate(tracks, appLanguage: into);
+}
+
 int? pickCaptionToTranslate(
   List<CaptionChoice> tracks, {
   required String appLanguage,

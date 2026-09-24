@@ -14,7 +14,6 @@ import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
-import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -24,70 +23,10 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// See [AsrMenuTile]: its own widget, reading only observables.
-class TranslateMenuTile extends StatelessWidget {
-  const TranslateMenuTile({
-    super.key,
-    required this.session,
-    required this.onStart,
-    required this.onStop,
-    this.titleStyle,
-  });
-
-  final Rxn<TranslationSession> session;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
-  final TextStyle? titleStyle;
-
-  @override
-  Widget build(BuildContext context) => Obx(() {
-    final state = session.value?.state.value;
-    final running = (state?.isBusy ?? false) || (state?.isPaused ?? false);
-    final failed = state?.stage == TranslationStage.failed;
-    return ListTile(
-      dense: true,
-      onTap: running ? onStop : onStart,
-      leading: Icon(
-        running
-            ? Icons.stop_circle_outlined
-            : (failed ? Icons.error_outline : Icons.translate),
-        size: 20,
-      ),
-      title: Text(TranslateEntry.menuLabel(session.value), style: titleStyle),
-      subtitle: switch (true) {
-        _ when running && state!.message != null => Text(
-          state.message!,
-          style: const TextStyle(fontSize: 11),
-        ),
-        _ when failed && state!.message != null => Text(
-          state.message!,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 11),
-        ),
-        _ => null,
-      },
-    );
-  });
-}
-
 abstract final class TranslateEntry {
   /// Whether the menus offer translation at all (see
   /// [TranslationService.supported]).
   static bool get available => TranslationService.supported;
-
-  /// A one-line label, for the popup where the tile does not fit.
-  static String menuLabel(TranslationSession? session) {
-    final state = session?.state.value;
-    return switch (state?.stage) {
-      TranslationStage.loading => '停止翻译（${state!.message ?? '准备模型'}）',
-      TranslationStage.translating || TranslationStage.waiting => '停止翻译',
-      TranslationStage.paused => '停止翻译（已暂停）',
-      TranslationStage.failed => '翻译失败，点击重试',
-      TranslationStage.done => '重新翻译',
-      _ => '翻译字幕',
-    };
-  }
 
   /// Asks what still needs asking, then [start]s. [needsTranscript] is true
   /// when no transcript exists yet, in which case the transcription's own

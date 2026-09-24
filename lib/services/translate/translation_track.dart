@@ -137,15 +137,20 @@ class TranslationTrack {
     onAttach: (current) => _cueSub = asr.cues.listen((_) => current.poke()),
   );
 
-  /// Translates a video's own captions, into [into] (the app's language by
-  /// default).
-  Future<void> startCaptions(List<AsrCue> cues, {String? into}) => _startWith(
+  /// Translates a video's own captions, in [from] when known, into [into]
+  /// (the app's language by default).
+  Future<void> startCaptions(
+    List<AsrCue> cues, {
+    String? into,
+    String? from,
+  }) => _startWith(
     into,
     () => TranslationService.to.startCaptions(
       cues: cues,
       position: position,
       ownsPlayer: ownsPlayer,
       into: into,
+      from: from,
     ),
   );
 

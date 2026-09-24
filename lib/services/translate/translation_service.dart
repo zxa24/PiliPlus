@@ -19,6 +19,7 @@ import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
+import 'package:PiliPlus/services/translate/chinese_convert.dart';
 import 'package:PiliPlus/services/translate/llama_engine.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
@@ -87,7 +88,19 @@ class TranslationService extends GetxService {
   bool needed(String? spoken, {String? into}) =>
       spoken != null &&
       spoken.isNotEmpty &&
-      !AsrService.isSameMajorLanguage(spoken, into ?? target);
+      // Chinese in Traditional characters is Chinese converted
+      (into == traditionalChinese ||
+          !AsrService.isSameMajorLanguage(spoken, into ?? target));
+
+  /// Traditional Chinese: made from Chinese — the model's, or the speech's
+  /// or captions' own — by conversion (see [S2twpConverter]).
+  static const traditionalChinese = 'zh-Hant';
+
+  /// Whether text in [from] becomes [into] by conversion alone.
+  static bool convertsOnly(String? from, String into) =>
+      into == traditionalChinese &&
+      from != null &&
+      AsrService.isSameMajorLanguage(from, 'zh');
 
   /// Whether the user chose automatic translation and it can run now.
   bool get shouldAutoTranslate =>
@@ -122,14 +135,18 @@ class TranslationService extends GetxService {
     position,
     ownsPlayer,
     into ?? target,
+    from: asr.state.value.language,
   );
 
   /// Starts translating a video's own captions, all known up front.
+  ///
+  /// [from] is the captions' language, when known.
   Future<TranslationSession> startCaptions({
     required List<AsrCue> cues,
     required double Function() position,
     bool Function()? ownsPlayer,
     String? into,
+    String? from,
   }) {
     final units = buildCaptionUnits(cues);
     return _start(
@@ -137,6 +154,7 @@ class TranslationService extends GetxService {
       position,
       ownsPlayer,
       into ?? target,
+      from: from,
     );
   }
 
@@ -144,12 +162,13 @@ class TranslationService extends GetxService {
     TranscriptView transcript,
     double Function() position,
     bool Function()? ownsPlayer,
-    String into,
-  ) {
+    String into, {
+    String? from,
+  }) {
     final stops = _stops;
     _pending++;
     final started = _starting.then(
-      (_) => _startNow(transcript, position, ownsPlayer, into, stops),
+      (_) => _startNow(transcript, position, ownsPlayer, into, from, stops),
     );
     _starting = started.then((_) {}, onError: (_) {});
     return started;
@@ -160,6 +179,7 @@ class TranslationService extends GetxService {
     double Function() position,
     bool Function()? ownsPlayer,
     String into,
+    String? from,
     int stops,
   ) async {
     try {
@@ -173,6 +193,7 @@ class TranslationService extends GetxService {
         position,
         ownsPlayer,
         into,
+        from: from,
         stopped: stops != _stops,
       );
     } finally {
@@ -222,13 +243,20 @@ class TranslationService extends GetxService {
     double Function() position,
     bool Function()? ownsPlayer,
     String into, {
+    String? from,
     required bool stopped,
   }) {
+    final traditional = into == traditionalChinese;
     final session = TranslationSession(
       transcript: transcript,
       position: position,
       engine: debugEngine ?? _loader(),
-      target: into,
+      // the model writes Chinese, and the conversion does the rest
+      target: traditional ? 'zh' : into,
+      convert: traditional
+          ? () async => (await S2twpConverter.load()).convert
+          : null,
+      modelFree: convertsOnly(from, into),
       ownsPlayer: ownsPlayer,
     )..claim = _claim;
     if (stopped) {

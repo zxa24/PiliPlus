@@ -59,6 +59,7 @@ import 'package:PiliPlus/models/common/translate_mode.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
+import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -547,8 +548,14 @@ abstract final class SelfTest {
                 local ? video : 'https://www.bilibili.com/video/$bv',
                 hold,
                 auto: args.contains('--auto'),
+                into: _arg(args, '--into'),
               )
-            : _translatePage(video, hold, auto: args.contains('--auto')),
+            : _translatePage(
+                video,
+                hold,
+                auto: args.contains('--auto'),
+                into: _arg(args, '--into'),
+              ),
       );
     }
     if (_arg(args, '--translate-probe') case final gguf?) {
@@ -1681,8 +1688,8 @@ abstract final class SelfTest {
   }
 
   /// LibrePili: translation through the YouTube player page itself — the
-  /// menu's path, [YtVideoController.startTranslation] — and what the
-  /// player ends up showing.
+  /// menu's path, picking 中文（端侧） ([YtVideoController.showTranslation])
+  /// — and what the player ends up showing.
   ///
   /// [_translateLatency] drives the service and track without a page; this
   /// checks the wiring it skips: the page starting transcription for a
@@ -1692,7 +1699,10 @@ abstract final class SelfTest {
     String input,
     int holdSeconds, {
     required bool auto,
+    String? into,
   }) async {
+    // the language picked from the menu: the app's, or one under 其他语言
+    final language = into ?? AsrService.appLanguage;
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
@@ -1723,7 +1733,7 @@ abstract final class SelfTest {
       for (final c in controller.captions)
         '${c.languageCode}${c.isAutomatic ? '(auto)' : ''}',
     ];
-    if (!auto) await controller.startTranslation();
+    if (!auto) await controller.showTranslation(language);
     int? firstTranslatedMs;
     final shown = <String>[];
     for (var i = 0; i < holdSeconds; i++) {
@@ -1735,7 +1745,7 @@ abstract final class SelfTest {
           .track
           .subtitle;
       final title = track?.title;
-      if (title == '翻译') {
+      if (title == onDeviceLabel(language)) {
         firstTranslatedMs ??= DateTime.now().difference(started).inMilliseconds;
       }
       if (shown.isEmpty || shown.last != '$title') shown.add('$title');
@@ -1743,13 +1753,18 @@ abstract final class SelfTest {
     gate.dispose();
     final session = controller.translation.session.value;
     final translated = session?.results.values.whereType<String>().toList();
-    final hasChinese =
-        translated?.any((t) => RegExp(r'[一-鿿]').hasMatch(t)) ?? false;
+    // into Chinese, some of it must read as Chinese; into another language
+    // there is no such cheap check, and a translation at all has to do
+    final inLanguage = language == 'zh'
+        ? translated?.any((t) => RegExp(r'[一-鿿]').hasMatch(t)) ?? false
+        : translated?.isNotEmpty ?? false;
     final result = {
       'pass':
           firstTranslatedMs != null &&
-          hasChinese &&
+          inLanguage &&
           controller.captionIndex.value == -2,
+      'into': language,
+      'sampleTranslations': translated?.take(3).toList(),
       'videoId': videoId,
       'mode': auto ? 'auto' : 'menu',
       'videoOwnCaptions': ownCaptions,
@@ -1784,7 +1799,9 @@ abstract final class SelfTest {
     String url,
     int holdSeconds, {
     required bool auto,
+    String? into,
   }) async {
+    final language = into ?? AsrService.appLanguage;
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
@@ -1835,13 +1852,19 @@ abstract final class SelfTest {
       await Future.delayed(const Duration(seconds: 1));
     }
     final ownSubtitles = [for (final s in page.subtitles) s.lanDoc];
-    if (!auto) await page.startTranslation();
+    // the menu's path: picking the language shows it, making it first
+    if (!auto) await page.showTranslation(language);
 
     int? translatedTrackMs;
     int? selectedMs;
     for (var i = 0; i < holdSeconds; i++) {
       await Future.delayed(const Duration(seconds: 1));
-      final index = page.subtitles.indexWhere((s) => s.lanDoc == '翻译');
+      final index = page.subtitles.indexWhere(
+        (s) =>
+            s.source == SubtitleSource.device &&
+            s.lan == 'asr-translated' &&
+            s.lanDoc == onDeviceLabel(language),
+      );
       if (index >= 0) {
         translatedTrackMs ??= ms();
         if (page.vttSubtitlesIndex.value == index + 1) selectedMs ??= ms();

@@ -270,4 +270,44 @@ void main() {
       );
     });
   });
+
+  group('pickCaptionToTranslateInto Traditional Chinese', () {
+    CaptionChoice t(String language, {bool generated = false}) =>
+        (language: language, generated: generated);
+
+    test('a Chinese track by its author is taken as it is', () {
+      expect(
+        pickCaptionToTranslateInto([
+          t('en'),
+          t('ai-zh', generated: true),
+          t('zh-CN'),
+        ], into: 'zh-Hant'),
+        2,
+      );
+    });
+
+    test('a generated Chinese track when no author wrote one', () {
+      expect(
+        pickCaptionToTranslateInto([
+          t('en'),
+          t('ai-zh', generated: true),
+        ], into: 'zh-Hant'),
+        1,
+      );
+    });
+
+    test('with no Chinese, what would be translated into Chinese', () {
+      expect(
+        pickCaptionToTranslateInto([t('de'), t('en')], into: 'zh-Hant'),
+        1,
+      );
+    });
+
+    test('other languages as before', () {
+      expect(
+        pickCaptionToTranslateInto([t('zh'), t('en')], into: 'zh'),
+        isNull,
+      );
+    });
+  });
 }
