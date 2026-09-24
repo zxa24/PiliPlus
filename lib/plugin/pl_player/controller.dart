@@ -680,7 +680,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
 
       updateDuration(duration ?? _videoPlayerController!.state.duration);
-      position.value = buffered.value = seekTo?.inSeconds ?? 0;
+      position.value = buffered.value = _openedAt?.inSeconds ?? 0;
 
       dataStatus.value = .loaded;
 
@@ -864,6 +864,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     assert(!isLive || seekTo == null);
+    // a seek made while this was being set up is where the viewer wants to
+    // be: opened there, rather than at the start and moved after
+    final pending = _pendingSeek;
+    if (!isLive && pending != null) {
+      seekTo = pending;
+      _pendingSeek = null;
+    }
+    _openedAt = seekTo;
     try {
       await player.open(
         Media(
@@ -878,6 +886,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (fd != null) await LocalDocuments.closeFd(fd);
       rethrow;
     }
+    _watchLoad(player);
   }
 
   Future<void>? refreshPlayer() {
@@ -887,8 +896,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _cutAt.clear();
     if (_videoPlayerController case final ctr? when (ctr.current.isNotEmpty)) {
       var media = ctr.current.last;
-      if (!isLive) media = media.copyWith(start: ctr.state.position);
-      return ctr.open(media, play: true);
+      if (kDebugMode) debugPrint('refreshPlayer at $resumePosition');
+      if (!isLive) media = media.copyWith(start: resumePosition);
+      return ctr.open(media, play: true).then((_) {
+        _watchLoad(ctr);
+      });
     }
     return null;
   }
@@ -1001,6 +1013,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
       /// position
       stream.position.listen((Duration position) {
+        // mpv reads 0 while a source opens, wherever it opens: shown, the
+        // playhead jumped back to the start and then on to where it was
+        // going, on every reopen (a CDN switch, a retry, a resume) — and the
+        // page kept 0 as the place to resume from, and the history heard it
+        if (_loadWatch != null) return;
         final posInSeconds = position.inSeconds;
 
         if (posInSeconds != this.position.value) {
@@ -1065,7 +1082,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // reconnect mpv makes of itself has stopped at the same byte, the
         // host is changed at once, while what is buffered still plays
         if (prematureEndAt(event) case final at?) {
-          if (!_cutAt.add(at)) {
+          // twice at one byte, or once after mpv's own reconnect found
+          // nothing there (the size it expects is then unknown): the copy
+          // ends there. A seek past the cut shows only the second kind
+          if (!_cutAt.add(at) || event.contains(_unknownSize)) {
             _replaceCutStreams(int.parse(at));
             return;
           }
@@ -1122,6 +1142,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Recovery goes on without a word; the viewer hears only when there is
   /// nothing left to try.
   void _recoverTransport() {
+    // a replacement under way is the recovery
+    if (_replacing) return;
     switch (transportRecovery(_transportFailures++)) {
       case TransportRecovery.retrySameUrl:
         refreshPlayer();
@@ -1167,7 +1189,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // moved on meanwhile: the new source has its own streams
       if (!identical(dataSource, source) || player is! NativePlayer) return;
       if (urls == null || (urls.video == null && urls.audio == null)) {
-        _switchCdn();
+        _switchCdn(fallback: true);
         return;
       }
       for (final (kind, url) in [
@@ -1175,11 +1197,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         ('audio', urls.audio),
       ]) {
         if (url == null) continue;
+        if (kDebugMode) {
+          debugPrint(
+            'stream cut at $cutAt: $kind -> ${Uri.tryParse(url)?.host} '
+            'at ${player.state.position}',
+          );
+        }
         await player.command(['$kind-add', url, 'auto']);
         if (!identical(dataSource, source) || player.disposed) return;
         final id = _externalTrack(player.getProperty('track-list'), kind, url);
         if (id == null) {
-          _switchCdn();
+          _switchCdn(fallback: true);
           return;
         }
         if (kind == 'video') {
@@ -1193,7 +1221,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // the cut stream's cache stays where it ended until mpv lets go of it
       _dryTicks = -3;
     } catch (_) {
-      if (identical(dataSource, source)) _switchCdn();
+      if (identical(dataSource, source)) _switchCdn(fallback: true);
     } finally {
       _replacing = false;
     }
@@ -1221,8 +1249,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return null;
   }
 
-  void _switchCdn() {
+  /// [fallback]: from a replacement in place that did not work out. Any
+  /// other switch waits while one is under way: it would reopen the source
+  /// under it (the dry-track watchdog did, while the other hosts were still
+  /// being asked for the byte).
+  void _switchCdn({bool fallback = false}) {
     if (debugDisableRecovery) return;
+    if (_replacing && !fallback) return;
     // one switch per failure: the lines that follow the cut would ask again
     EasyThrottle.throttle(
       'PlPlayerController._switchCdn',
@@ -1243,6 +1276,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   @visibleForTesting
   static String? prematureEndAt(String event) =>
       _prematureEnd.firstMatch(event)?.group(1);
+
+  /// What mpv expects of a stream whose reconnect got no answer.
+  static const _unknownSize = 'should be 18446744073709551615';
 
   static final _prematureEnd = RegExp(r'Stream ends prematurely at (\d+)');
 
@@ -1356,6 +1392,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// 移除事件监听
   void _removeListeners() {
+    _loadWatch?.cancel();
+    _loadWatch = null;
     _dryWatch?.cancel();
     _dryWatch = null;
     _subscriptions?.forEach((e) => e.cancel());
@@ -1377,6 +1415,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     if (position < Duration.zero) {
       position = Duration.zero;
+    }
+    // mpv turns a seek down until it has the file, and the only trace was a
+    // line in the log: a seek in the first seconds after opening a video was
+    // lost, and it played from the start (measured: at 0.3, 1, 2 and 3 s
+    // after the link, lost every time; at 5 s, taken)
+    if (!isLive &&
+        (_processing || _loadWatch != null || _videoPlayerController == null)) {
+      _pendingSeek = position;
+      this.position.value = position.inSeconds;
+      return;
     }
     _heartDuration = position.inSeconds;
 
@@ -1403,6 +1451,55 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         _cancelSubForSeek();
       });
     }
+  }
+
+  /// Where playback is, for opening again: mpv's own position reads 0 while
+  /// a source is still opening, and a reopen from there started over.
+  Duration get resumePosition {
+    final mpv = _videoPlayerController?.state.position ?? Duration.zero;
+    return _loadWatch == null && mpv > Duration.zero
+        ? mpv
+        : _pendingSeek ?? Duration(seconds: position.value);
+  }
+
+  /// A seek made before mpv had the file (see [seekTo]): the next open
+  /// starts there, or it is made once the file is in.
+  Duration? _pendingSeek;
+
+  /// Where the current source was opened.
+  Duration? _openedAt;
+
+  /// Polls for the file being in, from the open until mpv reports a
+  /// playback position.
+  Timer? _loadWatch;
+
+  /// A seek waiting for a file that is not coming: the page it was made on
+  /// is closing, or moving to another part.
+  void dropPendingSeek() => _pendingSeek = null;
+
+  void _watchLoad(NativePlayer player) {
+    _loadWatch?.cancel();
+    final started = DateTime.now();
+    _loadWatch = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      bool ready;
+      try {
+        ready = player.getProperty('time-pos').isNotEmpty;
+      } catch (_) {
+        // disposed
+        timer.cancel();
+        _loadWatch = null;
+        return;
+      }
+      if (!ready &&
+          DateTime.now().difference(started) < const Duration(seconds: 30)) {
+        return;
+      }
+      timer.cancel();
+      _loadWatch = null;
+      final pending = _pendingSeek;
+      _pendingSeek = null;
+      if (pending != null && ready) seekTo(pending, isSeek: false);
+    });
   }
 
   /// 设置倍速

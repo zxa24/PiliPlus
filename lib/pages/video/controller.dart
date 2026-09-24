@@ -878,7 +878,7 @@ class VideoDetailController extends GetxController
   /// quality changes so both keep the same resume behaviour.
   void _reopenAtCurrentPosition() {
     _autoPlay.value = true;
-    playedTime = plPlayerController.videoPlayerController?.state.position;
+    playedTime = plPlayerController.resumePosition;
     plPlayerController
       ..isBuffering.value = false
       ..buffered.value = 0;
@@ -2358,6 +2358,9 @@ class VideoDetailController extends GetxController
   @override
   void onClose() {
     _stopWatchingPlayback();
+    if (_ownsPlayer || plPlayerController.processing) {
+      plPlayerController.dropPendingSeek();
+    }
     cid.close();
     if (isFileSource) {
       cacheLocalProgress();
@@ -2392,6 +2395,8 @@ class VideoDetailController extends GetxController
     _lastLocalSaveSec = 0;
     playedTime = null;
     defaultST = null;
+    // a seek made on the part being left is not one for the next
+    plPlayerController.dropPendingSeek();
     videoUrl = null;
     audioUrl = null;
     _cdnAttempt = 0;

@@ -39,7 +39,25 @@ abstract final class VideoUtils {
     return candidates;
   }
 
+  /// For the self-test's fault injection (`--cut-video-at`): the video URL
+  /// the player is first given passes through this. Nothing else sets it.
+  static String Function(String url)? debugWrapVideoUrl;
+
   static String getCdnUrl(
+    Iterable<String> urls, {
+    CDNService? defaultCDNService,
+    bool isAudio = false,
+  }) {
+    final url = _getCdnUrl(
+      urls,
+      defaultCDNService: defaultCDNService,
+      isAudio: isAudio,
+    );
+    final wrap = debugWrapVideoUrl;
+    return !isAudio && wrap != null ? wrap(url) : url;
+  }
+
+  static String _getCdnUrl(
     Iterable<String> urls, {
     CDNService? defaultCDNService,
     bool isAudio = false,

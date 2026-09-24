@@ -95,6 +95,81 @@ import 'package:PiliPlus/services/translate/translation_engine.dart';
 ///
 /// Runs after the app has started normally, writes a JSON report and exits
 /// with 0 when every check passed, 1 otherwise.
+/// Stands between the player and a CDN and cuts the file short at [cutAt]
+/// bytes, the way a broken copy on one host did (BV16Ltu6wELb on akamai,
+/// 2026-09-24): the body stops there, and a request that starts at or past
+/// it gets its connection dropped with no response.
+final class _CuttingProxy {
+  _CuttingProxy(this.cutAt);
+
+  final int cutAt;
+  late final HttpServer _server;
+  final requests = <String>[];
+
+  String wrap(String url) =>
+      'http://127.0.0.1:${_server.port}/cut?u=${Uri.encodeComponent(url)}';
+
+  Future<void> start() async {
+    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _server.listen(_serve);
+  }
+
+  Future<void> close() => _server.close(force: true);
+
+  Future<void> _serve(HttpRequest request) async {
+    final upstream = request.uri.queryParameters['u'];
+    final range = request.headers.value(HttpHeaders.rangeHeader);
+    final from =
+        int.tryParse(
+          RegExp(r'bytes=(\d+)-').firstMatch(range ?? '')?.group(1) ?? '',
+        ) ??
+        0;
+    requests.add('${request.method} range=$range');
+    if (upstream == null || from >= cutAt) {
+      final socket = await request.response.detachSocket(writeHeaders: false);
+      socket.destroy();
+      return;
+    }
+    final client = HttpClient()..userAgent = BrowserUa.pc;
+    try {
+      final out = await client.openUrl(request.method, Uri.parse(upstream));
+      out.headers.set(HttpHeaders.refererHeader, HttpString.baseUrl);
+      if (range != null) out.headers.set(HttpHeaders.rangeHeader, range);
+      final answer = await out.close();
+      final response = request.response
+        ..statusCode = answer.statusCode
+        ..contentLength = answer.contentLength;
+      for (final name in const [
+        'content-range',
+        'content-type',
+        'accept-ranges',
+      ]) {
+        if (answer.headers.value(name) case final value?) {
+          response.headers.set(name, value);
+        }
+      }
+      final socket = await response.detachSocket(writeHeaders: true);
+      var left = cutAt - from;
+      await for (final chunk in answer) {
+        if (chunk.length >= left) {
+          socket.add(chunk.sublist(0, left));
+          break;
+        }
+        socket.add(chunk);
+        left -= chunk.length;
+      }
+      await socket.flush();
+      socket.destroy();
+    } catch (_) {
+      try {
+        (await request.response.detachSocket(writeHeaders: false)).destroy();
+      } catch (_) {}
+    } finally {
+      client.close(force: true);
+    }
+  }
+}
+
 abstract final class SelfTest {
   static bool isRequested(List<String> args) => args.contains('--selftest');
 
@@ -487,6 +562,13 @@ abstract final class SelfTest {
       // which file is played decides whether a broken copy on a CDN is hit:
       // the one that froze at 9 s was the AVC one (`--codecs AVC`)
       final codecs = _arg(args, '--codecs');
+      // a broken copy on the first CDN, on demand
+      _CuttingProxy? cut;
+      if (int.tryParse(_arg(args, '--cut-video-at') ?? '') case final at?) {
+        cut = _CuttingProxy(at);
+        await cut.start();
+        VideoUtils.debugWrapVideoUrl = cut.wrap;
+      }
       // started the way a viewer's page starts it, so what the page does
       // for playback (resuming after a CDN switch) is what is tested
       final autoplay = args.contains('--autoplay');
@@ -510,9 +592,17 @@ abstract final class SelfTest {
             hold,
             autoplay: autoplay,
             recovery: !args.contains('--no-recovery'),
+            sampleMs: int.tryParse(_arg(args, '--sample-ms') ?? '') ?? 2000,
+            seekTo: int.tryParse(_arg(args, '--seek-to') ?? ''),
+            seekAfterMs: int.tryParse(_arg(args, '--seek-after') ?? '') ?? 0,
           ),
         );
       } finally {
+        VideoUtils.debugWrapVideoUrl = null;
+        if (cut != null) {
+          stderr.writeln('cutting proxy: ${cut.requests.join(' | ')}');
+          await cut.close();
+        }
         for (final MapEntry(:key, :value) in before.entries) {
           value == null
               ? await GStorage.setting.delete(key)
@@ -2158,30 +2248,48 @@ abstract final class SelfTest {
   /// quality coming back, the URL resolving but the transport stalling, or
   /// the page throwing while it draws. Each of those looks the same from the
   /// outside and needs a different fix, so each is reported separately.
-  /// A cheap fingerprint of the frame on screen: equal from one sample to
-  /// the next means the picture did not change.
-  static Future<String> _frameDigest(NativePlayer mpv) async {
-    final image = await mpv.screenshot();
-    if (image == null) return '-';
-    final data = await image.toByteData();
-    image.dispose();
-    if (data == null) return '-';
-    var sum = 0;
-    for (var i = 0; i < data.lengthInBytes; i += 4099) {
-      sum = (sum * 31 + data.getUint8(i)) & 0xffffffff;
-    }
-    return sum.toRadixString(16);
-  }
 
   static Future<Map<String, dynamic>> _openBili(
     String url,
     int holdSeconds, {
     bool autoplay = false,
     bool recovery = true,
+    int sampleMs = 2000,
+    int? seekTo,
+    int seekAfterMs = 0,
   }) async {
     // the control for a recovery: what the viewer got before it existed.
     // Set before the page opens: the cut shows within its first seconds
     PlPlayerController.debugDisableRecovery = !recovery;
+    // a seek made the way the progress bar makes it, [seekAfterMs] after
+    // the link is opened: early enough and it lands while the page is
+    // still loading its source
+    final seekLog = <String>[];
+    if (seekTo != null) {
+      final opened = DateTime.now();
+      unawaited(() async {
+        await Future.delayed(Duration(milliseconds: seekAfterMs));
+        VideoDetailController? page;
+        while (page == null &&
+            DateTime.now().difference(opened).inSeconds < 20) {
+          try {
+            page = Get.find<VideoDetailController>(
+              tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+            );
+          } catch (_) {
+            await Future.delayed(const Duration(milliseconds: 20));
+          }
+        }
+        final player = page?.plPlayerController;
+        seekLog.add(
+          'at ${DateTime.now().difference(opened).inMilliseconds} ms: '
+          'status=${player?.dataStatus.value.name} '
+          'processing=${player?.processing} '
+          'position=${player?.videoPlayerController?.state.position}',
+        );
+        await player?.seekTo(Duration(seconds: seekTo), isSeek: false);
+      }());
+    }
     final routed = await PiliScheme.routePushFromUrl(url);
     await Future.delayed(const Duration(seconds: 5));
 
@@ -2233,8 +2341,10 @@ abstract final class SelfTest {
     // past it (see PlPlayerController._watchForDryTrack)
     final cacheEnds = <String>[];
     final states = <String>[];
-    for (var i = 0; i < 25; i++) {
-      await Future.delayed(const Duration(seconds: 2));
+    // 50 s whatever the interval: a finer one shows how the playhead moves
+    // in the first seconds (a jump back to the start before a resume)
+    for (var i = 0; i < 50000 ~/ sampleMs; i++) {
+      await Future.delayed(Duration(milliseconds: sampleMs));
       timeline.add(
         player.videoPlayerController?.state.position.inMilliseconds ?? -1,
       );
@@ -2244,11 +2354,10 @@ abstract final class SelfTest {
           'pause=${mpv.getProperty('pause')} '
           'cache=${mpv.getProperty('paused-for-cache')} '
           'status=${player.playerStatus.value.name} '
+          // what the viewer sees, not what mpv reads while a source opens
+          'shown=${player.position.value} '
           'buffering=${player.isBuffering.value} vid=${mpv.getProperty('vid')} vpts=${mpv.getProperty('video-pts')} '
-          'gate=${controller.asrPending.value} '
-          // whether the picture itself moves: the playhead went on over a
-          // frozen frame in the case this was added for
-          'frame=${await _frameDigest(mpv)}',
+          'gate=${controller.asrPending.value}',
         );
       }
       final host = Uri.tryParse(controller.videoUrl ?? '')?.host;
@@ -2393,6 +2502,7 @@ abstract final class SelfTest {
       'positionTimeline': timeline,
       'hostTimeline': hosts,
       'cacheEndTimeline': cacheEnds,
+      'seekLog': seekLog,
       'stateTimeline': states,
       'videoFile': Uri.tryParse(controller.videoUrl ?? '')?.pathSegments.last,
       'buffer': buffer,
