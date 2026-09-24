@@ -1075,23 +1075,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
                 // written and unreachable.
                 //
                 // What decides it is whether playback is getting anywhere.
+                //
+                // Not that alone either: the other way round, a video track
+                // cut off while the audio plays on moves the playhead just the
+                // same, over a picture frozen where the video ran out. That
+                // one is caught once the playhead passes the end of what
+                // arrived (see [_watchForDryTrack]).
                 if (position.value != positionBefore && !isBuffering.value) {
                   return;
                 }
-                switch (transportRecovery(_transportFailures++)) {
-                  case TransportRecovery.retrySameUrl:
-                    SmartDialog.showToast(
-                      '视频链接打开失败，重试中',
-                      displayTime: const Duration(milliseconds: 500),
-                    );
-                    refreshPlayer();
-                  case TransportRecovery.switchCdn:
-                    if (onCdnFailover?.call() ?? false) {
-                      _transportFailures = 0;
-                    } else {
-                      SmartDialog.showToast('视频加载失败，请检查网络或切换线路');
-                    }
-                }
+                _recoverTransport();
               });
             },
           );
@@ -1111,8 +1104,93 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
       }),
     ];
+    _watchForDryTrack(player);
   }
 
+  void _recoverTransport() {
+    switch (transportRecovery(_transportFailures++)) {
+      case TransportRecovery.retrySameUrl:
+        SmartDialog.showToast(
+          '视频链接打开失败，重试中',
+          displayTime: const Duration(milliseconds: 500),
+        );
+        refreshPlayer();
+      case TransportRecovery.switchCdn:
+        if (onCdnFailover?.call() ?? false) {
+          _transportFailures = 0;
+        } else {
+          SmartDialog.showToast('视频加载失败，请检查网络或切换线路');
+        }
+    }
+  }
+
+  Timer? _dryWatch;
+
+  /// Checks in a row the playhead has been past what arrived; below zero, a
+  /// grace period after a recovery was set off.
+  int _dryTicks = 0;
+
+  /// Catches a stream that stopped arriving while playback goes on without
+  /// it. The case that put this here: a CDN whose copy of the video track
+  /// ended after 1 MB (every request, at the same byte — the other hosts
+  /// had it whole), with the audio track intact. mpv reported the cut once,
+  /// at the start, with eight seconds of video still buffered; the playhead,
+  /// driven by the audio, went on past them over the last frame, and
+  /// nothing ever looked again. The playhead running ahead of the end of the
+  /// cache, not buffering, is that state and no other: in normal playback
+  /// the cache ends ahead of it, and a seek or a slow link buffers instead.
+  void _watchForDryTrack(NativePlayer player) {
+    _dryWatch?.cancel();
+    _dryTicks = 0;
+    _dryWatch = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (isLive ||
+          dataSource is FileSource ||
+          !playerStatus.isPlaying ||
+          isBuffering.value) {
+        if (_dryTicks > 0) _dryTicks = 0;
+        return;
+      }
+      if (_dryTicks < 0) {
+        _dryTicks++;
+        return;
+      }
+      final bool dry;
+      try {
+        dry = trackRanDry(
+          position: double.tryParse(player.getProperty('time-pos')),
+          cacheEnd: double.tryParse(player.getProperty('demuxer-cache-time')),
+          duration: double.tryParse(player.getProperty('duration')),
+        );
+      } catch (_) {
+        // disposed between ticks
+        return;
+      }
+      if (!dry) {
+        _dryTicks = 0;
+        return;
+      }
+      // one tick can be a seek landing between two property reads
+      if (++_dryTicks < 2) return;
+      // the re-open takes a moment to fill the cache again
+      _dryTicks = -5;
+      _recoverTransport();
+    });
+  }
+
+  /// Whether the playhead, in seconds, has run more than a second past the
+  /// end of what the cache holds, away from the end of the video.
+  @visibleForTesting
+  static bool trackRanDry({
+    required double? position,
+    required double? cacheEnd,
+    required double? duration,
+  }) {
+    if (position == null || cacheEnd == null) return false;
+    if (duration != null && duration > 0 && position >= duration - 2) {
+      return false;
+    }
+    return position > cacheEnd + 1;
+  }
 
   /// Consecutive transport failures on the current source.
   int _transportFailures = 0;
@@ -1156,6 +1234,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// 移除事件监听
   void _removeListeners() {
+    _dryWatch?.cancel();
+    _dryWatch = null;
     _subscriptions?.forEach((e) => e.cancel());
     _subscriptions?.clear();
     _subscriptions = null;

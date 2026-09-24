@@ -484,7 +484,32 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--open-bili') case final url?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
-      await scenario('openBili', () => _openBili(url, hold));
+      // which file is played decides whether a broken copy on a CDN is hit:
+      // the one that froze at 9 s was the AVC one (`--codecs AVC`)
+      final codecs = _arg(args, '--codecs');
+      // started the way a viewer's page starts it, so what the page does
+      // for playback (resuming after a CDN switch) is what is tested
+      final autoplay = args.contains('--autoplay');
+      final overrides = <String, Object>{
+        SettingBoxKey.preferCodecs: ?codecs?.split(','),
+        if (autoplay) SettingBoxKey.autoPlayEnable: true,
+      };
+      final before = {
+        for (final key in overrides.keys) key: GStorage.setting.get(key),
+      };
+      await GStorage.setting.putAll(overrides);
+      try {
+        await scenario(
+          'openBili',
+          () => _openBili(url, hold, autoplay: autoplay),
+        );
+      } finally {
+        for (final MapEntry(:key, :value) in before.entries) {
+          value == null
+              ? await GStorage.setting.delete(key)
+              : await GStorage.setting.put(key, value);
+        }
+      }
     }
     if (_arg(args, '--hover-controls') case final video?) {
       await scenario('hoverControls', () => _hoverControls(video));
@@ -708,8 +733,10 @@ abstract final class SelfTest {
       'allTokens': collectContinuationTokens(json).length,
       'continuationItemTriggers': triggers,
       'buttonsWithTokens': buttonTokens,
-      'hasCommentThreadRenderer':
-          collectObjects(json, 'commentThreadRenderer').isNotEmpty,
+      'hasCommentThreadRenderer': collectObjects(
+        json,
+        'commentThreadRenderer',
+      ).isNotEmpty,
     };
   }
 
@@ -1058,8 +1085,8 @@ abstract final class SelfTest {
         final status = File('/proc/self/status').readAsLinesSync();
         int? kb(String key) => int.tryParse(
           status
-                  .firstWhere((l) => l.startsWith('$key:'), orElse: () => '')
-                  .replaceAll(RegExp(r'[^0-9]'), ''),
+              .firstWhere((l) => l.startsWith('$key:'), orElse: () => '')
+              .replaceAll(RegExp(r'[^0-9]'), ''),
         );
         return {
           'rssMb': (kb('VmRSS') ?? 0) ~/ 1024,
@@ -1239,9 +1266,10 @@ abstract final class SelfTest {
     int? countWithTicket;
     try {
       final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final sign = Hmac(sha256, utf8.encode('XgwSnGZ1p'))
-          .convert(utf8.encode('ts$ts'))
-          .toString();
+      final sign = Hmac(
+        sha256,
+        utf8.encode('XgwSnGZ1p'),
+      ).convert(utf8.encode('ts$ts')).toString();
       final ticketRes = await Request().post(
         'https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket',
         queryParameters: {
@@ -1255,7 +1283,8 @@ abstract final class SelfTest {
       final Object? env = body is Map ? body['data'] : null;
       final ticket = env is Map ? env['ticket'] as String? : null;
       if (ticket == null || ticket.isEmpty) {
-        ticketError = 'no ticket in response: ${body is Map ? body['code'] : body}';
+        ticketError =
+            'no ticket in response: ${body is Map ? body['code'] : body}';
       } else {
         final signed = await WbiSign.makSign({'bvid': bvid, 'cid': cid});
         final retry = await Request().get(
@@ -1316,7 +1345,8 @@ abstract final class SelfTest {
     final Object? tracks = subtitle is Map ? subtitle['subtitles'] : null;
 
     return {
-      'pass': (tracks is List && tracks.isNotEmpty) ||
+      'pass':
+          (tracks is List && tracks.isNotEmpty) ||
           (grpcTracks?.isNotEmpty ?? false),
       'bvid': bvid,
       'cid': cid,
@@ -1378,7 +1408,10 @@ abstract final class SelfTest {
 
     final started = DateTime.now();
     int? firstCueMs;
-    final session = await service.start(key: 'probe:$videoId', source: audioUrl);
+    final session = await service.start(
+      key: 'probe:$videoId',
+      source: audioUrl,
+    );
     final sub = session.cues.listen((_) {
       firstCueMs ??= DateTime.now().difference(started).inMilliseconds;
     });
@@ -1447,7 +1480,8 @@ abstract final class SelfTest {
       return {'pass': false, 'reason': 'translation model missing'};
     }
     final asr = AsrService.to;
-    if (!asr.modelsReady) return {'pass': false, 'reason': 'asr models missing'};
+    if (!asr.modelsReady)
+      return {'pass': false, 'reason': 'asr models missing'};
     final videoId = tryParseYouTubeVideoId(input) ?? input;
     final router = YtSourceRouter(YtDirectSource.create());
     final streams = await router.run((s) => s.streams(videoId));
@@ -1610,8 +1644,7 @@ abstract final class SelfTest {
     final session = controller.translation.session.value;
     final translated = session?.results.values.whereType<String>().toList();
     final hasChinese =
-        translated?.any((t) => RegExp(r'[一-鿿]').hasMatch(t)) ??
-        false;
+        translated?.any((t) => RegExp(r'[一-鿿]').hasMatch(t)) ?? false;
     final result = {
       'pass':
           firstTranslatedMs != null &&
@@ -1793,7 +1826,11 @@ abstract final class SelfTest {
     final info = await router.run((s) => s.detail(videoId));
     final detail = info.value;
     if (detail == null) {
-      return {'pass': false, 'reason': 'no detail', 'verdict': '${info.verdict}'};
+      return {
+        'pass': false,
+        'reason': 'no detail',
+        'verdict': '${info.verdict}',
+      };
     }
     final tracks = detail.captionTracks;
     if (tracks.isEmpty) {
@@ -1829,7 +1866,8 @@ abstract final class SelfTest {
           : _parseVtt(content.value!);
       baselines.add({
         'kind': candidate.kind,
-        'track': '${t.languageCode} ${t.name}'
+        'track':
+            '${t.languageCode} ${t.name}'
             '${t.isAutomatic ? ' (auto)' : ''}',
         'cueCount': cues.length,
         'script': cues.isEmpty ? null : _scriptMix(cues),
@@ -1851,7 +1889,8 @@ abstract final class SelfTest {
       'pass': ours['pass'] == true && theirs.isNotEmpty,
       'videoId': videoId,
       'durationSeconds': durationSeconds,
-      'theirTrack': '${track.languageCode} ${track.name}'
+      'theirTrack':
+          '${track.languageCode} ${track.name}'
           '${track.isAutomatic ? ' (auto)' : ''}',
       'baselineChosenBy': picked.kind,
       'baselineMayBeTranslation': picked.mayBeTranslation,
@@ -1989,7 +2028,8 @@ abstract final class SelfTest {
       'baselineChosenBy': baselineReason,
       'baselineMayBeTranslation': mayBeTranslation,
       'allTracks': [
-        for (final t in tracks) '${t.lan}${t.isAi ? ' (auto)' : ''} ${t.lanDoc}',
+        for (final t in tracks)
+          '${t.lan}${t.isAi ? ' (auto)' : ''} ${t.lanDoc}',
       ],
       'theirCueCount': theirs.length,
       'theirScript': theirs.isEmpty ? null : _scriptMix(theirs),
@@ -2016,8 +2056,7 @@ abstract final class SelfTest {
   /// So: the automatic track where there is one; otherwise the author track
   /// whose language matches what was actually recognised; otherwise the
   /// first, flagged so the numbers are not read as a language verdict.
-  static List<({T track, String kind, bool mayBeTranslation})>
-  _baselinesFor<T>(
+  static List<({T track, String kind, bool mayBeTranslation})> _baselinesFor<T>(
     List<T> tracks, {
     required bool Function(T) isAutomatic,
     required String Function(T) languageOf,
@@ -2063,7 +2102,9 @@ abstract final class SelfTest {
   static List<AsrCue> _parseVtt(String body) {
     final cues = <AsrCue>[];
     final lines = body.replaceAll('\r\n', '\n').split('\n');
-    final arrow = RegExp(r'(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}|\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}|\d{1,2}:\d{2}[.,]\d{1,3})');
+    final arrow = RegExp(
+      r'(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}|\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}|\d{1,2}:\d{2}[.,]\d{1,3})',
+    );
     double parse(String stamp) {
       final clean = stamp.replaceAll(',', '.');
       final parts = clean.split(':');
@@ -2110,8 +2151,9 @@ abstract final class SelfTest {
   /// outside and needs a different fix, so each is reported separately.
   static Future<Map<String, dynamic>> _openBili(
     String url,
-    int holdSeconds,
-  ) async {
+    int holdSeconds, {
+    bool autoplay = false,
+  }) async {
     final routed = await PiliScheme.routePushFromUrl(url);
     await Future.delayed(const Duration(seconds: 5));
 
@@ -2152,18 +2194,32 @@ abstract final class SelfTest {
     final completedSub = player.videoPlayerController?.stream.completed.listen(
       (done) => log.add('== completed=$done'),
     );
-    await player.play();
+    if (!autoplay) await player.play();
     // Watched for a fixed stretch and sampled, rather than stopped at the
     // first sign of movement. The reported symptom is a stall a few seconds
     // in, and 1.5s of progress is indistinguishable from that — the earlier
     // version of this loop returned exactly when the fault was starting.
     final timeline = <int>[];
     final hosts = <String>[];
-    for (var i = 0; i < 15; i++) {
+    // the end of what arrived: a track cut off leaves the playhead running
+    // past it (see PlPlayerController._watchForDryTrack)
+    final cacheEnds = <String>[];
+    final states = <String>[];
+    for (var i = 0; i < 25; i++) {
       await Future.delayed(const Duration(seconds: 2));
       timeline.add(
         player.videoPlayerController?.state.position.inMilliseconds ?? -1,
       );
+      if (player.videoPlayerController case final NativePlayer mpv) {
+        cacheEnds.add(mpv.getProperty('demuxer-cache-time'));
+        states.add(
+          'pause=${mpv.getProperty('pause')} '
+          'cache=${mpv.getProperty('paused-for-cache')} '
+          'status=${player.playerStatus.value.name} '
+          'buffering=${player.isBuffering.value} '
+          'gate=${controller.asrPending.value}',
+        );
+      }
       final host = Uri.tryParse(controller.videoUrl ?? '')?.host;
       if (host != null && (hosts.isEmpty || hosts.last != host)) {
         hosts.add(host);
@@ -2305,6 +2361,9 @@ abstract final class SelfTest {
       'played': played,
       'positionTimeline': timeline,
       'hostTimeline': hosts,
+      'cacheEndTimeline': cacheEnds,
+      'stateTimeline': states,
+      'videoFile': Uri.tryParse(controller.videoUrl ?? '')?.pathSegments.last,
       'buffer': buffer,
       'position': last?.inMilliseconds,
       'playerDuration':
@@ -2343,7 +2402,9 @@ abstract final class SelfTest {
       await response.drain<void>();
       // 'bytes 0-0/12345678'
       final total = range?.split('/').lastOrNull;
-      return int.tryParse(total ?? '') ?? range ?? 'HTTP ${response.statusCode}';
+      return int.tryParse(total ?? '') ??
+          range ??
+          'HTTP ${response.statusCode}';
     } catch (e) {
       return '$e';
     } finally {
@@ -2461,8 +2522,7 @@ abstract final class SelfTest {
         }
       }
     }
-    String pct(int n) =>
-        total == 0 ? '0' : (n / total).toStringAsFixed(3);
+    String pct(int n) => total == 0 ? '0' : (n / total).toStringAsFixed(3);
     return {
       'hangul': pct(hangul),
       'kana': pct(kana),
@@ -2535,8 +2595,8 @@ abstract final class SelfTest {
       'vadSpeechSeconds': (speechSlots * step).toStringAsFixed(1),
       'uncoveredSeconds': (uncovered * step).toStringAsFixed(1),
       // the answer to "how much of the uncovered time is真静音"
-      'uncoveredButSilentSeconds':
-          ((uncovered - uncoveredSpeech) * step).toStringAsFixed(1),
+      'uncoveredButSilentSeconds': ((uncovered - uncoveredSpeech) * step)
+          .toStringAsFixed(1),
       'uncoveredSpeechSeconds': (uncoveredSpeech * step).toStringAsFixed(1),
       'speechLostRuns': lost.take(8).toList(),
     };
@@ -2548,7 +2608,10 @@ abstract final class SelfTest {
   /// Reported as "many subtitles flash and then nothing until the next
   /// sentence, and some run to three lines" — both are distributions, and
   /// neither can be judged from a handful of examples.
-  static Map<String, Object?> _cueStats(List<AsrCue> cues, double audioSeconds) {
+  static Map<String, Object?> _cueStats(
+    List<AsrCue> cues,
+    double audioSeconds,
+  ) {
     if (cues.isEmpty) return const {};
     final shown = <double>[];
     final gaps = <double>[];
@@ -2628,9 +2691,7 @@ abstract final class SelfTest {
   static Future<Map<String, dynamic>> _uiMetrics() async {
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
     final context = Get.context;
-    final scaler = context == null
-        ? null
-        : MediaQuery.textScalerOf(context);
+    final scaler = context == null ? null : MediaQuery.textScalerOf(context);
     return {
       'pass': true,
       'uiScalePref': Pref.uiScale,
@@ -2711,9 +2772,7 @@ abstract final class SelfTest {
     await platform.set(before);
     return {
       'pass':
-          youtubeRoute == '/ytSearch' &&
-          bilibiliRoute == '/search' &&
-          allAsks,
+          youtubeRoute == '/ytSearch' && bilibiliRoute == '/search' && allAsks,
       'youtubeRoute': youtubeRoute,
       'bilibiliRoute': bilibiliRoute,
       'allAsks': allAsks,
@@ -2888,8 +2947,7 @@ abstract final class SelfTest {
         anyReplyButton =
             _findElement(
               (e) =>
-                  e.widget is Text &&
-                  _textOf(e.widget as Text).contains('条回复'),
+                  e.widget is Text && _textOf(e.widget as Text).contains('条回复'),
             ) !=
             null;
         // entries vs non-empty entries: "no request was made" and "the
@@ -2916,8 +2974,7 @@ abstract final class SelfTest {
           // title bar and the 「相关回复共N条」 line bilibili puts above the
           // replies
           threadSheetOpened =
-              (_seesText('评论详情') || _seesLabel('评论详情')) &&
-              _seesLabel('相关回复');
+              (_seesText('评论详情') || _seesLabel('评论详情')) && _seesLabel('相关回复');
           // in-pane or window-wide? Both show the title, so the title
           // cannot tell them apart. A sheet inside the comment area is a
           // local history entry and leaves the route alone; a panel pushed
@@ -2953,8 +3010,7 @@ abstract final class SelfTest {
               // "no next page" and "never scrolled to the row that asks"
               // look the same in the counts alone
               threadHasMore = controller.hasMoreReplies(threadId);
-              threadFooterSeen =
-                  _seesText('加载中...') || _seesText('没有更多了');
+              threadFooterSeen = _seesText('加载中...') || _seesText('没有更多了');
             }
             Get.back();
             await Future.delayed(const Duration(milliseconds: 700));
@@ -2984,7 +3040,6 @@ abstract final class SelfTest {
           }
           commentsAfter = controller.comments.length;
         }
-
       }
 
       final wasSubscribed = controller.subscribed.value;
@@ -3008,7 +3063,8 @@ abstract final class SelfTest {
         await Future.delayed(const Duration(seconds: 4));
         final after = player.videoPlayerController?.state.position;
         played = before != null && after != null && after > before;
-        openedBuffer = player.videoPlayerController?.state.buffer.inMilliseconds;
+        openedBuffer =
+            player.videoPlayerController?.state.buffer.inMilliseconds;
       }
       // the panels, opened the way a user opens them. Rendering the page is
       // not the same as rendering what the buttons on it lead to.
@@ -3022,7 +3078,8 @@ abstract final class SelfTest {
           // and one near its top: the list is lazy, so a row further down
           // ('底部边距') is simply never built and reads as a failure.
           subtitlePanel = _seesLabel('字体大小') && !_seesText('超分辨率');
-          if (!subtitlePanel) afterSubtitleTap = _visibleTexts().take(24).toList();
+          if (!subtitlePanel)
+            afterSubtitleTap = _visibleTexts().take(24).toList();
         }
         // closes whichever of the two is open
         Get.back();
@@ -3161,7 +3218,9 @@ abstract final class SelfTest {
     }
 
     final advanced =
-        first != null && second != null && second > first + const Duration(seconds: 1);
+        first != null &&
+        second != null &&
+        second > first + const Duration(seconds: 1);
 
     // leaving the page must stop playback: audio that keeps running after the
     // user has navigated away is the worst kind of "it works"
@@ -3175,7 +3234,8 @@ abstract final class SelfTest {
         (afterBack != null && afterBack2 != null && afterBack2 == afterBack);
 
     return {
-      'pass': controller.stage.value == YtPageStage.ready && advanced && stopped,
+      'pass':
+          controller.stage.value == YtPageStage.ready && advanced && stopped,
       'stage': controller.stage.value.name,
       'message': controller.message.value,
       'title': controller.detail.value?.title,
@@ -3320,7 +3380,10 @@ abstract final class SelfTest {
       native
         ..setProperty('cache', 'yes')
         ..setProperty('cache-secs', '16');
-      player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
+      player.setMediaHeader(
+        userAgent: BrowserUa.pc,
+        referer: HttpString.baseUrl,
+      );
       await player.open(Media(url));
       for (var i = 0; i < seconds; i++) {
         await Future.delayed(const Duration(seconds: 1));
@@ -3421,8 +3484,8 @@ abstract final class SelfTest {
     // bilibili's CDN refuses a request with no Referer; YouTube's does not
     // need one, and sending it bilibili's would tell Google where the
     // request came from for no benefit.
-    final isBili = !(Uri.tryParse(source)?.host.contains('googlevideo') ??
-        false);
+    final isBili =
+        !(Uri.tryParse(source)?.host.contains('googlevideo') ?? false);
     final audio = await AsrAudioExtractor.extract(
       source: source,
       output: pcm,

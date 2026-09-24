@@ -67,4 +67,37 @@ void main() {
       expect(TransportRecovery.values, hasLength(2));
     });
   });
+
+  group('a track that ran dry while playback goes on', () {
+    bool dry(double? position, double? cacheEnd, [double? duration = 600]) =>
+        PlPlayerController.trackRanDry(
+          position: position,
+          cacheEnd: cacheEnd,
+          duration: duration,
+        );
+
+    test('the playhead past the end of what arrived', () {
+      // probed on a CDN whose copy of the video ended at 1 MB: the cache
+      // stayed at 8.93 s while the audio carried the playhead on
+      expect(dry(10.6, 8.93), isTrue);
+      expect(dry(30.6, 8.93), isTrue);
+    });
+
+    test('normal playback has the cache ahead of the playhead', () {
+      expect(dry(4.2, 8.9), isFalse);
+      expect(dry(8.7, 8.93), isFalse);
+      // within a second of it: the next packets may be a moment away
+      expect(dry(9.5, 8.93), isFalse);
+    });
+
+    test('the end of the video is not a stream running dry', () {
+      expect(dry(599, 596), isFalse);
+    });
+
+    test('an unknown cache or position is not a reason to act', () {
+      expect(dry(null, 8.9), isFalse);
+      expect(dry(10, null), isFalse);
+      expect(dry(10.6, 8.93, null), isTrue);
+    });
+  });
 }
