@@ -230,8 +230,11 @@ void main() {
     });
   });
 
-  test('the prompt asks for simplified Chinese', () {
-    expect(translationPrompt('Hi', target: 'zh'), contains('简体中文'));
+  test('the Chinese prompt is the one the models were measured with', () {
+    expect(
+      translationPrompt('Hi', target: 'zh'),
+      startsWith('将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释：'),
+    );
     expect(translationPrompt('Hi', target: 'zh'), endsWith('\n\nHi'));
   });
 

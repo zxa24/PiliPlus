@@ -11,6 +11,11 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 abstract interface class TranslationEngine {
   /// One user turn, one reply. Greedy decoding: the same input must give
   /// the same output, or a republished track could change under the viewer.
+  ///
+  /// With the model's thinking mode off. Gemma 4 thinks by default, and a
+  /// replay without the switch came back empty or cut to one character for
+  /// 24 of 71 English units: the thinking used up the token budget before
+  /// any translation was written.
   Future<String> complete(String prompt);
 
   /// Frees the model. The engine is not used again afterwards.
@@ -21,14 +26,15 @@ abstract interface class TranslationEngine {
 ///
 /// The Chinese wording is the model card's "Default Translation" prompt,
 /// the one every model in research/translation-bench-2026-09-23.md was
-/// scored with, except for one word: 中文 → 简体中文. Gemma 4 E2B answered
-/// some segments in traditional characters with the plain version. That
-/// change is not in the measured numbers.
+/// scored with. Asking for 简体中文 instead was tried against a report of
+/// traditional characters: none turned up in 117 segments with either
+/// wording (the one case seen came from a prompt with context), and the
+/// scores moved by −1.0 / −0.2 chrF, within noise. Kept as measured.
 String translationPrompt(
   String text, {
   required String target,
 }) => switch (target) {
-  'zh' => '将以下文本翻译为简体中文，注意只需要输出翻译后的结果，不要额外解释：\n\n$text',
+  'zh' => '将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释：\n\n$text',
   _ =>
     'Translate the following text into ${_languageNames[target] ?? target}. '
         'Output only the translation, with no explanation:\n\n$text',
