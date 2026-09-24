@@ -52,6 +52,10 @@ import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/models/common/asr_mode.dart';
+import 'package:PiliPlus/models/common/translate_mode.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
@@ -458,7 +462,17 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--translate-page') case final video?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 45;
-      await scenario('translatePage', () => _translatePage(video, hold));
+      final bv = IdUtils.bvRegex.firstMatch(video)?.group(0);
+      await scenario(
+        'translatePage',
+        () => bv != null
+            ? _translatePageBili(
+                'https://www.bilibili.com/video/$bv',
+                hold,
+                auto: args.contains('--auto'),
+              )
+            : _translatePage(video, hold),
+      );
     }
     if (_arg(args, '--translate-probe') case final gguf?) {
       await scenario('translateProbe', () => _translateProbe(gguf));
@@ -1590,6 +1604,103 @@ abstract final class SelfTest {
       'sample': translated?.take(4).toList(),
     };
     await controller.stopAsr();
+    Get.back();
+    return result;
+  }
+
+  /// [_translatePage] on the bilibili page, which keeps a track list: the
+  /// translation should arrive as its own 翻译 track after the transcript's,
+  /// and be the one selected.
+  ///
+  /// With [auto] nothing is requested: automatic transcription and
+  /// translation are switched on (in the self-test profile's own settings)
+  /// and the page is left to start them itself, which is also the only way
+  /// to see its loading gate hold for the translation.
+  static Future<Map<String, dynamic>> _translatePageBili(
+    String url,
+    int holdSeconds, {
+    required bool auto,
+  }) async {
+    if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    if (auto) {
+      await GStorage.setting.putAll({
+        SettingBoxKey.asrAsked: true,
+        SettingBoxKey.asrMode: AsrMode.foreign.index,
+        SettingBoxKey.translateAsked: true,
+        SettingBoxKey.translateMode: TranslateMode.auto.index,
+      });
+    }
+    final opened = DateTime.now();
+    int ms() => DateTime.now().difference(opened).inMilliseconds;
+    await PiliScheme.routePushFromUrl(url);
+    VideoDetailController? controller;
+    for (var i = 0; i < 20 && controller == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        controller = Get.find<VideoDetailController>(
+          tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+        );
+      } catch (_) {
+        try {
+          controller = Get.find<VideoDetailController>();
+        } catch (_) {}
+      }
+    }
+    if (controller == null) {
+      return {'pass': false, 'reason': 'the page never opened'};
+    }
+    final page = controller;
+    // how long the page holds itself in loading for the subtitles
+    int? gateOpenedMs;
+    int? gateClosedMs;
+    final gate = ever(page.asrPending, (pending) {
+      if (pending) {
+        gateOpenedMs ??= ms();
+      } else if (gateOpenedMs != null) {
+        gateClosedMs ??= ms();
+      }
+    });
+    for (var i = 0; i < 20 && !page.videoState.value; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final ownSubtitles = [for (final s in page.subtitles) s.lanDoc];
+    if (!auto) await page.startTranslation();
+
+    int? translatedTrackMs;
+    int? selectedMs;
+    for (var i = 0; i < holdSeconds; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      final index = page.subtitles.indexWhere((s) => s.lanDoc == '翻译');
+      if (index >= 0) {
+        translatedTrackMs ??= ms();
+        if (page.vttSubtitlesIndex.value == index + 1) selectedMs ??= ms();
+      }
+    }
+    gate.dispose();
+    final session = page.translation.session.value;
+    final translated = session?.results.values.whereType<String>().toList();
+    final result = {
+      'pass':
+          translatedTrackMs != null &&
+          selectedMs != null &&
+          (translated?.isNotEmpty ?? false),
+      'mode': auto ? 'auto' : 'menu',
+      'videoOwnSubtitles': ownSubtitles,
+      'asrLanguage': page.asrSession.value?.state.value.language,
+      'asrStage': page.asrSession.value?.state.value.stage.name,
+      'translationStage': session?.state.value.stage.name,
+      'gateOpenedMs': gateOpenedMs,
+      'gateClosedMs': gateClosedMs,
+      'msToTranslatedTrack': translatedTrackMs,
+      'msToSelected': selectedMs,
+      'tracks': [for (final s in page.subtitles) s.lanDoc],
+      'selected': page.vttSubtitlesIndex.value,
+      'translatedUnits': translated?.length,
+      'sample': translated?.take(4).toList(),
+    };
+    await page.stopAsr();
     Get.back();
     return result;
   }
