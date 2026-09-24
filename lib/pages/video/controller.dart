@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert' show utf8;
-import 'dart:io' show Directory, File;
+import 'dart:io' show Directory, File, HttpClient, HttpHeaders, HttpStatus;
 import 'dart:math' show min;
 import 'dart:ui';
 
@@ -429,7 +429,9 @@ class VideoDetailController extends GetxController
   void onInit() {
     super.onInit();
     // the player cannot resolve another CDN itself: it has no play-url list
-    plPlayerController.onCdnFailover = switchToNextCdn;
+    plPlayerController
+      ..onCdnFailover = switchToNextCdn
+      ..onStreamCut = replaceCutStreams;
     args = Get.arguments;
     videoType = args['videoType'];
     if (videoType == VideoType.pgc) {
@@ -794,6 +796,83 @@ class VideoDetailController extends GetxController
     return true;
   }
 
+  /// Streams from another CDN for those of the current source that stop at
+  /// byte [cutAt] (see [PlPlayerController.onStreamCut]): each current URL
+  /// is asked for the byte there, and a cut one is replaced by the first
+  /// other host that has it. [videoUrl] and [audioUrl] follow, so a later
+  /// reopen does not go back to the broken copy.
+  Future<({String? video, String? audio})?> replaceCutStreams(
+    int cutAt,
+  ) async {
+    final video = videoUrl;
+    final audio = audioUrl;
+    if (isFileSource || video == null) return null;
+    final (videoOk, audioOk) = await (
+      servesAt(video, cutAt),
+      audio == null ? Future.value(true) : servesAt(audio, cutAt),
+    ).wait;
+    // both answer: not a broken copy, and a reopen is the safe way on
+    if (videoOk && audioOk) return null;
+    Future<String?> another(Iterable<String> urls, String current) async {
+      final host = Uri.tryParse(current)?.host;
+      for (final url in VideoUtils.cdnCandidates(urls)) {
+        if (Uri.tryParse(url)?.host == host) continue;
+        if (await servesAt(url, cutAt)) return url;
+      }
+      return null;
+    }
+
+    final newVideo = videoOk ? null : await another(firstVideo.playUrls, video);
+    final newAudio = audioOk || _currentAudio == null
+        ? null
+        : await another(_currentAudio!.playUrls, audio!);
+    if ((!videoOk && newVideo == null) || (!audioOk && newAudio == null)) {
+      return null;
+    }
+    if (videoUrl != video || audioUrl != audio) return null;
+    if (newVideo != null) {
+      videoUrl = newVideo;
+      final index = VideoUtils.cdnCandidates(firstVideo.playUrls).indexOf(
+        newVideo,
+      );
+      if (index > _cdnAttempt) _cdnAttempt = index;
+    }
+    if (newAudio != null) audioUrl = newAudio;
+    return (video: newVideo, audio: newAudio);
+  }
+
+  /// Whether [url] hands over the byte at [offset], asked as the player asks
+  /// (its user agent and referer, no cookies). A copy cut short before it
+  /// drops the connection; one shorter than [offset] answers 416, which is
+  /// not a cut of this stream.
+  static Future<bool> servesAt(String url, int offset) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 4)
+      ..userAgent = BrowserUa.pc;
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      request.headers
+        ..set(HttpHeaders.refererHeader, HttpString.baseUrl)
+        ..set(HttpHeaders.rangeHeader, 'bytes=$offset-${offset + 1}');
+      final response = await request.close().timeout(
+        const Duration(seconds: 4),
+      );
+      if (response.statusCode == HttpStatus.requestedRangeNotSatisfiable) {
+        await response.drain<void>();
+        return true;
+      }
+      var length = 0;
+      await for (final chunk in response.timeout(const Duration(seconds: 4))) {
+        length += chunk.length;
+      }
+      return response.statusCode == HttpStatus.partialContent && length > 0;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// Re-opens the player with whatever [videoUrl] / [audioUrl] now hold,
   /// continuing from the current position. Shared by the CDN failover and by
   /// quality changes so both keep the same resume behaviour.
@@ -873,6 +952,11 @@ class VideoDetailController extends GetxController
             audioSource: audioUrl,
           );
     _ownSource = source;
+    // the player is shared: a page opened over this one and closed again
+    // took these with it
+    plPlayerController
+      ..onCdnFailover = switchToNextCdn
+      ..onStreamCut = replaceCutStreams;
     _loadingSource = true;
     await plPlayerController.setDataSource(
       source,
@@ -2293,6 +2377,9 @@ class VideoDetailController extends GetxController
     stopAsr(leaving: true);
     if (plPlayerController.onCdnFailover == switchToNextCdn) {
       plPlayerController.onCdnFailover = null;
+    }
+    if (plPlayerController.onStreamCut == replaceCutStreams) {
+      plPlayerController.onStreamCut = null;
     }
     super.onClose();
   }

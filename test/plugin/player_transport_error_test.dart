@@ -96,6 +96,24 @@ void main() {
     });
   });
 
+  group('the track put in place of a cut one', () {
+    const url = 'https://upos-sz-mirrorcosov.bilivideo.com/v.m4s';
+    const list =
+        '[{"id":1,"type":"video","external":false},'
+        '{"id":1,"type":"audio","external":false},'
+        '{"id":2,"type":"video","external":true,"external-filename":"$url"}]';
+
+    test('found by the URL it was opened from', () {
+      expect(PlPlayerController.externalTrack(list, 'video', url), '2');
+    });
+
+    test('not another kind, another URL, or a list mpv did not give', () {
+      expect(PlPlayerController.externalTrack(list, 'audio', url), isNull);
+      expect(PlPlayerController.externalTrack(list, 'video', 'x'), isNull);
+      expect(PlPlayerController.externalTrack('', 'video', url), isNull);
+    });
+  });
+
   group('a track that ran dry while playback goes on', () {
     bool dry(double? position, double? cacheEnd, [double? duration = 600]) =>
         PlPlayerController.trackRanDry(

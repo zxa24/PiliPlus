@@ -1,5 +1,5 @@
 import 'dart:async' show StreamSubscription, Timer;
-import 'dart:convert' show ascii, utf8;
+import 'dart:convert' show ascii, jsonDecode, utf8;
 import 'dart:io' show Platform;
 import 'dart:math' show max, min;
 import 'dart:ui' as ui;
@@ -630,6 +630,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.height = height;
       this.dataSource = dataSource;
       _cutAt.clear();
+      _replacedVid = null;
       _autoPlay = autoplay;
       // 初始化视频倍速
       // _playbackSpeed.value = speed;
@@ -1065,7 +1066,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // host is changed at once, while what is buffered still plays
         if (prematureEndAt(event) case final at?) {
           if (!_cutAt.add(at)) {
-            _switchCdn();
+            _replaceCutStreams(int.parse(at));
             return;
           }
         }
@@ -1132,7 +1133,96 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Byte offsets where a stream of the current source ended early.
   final _cutAt = <String>{};
 
+  /// Asked for streams to take the place of those a CDN cut short at
+  /// [cutAt], each checked to serve past it; null for one that is fine.
+  /// Null when there is nothing to put in place.
+  Future<({String? video, String? audio})?> Function(int cutAt)? onStreamCut;
+
+  /// The video track put in place of one that was cut, for whatever selects
+  /// the video again ("听视频" off): `auto` would pick the cut one.
+  String? _replacedVid;
+
+  String get videoTrack => _replacedVid ?? 'auto';
+
+  var _replacing = false;
+
+  /// Puts streams from another CDN in place of those cut short, without
+  /// stopping: what is buffered plays on while the new one opens, and the
+  /// picture moves over once it is there — no reopen, no loading spinner.
+  /// Probed on the same libmpv: the audio never restarted, the picture held
+  /// its last frame about 0.6 s. Anything short of that falls back to
+  /// reopening on the next CDN.
+  /// For the self-test's control (`--no-recovery`): playback as it was
+  /// before any recovery. Nothing else sets it.
+  static bool debugDisableRecovery = false;
+
+  Future<void> _replaceCutStreams(int cutAt) async {
+    if (debugDisableRecovery) return;
+    if (_replacing) return;
+    _replacing = true;
+    final source = dataSource;
+    try {
+      final urls = await onStreamCut?.call(cutAt);
+      final player = _videoPlayerController;
+      // moved on meanwhile: the new source has its own streams
+      if (!identical(dataSource, source) || player is! NativePlayer) return;
+      if (urls == null || (urls.video == null && urls.audio == null)) {
+        _switchCdn();
+        return;
+      }
+      for (final (kind, url) in [
+        ('video', urls.video),
+        ('audio', urls.audio),
+      ]) {
+        if (url == null) continue;
+        await player.command(['$kind-add', url, 'auto']);
+        if (!identical(dataSource, source) || player.disposed) return;
+        final id = _externalTrack(player.getProperty('track-list'), kind, url);
+        if (id == null) {
+          _switchCdn();
+          return;
+        }
+        if (kind == 'video') {
+          _replacedVid = id;
+          if (!onlyPlayAudio.value) player.setProperty('vid', id);
+        } else {
+          player.setProperty('aid', id);
+        }
+      }
+      _cutAt.clear();
+      // the cut stream's cache stays where it ended until mpv lets go of it
+      _dryTicks = -3;
+    } catch (_) {
+      if (identical(dataSource, source)) _switchCdn();
+    } finally {
+      _replacing = false;
+    }
+  }
+
+  /// The id of the external [kind] track mpv opened from [url], in its
+  /// `track-list`.
+  @visibleForTesting
+  static String? externalTrack(String trackList, String kind, String url) =>
+      _externalTrack(trackList, kind, url);
+
+  static String? _externalTrack(String trackList, String kind, String url) {
+    try {
+      final tracks = jsonDecode(trackList);
+      if (tracks is! List) return null;
+      for (final track in tracks.reversed) {
+        if (track is Map &&
+            track['type'] == kind &&
+            track['external'] == true &&
+            track['external-filename'] == url) {
+          return '${track['id']}';
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   void _switchCdn() {
+    if (debugDisableRecovery) return;
     // one switch per failure: the lines that follow the cut would ask again
     EasyThrottle.throttle(
       'PlPlayerController._switchCdn',

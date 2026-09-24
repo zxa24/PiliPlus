@@ -594,7 +594,9 @@ class HeaderControlState extends State<HeaderControl>
                                 } else {
                                   player.setProperty(
                                     'file-local-options/vid',
-                                    onlyPlayAudio ? 'auto' : 'no',
+                                    onlyPlayAudio
+                                        ? plPlayerController.videoTrack
+                                        : 'no',
                                   );
                                 }
                               },

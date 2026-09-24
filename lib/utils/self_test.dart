@@ -493,6 +493,10 @@ abstract final class SelfTest {
       final overrides = <String, Object>{
         SettingBoxKey.preferCodecs: ?codecs?.split(','),
         if (autoplay) SettingBoxKey.autoPlayEnable: true,
+        // moving comments over a frozen picture would look like playback
+        // to anything comparing frames
+        if (args.contains('--no-danmaku'))
+          SettingBoxKey.enableShowDanmaku: false,
       };
       final before = {
         for (final key in overrides.keys) key: GStorage.setting.get(key),
@@ -501,7 +505,12 @@ abstract final class SelfTest {
       try {
         await scenario(
           'openBili',
-          () => _openBili(url, hold, autoplay: autoplay),
+          () => _openBili(
+            url,
+            hold,
+            autoplay: autoplay,
+            recovery: !args.contains('--no-recovery'),
+          ),
         );
       } finally {
         for (final MapEntry(:key, :value) in before.entries) {
@@ -2149,11 +2158,30 @@ abstract final class SelfTest {
   /// quality coming back, the URL resolving but the transport stalling, or
   /// the page throwing while it draws. Each of those looks the same from the
   /// outside and needs a different fix, so each is reported separately.
+  /// A cheap fingerprint of the frame on screen: equal from one sample to
+  /// the next means the picture did not change.
+  static Future<String> _frameDigest(NativePlayer mpv) async {
+    final image = await mpv.screenshot();
+    if (image == null) return '-';
+    final data = await image.toByteData();
+    image.dispose();
+    if (data == null) return '-';
+    var sum = 0;
+    for (var i = 0; i < data.lengthInBytes; i += 4099) {
+      sum = (sum * 31 + data.getUint8(i)) & 0xffffffff;
+    }
+    return sum.toRadixString(16);
+  }
+
   static Future<Map<String, dynamic>> _openBili(
     String url,
     int holdSeconds, {
     bool autoplay = false,
+    bool recovery = true,
   }) async {
+    // the control for a recovery: what the viewer got before it existed.
+    // Set before the page opens: the cut shows within its first seconds
+    PlPlayerController.debugDisableRecovery = !recovery;
     final routed = await PiliScheme.routePushFromUrl(url);
     await Future.delayed(const Duration(seconds: 5));
 
@@ -2216,8 +2244,11 @@ abstract final class SelfTest {
           'pause=${mpv.getProperty('pause')} '
           'cache=${mpv.getProperty('paused-for-cache')} '
           'status=${player.playerStatus.value.name} '
-          'buffering=${player.isBuffering.value} '
-          'gate=${controller.asrPending.value}',
+          'buffering=${player.isBuffering.value} vid=${mpv.getProperty('vid')} vpts=${mpv.getProperty('video-pts')} '
+          'gate=${controller.asrPending.value} '
+          // whether the picture itself moves: the playhead went on over a
+          // frozen frame in the case this was added for
+          'frame=${await _frameDigest(mpv)}',
         );
       }
       final host = Uri.tryParse(controller.videoUrl ?? '')?.host;
