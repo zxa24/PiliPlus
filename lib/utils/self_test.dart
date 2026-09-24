@@ -1425,6 +1425,7 @@ abstract final class SelfTest {
       'ourSampleCues': ours['cues'],
       'ourRawTokens': ours['rawTokens'],
       'ourSegments': ours['segments'],
+      'ourBuiltCues': ours['builtCues'],
     };
   }
 
@@ -3085,6 +3086,12 @@ abstract final class SelfTest {
       'cueStats': _cueStats(shown, audio.durationSeconds),
       'script': _scriptMix(shown),
       'coverageVsVad': _coverageVsVad(shown, segments, audio.durationSeconds),
+      // every cue as built, before layout: what translation units are made
+      // of, for replaying the translation layout on real speech
+      'builtCues': [
+        for (final cue in cues)
+          {'from': cue.from, 'to': cue.to, 'content': cue.content},
+      ],
       'cues': [
         for (final cue in shown.take(40))
           {
