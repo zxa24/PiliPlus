@@ -269,6 +269,17 @@ try {
 } catch {
 }
 
+# llamadart is patched too (below); start from the pristine package so a
+# second run does not meet its own patch
+try {
+    $LlamadartDir = Get-CachedPackageDir "llamadart"
+
+    if ($LlamadartDir) {
+        Remove-Item -Path $LlamadartDir.FullName -Recurse -Force
+    }
+} catch {
+}
+
 flutter pub get
 
 $MaterialUiDir = Get-CachedPackageDir "material_ui"
@@ -336,4 +347,31 @@ foreach ($patch in $patches_cupertino) {
     } else {
         throw "$LASTEXITCODE"
     }
+}
+
+# LibrePili: expose llama.cpp's `use_extra_bufts` through llamadart's
+# ModelParams, so on-device translation can turn weight repacking off on
+# phones (about 1.8 GB of extra memory for a 2B model otherwise). The app
+# passes `useExtraBuffers:`, so a build without this patch fails to compile
+# rather than quietly using the memory.
+$LlamadartPatch = "lib/scripts/llamadart/extra_buffers.patch"
+
+$LlamadartDir = Get-CachedPackageDir "llamadart"
+
+if (-not $LlamadartDir) {
+    throw "llamadart package not found in pub cache"
+}
+
+Write-Host "llamadart dir: $($LlamadartDir.FullName)"
+
+(Get-Content "$env:GITHUB_WORKSPACE/$LlamadartPatch" -Raw) -replace "`r`n", "`n" |
+    Set-Content -NoNewline "$env:GITHUB_WORKSPACE/$LlamadartPatch"
+
+cd $LlamadartDir.FullName
+
+git apply "$env:GITHUB_WORKSPACE/$LlamadartPatch"
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "$LlamadartPatch applied"
+} else {
+    throw "$LASTEXITCODE"
 }

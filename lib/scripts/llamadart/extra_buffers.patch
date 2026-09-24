@@ -1,0 +1,51 @@
+--- a/lib/src/core/models/inference/model_params.dart
++++ b/lib/src/core/models/inference/model_params.dart
+@@ -234,6 +234,14 @@
+   /// automatically.
+   final bool loadMtp;
+ 
++  /// `llama_model_params.use_extra_bufts`: whether the CPU backend may
++  /// repack weights into its own layout. Faster on some CPUs, but the
++  /// repacked copy is anonymous memory on top of the mapped file — about
++  /// 1.8 GB more for a 2B model, which a 6 GB phone cannot spare.
++  ///
++  /// LibrePili patch (lib/scripts/llamadart/extra_buffers.patch).
++  final bool useExtraBuffers;
++
+   /// `llama_context_params.flash_attn_type`. User-explicit values override
+   /// the platform/backend heuristic.
+   final FlashAttention flashAttention;
+@@ -308,6 +316,7 @@
+     this.useMmap = true,
+     this.useMlock = false,
+     this.loadMtp = false,
++    this.useExtraBuffers = true,
+     this.flashAttention = FlashAttention.auto,
+     this.cacheTypeK = KvCacheType.f16,
+     this.cacheTypeV = KvCacheType.f16,
+@@ -391,6 +400,7 @@
+     bool? useMmap,
+     bool? useMlock,
+     bool? loadMtp,
++    bool? useExtraBuffers,
+     FlashAttention? flashAttention,
+     KvCacheType? cacheTypeK,
+     KvCacheType? cacheTypeV,
+@@ -440,6 +450,7 @@
+       useMmap: useMmap ?? this.useMmap,
+       useMlock: useMlock ?? this.useMlock,
+       loadMtp: loadMtp ?? this.loadMtp,
++      useExtraBuffers: useExtraBuffers ?? this.useExtraBuffers,
+       flashAttention: flashAttention ?? this.flashAttention,
+       cacheTypeK: cacheTypeK ?? this.cacheTypeK,
+       cacheTypeV: cacheTypeV ?? this.cacheTypeV,
+--- a/lib/src/backends/llama_cpp/load_param_helpers.dart
++++ b/lib/src/backends/llama_cpp/load_param_helpers.dart
+@@ -89,6 +89,7 @@
+   };
+   mparams.load_modeAsInt = loadMode.value;
+   mparams.load_mtp = params.loadMtp;
++  mparams.use_extra_bufts = params.useExtraBuffers;
+ }
+ 
+ /// Applies the user-controlled fields of [params] to a `llama_context_params`

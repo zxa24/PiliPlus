@@ -432,6 +432,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "8.1.0"
+  dinja:
+    dependency: transitive
+    description:
+      name: dinja
+      sha256: "34d4e569ceb3d900ab061f16cae947223968cc63d2484a8a4710d5ecfa4ae3a2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.0"
   dio:
     dependency: "direct main"
     description:
@@ -1124,6 +1132,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.0.6"
+  llamadart:
+    dependency: "direct main"
+    description:
+      name: llamadart
+      sha256: e590146680202fed7471a9e5b42338a790911c2b35cb9ac7877c254e7e6b9f88
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.8.24"
   logger:
     dependency: "direct main"
     description:
