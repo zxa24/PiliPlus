@@ -788,7 +788,8 @@ class VideoDetailController extends GetxController
     if (kDebugMode) {
       debugPrint('cdn failover -> ${Uri.tryParse(videoUrl!)?.host}');
     }
-    SmartDialog.showToast('线路无法播放，已切换备用线路');
+    // silent: the viewer is told only when no host is left (the player's
+    // own toast when this returns false)
     _reopenAtCurrentPosition();
     return true;
   }

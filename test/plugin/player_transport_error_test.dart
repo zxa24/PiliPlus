@@ -68,6 +68,34 @@ void main() {
     });
   });
 
+  group('where a stream ended early', () {
+    test("read from mpv's line, reconnect or not", () {
+      expect(
+        PlPlayerController.prematureEndAt(
+          'https: Stream ends prematurely at 1060331, should be 101224217',
+        ),
+        '1060331',
+      );
+      // after mpv's own reconnect got an empty reply at the same byte
+      expect(
+        PlPlayerController.prematureEndAt(
+          'https: Stream ends prematurely at 1060331, '
+          'should be 18446744073709551615',
+        ),
+        '1060331',
+      );
+    });
+
+    test('other lines say nothing about it', () {
+      expect(
+        PlPlayerController.prematureEndAt(
+          'https: Error reading HTTP response: End of file',
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('a track that ran dry while playback goes on', () {
     bool dry(double? position, double? cacheEnd, [double? duration = 600]) =>
         PlPlayerController.trackRanDry(

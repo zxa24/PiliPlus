@@ -629,6 +629,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.width = width;
       this.height = height;
       this.dataSource = dataSource;
+      _cutAt.clear();
       _autoPlay = autoplay;
       // 初始化视频倍速
       // _playbackSpeed.value = speed;
@@ -882,6 +883,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (dataSource is FileSource) {
       return null;
     }
+    _cutAt.clear();
     if (_videoPlayerController case final ctr? when (ctr.current.isNotEmpty)) {
       var media = ctr.current.last;
       if (!isLive) media = media.copyWith(start: ctr.state.position);
@@ -1058,6 +1060,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
           return;
         }
+        // a copy that ends early ends there for every request: once the
+        // reconnect mpv makes of itself has stopped at the same byte, the
+        // host is changed at once, while what is buffered still plays
+        if (prematureEndAt(event) case final at?) {
+          if (!_cutAt.add(at)) {
+            _switchCdn();
+            return;
+          }
+        }
         if (_isTransportFailure(event)) {
           final positionBefore = position.value;
           EasyThrottle.throttle(
@@ -1107,22 +1118,43 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _watchForDryTrack(player);
   }
 
+  /// Recovery goes on without a word; the viewer hears only when there is
+  /// nothing left to try.
   void _recoverTransport() {
     switch (transportRecovery(_transportFailures++)) {
       case TransportRecovery.retrySameUrl:
-        SmartDialog.showToast(
-          '视频链接打开失败，重试中',
-          displayTime: const Duration(milliseconds: 500),
-        );
         refreshPlayer();
       case TransportRecovery.switchCdn:
+        _switchCdn();
+    }
+  }
+
+  /// Byte offsets where a stream of the current source ended early.
+  final _cutAt = <String>{};
+
+  void _switchCdn() {
+    // one switch per failure: the lines that follow the cut would ask again
+    EasyThrottle.throttle(
+      'PlPlayerController._switchCdn',
+      const Duration(seconds: 3),
+      () {
+        // the new source takes a moment to fill the cache
+        _dryTicks = -3;
         if (onCdnFailover?.call() ?? false) {
           _transportFailures = 0;
         } else {
           SmartDialog.showToast('视频加载失败，请检查网络或切换线路');
         }
-    }
+      },
+    );
   }
+
+  /// Where `Stream ends prematurely at N, should be M` says a stream ended.
+  @visibleForTesting
+  static String? prematureEndAt(String event) =>
+      _prematureEnd.firstMatch(event)?.group(1);
+
+  static final _prematureEnd = RegExp(r'Stream ends prematurely at (\d+)');
 
   Timer? _dryWatch;
 
@@ -1142,7 +1174,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   void _watchForDryTrack(NativePlayer player) {
     _dryWatch?.cancel();
     _dryTicks = 0;
-    _dryWatch = Timer.periodic(const Duration(seconds: 2), (_) {
+    _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
       if (isLive ||
           dataSource is FileSource ||
           !playerStatus.isPlaying ||
@@ -1171,9 +1203,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       // one tick can be a seek landing between two property reads
       if (++_dryTicks < 2) return;
-      // the re-open takes a moment to fill the cache again
-      _dryTicks = -5;
-      _recoverTransport();
+      // mpv has already reconnected as often as it will: the same URL again
+      // would only cost the viewer another stall
+      _switchCdn();
     });
   }
 
