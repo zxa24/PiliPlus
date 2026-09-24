@@ -952,6 +952,13 @@ class VideoDetailController extends GetxController
         }
       }
     }
+    // tracks made on the device, including ones stopped and kept in the
+    // menu: those have no session left to rebuild them from
+    final made = <String, ({bool isData, String id})>{
+      for (var i = 0; i < subtitles.length; i++)
+        if (subtitles[i].source == SubtitleSource.device)
+          subtitles[i].lan: ?vttSubtitles[i],
+    };
     // from here until the tracks are all in place, nothing is awaited
     vttSubtitles.clear();
     subtitles.clear();
@@ -965,8 +972,16 @@ class VideoDetailController extends GetxController
       vttSubtitles[subtitles.length] = (isData: true, id: text);
       subtitles.add(Subtitle(lan: lan, lanDoc: lan));
     }
-    _restoreGeneratedTracks();
-    if (saved.isNotEmpty && !isClosed) await _setSubtitle(subtitles.toList());
+    _restoreGeneratedTracks(made);
+    if (isClosed) return;
+    if (saved.isNotEmpty) {
+      await _setSubtitle(subtitles.toList());
+    } else {
+      // the player was handed the choice from before the rebuild — the
+      // translation, say — which no longer matches the list; off, as the
+      // index now says
+      await _applyOwnSubtitle(0);
+    }
   }
 
   /// Puts the transcript and translation made for this part back after the
@@ -974,7 +989,11 @@ class VideoDetailController extends GetxController
   /// anew (coming back to the page). They are on no disk to be found, and a
   /// finished one is never published again. Not selected: the list was just
   /// chosen from afresh.
-  void _restoreGeneratedTracks() {
+  ///
+  /// [made] is what the list held before, by language: one the viewer
+  /// stopped has no session any more and comes back as it was, kept in the
+  /// menu as the stop left it.
+  void _restoreGeneratedTracks(Map<String, ({bool isData, String id})> made) {
     if (isClosed) return;
     final cues = asrSession.value?.cues;
     if (cues != null && cues.isNotEmpty) {
@@ -983,10 +1002,22 @@ class VideoDetailController extends GetxController
       subtitles.add(
         Subtitle(lan: 'asr', lanDoc: '语音识别', source: SubtitleSource.device),
       );
+    } else if (made['asr'] case final track?) {
+      vttSubtitles[subtitles.length] = track;
+      subtitles.add(
+        Subtitle(lan: 'asr', lanDoc: '语音识别', source: SubtitleSource.device),
+      );
     }
-    if (translation.currentVtt case final vtt?) {
-      final index = _translationTrackIndex = subtitles.length;
-      vttSubtitles[index] = (isData: true, id: vtt);
+    final live = translation.currentVtt;
+    final kept = made['asr-translated'];
+    if (live != null || kept != null) {
+      final index = subtitles.length;
+      if (live != null) {
+        _translationTrackIndex = index;
+        vttSubtitles[index] = (isData: true, id: live);
+      } else {
+        vttSubtitles[index] = kept!;
+      }
       subtitles.add(
         Subtitle(
           lan: 'asr-translated',
@@ -1690,6 +1721,18 @@ class VideoDetailController extends GetxController
     _returnListener = null;
   }
 
+  /// Another page is open over this one. The gate hides only the player, so
+  /// the viewer can open an uploader's page or a search meanwhile; the gate
+  /// letting go then would play this video's sound under that page.
+  var _covered = false;
+
+  /// Told by the page as another is pushed over it and popped again: held
+  /// playback goes on at the return, like one released with the app away.
+  void setCovered(bool covered) {
+    _covered = covered;
+    if (!covered) _resumeHeldPlayback();
+  }
+
   /// Lets held-back playback go on, once the gate is down and the player has
   /// this part loaded.
   void _resumeHeldPlayback() {
@@ -1698,6 +1741,7 @@ class VideoDetailController extends GetxController
       _releaseHold();
       return;
     }
+    if (_covered) return;
     // The gate can let go with the app away — the model guard stopping the
     // run, the cap, a late subtitle list — and the player view pauses only
     // as the app leaves, when the gate had it paused already. Playing now
@@ -2074,12 +2118,17 @@ class VideoDetailController extends GetxController
     if (plPlayerController.showViewPoints) {
       viewPointList.clear();
     }
+    // a part switch reuses this controller: an answer for the part before
+    // would put its subtitles — and a translation of them — on this one,
+    // which has its own query on the way
+    final part = cid.value;
     final res = await VideoHttp.playInfo(
       bvid: bvid,
-      cid: cid.value,
+      cid: part,
       seasonId: seasonId,
       epId: epId,
     );
+    if (cid.value != part) return;
     if (res case Success(:final response)) {
       // interactive video
       late final introCtr = Get.find<UgcIntroController>(tag: heroTag);
@@ -2129,7 +2178,8 @@ class VideoDetailController extends GetxController
       if (response.subtitle?.subtitles case final sub? when (sub.isNotEmpty)) {
         _setSubtitle(sub);
       } else if (!Accounts.main.isLogin) {
-        final res = await DmGrpc.dmView(aid, cid.value);
+        final res = await DmGrpc.dmView(aid, part);
+        if (cid.value != part) return;
         if (res case Success(:final response)) {
           if (response.hasSubtitle() &&
               response.subtitle.subtitles.isNotEmpty) {

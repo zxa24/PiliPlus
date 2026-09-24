@@ -74,6 +74,24 @@ void main() {
       expect(parseCaptionCues(_events).map((c) => c.content), ['ハーベスティ花だよ。']);
     });
 
+    test('cue ids of any kind are not caption text', () {
+      const vtt =
+          'WEBVTT\n\ncue-1\n00:01.000 --> 00:03.000\nHello\n\n'
+          'cue-2\n00:03.000 --> 00:05.000\nWorld\n';
+      expect(parseCaptionCues(vtt).map((c) => c.content), ['Hello', 'World']);
+    });
+
+    test('NOTE, STYLE and REGION blocks are not caption text', () {
+      const vtt =
+          'WEBVTT\n\nSTYLE\n::cue { color: red }\n\n'
+          'REGION\nid:fred width:40%\n\n'
+          '00:01.000 --> 00:03.000\nHello\n\n'
+          'NOTE a comment\nspanning lines\n\n'
+          'STYLE\n::cue(b) { color: blue }\n\n'
+          '00:03.000 --> 00:05.000\nWorld\n';
+      expect(parseCaptionCues(vtt).map((c) => c.content), ['Hello', 'World']);
+    });
+
     test('on-screen text in brackets is kept', () {
       const vtt =
           'WEBVTT\n\n00:01.000 --> 00:03.000\n'

@@ -386,6 +386,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     introController.cancelTimer();
 
     videoDetailController
+      ..setCovered(true)
       ..videoState.value = false
       ..cancelBlockListener()
       ..playerStatus = plPlayerController?.playerStatus.value
@@ -452,6 +453,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         videoDetailController.videoUrl != null) {
       videoDetailController.playerInit();
     }
+    videoDetailController.setCovered(false);
   }
 
   @override

@@ -26,6 +26,9 @@ final _wordTiming = RegExp(r'<(?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3}>');
 /// translate, not a noise.
 final _event = RegExp(r'^(\[[^\]]{1,15}\]|\([^)]{1,15}\)|（[^）]{1,15}）|♪+)$');
 
+/// The start of a VTT block that holds no cue.
+final _metaBlock = RegExp(r'^(NOTE|STYLE|REGION)(\s|$)');
+
 double _seconds(String stamp) {
   final parts = stamp.replaceAll(',', '.').split(':');
   var total = 0.0;
@@ -55,19 +58,27 @@ List<AsrCue> parseCaptionCues(String text) {
   final blocks = <({double from, double to, List<String> body})>[];
   var above = '';
   var wordTimed = false;
+  // inside a VTT comment, style sheet or region definition: not speech
+  var skipping = false;
   for (final line in text.replaceAll('\r\n', '\n').split('\n')) {
     if (!wordTimed && _wordTiming.hasMatch(line)) wordTimed = true;
     final match = _timing.firstMatch(line);
     final raw = above;
     above = line;
+    if (line.trim().isEmpty) {
+      skipping = false;
+    } else if (raw.trim().isEmpty && _metaBlock.hasMatch(line)) {
+      skipping = true;
+    }
+    if (skipping) continue;
     if (match != null) {
-      // an SRT counter or a VTT cue id sits right above its timing line —
-      // right above: a line of digits with a blank line after it is the
-      // previous cue's text
+      // an SRT counter or a VTT cue id — digits or any other text — sits
+      // right above its timing line. Right above: a line with a blank line
+      // after it is the previous cue's text.
       if (blocks.isNotEmpty &&
           blocks.last.body.isNotEmpty &&
-          RegExp(r'^\d+$').hasMatch(raw.trim()) &&
-          blocks.last.body.last == raw.trim()) {
+          raw.trim().isNotEmpty &&
+          blocks.last.body.last == raw.replaceAll(_tag, '').trim()) {
         blocks.last.body.removeLast();
       }
       blocks.add((

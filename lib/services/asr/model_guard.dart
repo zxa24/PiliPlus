@@ -42,12 +42,13 @@ enum ModelStopReason {
 
 /// Whether the app is out of view: nobody would see a video started now.
 /// [AppLifecycleState.inactive] is not — it is picture-in-picture on
-/// Android, and on desktop a window that has only lost focus. An unknown
-/// [state] counts as in view.
+/// Android, and on desktop a window that has only lost focus. Nor is
+/// [AppLifecycleState.hidden], a minimised desktop window: the player's own
+/// background pause covers only [AppLifecycleState.paused] and
+/// [AppLifecycleState.detached], and a video minimised without the gate goes
+/// on playing. An unknown [state] counts as in view.
 bool isAppAway(AppLifecycleState? state) => switch (state) {
-  AppLifecycleState.hidden ||
-  AppLifecycleState.paused ||
-  AppLifecycleState.detached => true,
+  AppLifecycleState.paused || AppLifecycleState.detached => true,
   _ => false,
 };
 

@@ -140,7 +140,11 @@ List<String> splitTranslation(
   for (var i = 0; i < chars.length; i++) {
     final c = String.fromCharCode(chars[i]);
     final w = AsrCueBuilder.displayWidth(c);
-    if (width + w > maxWidth && line.isNotEmpty) {
+    // a sentence end or a closer overflows the line it ends rather than
+    // make a line of its own: a sentence exactly at the limit once left its
+    // "。" alone on the next
+    final ends = _sentenceEnd.contains(c) || _closers.contains(c);
+    if (width + w > maxWidth && line.isNotEmpty && !ends) {
       final current = line.toString();
       if (clauseAt > 0) {
         emit(current.substring(0, clauseAt));
@@ -213,22 +217,37 @@ List<AsrCue> timeTranslation(TranslationUnit unit, List<String> lines) {
   final widths = [for (final l in lines) AsrCueBuilder.displayWidth(l)];
   final total = widths.fold(0, (a, b) => a + b);
   final starts = [for (final cue in unit.cues.skip(1)) cue.from];
+  // Every line keeps at least this much. A boundary snapped a second late
+  // to a source line starting near the unit's end once pushed the lines
+  // after it against that end: half a translation on screen for 0.1 s, or
+  // for none at all.
+  final least = span / (2 * lines.length);
+  var snapping = true;
   final bounds = <double>[unit.from];
   var acc = 0;
   for (var k = 0; k < lines.length - 1; k++) {
     acc += widths[k];
     var t = unit.from + span * acc / total;
+    final low = bounds.last + least;
+    final high = unit.to - (lines.length - k - 1) * least;
     double? best;
-    for (final s in starts) {
-      if ((s - t).abs() <= _snap &&
-          (best == null || (s - t).abs() < (best - t).abs())) {
-        best = s;
+    if (snapping) {
+      for (final s in starts) {
+        if ((s - t).abs() <= _snap &&
+            (best == null || (s - t).abs() < (best - t).abs())) {
+          best = s;
+        }
       }
     }
+    if (best != null && (best < low || best > high)) {
+      // it would squeeze a line; the ones after are timed by width alone
+      snapping = false;
+      best = null;
+    }
     if (best != null) t = best;
-    // never behind the previous boundary, or a line would get no time
-    if (t <= bounds.last) t = bounds.last + (span / lines.length) * 0.5;
-    bounds.add(t < unit.to ? t : unit.to);
+    // not clamp(): a boundary clamped to its [high] puts the next one's [low]
+    // a rounding error past that one's [high], and clamp throws on that
+    bounds.add(t > high ? high : (t < low ? low : t));
   }
   bounds.add(unit.to);
   return [

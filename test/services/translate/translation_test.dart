@@ -116,6 +116,11 @@ void main() {
       }
     });
 
+    test('a sentence end at the width limit stays on its line', () {
+      final lines = splitTranslation('第三句话同样很长很长很长很长很长很长很长很长。', maxWidth: 44);
+      expect(lines, ['第三句话同样很长很长很长很长很长很长很长很长。']);
+    });
+
     test('a run of marks stays on its line', () {
       expect(splitTranslation('我这里有两个，我还在犹豫哪个，但现在……'), [
         '我这里有两个，我还在犹豫哪个，但现在……',
@@ -158,6 +163,57 @@ void main() {
       );
       final timed = timeTranslation(unit, ['一二三', '四五六七八九十']);
       expect(timed.map((c) => (c.from, c.to)), [(0, 3), (3, 10)]);
+    });
+
+    test('a late source line does not squeeze the lines after it', () {
+      final unit = TranslationUnit(
+        from: 0,
+        to: 2,
+        text: 'x',
+        cues: [cue(0, 1.9, 'a'), cue(1.9, 2, 'b')],
+      );
+      final timed = timeTranslation(unit, ['一二三', '四五六', '七八九', '十十十']);
+      for (final c in timed) {
+        expect(c.to - c.from, greaterThanOrEqualTo(2 / 8 - 1e-9));
+      }
+      expect(timed.last.to, 2);
+    });
+
+    test('rounding at real-scale times never breaks the timing', () {
+      // a line clamped to the latest it may end puts the next one's
+      // earliest start a rounding error past its latest end; clamp threw
+      final lines = splitTranslation(
+        '我们今天要讨论的这个问题其实非常复杂而且困难好几个方面都要考虑到。一起来看看吧。对',
+      );
+      expect(lines.length, 4);
+      for (var i = 0; i < 400; i++) {
+        final from = 1800 + i * 0.1799;
+        final to = from + const [1.0, 1.3, 2.7, 3.1, 4.9, 6.3, 7.0][i % 7];
+        final unit = TranslationUnit(
+          from: from,
+          to: to,
+          text: 'x',
+          cues: [cue(from, to, 'a')],
+        );
+        final timed = timeTranslation(unit, lines);
+        expect(timed.last.to, to);
+        for (final c in timed) {
+          expect(c.to, greaterThanOrEqualTo(c.from));
+        }
+      }
+    });
+
+    test('three lines against a source line at the very end', () {
+      final unit = TranslationUnit(
+        from: 0,
+        to: 1,
+        text: 'x',
+        cues: [cue(0, 0.9, 'a'), cue(0.9, 1, 'b')],
+      );
+      final timed = timeTranslation(unit, ['第一行', '第二行', '第三行']);
+      for (final c in timed) {
+        expect(c.to - c.from, greaterThanOrEqualTo(1 / 6 - 1e-9));
+      }
     });
   });
 
@@ -392,6 +448,47 @@ void main() {
       // 300 is within 120 s of 250; 400 is not yet
       expect(session.results.keys, [3]);
       expect(session.cues().first.content, endsWith(translationPendingMark));
+      await session.dispose();
+    });
+
+    test('a resume past units is done, and a seek back re-arms it only '
+        'while the page has the player', () async {
+      now = 350;
+      var owns = true;
+      var loads = 0;
+      final session =
+          TranslationSession(
+              transcript: transcriptView(
+                segments: () => segments,
+                cues: () => cues,
+                complete: () => complete,
+              ),
+              position: () => now,
+              engine: (_) async {
+                loads++;
+                return engine = FakeEngine();
+              },
+              target: 'zh',
+            )
+            ..ownsPlayer = (() => owns)
+            ..start();
+      await pumpUntil(
+        () => session.state.value.stage == TranslationStage.done,
+      );
+      expect(session.results.keys, [4]);
+      expect(engine.disposed, isTrue);
+      // another video on the player, its playhead before what was skipped
+      owns = false;
+      now = 0;
+      session.poke();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(loads, 1);
+      expect(session.state.value.stage, TranslationStage.done);
+      owns = true;
+      session.poke();
+      await pumpUntil(() => session.results.length == 3);
+      expect(loads, 2);
+      expect(session.results.keys.toSet(), {0, 1, 4});
       await session.dispose();
     });
 

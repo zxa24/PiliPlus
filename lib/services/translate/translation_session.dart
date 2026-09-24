@@ -94,6 +94,14 @@ class TranslationSession {
   /// The language to translate into, e.g. `zh`.
   final String target;
 
+  /// Whether the page this translates for still has the player, set by the
+  /// page's track. The player is one for the whole app: while another video
+  /// plays on it, [position] reads that video's playhead, and the model is
+  /// not loaded to translate this one's speech against it — least of all by
+  /// a session done for as far as the viewer went, re-armed by that other
+  /// video's playhead sitting before what was skipped.
+  bool Function()? ownsPlayer;
+
   final state = const TranslationState(TranslationStage.idle).obs;
 
   /// Bumped whenever [results] changes, for whoever republishes the track.
@@ -183,6 +191,32 @@ class TranslationSession {
     return null;
   }
 
+  /// Whether nothing between the playhead and [within] seconds past it is
+  /// still to be translated — every unit there has a result — and the text
+  /// is known that far, so nothing untranslated can still turn up in it.
+  /// Without [within], to the end of a finished transcript.
+  ///
+  /// Units behind the playhead do not count: a resume or a seek forward
+  /// leaves them without a result, and the session would otherwise wait for
+  /// them for as long as the page is open.
+  bool nothingPendingAhead({double? within}) {
+    final now = position();
+    final end = within == null ? double.infinity : now + within;
+    var taken = 0;
+    for (var i = 0; i < units.length; i++) {
+      final unit = units[i];
+      taken += unit.cues.length;
+      if (unit.to < now - _behind) continue;
+      if (unit.from > end) return true;
+      if (!results.containsKey(i)) return false;
+    }
+    if (transcript.complete()) return true;
+    // lines not in a unit yet are still to be translated; and with none
+    // past [end] the recogniser has not got that far
+    final rest = transcript.cues().skip(taken);
+    return rest.isNotEmpty && rest.first.from > end;
+  }
+
   void _refreshUnits() => units = transcript.units();
 
   /// Marks the session failed with [reason], for a stop the page must hear
@@ -192,6 +226,15 @@ class TranslationSession {
 
   void _set(TranslationState value) {
     if (!_closed) state.value = value;
+  }
+
+  /// Until something changes (see [poke]), or a second has passed.
+  Future<void> _nap() {
+    final wake = _wake = Completer<void>();
+    return Future.any([
+      wake.future,
+      Future<void>.delayed(const Duration(seconds: 1)),
+    ]);
   }
 
   Future<void> _run() async {
@@ -207,12 +250,25 @@ class TranslationSession {
             _set(const TranslationState(TranslationStage.done));
             return;
           }
+          if (transcript.complete() && nothingPendingAhead()) {
+            // done for as far as the viewer goes: the model is let go of,
+            // and a seek back to what was skipped loads it again
+            final loaded = _engine;
+            _engine = null;
+            await loaded?.dispose();
+            if (_closed) return;
+            _set(const TranslationState(TranslationStage.done));
+            await _nap();
+            continue;
+          }
           _set(const TranslationState(TranslationStage.waiting));
-          _wake = Completer<void>();
-          await Future.any([
-            _wake!.future,
-            Future<void>.delayed(const Duration(seconds: 1)),
-          ]);
+          await _nap();
+          continue;
+        }
+        if (_engine == null && ownsPlayer?.call() == false) {
+          // as it is: a running one is stopped by its track, a done one waits
+          // for the page to have the player back
+          await _nap();
           continue;
         }
         if (_engine == null) {

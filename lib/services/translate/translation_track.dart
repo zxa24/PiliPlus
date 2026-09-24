@@ -103,8 +103,10 @@ class TranslationTrack {
 
   bool get isRunning => session.value?.isRunning ?? false;
 
-  /// Starts that have not attached their session yet.
-  var _starting = 0;
+  /// The generation of the start that has not attached its session yet, if
+  /// any. Only the latest can still attach: every start and every [stop]
+  /// takes a new generation.
+  int? _starting;
 
   /// Bumped by every [stop], so a start that a stop overtook can tell.
   var _generation = 0;
@@ -112,8 +114,10 @@ class TranslationTrack {
   /// A translation exists or is on its way. [session] alone is only set
   /// after the service has stopped its predecessor and started this one, and
   /// a page asked again in between (every recogniser progress update asks)
-  /// would start a second.
-  bool get isActive => _starting > 0 || session.value != null;
+  /// would start a second. A start a stop has overtaken does not count: it
+  /// can take seconds to find out, and a start asked for meanwhile would be
+  /// ignored.
+  bool get isActive => _starting == _generation || session.value != null;
 
   /// Translates a transcript as it is being written.
   Future<void> start(AsrSession asr) => _startWith(
@@ -130,10 +134,9 @@ class TranslationTrack {
     Future<TranslationSession> Function() create, {
     void Function(TranslationSession current)? onAttach,
   }) async {
-    _starting++;
     // taken before anything is awaited: a stop that lands while the one
     // before this is being torn down must still count
-    final generation = ++_generation;
+    final generation = _starting = ++_generation;
     try {
       await _detach();
       if (generation != _generation) return;
@@ -146,12 +149,13 @@ class TranslationTrack {
       onAttach?.call(current);
       _attach(current);
     } finally {
-      _starting--;
+      if (_starting == generation) _starting = null;
     }
   }
 
   void _attach(TranslationSession current) {
     session.value = current;
+    current.ownsPlayer = ownsPlayer;
     _revisionWorker = ever(current.revision, (_) {
       // Ready once there is a stretch ahead to watch, not at the first line:
       // released at one unit, a real run reached the next one — still
@@ -166,9 +170,33 @@ class TranslationTrack {
         publish();
       }
     });
+    // the playhead moves without telling anyone; check on a timer too
+    final started = DateTime.now();
+    void startRefresh() {
+      _refresh ??= Timer.periodic(const Duration(seconds: 5), (_) {
+        // ended as a failure, so the page hears why and offers a retry
+        if (ownsPlayer?.call() == false && current.isRunning) {
+          TranslationService.to.stop(reason: '播放器已切换到其他视频', only: current);
+          return;
+        }
+        // a phone too slow to build the lead in time shows what it has, when
+        // the page would have stopped waiting anyway
+        if (!_readySent &&
+            (DateTime.now().difference(started) >= _readyCap ||
+                _hasLead(current))) {
+          _ready();
+        }
+        if (_readySent) publish();
+      });
+    }
+
     void onState(TranslationState state) {
       switch (state.stage) {
         case TranslationStage.done:
+          // nothing more is coming until a seek back to what was skipped,
+          // which starts the timer again
+          _refresh?.cancel();
+          _refresh = null;
           // a short or silent video can finish below the lead, or with
           // nothing to show at all
           _ready();
@@ -192,26 +220,21 @@ class TranslationTrack {
             );
           }
           onFailed(state.message ?? '');
-        case _:
+        case TranslationStage.idle:
           break;
+        case _:
+          // back at work after a done: a seek back to what was skipped
+          startRefresh();
+          // with no speech to translate near the playhead no result comes
+          // to ask the question on, and the page would sit out its cap
+          if (!_readySent && _hasLead(current)) {
+            _ready();
+            publish();
+          }
       }
     }
 
-    // the playhead moves without telling anyone; check on a timer too
-    final started = DateTime.now();
-    _refresh = Timer.periodic(const Duration(seconds: 5), (_) {
-      // ended as a failure, so the page hears why and offers a retry
-      if (ownsPlayer?.call() == false && current.isRunning) {
-        TranslationService.to.stop(reason: '播放器已切换到其他视频', only: current);
-        return;
-      }
-      // a phone too slow to build the lead in time shows what it has, when
-      // the page would have stopped waiting anyway
-      if (!_readySent && DateTime.now().difference(started) >= _readyCap) {
-        _ready();
-      }
-      if (_readySent) publish();
-    });
+    startRefresh();
     _stateWorker = ever(current.state, onState);
     // an empty transcript is done before the service even hands the session
     // over, and a worker only hears later changes. After the timer: one that
@@ -229,6 +252,13 @@ class TranslationTrack {
   bool _hasLead(TranslationSession current) {
     final now = position();
     if (current.settledFrom(now) - now >= _readyLead) return true;
+    // nothing to translate for a while — a long intro, the last line just
+    // passed — or everything from here to the end is translated
+    if (current.nothingPendingAhead(
+      within: translationLead.inMilliseconds / 1000,
+    )) {
+      return true;
+    }
     // a short video can be settled end to end below the lead
     return current.state.value.stage == TranslationStage.done ||
         (current.units.isNotEmpty &&
@@ -323,7 +353,13 @@ class TranslationTrack {
   /// stop that leaves what was translated with the page.
   Future<void> stop({bool finish = false}) async {
     final current = session.value;
-    if (finish && _published && current != null && current.isRunning) {
+    // a done one still marks what a seek skipped, until the viewer returns
+    if (finish &&
+        _published &&
+        current != null &&
+        (current.isRunning ||
+            (current.state.value.stage == TranslationStage.done &&
+                current.results.length < current.units.length))) {
       onPublish(
         current.cues(display: _display, markPending: false).toVtt(),
         first: false,

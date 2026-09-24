@@ -37,11 +37,16 @@ class LlamaTranslationEngine implements TranslationEngine {
           // Desktops have the room and get the faster layout.
           //
           // This parameter does not exist in llamadart as published. It is
-          // added by lib/scripts/llamadart/extra_buffers.patch, which
+          // added by lib/scripts/llamadart/extra_buffers.patch, which CI's
           // lib/scripts/patch.ps1 applies after `pub get`. If this line does
           // not compile, the patch is missing — any `pub get` that fetched
-          // llamadart afresh undoes it — and the fix is to run patch.ps1,
-          // not to delete the line.
+          // llamadart afresh undoes it — and the fix is not to delete the
+          // line. Locally, apply the patch inside the package in the pub
+          // cache: `git apply <repo>/lib/scripts/llamadart/
+          // extra_buffers.patch`, run in its llamadart-0.8.24 directory
+          // (hosted/pub.dev). patch.ps1 itself is for CI only: it fetches
+          // llamadart afresh, reads the patch through $GITHUB_WORKSPACE and
+          // patches the Flutter SDK as well.
           useExtraBuffers: repacks,
         ),
       );

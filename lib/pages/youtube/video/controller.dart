@@ -97,6 +97,11 @@ class YtVideoController extends GetxController {
       audioSource: pair.audioUrl,
     );
     _ownSource = source;
+    // mpv keeps an added subtitle track with the file it was added to: a new
+    // one — a quality change, fresh streams — starts without the transcript
+    // or translation that was on screen, which is only handed over again
+    // when it has something new, and a finished or stopped one never is
+    final generated = captionIndex.value == -2 ? _generatedTrack : null;
     await plPlayerController.setDataSource(
       source,
       seekTo: seekTo,
@@ -111,6 +116,9 @@ class YtVideoController extends GetxController {
       onInit: () {
         _watchPlayback();
         stage.value = YtPageStage.ready;
+        if (generated != null) {
+          plPlayerController.videoPlayerController?.setSubtitleTrack(generated);
+        }
       },
     );
     if (!isClosed) stage.value = YtPageStage.ready;
@@ -853,7 +861,9 @@ class YtVideoController extends GetxController {
     _asrPublished = false;
     if (stopsTranslation) {
       _translatedCaption = null;
-      await translation.stop();
+      // what was translated stays on screen, without its waiting marks,
+      // unless the page is going away
+      await translation.stop(finish: !leaving);
     }
     await cueSub;
     if (session != null && Get.isRegistered<AsrService>()) {
@@ -892,7 +902,7 @@ class YtVideoController extends GetxController {
     _asrPublishedTo = Duration(
       milliseconds: (session.cues.last.to * 1000).round(),
     );
-    player.setSubtitleTrack(
+    _showGeneratedTrack(
       SubtitleTrack(
         'memory://${session.cues.toVtt()}',
         '语音识别',
@@ -901,6 +911,15 @@ class YtVideoController extends GetxController {
       ),
     );
     _asrPublished = true;
+  }
+
+  /// The transcript or translation last handed to the player, for [_open] to
+  /// hand the next file.
+  SubtitleTrack? _generatedTrack;
+
+  void _showGeneratedTrack(SubtitleTrack track) {
+    _generatedTrack = track;
+    plPlayerController.videoPlayerController?.setSubtitleTrack(track);
     captionIndex.value = -2;
   }
 
@@ -1055,10 +1074,9 @@ class YtVideoController extends GetxController {
     // shown the first time; after that refreshed only while it is still what
     // is shown — the viewer may have turned subtitles off or picked a track
     if (!first && captionIndex.value != -2) return;
-    player.setSubtitleTrack(
+    _showGeneratedTrack(
       SubtitleTrack('memory://$vtt', '翻译', 'asr-translated', uri: true),
     );
-    captionIndex.value = -2;
   }
 
   /// What [showGenerated] would put back on screen while the viewer has it
@@ -1080,21 +1098,19 @@ class YtVideoController extends GetxController {
     if (player == null || isClosed || !_ownsPlayer) return;
     if (_showingTranslation) {
       if (translation.currentVtt case final vtt?) {
-        player.setSubtitleTrack(
+        _showGeneratedTrack(
           SubtitleTrack('memory://$vtt', '翻译', 'asr-translated', uri: true),
         );
-        captionIndex.value = -2;
       }
       return;
     }
     final cues = asrSession.value?.cues;
     if (cues == null || cues.isEmpty) return;
     _asrPublishedTo = Duration(milliseconds: (cues.last.to * 1000).round());
-    player.setSubtitleTrack(
+    _showGeneratedTrack(
       SubtitleTrack('memory://${cues.toVtt()}', '语音识别', 'asr', uri: true),
     );
     _asrPublished = true;
-    captionIndex.value = -2;
   }
 
   /// Starts by itself when the video offers no captions and the user asked
