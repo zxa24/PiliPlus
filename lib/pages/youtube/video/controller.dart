@@ -100,7 +100,10 @@ class YtVideoController extends GetxController {
           pair.video != null,
       // no aid/bvid/cid: nothing here is reported to bilibili
       videoType: null,
-      onInit: () => stage.value = YtPageStage.ready,
+      onInit: () {
+        _watchPlayback();
+        stage.value = YtPageStage.ready;
+      },
     );
     if (!isClosed) stage.value = YtPageStage.ready;
     _maybeAutoTranscribe();
@@ -592,6 +595,34 @@ class YtVideoController extends GetxController {
   /// refresh, with playback under way.
   var _autoChecks = 0;
 
+  /// See [VideoDetailController._shownAt].
+  int? _shownAt;
+
+  /// The loading gate has closed once: the player has been released.
+  var _released = false;
+
+  /// The playhead has moved on from [_shownAt]. A latch, set by watching the
+  /// playhead rather than read from it when the gate is asked for: a seek
+  /// back to where playback started must not make it false again.
+  var _playbackUnderway = false;
+  Worker? _underwayWorker;
+
+  /// Called when the player is shown; only the first time counts.
+  void _watchPlayback() {
+    if (_shownAt != null) return;
+    final shownAt = _shownAt = plPlayerController.position.value;
+    _underwayWorker = ever<int>(plPlayerController.position, (position) {
+      if (position <= shownAt) return;
+      _playbackUnderway = true;
+      _stopWatchingPlayback();
+    });
+  }
+
+  void _stopWatchingPlayback() {
+    _underwayWorker?.dispose();
+    _underwayWorker = null;
+  }
+
   /// A translation is what is on screen: running, or finished.
   bool get _showingTranslation {
     final state = translation.session.value?.state.value.stage;
@@ -657,7 +688,7 @@ class YtVideoController extends GetxController {
 
   void _openAsrGate() {
     // past the opening, playback has started (see [_autoChecks])
-    if (_autoChecks > 1) return;
+    if (_autoChecks > 1 || _released || _playbackUnderway) return;
     _asrGate?.cancel();
     asrPending.value = true;
     _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
@@ -666,7 +697,11 @@ class YtVideoController extends GetxController {
   void _closeAsrGate() {
     _asrGate?.cancel();
     _asrGate = null;
-    if (asrPending.value) asrPending.value = false;
+    if (asrPending.value) {
+      asrPending.value = false;
+      // the player has been released: the gate had its one chance
+      _released = true;
+    }
   }
 
   Future<void> stopAsr() async {
@@ -872,6 +907,7 @@ class YtVideoController extends GetxController {
 
   @override
   void onClose() {
+    _stopWatchingPlayback();
     stopAsr();
     plPlayerController.dispose();
     super.onClose();

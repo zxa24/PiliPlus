@@ -878,6 +878,7 @@ class VideoDetailController extends GetxController
       pgcType: isUgc ? null : pgcType,
       videoType: videoType,
       onInit: () {
+        _watchPlayback();
         videoState.value = true;
         setSubtitle(vttSubtitlesIndex.value);
       },
@@ -1311,6 +1312,36 @@ class VideoDetailController extends GetxController
   /// gate must not open then whether or not it ever did before.
   var _pastOpening = false;
 
+  /// Where the playhead stood, in whole seconds, when the player was first
+  /// shown for this part. The player is shown before the subtitle request
+  /// that may open the gate has even been sent, so being shown alone cannot
+  /// close the opening; the playhead moving on from here can — past that the
+  /// viewer is watching, and whichever request answers late may not blank
+  /// the player out.
+  int? _shownAt;
+
+  /// The playhead has moved on from [_shownAt]. A latch, set by watching the
+  /// playhead rather than read from it when the gate is asked for: a seek
+  /// back to where playback started must not make it false again.
+  var _playbackUnderway = false;
+  Worker? _underwayWorker;
+
+  /// Called when the player is shown; only the first time counts.
+  void _watchPlayback() {
+    if (_shownAt != null) return;
+    final shownAt = _shownAt = plPlayerController.position.value;
+    _underwayWorker = ever<int>(plPlayerController.position, (position) {
+      if (position <= shownAt) return;
+      _playbackUnderway = true;
+      _stopWatchingPlayback();
+    });
+  }
+
+  void _stopWatchingPlayback() {
+    _underwayWorker?.dispose();
+    _underwayWorker = null;
+  }
+
   /// What libmpv should decode for transcription. The audio stream on its own
   /// where there is one — feeding it the player's `edl://` would pull video
   /// headers as well for no benefit.
@@ -1425,7 +1456,7 @@ class VideoDetailController extends GetxController
   /// something, with a cap so a decoder that never delivers cannot wedge it.
   void _openAsrGate() {
     // past the opening, playback has started (see [_pastOpening])
-    if (_pastOpening) return;
+    if (_pastOpening || _playbackUnderway) return;
     _asrGate?.cancel();
     asrPending.value = true;
     _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
@@ -1434,7 +1465,11 @@ class VideoDetailController extends GetxController
   void _closeAsrGate() {
     _asrGate?.cancel();
     _asrGate = null;
-    if (asrPending.value) asrPending.value = false;
+    if (asrPending.value) {
+      asrPending.value = false;
+      // the player has been released: the gate had its one chance
+      _pastOpening = true;
+    }
   }
 
   Future<void> stopAsr() async {
@@ -1850,6 +1885,7 @@ class VideoDetailController extends GetxController
 
   @override
   void onClose() {
+    _stopWatchingPlayback();
     cid.close();
     if (isFileSource) {
       cacheLocalProgress();
@@ -1896,6 +1932,9 @@ class VideoDetailController extends GetxController
     // and so do the once-per-part automatic translation and loading gate
     _autoTranslateOff = false;
     _pastOpening = false;
+    _stopWatchingPlayback();
+    _shownAt = null;
+    _playbackUnderway = false;
 
     if (!isFileSource) {
       // language
