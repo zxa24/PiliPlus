@@ -59,6 +59,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
@@ -930,27 +931,70 @@ class VideoDetailController extends GetxController
   /// LibrePili: subtitles saved next to a downloaded video
   /// (`<base>.<lan>.srt` in the video's folder), loaded without network.
   Future<void> _loadLocalSubtitles() async {
+    // Read in full before the list is touched. A transcript or translation
+    // publish landing mid-read would otherwise add its track at whatever
+    // index the half-built list had reached, and the next file read into
+    // that slot — or that track into a file's.
+    final saved = <({String lan, String text})>[];
+    final merged = entry.mergedPath;
+    if (merged != null) {
+      final dir = Directory(path.dirname(merged));
+      final base = path.basenameWithoutExtension(merged);
+      if (dir.existsSync()) {
+        final files = dir.listSync().whereType<File>().where((f) {
+          final name = path.basename(f.path);
+          return name.startsWith('$base.') && name.endsWith('.srt');
+        }).toList()..sort((a, b) => a.path.compareTo(b.path));
+        for (final f in files) {
+          final name = path.basename(f.path);
+          final lan = name.substring(base.length + 1, name.length - 4);
+          saved.add((lan: lan, text: await f.readAsString()));
+        }
+      }
+    }
+    // from here until the tracks are all in place, nothing is awaited
     vttSubtitles.clear();
     subtitles.clear();
     vttSubtitlesIndex.value = 0;
-    final merged = entry.mergedPath;
-    if (merged == null) return;
-    final dir = Directory(path.dirname(merged));
-    final base = path.basenameWithoutExtension(merged);
-    if (!dir.existsSync()) return;
-    final files = dir.listSync().whereType<File>().where((f) {
-      final name = path.basename(f.path);
-      return name.startsWith('$base.') && name.endsWith('.srt');
-    }).toList()..sort((a, b) => a.path.compareTo(b.path));
-    if (files.isEmpty) return;
-    final subs = <Subtitle>[];
-    for (final f in files) {
-      final name = path.basename(f.path);
-      final lan = name.substring(base.length + 1, name.length - 4);
-      vttSubtitles[subs.length] = (isData: true, id: await f.readAsString());
-      subs.add(Subtitle(lan: lan, lanDoc: lan));
+    // the tracks made on the device went with the list: their indexes would
+    // now point at a saved file's, or at nothing (see
+    // [_restoreGeneratedTracks])
+    _asrTrackIndex = null;
+    _translationTrackIndex = null;
+    for (final (:lan, :text) in saved) {
+      vttSubtitles[subtitles.length] = (isData: true, id: text);
+      subtitles.add(Subtitle(lan: lan, lanDoc: lan));
     }
-    if (!isClosed) await _setSubtitle(subs);
+    _restoreGeneratedTracks();
+    if (saved.isNotEmpty && !isClosed) await _setSubtitle(subtitles.toList());
+  }
+
+  /// Puts the transcript and translation made for this part back after the
+  /// saved subtitles, when [_loadLocalSubtitles] runs again for a player made
+  /// anew (coming back to the page). They are on no disk to be found, and a
+  /// finished one is never published again. Not selected: the list was just
+  /// chosen from afresh.
+  void _restoreGeneratedTracks() {
+    if (isClosed) return;
+    final cues = asrSession.value?.cues;
+    if (cues != null && cues.isNotEmpty) {
+      final index = _asrTrackIndex = subtitles.length;
+      vttSubtitles[index] = (isData: true, id: cues.toVtt());
+      subtitles.add(
+        Subtitle(lan: 'asr', lanDoc: '语音识别', source: SubtitleSource.device),
+      );
+    }
+    if (translation.currentVtt case final vtt?) {
+      final index = _translationTrackIndex = subtitles.length;
+      vttSubtitles[index] = (isData: true, id: vtt);
+      subtitles.add(
+        Subtitle(
+          lan: 'asr-translated',
+          lanDoc: '翻译',
+          source: SubtitleSource.device,
+        ),
+      );
+    }
   }
 
   bool isQuerying = false;
@@ -1261,6 +1305,15 @@ class VideoDetailController extends GetxController
     return _applySubtitle(index);
   }
 
+  /// A change of subtitle the page makes by itself. The player is one for
+  /// the whole app: while another page's video is on it, this page's tracks
+  /// do not go there — the choice is only kept, for [playerInit] to hand the
+  /// player when this page has it again.
+  Future<void> _applyOwnSubtitle(int index) async {
+    if (_ownsPlayer) return _applySubtitle(index);
+    vttSubtitlesIndex.value = index;
+  }
+
   Future<void> _applySubtitle(int index) async {
     if (index <= 0) {
       await plPlayerController.videoPlayerController?.setSubtitleTrack(.no());
@@ -1416,9 +1469,17 @@ class VideoDetailController extends GetxController
         SmartDialog.showToast('无法读取该视频文件');
         return;
       }
+      // closed meanwhile: nothing will hand the descriptor to mpv to close
+      if (isClosed) {
+        LocalDocuments.closeFd(fd);
+        return;
+      }
       source = 'fdclose://$fd';
     }
     await stopAsr(keepGate: holding);
+    // closed meanwhile: no gate for a page that is gone, and no start that
+    // would end whichever transcription is running now
+    if (isClosed) return;
     if (auto) _openAsrGate();
     final service = AsrService.to;
     final session = await service.start(
@@ -1428,6 +1489,12 @@ class VideoDetailController extends GetxController
       userAgent: isFileSource ? null : BrowserUa.pc,
       auto: auto,
     );
+    // closed meanwhile: onClose found no session to stop, and nothing else
+    // would ever stop this one
+    if (isClosed) {
+      AsrService.to.stop(only: session);
+      return;
+    }
     asrSession.value = session;
 
     // cues stream in; rebuilding the track on every batch would restart the
@@ -1611,6 +1678,16 @@ class VideoDetailController extends GetxController
     _playOnRelease = false;
     _gatePlaybackWorker?.dispose();
     _gatePlaybackWorker = null;
+    _stopWaitingForReturn();
+  }
+
+  /// Waits for the app to be back in view, when the gate let go while it
+  /// was away.
+  AppLifecycleListener? _returnListener;
+
+  void _stopWaitingForReturn() {
+    _returnListener?.dispose();
+    _returnListener = null;
   }
 
   /// Lets held-back playback go on, once the gate is down and the player has
@@ -1621,6 +1698,22 @@ class VideoDetailController extends GetxController
       _releaseHold();
       return;
     }
+    // The gate can let go with the app away — the model guard stopping the
+    // run, the cap, a late subtitle list — and the player view pauses only
+    // as the app leaves, when the gate had it paused already. Playing now
+    // would play to nobody, with 后台播放 off; it waits for the return.
+    if (!plPlayerController.continuePlayInBackground.value &&
+        isAppAway(WidgetsBinding.instance.lifecycleState)) {
+      _returnListener ??= AppLifecycleListener(
+        onStateChange: (state) {
+          if (isAppAway(state)) return;
+          _stopWaitingForReturn();
+          _resumeHeldPlayback();
+        },
+      );
+      return;
+    }
+    _stopWaitingForReturn();
     _playOnRelease = false;
     PlPlayerController.playIfExists();
   }
@@ -1678,14 +1771,14 @@ class VideoDetailController extends GetxController
       _translationTrackIndex = null;
       subtitles.removeLast();
       vttSubtitles.remove(translated);
-      if (vttSubtitlesIndex.value == translated + 1) _applySubtitle(0);
+      if (vttSubtitlesIndex.value == translated + 1) _applyOwnSubtitle(0);
     }
     final index = _asrTrackIndex;
     if (index == null || index != subtitles.length - 1) return;
     _asrTrackIndex = null;
     subtitles.removeLast();
     vttSubtitles.remove(index);
-    if (vttSubtitlesIndex.value == index + 1) _applySubtitle(0);
+    if (vttSubtitlesIndex.value == index + 1) _applyOwnSubtitle(0);
   }
 
   /// Starts translating [session] once its language is known, if it should
@@ -1707,7 +1800,21 @@ class VideoDetailController extends GetxController
     _translatingTranscript = true;
     // an automatic run holds the page until the translation has a line
     if (auto && asrPending.value) _gateOnTranslation = true;
-    translation.start(session);
+    _startUnawaited(translation.start(session));
+  }
+
+  /// A translation start nobody awaits. What it throws — a fetch, a model
+  /// that would not let go — is reported like any other failure, and a gate
+  /// waiting for it lets go rather than sitting out its cap.
+  void _startUnawaited(Future<Object?> start) {
+    start.then<void>(
+      (_) {},
+      onError: (Object e) {
+        if (isClosed) return;
+        _closeAsrGate();
+        SmartDialog.showToast('翻译失败：$e');
+      },
+    );
   }
 
   /// Ends a translation of the transcript once the transcript has stopped
@@ -1724,6 +1831,16 @@ class VideoDetailController extends GetxController
     _translatingTranscript = false;
     // one whose track is about to come off has nothing to leave behind
     translation.stop(finish: !always);
+    _stopGatingOnTranslation();
+  }
+
+  /// A translation the gate was waiting for will now never be ready: the
+  /// gate goes back to waiting for the transcript, which may have lines by
+  /// now — and its cue listener only lets go while nothing is translated.
+  void _stopGatingOnTranslation() {
+    if (!_gateOnTranslation) return;
+    _gateOnTranslation = false;
+    if (asrSession.value?.cues.isNotEmpty ?? false) _closeAsrGate();
   }
 
   /// The video's own track to translate, if one should be: none is in the
@@ -1753,7 +1870,7 @@ class VideoDetailController extends GetxController
     _openAsrGate();
     // past the opening no gate opens, and nothing is to wait for this
     if (asrPending.value) _gateOnTranslation = true;
-    _translateCaptions(index);
+    _startUnawaited(_translateCaptions(index));
   }
 
   /// Fetches track [index] if need be and translates it.
@@ -1917,7 +2034,7 @@ class VideoDetailController extends GetxController
     // one being shown, otherwise the user's choice would be overridden
     if ((select && !_viewerChoseSubtitle) ||
         vttSubtitlesIndex.value == index + 1) {
-      _applySubtitle(index + 1);
+      _applyOwnSubtitle(index + 1);
     }
   }
 
@@ -2058,7 +2175,7 @@ class VideoDetailController extends GetxController
             ? 1
             : 0,
     };
-    await _applySubtitle(idx);
+    await _applyOwnSubtitle(idx);
   }
 
   void updateMediaListHistory(int aid) {

@@ -1204,7 +1204,7 @@ class _YtVideoPageState extends State<YtVideoPage>
                     label: AsrEntry.menuLabel(session),
                     enabled: true,
                   ),
-                if (canTranscribe)
+                if (canTranscribe && TranslateEntry.available)
                   (
                     value: _translateValue,
                     label: TranslateEntry.menuLabel(translation),

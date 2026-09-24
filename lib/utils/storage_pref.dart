@@ -446,8 +446,9 @@ abstract final class Pref {
   static String get asrLanguage =>
       _setting.get(SettingBoxKey.asrLanguage, defaultValue: '');
 
-  // LibrePili: on-device translation of a transcript. As with transcription,
-  // nothing runs until the one-time prompt ([translateAsked]) is answered.
+  // LibrePili: on-device translation of a transcript or of a video's own
+  // captions. As with transcription, nothing runs until the one-time prompt
+  // ([translateAsked]) is answered.
   static TranslateMode get translateMode => _enumAt(
     TranslateMode.values,
     _setting.get(SettingBoxKey.translateMode),

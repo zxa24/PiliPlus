@@ -1,5 +1,5 @@
-/// LibrePili: the subtitle-menu entry for translating a transcript, and what
-/// it asks the first time.
+/// LibrePili: the subtitle-menu entry for translating a video's own captions
+/// or a transcript, and what it asks the first time.
 ///
 /// The model is a 1–3 GB download, so nothing is fetched until this asks.
 /// The download itself runs inside the translation, with its progress in
@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:PiliPlus/models/common/translate_mode.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -71,6 +72,10 @@ class TranslateMenuTile extends StatelessWidget {
 }
 
 abstract final class TranslateEntry {
+  /// Whether the menus offer translation at all (see
+  /// [TranslationService.supported]).
+  static bool get available => TranslationService.supported;
+
   /// A one-line label, for the popup where the tile does not fit.
   static String menuLabel(TranslationSession? session) {
     final state = session?.state.value;
@@ -209,13 +214,25 @@ abstract final class TranslateEntry {
       final path = picked.firstOrNull?.path;
       if (path == null) return false;
       SmartDialog.showLoading(msg: '校验中');
+      final AsrModelFile file;
       try {
-        await service.store.importFile(
+        file = await service.store.importFile(
           File(path),
           models: TranslationModelCatalog.all,
         );
       } finally {
         SmartDialog.dismiss();
+      }
+      // another model than the one selected: imported on purpose, so it is
+      // the one to use — the dialog asking for the selected one would
+      // otherwise just stay open
+      final imported = TranslationModelCatalog.all
+          .where((model) => model.files.contains(file))
+          .firstOrNull;
+      if (imported != null &&
+          imported.id != service.model.id &&
+          service.store.isInstalled(imported)) {
+        await GStorage.setting.put(SettingBoxKey.translateModel, imported.id);
       }
       SmartDialog.showToast('已导入');
       return true;

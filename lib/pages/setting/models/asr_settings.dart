@@ -42,63 +42,66 @@ List<SettingsModel> get asrSettings => [
     onTap: (context, setState) =>
         Get.to(() => const LocalModelsPage())?.whenComplete(setState),
   ),
-  PopupModel<TranslateMode>(
-    title: '自动翻译',
-    leading: const Icon(Icons.translate),
-    value: () => Pref.translateMode,
-    items: TranslateMode.values,
-    // a choice made here is the answer the first-use prompt would ask for
-    onSelected: (value, setState) => GStorage.setting
-        .putAll({
-          SettingBoxKey.translateMode: value.index,
-          SettingBoxKey.translateAsked: true,
-        })
-        .whenComplete(setState),
-  ),
-  const SwitchModel(
-    title: '双语字幕',
-    subtitle: '译文下方同时显示原文',
-    leading: Icon(Icons.subtitles_outlined),
-    setKey: SettingBoxKey.translateDual,
-  ),
-  PopupModel<TranslationModelChoice>(
-    title: '翻译模型',
-    leading: const Icon(Icons.model_training_outlined),
-    value: () => TranslationModelChoice.of(TranslationService.to.model),
-    items: TranslationModelChoice.values,
-    onSelected: (value, setState) => GStorage.setting
-        .put(SettingBoxKey.translateModel, value.model.id)
-        .whenComplete(setState),
-  ),
-  NormalModel(
-    title: '已下载的翻译模型',
-    leading: const Icon(Icons.storage_outlined),
-    getSubtitle: () {
-      final used = TranslationService.to.store.installedBytes();
-      return used == 0 ? '无' : '占用 ${CacheManager.formatSize(used)}，点击删除';
-    },
-    onTap: (context, setState) async {
-      final service = TranslationService.to;
-      if (service.store.installedBytes() == 0) return;
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('删除已下载的翻译模型？'),
-          content: const Text('需要时会重新下载。'),
-          actions: [
-            TextButton(onPressed: Get.back, child: const Text('取消')),
-            TextButton(
-              onPressed: () => Get.back(result: true),
-              child: const Text('删除'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true) return;
-      // a running translation has the file mapped; its page hears why it ended
-      await service.stop(reason: '翻译模型已删除');
-      await service.store.removeAll();
-      setState();
-    },
-  ),
+  // nothing to offer where it cannot run (see [TranslationService.supported])
+  if (TranslationService.supported) ...[
+    PopupModel<TranslateMode>(
+      title: '自动翻译',
+      leading: const Icon(Icons.translate),
+      value: () => Pref.translateMode,
+      items: TranslateMode.values,
+      // a choice made here is the answer the first-use prompt would ask for
+      onSelected: (value, setState) => GStorage.setting
+          .putAll({
+            SettingBoxKey.translateMode: value.index,
+            SettingBoxKey.translateAsked: true,
+          })
+          .whenComplete(setState),
+    ),
+    const SwitchModel(
+      title: '双语字幕',
+      subtitle: '译文下方同时显示原文',
+      leading: Icon(Icons.subtitles_outlined),
+      setKey: SettingBoxKey.translateDual,
+    ),
+    PopupModel<TranslationModelChoice>(
+      title: '翻译模型',
+      leading: const Icon(Icons.model_training_outlined),
+      value: () => TranslationModelChoice.of(TranslationService.to.model),
+      items: TranslationModelChoice.values,
+      onSelected: (value, setState) => GStorage.setting
+          .put(SettingBoxKey.translateModel, value.model.id)
+          .whenComplete(setState),
+    ),
+    NormalModel(
+      title: '已下载的翻译模型',
+      leading: const Icon(Icons.storage_outlined),
+      getSubtitle: () {
+        final used = TranslationService.to.store.installedBytes();
+        return used == 0 ? '无' : '占用 ${CacheManager.formatSize(used)}，点击删除';
+      },
+      onTap: (context, setState) async {
+        final service = TranslationService.to;
+        if (service.store.installedBytes() == 0) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('删除已下载的翻译模型？'),
+            content: const Text('需要时会重新下载。'),
+            actions: [
+              TextButton(onPressed: Get.back, child: const Text('取消')),
+              TextButton(
+                onPressed: () => Get.back(result: true),
+                child: const Text('删除'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+        // a running translation has the file mapped; its page hears why it ended
+        await service.stop(reason: '翻译模型已删除');
+        await service.store.removeAll();
+        setState();
+      },
+    ),
+  ],
 ];

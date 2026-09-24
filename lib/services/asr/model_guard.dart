@@ -40,6 +40,17 @@ enum ModelStopReason {
   final String translationMessage;
 }
 
+/// Whether the app is out of view: nobody would see a video started now.
+/// [AppLifecycleState.inactive] is not — it is picture-in-picture on
+/// Android, and on desktop a window that has only lost focus. An unknown
+/// [state] counts as in view.
+bool isAppAway(AppLifecycleState? state) => switch (state) {
+  AppLifecycleState.hidden ||
+  AppLifecycleState.paused ||
+  AppLifecycleState.detached => true,
+  _ => false,
+};
+
 /// Whether running on-device work should be stopped, and why.
 ///
 /// Memory pressure stops it in the foreground. Going to the background stops
@@ -53,6 +64,12 @@ enum ModelStopReason {
 /// not [AppLifecycleState.resumed] is read as going to the background, with
 /// the same exemption for playback. An unknown [lifecycle] counts as the
 /// foreground.
+///
+/// The foreground case rests on the system sending the RUNNING_* levels at
+/// all. Newer Android versions (API 34 on) may no longer deliver them to
+/// apps — not checked against the platform source here — and then only
+/// UI_HIDDEN and the background levels arrive, which the rule above reads
+/// as going away: memory pressure in the foreground would go unnoticed.
 @visibleForTesting
 ModelStopReason? shouldStopOnDeviceWork({
   required bool memoryPressure,

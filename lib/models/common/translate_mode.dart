@@ -5,8 +5,8 @@ import 'package:PiliPlus/models/common/enum_with_label.dart';
 ///
 /// Only text that is not in the app's language is translated — translating
 /// what the user already reads would cost battery for nothing. The model is
-/// a 2.8 GB download, so nothing runs until the first request asks once and
-/// this records the answer.
+/// a 1.1–2.8 GB download, depending on which one is chosen, so nothing runs
+/// until the first request asks once and this records the answer.
 enum TranslateMode implements EnumWithLabel {
   /// Only from the subtitle menu, per video.
   manual('仅手动'),

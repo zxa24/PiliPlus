@@ -423,15 +423,17 @@ class AsrService extends GetxService {
   ///
   /// The comparison is against the language the *app* is in, not the device's
   /// — the point is whether the user can follow the speech, and the app is
-  /// what they chose to read. `Get.locale` is null until the app is
-  /// translated (still a TODO), so the device locale stands in until then.
+  /// what they chose to read. That is `Get.locale`, which GetMaterialApp
+  /// sets from the locale main.dart gives it — fixed to Chinese, the one
+  /// language the interface is written in. Before it is set, Chinese too:
+  /// the device's locale is not what the app displays, and a Chinese-UI user
+  /// on an English phone would have Chinese captions translated to English.
   static bool _isAppLanguage(String spoken) =>
       isSameMajorLanguage(spoken, appLanguage);
 
   /// The language the app is in, as a major language code (`zh`, `en`, …).
   /// Also what translation translates into.
-  static String get appLanguage =>
-      (Get.locale ?? Get.deviceLocale)?.languageCode ?? 'zh';
+  static String get appLanguage => Get.locale?.languageCode ?? 'zh';
 
   /// True when [spoken] and [appLanguage] are the same language at the level
   /// a viewer cares about.

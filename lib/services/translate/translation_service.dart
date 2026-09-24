@@ -2,10 +2,11 @@
 ///
 /// A translation is of a transcript ([AsrSession]) or of a video's own
 /// captions, and is tied to the page that started it. Only one runs at once
-/// — a second model resident alongside the first is 2.8 GB of mapped file
-/// the phone does not have.
+/// — a second model resident alongside the first is up to 2.8 GB of mapped
+/// file the phone does not have.
 library;
 
+import 'dart:ffi' show IntPtr, sizeOf;
 import 'dart:io';
 
 import 'package:PiliPlus/models/common/translate_mode.dart';
@@ -25,6 +26,12 @@ import 'package:path/path.dart' as path;
 
 class TranslationService extends GetxService {
   static TranslationService get to => Get.find<TranslationService>();
+
+  /// Whether translation can run here at all. llama.cpp is built only for
+  /// 64-bit processes — the armeabi-v7a APK carries none of it — and a
+  /// 32-bit process could not map a model of 1–3 GB anyway. Everything that
+  /// offers translation, or starts it by itself, checks this.
+  static final bool supported = sizeOf<IntPtr>() == 8;
 
   /// Same store as the recogniser's models, its own directory.
   final store = AsrModelStore(
@@ -73,6 +80,7 @@ class TranslationService extends GetxService {
 
   /// Whether the user chose automatic translation and it can run now.
   bool get shouldAutoTranslate =>
+      supported &&
       Pref.translateAsked &&
       Pref.translateMode == TranslateMode.auto &&
       modelReady;

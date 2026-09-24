@@ -397,7 +397,7 @@ class YtHeaderControlState extends State<YtHeaderControl>
                       controller.stopAsr();
                     },
                   ),
-                if (controller.canTranscribe)
+                if (controller.canTranscribe && TranslateEntry.available)
                   TranslateMenuTile(
                     session: controller.translation.session,
                     titleStyle: titleStyle,

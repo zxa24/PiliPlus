@@ -785,7 +785,7 @@ class HeaderControlState extends State<HeaderControl>
                     },
                   ),
                 // LibrePili: on-device translation of that transcript
-                if (videoDetailCtr.canTranscribe)
+                if (videoDetailCtr.canTranscribe && TranslateEntry.available)
                   TranslateMenuTile(
                     session: videoDetailCtr.translation.session,
                     titleStyle: titleStyle,

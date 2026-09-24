@@ -15,6 +15,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -25,7 +26,8 @@ import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show BuildContext, WidgetsBinding;
+import 'package:flutter/widgets.dart'
+    show AppLifecycleListener, BuildContext, WidgetsBinding;
 import 'package:get/get.dart';
 import 'package:media_kit/media_kit.dart' show SubtitleTrack;
 
@@ -684,6 +686,8 @@ class YtVideoController extends GetxController {
       return;
     }
     await stopAsr();
+    // see [VideoDetailController.startAsr]
+    if (isClosed) return;
     if (auto) _openAsrGate();
     // no Referer, no UA: googlevideo does not need them and sending
     // bilibili's would link the two sites (see [_open])
@@ -692,6 +696,11 @@ class YtVideoController extends GetxController {
       source: source,
       auto: auto,
     );
+    // see [VideoDetailController.startAsr]
+    if (isClosed) {
+      AsrService.to.stop(only: session);
+      return;
+    }
     asrSession.value = session;
     _asrCueSub = session.cues.listen((_) {
       if (!_gateOnTranslation) _closeAsrGate();
@@ -784,14 +793,37 @@ class YtVideoController extends GetxController {
     _playOnRelease = false;
     _gatePlaybackWorker?.dispose();
     _gatePlaybackWorker = null;
+    _stopWaitingForReturn();
   }
 
+  /// See [VideoDetailController._returnListener].
+  AppLifecycleListener? _returnListener;
+
+  void _stopWaitingForReturn() {
+    _returnListener?.dispose();
+    _returnListener = null;
+  }
+
+  /// See [VideoDetailController._resumeHeldPlayback]: a gate let go with the
+  /// app away waits for it to be back in view.
   void _resumeHeldPlayback() {
     if (!_playOnRelease || asrPending.value) return;
     if (isClosed || !_ownsPlayer) {
       _releaseHold();
       return;
     }
+    if (!plPlayerController.continuePlayInBackground.value &&
+        isAppAway(WidgetsBinding.instance.lifecycleState)) {
+      _returnListener ??= AppLifecycleListener(
+        onStateChange: (state) {
+          if (isAppAway(state)) return;
+          _stopWaitingForReturn();
+          _resumeHeldPlayback();
+        },
+      );
+      return;
+    }
+    _stopWaitingForReturn();
     _playOnRelease = false;
     plPlayerController.play();
   }
@@ -888,7 +920,19 @@ class YtVideoController extends GetxController {
     // a transcript's translation, not a caption track's
     _translatedCaption = null;
     if (auto && asrPending.value) _gateOnTranslation = true;
-    translation.start(session);
+    _startUnawaited(translation.start(session));
+  }
+
+  /// See [VideoDetailController._startUnawaited].
+  void _startUnawaited(Future<Object?> start) {
+    start.then<void>(
+      (_) {},
+      onError: (Object e) {
+        if (isClosed) return;
+        _closeAsrGate();
+        SmartDialog.showToast('翻译失败：$e');
+      },
+    );
   }
 
   /// See [VideoDetailController._stopTranscriptTranslation]. The transcript
@@ -897,8 +941,17 @@ class YtVideoController extends GetxController {
     // one that has finished or failed is left for the menu to show
     final ended = translation.session.value != null && !translation.isRunning;
     if (_translatedCaption != null || !translation.isActive || ended) return;
-    await translation.stop();
+    final stopped = translation.stop();
+    _stopGatingOnTranslation();
+    await stopped;
     if (!isClosed && captionIndex.value == -2) _showUntranslated();
+  }
+
+  /// See [VideoDetailController._stopGatingOnTranslation].
+  void _stopGatingOnTranslation() {
+    if (!_gateOnTranslation) return;
+    _gateOnTranslation = false;
+    if (asrSession.value?.cues.isNotEmpty ?? false) _closeAsrGate();
   }
 
   /// See [VideoDetailController.captionToTranslate].
@@ -921,7 +974,7 @@ class YtVideoController extends GetxController {
     _openAsrGate();
     // past the opening no gate opens, and nothing is to wait for this
     if (asrPending.value) _gateOnTranslation = true;
-    _translateCaptions(index);
+    _startUnawaited(_translateCaptions(index));
   }
 
   Future<bool> _translateCaptions(int index) async {
