@@ -68,9 +68,33 @@ List<AsrCue> layOutTranslation({
       out.addAll(unit.cues);
       continue;
     }
-    final lines = timeTranslation(unit, splitTranslation(text));
+    // A unit's last cue may be held past where the next unit starts — the
+    // hold is decided inside one VAD segment, which cannot see the next.
+    // Spread over that, the translation's last line would sit under the
+    // next unit's first one.
+    final next = i + 1 < units.length ? units[i + 1].from : null;
+    final bounded = next != null && next < unit.to && next > unit.from
+        ? TranslationUnit(
+            from: unit.from,
+            to: next,
+            text: unit.text,
+            cues: unit.cues,
+          )
+        : unit;
+    final lines = timeTranslation(bounded, splitTranslation(text));
     out.addAll(
-      display == TranslationDisplay.dual ? _dual(lines, unit.cues) : lines,
+      display == TranslationDisplay.dual
+          ? _dual(lines, [
+              // the source lines under it end where the translation does
+              for (final c in unit.cues)
+                if (c.from < bounded.to)
+                  AsrCue(
+                    from: c.from,
+                    to: c.to < bounded.to ? c.to : bounded.to,
+                    content: c.content,
+                  ),
+            ])
+          : lines,
     );
   }
   out.addAll(_pending(trailing));
@@ -146,8 +170,9 @@ List<String> splitTranslation(
       final next = i + 1 < chars.length
           ? String.fromCharCode(chars[i + 1])
           : '';
-      // keep a closing quote or bracket on the line it closes
-      if (!_closers.contains(next)) {
+      // keep a closing quote or bracket on the line it closes, and a run of
+      // marks together: 但现在…… once left "…" as a line of its own
+      if (!_closers.contains(next) && !_sentenceEnd.contains(next)) {
         emit(line.toString());
         line.clear();
         width = 0;

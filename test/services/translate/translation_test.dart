@@ -115,6 +115,13 @@ void main() {
       }
     });
 
+    test('a run of marks stays on its line', () {
+      expect(splitTranslation('我这里有两个，我还在犹豫哪个，但现在……'), [
+        '我这里有两个，我还在犹豫哪个，但现在……',
+      ]);
+      expect(splitTranslation('真的吗？！我不敢相信。'), ['真的吗？！我不敢相信。']);
+    });
+
     test('never cuts inside a Latin word or number', () {
       final lines = splitTranslation(
         '这是一个非常非常非常非常非常长的句子里面有个单词Photoshop2026',
@@ -204,6 +211,48 @@ void main() {
       }
       expect(out.first.content.endsWith('A'), isTrue);
       expect(out.last.content.endsWith('B'), isTrue);
+    });
+
+    test('a unit held past the next one ends where the next begins', () {
+      // measured on a real transcript: the last cue of one unit was held
+      // to 300.78 while the next unit started at 299.52
+      final out = layOutTranslation(
+        units: [
+          TranslationUnit(
+            from: 294.8,
+            to: 300.8,
+            text: 'a',
+            cues: [cue(294.8, 300.8, 'a')],
+          ),
+          TranslationUnit(
+            from: 299.5,
+            to: 301.1,
+            text: 'b',
+            cues: [cue(299.5, 301.1, 'b')],
+          ),
+        ],
+        results: {0: '甲。', 1: '乙。'},
+      );
+      expect(out.map((c) => (c.from, c.to)), [(294.8, 299.5), (299.5, 301.1)]);
+      final dual = layOutTranslation(
+        units: [
+          TranslationUnit(
+            from: 294.8,
+            to: 300.8,
+            text: 'a',
+            cues: [cue(294.8, 300.8, 'a')],
+          ),
+          TranslationUnit(
+            from: 299.5,
+            to: 301.1,
+            text: 'b',
+            cues: [cue(299.5, 301.1, 'b')],
+          ),
+        ],
+        results: {0: '甲。', 1: '乙。'},
+        display: TranslationDisplay.dual,
+      );
+      expect(dual.map((c) => (c.from, c.to)), [(294.8, 299.5), (299.5, 301.1)]);
     });
 
     test('cues not yet in a unit are shown as waiting', () {
