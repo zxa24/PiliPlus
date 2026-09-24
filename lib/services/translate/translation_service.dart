@@ -1,8 +1,9 @@
 /// LibrePili: one translation at a time, and the model it runs on.
 ///
-/// A translation follows a transcript ([AsrSession]) and is tied to the same
-/// page. Only one runs at once — a second model resident alongside the first
-/// is 2.8 GB of mapped file the phone does not have.
+/// A translation is of a transcript ([AsrSession]) or of a video's own
+/// captions, and is tied to the page that started it. Only one runs at once
+/// — a second model resident alongside the first is 2.8 GB of mapped file
+/// the phone does not have.
 library;
 
 import 'dart:io';
@@ -32,6 +33,16 @@ class TranslationService extends GetxService {
 
   TranslationSession? _current;
   AsrCancelToken? _download;
+
+  /// Starts run one after another. Two overlapping ones would each stop the
+  /// other's predecessor and then both run, the loser with a model loaded
+  /// that nothing refers to any more.
+  Future<void> _starting = Future.value();
+
+  /// Sessions stopped but still releasing their model. [stop] forgets a
+  /// session before it is disposed, so a start must wait for this too, or it
+  /// loads a second model while the first is still resident.
+  Future<void> _disposing = Future.value();
 
   AsrModel get model => TranslationModelCatalog.byId(Pref.translateModel);
 
@@ -90,8 +101,22 @@ class TranslationService extends GetxService {
   Future<TranslationSession> _start(
     TranscriptView transcript,
     double Function() position,
+  ) {
+    final started = _starting.then((_) => _startNow(transcript, position));
+    _starting = started.then((_) {}, onError: (_) {});
+    return started;
+  }
+
+  Future<TranslationSession> _startNow(
+    TranscriptView transcript,
+    double Function() position,
   ) async {
-    await stop();
+    // the page whose translation this replaces has to hear it ended
+    await stop(reason: '已被另一个翻译取代');
+    await _disposing;
+    // read once: a change of model in settings mid-start must not load one
+    // file while checking and downloading another
+    final model = this.model;
     final file = store.fileOf(model, model.files.first).path;
     final session = TranslationSession(
       transcript: transcript,
@@ -122,14 +147,21 @@ class TranslationService extends GetxService {
 
   /// Ends the current translation. With a [reason] it is marked failed first,
   /// so the page hears why (see [AsrService.stop]).
-  Future<void> stop({String? reason}) async {
+  ///
+  /// With [only], nothing happens unless that is the current translation: a
+  /// page stopping its own must not stop another page's that replaced it.
+  Future<void> stop({String? reason, TranslationSession? only}) async {
     final session = _current;
+    if (only != null && session != only) return;
     _current = null;
     _download?.cancel();
     _download = null;
     if (session == null) return;
     if (reason != null && session.isRunning) session.fail(reason);
-    await session.dispose();
+    final disposed = session.dispose();
+    final before = _disposing;
+    _disposing = Future.wait([before, disposed]).then((_) {}, onError: (_) {});
+    await disposed;
   }
 
   @visibleForTesting

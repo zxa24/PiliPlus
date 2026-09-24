@@ -38,20 +38,28 @@ double _seconds(String stamp) {
 /// cue repeats the line before it, carries per-word timing tags, and is
 /// followed by a 10 ms cue that holds the finished line. Read naively, each
 /// sentence would arrive two or three times. So tags are stripped, a line
-/// the previous cue already showed is dropped, cues too brief to be seen
-/// are skipped, and sound events (`[Music]`) are not speech.
+/// the cue running straight into this one already showed is dropped, cues
+/// too brief to be seen are skipped, and sound events (`[Music]`) are not
+/// speech.
 List<AsrCue> parseCaptionCues(String text) {
   // Line by line, not block by block: the rolling format pads its cues with
   // lines holding a single space, which a split on blank lines took for a
   // cue boundary and so lost every cue's first line.
   final blocks = <({double from, double to, List<String> body})>[];
+  var above = '';
   for (final line in text.replaceAll('\r\n', '\n').split('\n')) {
     final match = _timing.firstMatch(line);
+    final raw = above;
+    above = line;
     if (match != null) {
-      // an SRT counter or a VTT cue id sits right above its timing line
-      if (blocks.isNotEmpty && blocks.last.body.isNotEmpty) {
-        final last = blocks.last.body.last;
-        if (RegExp(r'^\d+$').hasMatch(last)) blocks.last.body.removeLast();
+      // an SRT counter or a VTT cue id sits right above its timing line —
+      // right above: a line of digits with a blank line after it is the
+      // previous cue's text
+      if (blocks.isNotEmpty &&
+          blocks.last.body.isNotEmpty &&
+          RegExp(r'^\d+$').hasMatch(raw.trim()) &&
+          blocks.last.body.last == raw.trim()) {
+        blocks.last.body.removeLast();
       }
       blocks.add((
         from: _seconds(match[1]!),
@@ -66,17 +74,24 @@ List<AsrCue> parseCaptionCues(String text) {
 
   final cues = <AsrCue>[];
   var previous = const <String>[];
+  var previousTo = double.negativeInfinity;
   for (final (:from, :to, :body) in blocks) {
     if (to - from < 0.05) {
       // the rolling display's hold cue: its text is the line just shown
       if (body.isNotEmpty) previous = body;
+      previousTo = to;
       continue;
     }
+    // A rolling cue starts where the one before it ended. After a pause the
+    // same words are said again, not carried over: "Yes." twice is two lines.
+    final rolling = from - previousTo < 0.05;
     final fresh = [
       for (final line in body)
-        if (!previous.contains(line) && !_event.hasMatch(line)) line,
+        if (!(rolling && previous.contains(line)) && !_event.hasMatch(line))
+          line,
     ];
     previous = body;
+    previousTo = to;
     if (fresh.isEmpty) continue;
     cues.add(AsrCue(from: from, to: to, content: fresh.join(' ')));
   }

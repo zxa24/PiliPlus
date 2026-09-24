@@ -94,26 +94,51 @@ class TranslationTrack {
 
   bool get isRunning => session.value?.isRunning ?? false;
 
+  /// Starts that have not attached their session yet.
+  var _starting = 0;
+
+  /// Bumped by every [stop], so a start that a stop overtook can tell.
+  var _generation = 0;
+
+  /// A translation exists or is on its way. [session] alone is only set
+  /// after the service has stopped its predecessor and started this one, and
+  /// a page asked again in between (every recogniser progress update asks)
+  /// would start a second.
+  bool get isActive => _starting > 0 || session.value != null;
+
   /// Translates a transcript as it is being written.
-  Future<void> start(AsrSession asr) async {
-    await stop();
-    final current = await TranslationService.to.start(
-      asr: asr,
-      position: position,
-    );
-    _cueSub = asr.cues.listen((_) => current.poke());
-    _attach(current);
-  }
+  Future<void> start(AsrSession asr) => _startWith(
+    () => TranslationService.to.start(asr: asr, position: position),
+    onAttach: (current) => _cueSub = asr.cues.listen((_) => current.poke()),
+  );
 
   /// Translates a video's own captions.
-  Future<void> startCaptions(List<AsrCue> cues) async {
-    await stop();
-    _attach(
-      await TranslationService.to.startCaptions(
-        cues: cues,
-        position: position,
-      ),
-    );
+  Future<void> startCaptions(List<AsrCue> cues) => _startWith(
+    () => TranslationService.to.startCaptions(cues: cues, position: position),
+  );
+
+  Future<void> _startWith(
+    Future<TranslationSession> Function() create, {
+    void Function(TranslationSession current)? onAttach,
+  }) async {
+    _starting++;
+    // taken before anything is awaited: a stop that lands while the one
+    // before this is being torn down must still count
+    final generation = ++_generation;
+    try {
+      await _detach();
+      if (generation != _generation) return;
+      final current = await create();
+      if (generation != _generation) {
+        // stopped, or started again, while this one was being set up
+        await TranslationService.to.stop(only: current);
+        return;
+      }
+      onAttach?.call(current);
+      _attach(current);
+    } finally {
+      _starting--;
+    }
   }
 
   void _attach(TranslationSession current) {
@@ -132,9 +157,12 @@ class TranslationTrack {
         publish();
       }
     });
-    _stateWorker = ever(current.state, (state) {
+    void onState(TranslationState state) {
       switch (state.stage) {
         case TranslationStage.done:
+          // a short or silent video can finish below the lead, or with
+          // nothing to show at all
+          _ready();
           publish(isFinal: true);
         case TranslationStage.failed:
           _ready();
@@ -142,7 +170,12 @@ class TranslationTrack {
         case _:
           break;
       }
-    });
+    }
+
+    _stateWorker = ever(current.state, onState);
+    // an empty transcript is done before the service even hands the session
+    // over, and a worker only hears later changes
+    onState(current.state.value);
     // the playhead moves without telling anyone; check on a timer too
     final started = DateTime.now();
     _refresh = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -238,6 +271,11 @@ class TranslationTrack {
   }
 
   Future<void> stop() async {
+    _generation++;
+    await _detach();
+  }
+
+  Future<void> _detach() async {
     _refresh?.cancel();
     _refresh = null;
     _revisionWorker?.dispose();
@@ -251,10 +289,11 @@ class TranslationTrack {
     _publishedResults = {};
     _publishedEnd = -1;
     _publishedAt = null;
-    final had = session.value != null;
+    final had = session.value;
     session.value = null;
-    if (had && Get.isRegistered<TranslationService>()) {
-      await TranslationService.to.stop();
+    // only this track's own: the service may be running another page's by now
+    if (had != null && Get.isRegistered<TranslationService>()) {
+      await TranslationService.to.stop(only: had);
     }
   }
 }

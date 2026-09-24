@@ -49,12 +49,24 @@ class AsrLanguageEvent extends AsrEvent {
 /// inside a segment is speech that produced no cue. Without both, the two
 /// are indistinguishable.
 class AsrSegmentEvent extends AsrEvent {
-  const AsrSegmentEvent(this.start, this.duration, {this.tokens = const []});
+  const AsrSegmentEvent(
+    this.start,
+    this.duration, {
+    this.tokens = const [],
+    this.cues = const [],
+  });
   final double start;
   final double duration;
 
   /// The recogniser's raw pieces for this segment. Diagnostic only.
   final List<String> tokens;
+
+  /// The cues this segment produced, carried with it so a reader never holds
+  /// a segment without its text, or text without the segment it belongs to:
+  /// translation settles units on segments, and assigns a cue to the last
+  /// segment known (see buildTranslationUnits). The same cues also arrive
+  /// just before, as an [AsrCuesEvent], for listeners that only want text.
+  final List<AsrCue> cues;
 }
 
 class AsrErrorEvent extends AsrEvent {
@@ -103,17 +115,6 @@ class AsrTranscriber {
     final controller = StreamController<AsrEvent>.broadcast();
     port.listen((message) {
       switch (message) {
-        case {'type': 'cues', 'cues': final List raw}:
-          controller.add(
-            AsrCuesEvent([
-              for (final cue in raw.cast<Map>())
-                AsrCue(
-                  from: cue['from'] as double,
-                  to: cue['to'] as double,
-                  content: cue['content'] as String,
-                ),
-            ]),
-          );
         case {'type': 'progress', 'done': final double d, 'total': final double t}:
           controller.add(AsrProgressUpdate(d, t));
         case {'type': 'language', 'language': final String lang}:
@@ -123,6 +124,18 @@ class AsrTranscriber {
           'start': final double start,
           'duration': final double duration,
         }:
+          final cues = switch (message) {
+            {'cues': final List raw} => [
+              for (final cue in raw.cast<Map>())
+                AsrCue(
+                  from: cue['from'] as double,
+                  to: cue['to'] as double,
+                  content: cue['content'] as String,
+                ),
+            ],
+            _ => const <AsrCue>[],
+          };
+          if (cues.isNotEmpty) controller.add(AsrCuesEvent(cues));
           controller.add(
             AsrSegmentEvent(
               start,
@@ -131,6 +144,7 @@ class AsrTranscriber {
                 {'tokens': final List raw} => raw.cast<String>(),
                 _ => const [],
               },
+              cues: cues,
             ),
           );
         case {'type': 'error', 'message': final String message}:
@@ -224,15 +238,6 @@ class AsrTranscriber {
           stream.free();
           vad.pop();
 
-          send.send({
-            'type': 'segment',
-            'start': start,
-            'duration': duration,
-            // the raw pieces, for the probe only: how the recogniser marks a
-            // word decides where a cue may end, and that cannot be guessed
-            // from the joined text
-            'tokens': [for (final t in _tokens(result)) t.text],
-          });
           if (result.lang.isNotEmpty) {
             final lang = AsrCueBuilder.tagValue(result.lang);
             if (lang.isNotEmpty) {
@@ -258,9 +263,20 @@ class AsrTranscriber {
             text: result.text,
             tokens: _tokens(result),
           );
-          if (cues.isNotEmpty) {
-            send.send({'type': 'cues', 'cues': cues.toJson()});
-          }
+          // One message with its cues: translation settles units on
+          // segments, and a segment seen without its text — or text without
+          // its segment, which is then counted as the previous one's — gets
+          // a unit built and translated from the wrong words.
+          send.send({
+            'type': 'segment',
+            'start': start,
+            'duration': duration,
+            // the raw pieces, for the probe only: how the recogniser marks a
+            // word decides where a cue may end, and that cannot be guessed
+            // from the joined text
+            'tokens': [for (final t in _tokens(result)) t.text],
+            'cues': cues.toJson(),
+          });
         }
       }
 

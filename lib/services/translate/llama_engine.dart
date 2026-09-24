@@ -72,5 +72,8 @@ class LlamaTranslationEngine implements TranslationEngine {
   }
 
   @override
+  void cancel() => _engine.cancelGeneration();
+
+  @override
   Future<void> dispose() => _engine.dispose();
 }

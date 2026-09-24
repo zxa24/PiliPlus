@@ -122,6 +122,9 @@ class TranslationSession {
   Future<void> dispose() async {
     _closed = true;
     poke();
+    // a stop for memory or the background must not wait for the unit being
+    // generated to finish with the model still loaded
+    _engine?.cancel();
     await _loop;
   }
 
@@ -130,14 +133,18 @@ class TranslationSession {
     TranslationDisplay display = TranslationDisplay.translated,
   }) {
     final settled = units;
-    final lastEnd = settled.isEmpty ? double.negativeInfinity : settled.last.to;
+    // Units are cut from the front of the cue list, so the rest is what they
+    // have not taken. Not "starts after the last unit's end": that unit's
+    // last cue can be held past the start of the next segment's first one,
+    // which then went missing until its own unit settled.
+    var taken = 0;
+    for (final unit in settled) {
+      taken += unit.cues.length;
+    }
     return layOutTranslation(
       units: settled,
       results: results,
-      trailing: [
-        for (final cue in transcript.cues())
-          if (cue.from >= lastEnd) cue,
-      ],
+      trailing: transcript.cues().skip(taken).toList(),
       display: display,
     );
   }
@@ -191,10 +198,9 @@ class TranslationSession {
         _refreshUnits();
         final i = next();
         if (i == null) {
+          // an empty transcript is finished too, with nothing to translate
           final finished =
-              transcript.complete() &&
-              units.isNotEmpty &&
-              results.length == units.length;
+              transcript.complete() && results.length == units.length;
           if (finished) {
             _set(const TranslationState(TranslationStage.done));
             return;

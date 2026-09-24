@@ -115,7 +115,7 @@ abstract final class TranslateEntry {
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
             child: Text(
-              '翻译在本机进行，不上传任何内容；只翻译不是界面语言的语音，耗电。',
+              '翻译在本机进行，不上传任何内容；只翻译不是界面语言的字幕和语音，耗电。',
               style: TextStyle(
                 fontSize: 13,
                 color: ColorScheme.of(context).outline,

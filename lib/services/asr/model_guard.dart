@@ -2,12 +2,13 @@
 ///
 /// A foreground app is among the last things the low-memory killer takes.
 /// Background playback is covered too: audio_service holds a mediaPlayback
-/// foreground service while it plays. The gap is "paused, then switched
-/// away": `androidStopForegroundOnPause` drops that service, the app becomes
-/// a cached process (oom_score_adj ≥ 900), and while it holds a recogniser —
-/// and later a 1–3 GB translation model — it is the process the killer most
-/// wants to reclaim. Nobody is watching at that point either, so the work is
-/// worth nothing.
+/// foreground service while it plays, so neither going to the background nor
+/// the memory warning that comes with it (below) stops work then. The gap is
+/// "paused, then switched away": `androidStopForegroundOnPause` drops that
+/// service, the app becomes a cached process (oom_score_adj ≥ 900), and
+/// while it holds a recogniser — and later a 1–3 GB translation model — it is
+/// the process the killer most wants to reclaim. Nobody is watching at that
+/// point either, so the work is worth nothing.
 ///
 /// The app previously had no memory-pressure handling at all.
 ///
@@ -41,10 +42,17 @@ enum ModelStopReason {
 
 /// Whether running on-device work should be stopped, and why.
 ///
-/// Memory pressure stops it anywhere. Going to the background stops it only
-/// on mobile, only in [AppLifecycleState.paused] — picture-in-picture is
-/// [AppLifecycleState.inactive] and keeps running — and only while nothing is
-/// playing, since playback keeps its foreground service.
+/// Memory pressure stops it in the foreground. Going to the background stops
+/// it only on mobile, only in [AppLifecycleState.paused] — picture-in-picture
+/// is [AppLifecycleState.inactive] and keeps running — and only while nothing
+/// is playing, since playback keeps its foreground service.
+///
+/// Flutter's Android embedding reports every trim level from RUNNING_LOW up
+/// as memory pressure, TRIM_MEMORY_UI_HIDDEN included — and that one arrives
+/// each time the app's UI is hidden. So on mobile, a warning while the app is
+/// not [AppLifecycleState.resumed] is read as going to the background, with
+/// the same exemption for playback. An unknown [lifecycle] counts as the
+/// foreground.
 @visibleForTesting
 ModelStopReason? shouldStopOnDeviceWork({
   required bool memoryPressure,
@@ -52,7 +60,12 @@ ModelStopReason? shouldStopOnDeviceWork({
   required bool playing,
   required bool mobile,
 }) {
-  if (memoryPressure) return ModelStopReason.memoryPressure;
+  final away =
+      mobile && lifecycle != null && lifecycle != AppLifecycleState.resumed;
+  if (memoryPressure) {
+    if (!away) return ModelStopReason.memoryPressure;
+    return playing ? null : ModelStopReason.background;
+  }
   if (mobile && lifecycle == AppLifecycleState.paused && !playing) {
     return ModelStopReason.background;
   }
@@ -70,7 +83,10 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
   }
 
   @override
-  void didHaveMemoryPressure() => _apply(memoryPressure: true);
+  void didHaveMemoryPressure() => _apply(
+    memoryPressure: true,
+    lifecycle: WidgetsBinding.instance.lifecycleState,
+  );
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) =>

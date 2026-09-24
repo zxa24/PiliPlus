@@ -322,12 +322,16 @@ class AsrService extends GetxService {
       session._events = transcriber.events.listen(
         (event) {
           switch (event) {
-            case AsrCuesEvent(:final cues):
-              session.cues.addAll(cues);
-            case AsrSegmentEvent(:final start, :final duration):
-              // kept so a caller can tell a silent stretch from speech that
-              // produced nothing; the UI does not read it
+            case AsrCuesEvent():
+              // the same cues come with their segment, next
+              break;
+            case AsrSegmentEvent(:final start, :final duration, :final cues):
+              // Together, in one handler: translation builds its units from
+              // both lists, and must never see one ahead of the other. The
+              // segments also let a caller tell a silent stretch from speech
+              // that produced nothing.
               session.segments.add((start: start, duration: duration));
+              if (cues.isNotEmpty) session.cues.addAll(cues);
             case AsrProgressUpdate(:final done, :final total):
               session._set(
                 AsrState(

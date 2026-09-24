@@ -20,8 +20,12 @@ List<SettingsModel> get asrSettings => [
     leading: const Icon(Icons.record_voice_over_outlined),
     value: () => Pref.asrMode,
     items: AsrMode.values,
+    // a choice made here is the answer the first-use prompt would ask for
     onSelected: (value, setState) => GStorage.setting
-        .put(SettingBoxKey.asrMode, value.index)
+        .putAll({
+          SettingBoxKey.asrMode: value.index,
+          SettingBoxKey.asrAsked: true,
+        })
         .whenComplete(setState),
   ),
   NormalModel(
@@ -43,8 +47,12 @@ List<SettingsModel> get asrSettings => [
     leading: const Icon(Icons.translate),
     value: () => Pref.translateMode,
     items: TranslateMode.values,
+    // a choice made here is the answer the first-use prompt would ask for
     onSelected: (value, setState) => GStorage.setting
-        .put(SettingBoxKey.translateMode, value.index)
+        .putAll({
+          SettingBoxKey.translateMode: value.index,
+          SettingBoxKey.translateAsked: true,
+        })
         .whenComplete(setState),
   ),
   const SwitchModel(
@@ -87,8 +95,8 @@ List<SettingsModel> get asrSettings => [
         ),
       );
       if (confirmed != true) return;
-      // a running translation has the file mapped
-      await service.stop();
+      // a running translation has the file mapped; its page hears why it ended
+      await service.stop(reason: '翻译模型已删除');
       await service.store.removeAll();
       setState();
     },

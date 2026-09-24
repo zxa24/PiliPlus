@@ -582,6 +582,16 @@ class YtVideoController extends GetxController {
   var _gateOnTranslation = false;
   var _translationRequested = false;
 
+  /// See [VideoDetailController._autoTranslateOff]; here a stream refresh is
+  /// what comes back through [_maybeAutoTranscribe].
+  var _autoTranslateOff = false;
+
+  /// How many automatic checks this page has had: the first is the page
+  /// opening, and only it may open the loading gate (see
+  /// [VideoDetailController._pastOpening]). Later ones come from a stream
+  /// refresh, with playback under way.
+  var _autoChecks = 0;
+
   /// A translation is what is on screen: running, or finished.
   bool get _showingTranslation {
     final state = translation.session.value?.state.value.stage;
@@ -619,17 +629,26 @@ class YtVideoController extends GetxController {
     );
     _asrStateWorker = ever(session.state, (state) {
       // the language is known from the first segment on
-      if (state.language != null) _maybeTranslate(session, auto: auto);
+      if (state.language != null) {
+        // a corrected language can turn out to be the user's own
+        if (translation.isActive &&
+            !TranslationService.to.needed(state.language)) {
+          _stopTranscriptTranslation();
+        }
+        _maybeTranslate(session, auto: auto);
+      }
       switch (state.stage) {
         case AsrStage.done:
           if (!_gateOnTranslation) _closeAsrGate();
           _publishAsrSubtitle(isFinal: true);
         case AsrStage.failed:
           _closeAsrGate();
+          _stopTranscriptTranslation();
           // only errors interrupt; progress lives in the subtitle menu
           SmartDialog.showToast('转录失败：${state.message ?? ''}');
         case AsrStage.idle:
           _closeAsrGate();
+          _stopTranscriptTranslation();
         case _:
           break;
       }
@@ -637,6 +656,8 @@ class YtVideoController extends GetxController {
   }
 
   void _openAsrGate() {
+    // past the opening, playback has started (see [_autoChecks])
+    if (_autoChecks > 1) return;
     _asrGate?.cancel();
     asrPending.value = true;
     _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
@@ -701,18 +722,31 @@ class YtVideoController extends GetxController {
 
   /// See [VideoDetailController._maybeTranslate].
   void _maybeTranslate(AsrSession session, {required bool auto}) {
-    if (translation.session.value != null || isClosed) return;
+    if (translation.isActive || isClosed) return;
     if (!Get.isRegistered<TranslationService>()) return;
     final service = TranslationService.to;
     final language = session.state.value.language;
     final wanted =
-        service.shouldAutoStart(language) ||
-        (_translationRequested &&
-            service.modelReady &&
-            service.needed(language));
+        (!_autoTranslateOff && service.shouldAutoStart(language)) ||
+        // asked from the menu, which has already offered the download: the
+        // session fetches the model itself
+        (_translationRequested && service.needed(language));
     if (!wanted) return;
+    _autoTranslateOff = true;
+    // a transcript's translation, not a caption track's
+    _translatedCaption = null;
     if (auto && asrPending.value) _gateOnTranslation = true;
     translation.start(session);
+  }
+
+  /// See [VideoDetailController._stopTranscriptTranslation]. The transcript
+  /// goes back on screen if the translation was what was shown.
+  Future<void> _stopTranscriptTranslation() async {
+    // one that has finished or failed is left for the menu to show
+    final ended = translation.session.value != null && !translation.isRunning;
+    if (_translatedCaption != null || !translation.isActive || ended) return;
+    await translation.stop();
+    if (!isClosed && captionIndex.value == -2) _showUntranslated();
   }
 
   /// See [VideoDetailController.captionToTranslate].
@@ -726,11 +760,12 @@ class YtVideoController extends GetxController {
 
   /// See [VideoDetailController._maybeAutoTranslateCaptions].
   void _maybeAutoTranslateCaptions() {
-    if (translation.session.value != null || isClosed) return;
+    if (translation.isActive || _autoTranslateOff || isClosed) return;
     if (!Get.isRegistered<TranslationService>()) return;
     if (!TranslationService.to.shouldAutoTranslate) return;
     final index = captionToTranslate;
     if (index == null) return;
+    _autoTranslateOff = true;
     _openAsrGate();
     _gateOnTranslation = true;
     _translateCaptions(index);
@@ -773,12 +808,16 @@ class YtVideoController extends GetxController {
       SmartDialog.showToast('语音已是界面语言，无需翻译');
       return;
     }
+    // a finished or failed translation is started over
+    if (!translation.isRunning) await translation.stop();
     _maybeTranslate(session, auto: false);
   }
 
   /// Stops translating and goes back to what was shown before.
   Future<void> stopTranslation() async {
     _translationRequested = false;
+    // nor does automatic translation start it again
+    _autoTranslateOff = true;
     await translation.stop();
     _showUntranslated();
     _translatedCaption = null;
@@ -787,6 +826,9 @@ class YtVideoController extends GetxController {
   void _publishTranslation(String vtt, {required bool first}) {
     final player = plPlayerController.videoPlayerController;
     if (player == null || isClosed) return;
+    // shown the first time; after that refreshed only while it is still what
+    // is shown — the viewer may have turned subtitles off or picked a track
+    if (!first && captionIndex.value != -2) return;
     player.setSubtitleTrack(
       SubtitleTrack('memory://$vtt', '翻译', 'asr-translated', uri: true),
     );
@@ -797,6 +839,7 @@ class YtVideoController extends GetxController {
   /// for that. A video with captions is left alone: YouTube's own are better
   /// than ours and cost nothing.
   void _maybeAutoTranscribe() {
+    _autoChecks++;
     // captions in a language the user does not read are translated instead
     _maybeAutoTranslateCaptions();
     if (!Get.isRegistered<AsrService>()) return;

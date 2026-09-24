@@ -17,10 +17,35 @@ void main() {
       mobile: mobile,
     );
 
-    test('memory pressure stops it anywhere, playing or not', () {
+    test('memory pressure in the foreground stops it, playing or not', () {
       expect(decide(pressure: true), ModelStopReason.memoryPressure);
       expect(decide(pressure: true, playing: true), ModelStopReason.memoryPressure);
+      expect(
+        decide(pressure: true, state: AppLifecycleState.resumed, playing: true),
+        ModelStopReason.memoryPressure,
+      );
       expect(decide(pressure: true, mobile: false), ModelStopReason.memoryPressure);
+      expect(
+        decide(pressure: true, state: AppLifecycleState.paused, mobile: false),
+        ModelStopReason.memoryPressure,
+      );
+    });
+
+    test('the warning that comes with hiding the UI spares playback', () {
+      // Android forwards TRIM_MEMORY_UI_HIDDEN as memory pressure on every
+      // trip to the background
+      expect(
+        decide(pressure: true, state: AppLifecycleState.paused, playing: true),
+        isNull,
+      );
+      expect(
+        decide(pressure: true, state: AppLifecycleState.hidden, playing: true),
+        isNull,
+      );
+      expect(
+        decide(pressure: true, state: AppLifecycleState.paused),
+        ModelStopReason.background,
+      );
     });
 
     test('paused in the background with nothing playing stops it', () {

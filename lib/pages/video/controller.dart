@@ -907,7 +907,7 @@ class VideoDetailController extends GetxController
       }
     } else {
       await _loadLocalSubtitles();
-      _maybeAutoTranscribe();
+      _maybeAutoTranscribe(opening: true);
     }
 
     defaultST = null;
@@ -1297,6 +1297,20 @@ class VideoDetailController extends GetxController
   /// The user asked for a translation of this run from the menu.
   var _translationRequested = false;
 
+  /// The translation running is of the transcript, not of captions.
+  var _translatingTranscript = false;
+
+  /// Automatic translation has run for this part, or the user stopped one:
+  /// only the menu starts another. A quality switch or CDN failover comes
+  /// back through [_maybeAutoTranscribe], and must not undo a stop.
+  var _autoTranslateOff = false;
+
+  /// Playback of this part has started. Only the page opening may hold the
+  /// page behind the loading gate; an automatic check from a later pass — a
+  /// quality switch, a CDN failover — comes with playback under way, and the
+  /// gate must not open then whether or not it ever did before.
+  var _pastOpening = false;
+
   /// What libmpv should decode for transcription. The audio stream on its own
   /// where there is one — feeding it the player's `edl://` would pull video
   /// headers as well for no benefit.
@@ -1350,7 +1364,14 @@ class VideoDetailController extends GetxController
     });
     _asrStateWorker = ever(session.state, (state) {
       // the language is known from the first segment on
-      if (state.language != null) _maybeTranslate(session, auto: auto);
+      if (state.language != null) {
+        // a corrected language can turn out to be the user's own
+        if (_translatingTranscript &&
+            !TranslationService.to.needed(state.language)) {
+          _stopTranscriptTranslation();
+        }
+        _maybeTranslate(session, auto: auto);
+      }
       switch (state.stage) {
         case AsrStage.done:
           if (!_gateOnTranslation) _closeAsrGate();
@@ -1361,12 +1382,15 @@ class VideoDetailController extends GetxController
           );
         case AsrStage.failed:
           _closeAsrGate();
+          _stopTranscriptTranslation();
           // errors are the one thing still worth interrupting for: everything
           // else about a transcription is visible in the subtitle menu, and a
           // toast per stage turned a background job into a stream of popups
           SmartDialog.showToast('转录失败：${state.message ?? ''}');
         case AsrStage.idle:
           _closeAsrGate();
+          // stopped before its track comes off, or it would put it back
+          _stopTranscriptTranslation(always: true);
           // the service gave up on its own — an automatic run that turned out
           // to be in the user's own language. Take the half-finished track
           // back off the menu; a *manual* stop keeps what was recognised.
@@ -1380,7 +1404,10 @@ class VideoDetailController extends GetxController
   /// Starts transcription by itself when the user has said it should and the
   /// video has nothing of its own. Never asks anything here: an automatic run
   /// that popped a dialog would be worse than no automatic run.
-  void _maybeAutoTranscribe() {
+  ///
+  /// [opening] is the check made as the part is first loaded.
+  void _maybeAutoTranscribe({bool opening = false}) {
+    if (!opening) _pastOpening = true;
     // a video with captions in a language the user does not read has them
     // translated instead; transcription is for videos with none
     _maybeAutoTranslateCaptions();
@@ -1397,6 +1424,8 @@ class VideoDetailController extends GetxController
   /// Holds the page in its loading state until transcription has produced
   /// something, with a cap so a decoder that never delivers cannot wedge it.
   void _openAsrGate() {
+    // past the opening, playback has started (see [_pastOpening])
+    if (_pastOpening) return;
     _asrGate?.cancel();
     asrPending.value = true;
     _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
@@ -1412,6 +1441,7 @@ class VideoDetailController extends GetxController
     _closeAsrGate();
     _gateOnTranslation = false;
     _translationRequested = false;
+    _translatingTranscript = false;
     _translationTrackIndex = null;
     await translation.stop();
     _asrRefresh?.cancel();
@@ -1451,19 +1481,37 @@ class VideoDetailController extends GetxController
   /// be: automatically when the user chose that, or because they asked from
   /// the menu. Never for speech already in the app's language.
   void _maybeTranslate(AsrSession session, {required bool auto}) {
-    if (translation.session.value != null || isClosed) return;
+    // isActive, not session: a start in progress has no session yet
+    if (translation.isActive || isClosed) return;
     if (!Get.isRegistered<TranslationService>()) return;
     final service = TranslationService.to;
     final language = session.state.value.language;
     final wanted =
-        service.shouldAutoStart(language) ||
-        (_translationRequested &&
-            service.modelReady &&
-            service.needed(language));
+        (!_autoTranslateOff && service.shouldAutoStart(language)) ||
+        // asked from the menu, which has already offered the download: the
+        // session fetches the model itself
+        (_translationRequested && service.needed(language));
     if (!wanted) return;
+    _autoTranslateOff = true;
+    _translatingTranscript = true;
     // an automatic run holds the page until the translation has a line
     if (auto && asrPending.value) _gateOnTranslation = true;
     translation.start(session);
+  }
+
+  /// Ends a translation of the transcript once the transcript has stopped
+  /// short of done, or is in the user's own language after all. It would
+  /// otherwise wait for the rest forever, with the model loaded.
+  ///
+  /// One that has finished or failed is left for the menu to show, unless
+  /// [always]: its track is about to come off, and its refresh timer would
+  /// put it back.
+  void _stopTranscriptTranslation({bool always = false}) {
+    final ended = translation.session.value != null && !translation.isRunning;
+    if (!_translatingTranscript || !translation.isActive) return;
+    if (ended && !always) return;
+    _translatingTranscript = false;
+    translation.stop();
   }
 
   /// The video's own track to translate, if one should be: none is in the
@@ -1484,11 +1532,12 @@ class VideoDetailController extends GetxController
   /// chose automatic translation. Holds the page like an automatic
   /// transcription does.
   void _maybeAutoTranslateCaptions() {
-    if (translation.session.value != null || isClosed) return;
+    if (translation.isActive || _autoTranslateOff || isClosed) return;
     if (!Get.isRegistered<TranslationService>()) return;
     if (!TranslationService.to.shouldAutoTranslate) return;
     final index = captionToTranslate;
     if (index == null) return;
+    _autoTranslateOff = true;
     _openAsrGate();
     _gateOnTranslation = true;
     _translateCaptions(index);
@@ -1498,9 +1547,14 @@ class VideoDetailController extends GetxController
   Future<bool> _translateCaptions(int index) async {
     var content = vttSubtitles[index]?.id;
     if (content == null) {
+      // a part switch reuses this controller: the answer may belong to the
+      // part before, and must not land in this one's tracks
+      final part = cid.value;
       final url = subtitles[index].subtitleUrl;
       content = url == null ? null : await VideoHttp.getSubtitles(url);
       if (isClosed) return false;
+      // nothing more to do for a part that is no longer playing
+      if (cid.value != part) return true;
       if (content != null) vttSubtitles[index] = (isData: true, id: content);
     }
     final cues = content == null ? const <AsrCue>[] : parseCaptionCues(content);
@@ -1508,6 +1562,7 @@ class VideoDetailController extends GetxController
       _closeAsrGate();
       return false;
     }
+    _translatingTranscript = false;
     await translation.startCaptions(cues);
     return true;
   }
@@ -1534,13 +1589,18 @@ class VideoDetailController extends GetxController
       SmartDialog.showToast('语音已是界面语言，无需翻译');
       return;
     }
+    // a finished or failed translation is started over (重新翻译, 点击重试):
+    // _maybeTranslate leaves any existing one alone
+    if (!translation.isRunning) await translation.stop();
     _maybeTranslate(session, auto: false);
   }
 
-  /// Stops translating; what has been translated stays in the menu.
+  /// Stops translating; what has been translated stays in the menu, in the
+  /// entry a restart then refreshes rather than adding another beside it.
   Future<void> stopTranslation() async {
     _translationRequested = false;
-    _translationTrackIndex = null;
+    // nor does automatic translation start it again for this part
+    _autoTranslateOff = true;
     await translation.stop();
   }
 
@@ -1733,7 +1793,7 @@ class VideoDetailController extends GetxController
         }
       }
       // LibrePili: nothing of its own to show — offer the device's own ears
-      _maybeAutoTranscribe();
+      _maybeAutoTranscribe(opening: true);
     }
   }
 
@@ -1833,6 +1893,9 @@ class VideoDetailController extends GetxController
     vttSubtitles.clear();
     // a transcription belongs to the part it was started for
     stopAsr();
+    // and so do the once-per-part automatic translation and loading gate
+    _autoTranslateOff = false;
+    _pastOpening = false;
 
     if (!isFileSource) {
       // language

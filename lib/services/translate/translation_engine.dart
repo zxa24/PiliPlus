@@ -1,9 +1,10 @@
 /// LibrePili: the one thing translation asks of a model runtime.
 ///
-/// Which runtime runs the model is still open (llama.cpp through llamadart
-/// needs its weight repacking turned off, LiteRT-LM is being measured), so
-/// everything above this line — units, scheduling, layout — is written
-/// against a single chat turn in, text out, and does not know or care.
+/// The runtime is llama.cpp through llamadart, with its weight repacking
+/// turned off on phones (LiteRT-LM was measured and not adopted, see
+/// pubspec.yaml). Everything above this line — units, scheduling, layout —
+/// is written against a single chat turn in, text out, and does not know or
+/// care, so another runtime can still be put behind it.
 library;
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
@@ -17,6 +18,11 @@ abstract interface class TranslationEngine {
   /// 24 of 71 English units: the thinking used up the token budget before
   /// any translation was written.
   Future<String> complete(String prompt);
+
+  /// Ends a [complete] in progress early, so a stop does not wait out a
+  /// unit of up to a few hundred tokens with the model still resident. What
+  /// the cut-short call returns is not used.
+  void cancel();
 
   /// Frees the model. The engine is not used again afterwards.
   Future<void> dispose();

@@ -450,6 +450,9 @@ class FakeEngine implements TranslationEngine {
   }
 
   @override
+  void cancel() {}
+
+  @override
   Future<void> dispose() async => disposed = true;
 }
 
