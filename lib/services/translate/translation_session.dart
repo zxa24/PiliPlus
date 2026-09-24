@@ -67,8 +67,10 @@ class TranslationSession {
   /// Where playback is, in seconds.
   final double Function() position;
 
-  /// Loads the model. Called once, when there is first something to do.
-  final Future<TranslationEngine> Function() engine;
+  /// Loads the model — downloading it first if need be — reporting what it
+  /// is doing through the callback. Called once, when there is first
+  /// something to do.
+  final Future<TranslationEngine> Function(ValueChanged<String> report) engine;
 
   /// The language to translate into, e.g. `zh`.
   final String target;
@@ -161,6 +163,11 @@ class TranslationSession {
     );
   }
 
+  /// Marks the session failed with [reason], for a stop the page must hear
+  /// about (see TranslationService.stop).
+  void fail(String reason) =>
+      _set(TranslationState(TranslationStage.failed, message: reason));
+
   void _set(TranslationState value) {
     if (!_closed) state.value = value;
   }
@@ -189,7 +196,11 @@ class TranslationSession {
         }
         if (_engine == null) {
           _set(const TranslationState(TranslationStage.loading));
-          _engine = await engine();
+          _engine = await engine(
+            (message) => _set(
+              TranslationState(TranslationStage.loading, message: message),
+            ),
+          );
           if (_closed) return;
         }
         _set(const TranslationState(TranslationStage.translating));

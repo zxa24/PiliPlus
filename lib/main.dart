@@ -14,6 +14,7 @@ import 'package:PiliPlus/router/app_pages.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/pages/setting/models/youtube_settings.dart';
@@ -135,6 +136,7 @@ void main(List<String> args) async {
     ..lazyPut(AccountService.new)
     ..lazyPut(DownloadService.new)
     ..lazyPut(AsrService.new)
+    ..lazyPut(TranslationService.new)
     ..put(PlatformService());
   // stop on-device inference on memory pressure, or when the app is sent to
   // the background with nothing playing — before Android stops the app

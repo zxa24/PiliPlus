@@ -2,6 +2,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
+import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/translate/translation_unit.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -287,6 +288,52 @@ void main() {
     expect(translationPrompt('Hi', target: 'zh'), endsWith('\n\nHi'));
   });
 
+  group('shouldPublishTranslation', () {
+    bool decide({
+      double position = 100,
+      double publishedSettled = 110,
+      double settled = 110,
+      double publishedEnd = 300,
+      double end = 300,
+      bool isFirst = false,
+      bool isFinal = false,
+    }) => shouldPublishTranslation(
+      position: position,
+      publishedSettled: publishedSettled,
+      settled: settled,
+      publishedEnd: publishedEnd,
+      end: end,
+      isFirst: isFirst,
+      isFinal: isFinal,
+    );
+
+    test('first and last always publish', () {
+      expect(decide(isFirst: true), isTrue);
+      expect(decide(isFinal: true), isTrue);
+    });
+
+    test('nothing new, nothing published', () {
+      expect(decide(), isFalse);
+    });
+
+    test('new translations near the playhead publish', () {
+      expect(decide(settled: 140), isTrue);
+    });
+
+    test('new translations far ahead of the viewer wait', () {
+      // the published track is translated for 60 s ahead already
+      expect(decide(publishedSettled: 160, settled: 200), isFalse);
+    });
+
+    test(
+      'speech past the published end publishes when the viewer is close',
+      () {
+        expect(decide(publishedEnd: 120, end: 180), isTrue);
+        expect(decide(publishedEnd: 200, end: 260), isFalse);
+      },
+    );
+  });
+
   group('TranslationSession', () {
     late List<AsrSegmentSpan> segments;
     late List<AsrCue> cues;
@@ -301,7 +348,7 @@ void main() {
         complete: () => complete,
       ),
       position: () => now,
-      engine: () async => engine,
+      engine: (_) async => engine,
       target: 'zh',
     );
 

@@ -11,6 +11,8 @@
 ///
 /// The app previously had no memory-pressure handling at all.
 ///
+/// Translation is stopped the same way, first: it holds the larger model.
+///
 /// Measured context, 2026-09-23 (research/translation-bench-2026-09-23.md):
 /// on a 6 GB Pixel 4 XL, a translation model and SenseVoice running together
 /// pushed the system past its low watermark and background apps were killed.
@@ -21,6 +23,7 @@ library;
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -28,11 +31,12 @@ import 'package:get/get.dart';
 
 /// Why on-device work was stopped, as shown to the user.
 enum ModelStopReason {
-  memoryPressure('内存不足，已停止转录'),
-  background('应用已切到后台，已停止转录');
+  memoryPressure('内存不足，已停止转录', '内存不足，已停止翻译'),
+  background('应用已切到后台，已停止转录', '应用已切到后台，已停止翻译');
 
-  const ModelStopReason(this.message);
+  const ModelStopReason(this.message, this.translationMessage);
   final String message;
+  final String translationMessage;
 }
 
 /// Whether running on-device work should be stopped, and why.
@@ -75,9 +79,11 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
   void _apply({bool memoryPressure = false, AppLifecycleState? lifecycle}) {
     // lazily registered and never created means nothing can be running, and
     // finding it here would create it for no reason
-    if (!Get.isRegistered<AsrService>() || Get.isPrepared<AsrService>()) return;
-    final service = AsrService.to;
-    if (!service.isBusy) return;
+    bool live<S>() => Get.isRegistered<S>() && !Get.isPrepared<S>();
+    final asr = live<AsrService>() && AsrService.to.isBusy;
+    final translation =
+        live<TranslationService>() && TranslationService.to.isBusy;
+    if (!asr && !translation) return;
     final reason = shouldStopOnDeviceWork(
       memoryPressure: memoryPressure,
       lifecycle: lifecycle,
@@ -86,6 +92,11 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
     );
     if (reason == null) return;
     if (kDebugMode) debugPrint('asr: stopping — ${reason.name}');
-    service.stop(reason: reason.message);
+    // the translation first: it holds the larger model, and it reads the
+    // transcript, which is about to stop growing
+    if (translation) {
+      TranslationService.to.stop(reason: reason.translationMessage);
+    }
+    if (asr) AsrService.to.stop(reason: reason.message);
   }
 }

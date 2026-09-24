@@ -14,6 +14,9 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
+import 'package:PiliPlus/services/translate/translation_session.dart';
+import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
@@ -548,6 +551,29 @@ class YtVideoController extends GetxController {
   Worker? _asrStateWorker;
   StreamSubscription<void>? _asrCueSub;
 
+  /// See [VideoDetailController.translation]. This page has no track list,
+  /// so while a translation runs it is the subtitle shown, in place of the
+  /// transcript; the dual display (设置 → 双语字幕) keeps both on screen.
+  late final translation = TranslationTrack(
+    // the player counts whole seconds
+    position: () => plPlayerController.position.value.toDouble(),
+    onPublish: _publishTranslation,
+    onReady: _closeAsrGate,
+    onFailed: (message) {
+      SmartDialog.showToast('翻译失败：$message');
+      // back to the transcript, which stopped being published meanwhile
+      _publishAsrSubtitle(isFinal: true);
+    },
+  );
+  var _gateOnTranslation = false;
+  var _translationRequested = false;
+
+  /// A translation is what is on screen: running, or finished.
+  bool get _showingTranslation {
+    final state = translation.session.value?.state.value.stage;
+    return state != null && state != TranslationStage.failed;
+  }
+
   /// The audio stream on its own: handing the recogniser the video as well
   /// would download it a second time for nothing.
   String? get asrSource => _streams?.audioUrl;
@@ -570,15 +596,19 @@ class YtVideoController extends GetxController {
       auto: auto,
     );
     asrSession.value = session;
-    _asrCueSub = session.cues.listen((_) => _closeAsrGate());
+    _asrCueSub = session.cues.listen((_) {
+      if (!_gateOnTranslation) _closeAsrGate();
+    });
     _asrRefresh = Timer.periodic(
       const Duration(seconds: 5),
       (_) => _publishAsrSubtitle(),
     );
     _asrStateWorker = ever(session.state, (state) {
+      // the language is known from the first segment on
+      if (state.language != null) _maybeTranslate(session, auto: auto);
       switch (state.stage) {
         case AsrStage.done:
-          _closeAsrGate();
+          if (!_gateOnTranslation) _closeAsrGate();
           _publishAsrSubtitle(isFinal: true);
         case AsrStage.failed:
           _closeAsrGate();
@@ -606,6 +636,9 @@ class YtVideoController extends GetxController {
 
   Future<void> stopAsr() async {
     _closeAsrGate();
+    _gateOnTranslation = false;
+    _translationRequested = false;
+    await translation.stop();
     _asrRefresh?.cancel();
     _asrRefresh = null;
     _asrStateWorker?.dispose();
@@ -625,6 +658,8 @@ class YtVideoController extends GetxController {
     final session = asrSession.value;
     final player = plPlayerController.videoPlayerController;
     if (session == null || player == null || session.cues.isEmpty) return;
+    // one subtitle at a time here, and a translation takes the place
+    if (_showingTranslation) return;
     // each of these reloads the track and blinks whatever is on screen
     if (!shouldPublishAsr(
       publishedTo: _asrPublishedTo,
@@ -641,6 +676,55 @@ class YtVideoController extends GetxController {
     player.setSubtitleTrack(
       SubtitleTrack('memory://${session.cues.toVtt()}', '语音识别', 'asr',
           uri: true),
+    );
+    captionIndex.value = -2;
+  }
+
+  /// See [VideoDetailController._maybeTranslate].
+  void _maybeTranslate(AsrSession session, {required bool auto}) {
+    if (translation.session.value != null || isClosed) return;
+    if (!Get.isRegistered<TranslationService>()) return;
+    final service = TranslationService.to;
+    final language = session.state.value.language;
+    final wanted =
+        service.shouldAutoStart(language) ||
+        (_translationRequested &&
+            service.modelReady &&
+            service.needed(language));
+    if (!wanted) return;
+    if (auto && asrPending.value) _gateOnTranslation = true;
+    translation.start(session);
+  }
+
+  /// See [VideoDetailController.startTranslation].
+  Future<void> startTranslation() async {
+    _translationRequested = true;
+    final session = asrSession.value;
+    if (session == null || session.state.value.stage == AsrStage.failed) {
+      await startAsr();
+      _translationRequested = true;
+      return;
+    }
+    if (session.state.value.language == null) return;
+    if (!TranslationService.to.needed(session.state.value.language)) {
+      SmartDialog.showToast('语音已是界面语言，无需翻译');
+      return;
+    }
+    _maybeTranslate(session, auto: false);
+  }
+
+  /// Stops translating and goes back to showing the transcript.
+  Future<void> stopTranslation() async {
+    _translationRequested = false;
+    await translation.stop();
+    _publishAsrSubtitle(isFinal: true);
+  }
+
+  void _publishTranslation(String vtt, {required bool first}) {
+    final player = plPlayerController.videoPlayerController;
+    if (player == null || isClosed) return;
+    player.setSubtitleTrack(
+      SubtitleTrack('memory://$vtt', '翻译', 'asr-translated', uri: true),
     );
     captionIndex.value = -2;
   }

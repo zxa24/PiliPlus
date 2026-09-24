@@ -59,6 +59,8 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
+import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -1275,6 +1277,25 @@ class VideoDetailController extends GetxController
   int? _asrTrackIndex;
   Timer? _asrRefresh;
 
+  /// The translation of the transcript, when the speech is in a language the
+  /// app is not. A peer of the transcript: an automatic run that is going to
+  /// be translated holds the page until the first translated line, not the
+  /// first recognised one.
+  late final translation = TranslationTrack(
+    // the player counts whole seconds
+    position: () => plPlayerController.position.value.toDouble(),
+    onPublish: _publishTranslation,
+    onReady: _closeAsrGate,
+    onFailed: (message) => SmartDialog.showToast('翻译失败：$message'),
+  );
+  int? _translationTrackIndex;
+
+  /// The gate waits for [translation] rather than for the transcript.
+  var _gateOnTranslation = false;
+
+  /// The user asked for a translation of this run from the menu.
+  var _translationRequested = false;
+
   /// What libmpv should decode for transcription. The audio stream on its own
   /// where there is one — feeding it the player's `edl://` would pull video
   /// headers as well for no benefit.
@@ -1321,13 +1342,22 @@ class VideoDetailController extends GetxController
       const Duration(seconds: 5),
       (_) => _publishAsrSubtitle(),
     );
-    // the first cues are what the page has been waiting for
-    _asrCueSub = session.cues.listen((_) => _closeAsrGate());
+    // the first cues are what the page has been waiting for — unless they
+    // are about to be translated, in which case it waits for that
+    _asrCueSub = session.cues.listen((_) {
+      if (!_gateOnTranslation) _closeAsrGate();
+    });
     _asrStateWorker = ever(session.state, (state) {
+      // the language is known from the first segment on
+      if (state.language != null) _maybeTranslate(session, auto: auto);
       switch (state.stage) {
         case AsrStage.done:
-          _closeAsrGate();
-          _publishAsrSubtitle(select: true, isFinal: true);
+          if (!_gateOnTranslation) _closeAsrGate();
+          // a translation, if there is one, is what the viewer is reading
+          _publishAsrSubtitle(
+            select: translation.session.value == null,
+            isFinal: true,
+          );
         case AsrStage.failed:
           _closeAsrGate();
           // errors are the one thing still worth interrupting for: everything
@@ -1376,6 +1406,10 @@ class VideoDetailController extends GetxController
 
   Future<void> stopAsr() async {
     _closeAsrGate();
+    _gateOnTranslation = false;
+    _translationRequested = false;
+    _translationTrackIndex = null;
+    await translation.stop();
     _asrRefresh?.cancel();
     _asrRefresh = null;
     _asrStateWorker?.dispose();
@@ -1392,12 +1426,87 @@ class VideoDetailController extends GetxController
   void _removeAsrTrack() {
     _asrRefresh?.cancel();
     _asrRefresh = null;
+    // the translation is made from the transcript and goes with it; it sits
+    // after it, so it comes off first
+    final translated = _translationTrackIndex;
+    if (translated != null && translated == subtitles.length - 1) {
+      _translationTrackIndex = null;
+      subtitles.removeLast();
+      vttSubtitles.remove(translated);
+      if (vttSubtitlesIndex.value == translated + 1) setSubtitle(0);
+    }
     final index = _asrTrackIndex;
     if (index == null || index != subtitles.length - 1) return;
     _asrTrackIndex = null;
     subtitles.removeLast();
     vttSubtitles.remove(index);
     if (vttSubtitlesIndex.value == index + 1) setSubtitle(0);
+  }
+
+  /// Starts translating [session] once its language is known, if it should
+  /// be: automatically when the user chose that, or because they asked from
+  /// the menu. Never for speech already in the app's language.
+  void _maybeTranslate(AsrSession session, {required bool auto}) {
+    if (translation.session.value != null || isClosed) return;
+    if (!Get.isRegistered<TranslationService>()) return;
+    final service = TranslationService.to;
+    final language = session.state.value.language;
+    final wanted =
+        service.shouldAutoStart(language) ||
+        (_translationRequested &&
+            service.modelReady &&
+            service.needed(language));
+    if (!wanted) return;
+    // an automatic run holds the page until the translation has a line
+    if (auto && asrPending.value) _gateOnTranslation = true;
+    translation.start(session);
+  }
+
+  /// Translates the transcript from the menu: now if one is running or
+  /// finished, otherwise as soon as transcription has found the language.
+  Future<void> startTranslation() async {
+    _translationRequested = true;
+    final session = asrSession.value;
+    if (session == null || session.state.value.stage == AsrStage.failed) {
+      await startAsr();
+      _translationRequested = true;
+      return;
+    }
+    if (session.state.value.language == null) return;
+    if (!TranslationService.to.needed(session.state.value.language)) {
+      SmartDialog.showToast('语音已是界面语言，无需翻译');
+      return;
+    }
+    _maybeTranslate(session, auto: false);
+  }
+
+  /// Stops translating; what has been translated stays in the menu.
+  Future<void> stopTranslation() async {
+    _translationRequested = false;
+    _translationTrackIndex = null;
+    await translation.stop();
+  }
+
+  void _publishTranslation(String vtt, {required bool first}) {
+    if (isClosed) return;
+    var index = _translationTrackIndex;
+    if (index == null) {
+      index = subtitles.length;
+      _translationTrackIndex = index;
+      subtitles.add(
+        Subtitle(
+          lan: 'asr-translated',
+          lanDoc: '翻译',
+          source: SubtitleSource.device,
+        ),
+      );
+    }
+    vttSubtitles[index] = (isData: true, id: vtt);
+    // shown the first time — it is what the translation was started for —
+    // and refreshed while shown; never switched to over the user's choice
+    if (first || vttSubtitlesIndex.value == index + 1) {
+      setSubtitle(index + 1);
+    }
   }
 
   /// Puts what has been recognised so far into the subtitle list, adding the

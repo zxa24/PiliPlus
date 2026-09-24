@@ -15,6 +15,7 @@ import 'package:PiliPlus/pages/setting/models/play_settings.dart'
 import 'package:PiliPlus/pages/setting/widgets/popup_item.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
+import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart'
     show HeaderControlState;
 import 'package:PiliPlus/pages/video/widgets/header_mixin.dart';
@@ -389,6 +390,23 @@ class YtHeaderControlState extends State<YtHeaderControl>
                     onStop: () {
                       Get.back();
                       controller.stopAsr();
+                    },
+                  ),
+                if (controller.canTranscribe)
+                  TranslateMenuTile(
+                    session: controller.translation.session,
+                    titleStyle: titleStyle,
+                    onStart: () {
+                      Get.back();
+                      TranslateEntry.startFor(
+                        this.context,
+                        controller.startTranslation,
+                        needsTranscript: controller.asrSession.value == null,
+                      );
+                    },
+                    onStop: () {
+                      Get.back();
+                      controller.stopTranslation();
                     },
                   ),
                 if (plPlayerController.videoPlayerController case final player?)

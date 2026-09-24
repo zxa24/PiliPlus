@@ -415,10 +415,13 @@ class AsrService extends GetxService {
   /// — the point is whether the user can follow the speech, and the app is
   /// what they chose to read. `Get.locale` is null until the app is
   /// translated (still a TODO), so the device locale stands in until then.
-  static bool _isAppLanguage(String spoken) => isSameMajorLanguage(
-    spoken,
-    (Get.locale ?? Get.deviceLocale)?.languageCode ?? 'zh',
-  );
+  static bool _isAppLanguage(String spoken) =>
+      isSameMajorLanguage(spoken, appLanguage);
+
+  /// The language the app is in, as a major language code (`zh`, `en`, …).
+  /// Also what translation translates into.
+  static String get appLanguage =>
+      (Get.locale ?? Get.deviceLocale)?.languageCode ?? 'zh';
 
   /// True when [spoken] and [appLanguage] are the same language at the level
   /// a viewer cares about.

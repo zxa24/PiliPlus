@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recogniz
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/models/common/asr_mode.dart';
+import 'package:PiliPlus/models/common/translate_mode.dart';
 import 'package:PiliPlus/models/common/yt_locale.dart';
 import 'package:PiliPlus/services/youtube/yt_identity.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
@@ -444,6 +445,25 @@ abstract final class Pref {
   /// Empty lets SenseVoice detect the language, which is what it is good at.
   static String get asrLanguage =>
       _setting.get(SettingBoxKey.asrLanguage, defaultValue: '');
+
+  // LibrePili: on-device translation of a transcript. As with transcription,
+  // nothing runs until the one-time prompt ([translateAsked]) is answered.
+  static TranslateMode get translateMode => _enumAt(
+    TranslateMode.values,
+    _setting.get(SettingBoxKey.translateMode),
+    TranslateMode.manual,
+  );
+
+  static bool get translateAsked =>
+      _setting.get(SettingBoxKey.translateAsked, defaultValue: false);
+
+  /// Id of the chosen model; see TranslationModelCatalog.
+  static String? get translateModel =>
+      _setting.get(SettingBoxKey.translateModel);
+
+  /// Source line under each translated line (decision 4A, 2026-09-23).
+  static bool get translateDual =>
+      _setting.get(SettingBoxKey.translateDual, defaultValue: false);
 
   /// LibrePili: which platform the app is showing (see [PlatformMode]).
   static PlatformMode get platformMode => _enumAt(

@@ -78,6 +78,10 @@ import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/utils/app_exit.dart';
 import 'package:PiliPlus/services/translate/llama_engine.dart';
+import 'package:PiliPlus/services/translate/translation_layout.dart';
+import 'package:PiliPlus/services/translate/translation_models.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
+import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
@@ -444,6 +448,13 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--asr-latency') case final video?) {
       await scenario('asrLatency', () => _asrLatency(video));
+    }
+    if (_arg(args, '--translate-latency') case final video?) {
+      final seconds = int.tryParse(_arg(args, '--watch') ?? '') ?? 90;
+      await scenario(
+        'translateLatency',
+        () => _translateLatency(video, _arg(args, '--model'), seconds),
+      );
     }
     if (_arg(args, '--translate-probe') case final gguf?) {
       await scenario('translateProbe', () => _translateProbe(gguf));
@@ -1386,6 +1397,149 @@ abstract final class SelfTest {
       'tailGapSeconds': tailGap,
       'cueStats': _cueStats(cues, durationSeconds),
     };
+  }
+
+  /// LibrePili: transcription and translation together, the way the player
+  /// page runs them, up to the subtitles it would publish.
+  ///
+  /// The page itself is not opened: this drives the same service and the
+  /// same [TranslationTrack] the page does, with a simulated playhead that
+  /// starts when the translation is first ready (the page holds playback
+  /// until then) and moves in real time for [watchSeconds]. What it checks is
+  /// what a viewer would see: how long until the first translated line, and
+  /// whether any line they reach during playback is still waiting.
+  ///
+  /// [gguf] imports the model if it is not installed yet (checked against
+  /// the pinned hash like any import).
+  static Future<Map<String, dynamic>> _translateLatency(
+    String input,
+    String? gguf,
+    int watchSeconds,
+  ) async {
+    final translations = TranslationService.to;
+    if (!translations.modelReady && gguf != null) {
+      await translations.store.importFile(
+        File(gguf),
+        models: TranslationModelCatalog.all,
+      );
+    }
+    if (!translations.modelReady) {
+      return {'pass': false, 'reason': 'translation model missing'};
+    }
+    final asr = AsrService.to;
+    if (!asr.modelsReady) return {'pass': false, 'reason': 'asr models missing'};
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final router = YtSourceRouter(YtDirectSource.create());
+    final streams = await router.run((s) => s.streams(videoId));
+    final audioUrl = streams.value?.audioUrl;
+    if (audioUrl == null || audioUrl.isEmpty) {
+      return {'pass': false, 'reason': 'no audio stream'};
+    }
+
+    final started = DateTime.now();
+    int ms() => DateTime.now().difference(started).inMilliseconds;
+    DateTime? playFrom;
+    double position() => playFrom == null
+        ? 0
+        : DateTime.now().difference(playFrom!).inMilliseconds / 1000;
+    int? readyMs;
+    int? firstPublishMs;
+    String? failure;
+    String? lastVtt;
+    final publishes = <Map<String, Object?>>[];
+    // what the viewer reaches while watching: a waiting line at the playhead
+    // is the failure this exists to catch
+    var waitingSeen = 0;
+    var samples = 0;
+
+    final track = TranslationTrack(
+      position: position,
+      onPublish: (vtt, {required first}) {
+        firstPublishMs ??= ms();
+        lastVtt = vtt;
+        publishes.add({
+          'ms': ms(),
+          'position': position(),
+          'waiting': translationPendingMark.allMatches(vtt).length,
+        });
+      },
+      onReady: () {
+        readyMs ??= ms();
+        playFrom ??= DateTime.now();
+      },
+      onFailed: (message) => failure = message,
+    );
+    final session = await asr.start(key: 'probe:$videoId', source: audioUrl);
+    Worker? languageWorker;
+    languageWorker = ever(session.state, (state) {
+      if (state.language != null && track.session.value == null) {
+        if (translations.needed(state.language)) track.start(session);
+        languageWorker?.dispose();
+      }
+    });
+
+    // until ready, capped the way the page caps its gate
+    while (readyMs == null && failure == null && ms() < 30000) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    playFrom ??= DateTime.now();
+    final end = DateTime.now().add(Duration(seconds: watchSeconds));
+    while (DateTime.now().isBefore(end) && failure == null) {
+      await Future.delayed(const Duration(seconds: 1));
+      final vtt = lastVtt;
+      if (vtt == null) continue;
+      final now = position();
+      samples++;
+      if (_vttLineAt(vtt, now)?.contains(translationPendingMark) ?? false) {
+        waitingSeen++;
+      }
+    }
+    final current = track.session.value;
+    final result = {
+      'pass':
+          failure == null &&
+          readyMs != null &&
+          firstPublishMs != null &&
+          waitingSeen == 0,
+      'videoId': videoId,
+      'language': session.state.value.language,
+      'msToReady': readyMs,
+      'msToFirstPublish': firstPublishMs,
+      'failure': failure,
+      'watchedSeconds': position(),
+      'secondsShowingWaitingLine': waitingSeen,
+      'sampledSeconds': samples,
+      'publishCount': publishes.length,
+      'publishes': publishes,
+      'units': current?.units.length,
+      'translatedUnits': current?.results.values.where((t) => t != null).length,
+      'failedUnits': current?.results.values.where((t) => t == null).length,
+      'sample': current == null
+          ? null
+          : [
+              for (final cue in current.cues().take(12))
+                {'from': cue.from, 'to': cue.to, 'content': cue.content},
+            ],
+    };
+    await track.stop();
+    await asr.stop();
+    return result;
+  }
+
+  /// The text of the VTT cue showing at [seconds], if any.
+  static String? _vttLineAt(String vtt, double seconds) {
+    final time = RegExp(
+      r'(\d+):(\d+):(\d+)\.(\d+) --> (\d+):(\d+):(\d+)\.(\d+)\n([\s\S]*?)(?:\n\n|$)',
+    );
+    double at(Match m, int i) =>
+        int.parse(m[i]!) * 3600 +
+        int.parse(m[i + 1]!) * 60 +
+        int.parse(m[i + 2]!) +
+        int.parse(m[i + 3]!) / 1000;
+    for (final m in time.allMatches(vtt)) {
+      if (at(m, 1) <= seconds && seconds < at(m, 5)) return m[9];
+    }
+    return null;
   }
 
   /// LibrePili: how our transcription of a video compares with the

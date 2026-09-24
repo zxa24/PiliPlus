@@ -29,6 +29,7 @@ import 'package:PiliPlus/pages/setting/models/play_settings.dart'
 import 'package:PiliPlus/pages/setting/widgets/popup_item.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
+import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
@@ -778,6 +779,24 @@ class HeaderControlState extends State<HeaderControl>
                     onStop: () {
                       Get.back();
                       videoDetailCtr.stopAsr();
+                    },
+                  ),
+                // LibrePili: on-device translation of that transcript
+                if (videoDetailCtr.canTranscribe)
+                  TranslateMenuTile(
+                    session: videoDetailCtr.translation.session,
+                    titleStyle: titleStyle,
+                    onStart: () {
+                      Get.back();
+                      TranslateEntry.startFor(
+                        context,
+                        videoDetailCtr.startTranslation,
+                        needsTranscript: videoDetailCtr.asrSession.value == null,
+                      );
+                    },
+                    onStop: () {
+                      Get.back();
+                      videoDetailCtr.stopTranslation();
                     },
                   ),
                 if (!videoDetailCtr.isFileSource &&
