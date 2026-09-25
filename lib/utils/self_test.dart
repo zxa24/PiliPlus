@@ -74,9 +74,19 @@ import 'package:flutter/gestures.dart'
         PointerHoverEvent,
         PointerScrollEvent,
         PointerUpEvent;
+import 'package:flutter/services.dart'
+    show
+        KeyDownEvent,
+        KeyMessage,
+        KeyUpEvent,
+        LogicalKeyboardKey,
+        PhysicalKeyboardKey,
+        ServicesBinding;
 import 'package:flutter/widgets.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart'
+    show SmartDialog;
 import 'package:material_ui/material_ui.dart'
-    show IconButton, PopupMenuButton, Tooltip;
+    show AlertDialog, IconButton, PopupMenuButton, Tooltip, showDialog;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 import 'package:PiliPlus/common/widgets/scale_app.dart';
@@ -484,6 +494,7 @@ abstract final class SelfTest {
   static Future<void> _run(List<String> args) async {
     final out = _arg(args, '--out') ?? path.join(tmpDirPath, 'selftest.json');
     _itn = _arg(args, '--asr-itn') != '0';
+    debugFocusProbe = args.contains('--focus-probe');
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
       'args': args,
@@ -2359,6 +2370,106 @@ abstract final class SelfTest {
   /// the page throwing while it draws. Each of those looks the same from the
   /// outside and needs a different fix, so each is reported separately.
 
+  /// `--focus-probe`: see [_focusProbe]; also presses keys (see
+  /// [_keyProbe]).
+  static bool debugFocusProbe = false;
+
+  /// Presses [logical] the way a keyboard does: the key message goes to the
+  /// focus system (the handler the engine calls), from the focused node up.
+  static Future<void> _press(
+    LogicalKeyboardKey logical,
+    PhysicalKeyboardKey physical,
+  ) async {
+    final handler = ServicesBinding.instance.keyEventManager.keyMessageHandler;
+    if (handler == null) return;
+    final at = Duration(milliseconds: DateTime.now().millisecondsSinceEpoch);
+    handler(
+      KeyMessage([
+        KeyDownEvent(physicalKey: physical, logicalKey: logical, timeStamp: at),
+      ], null),
+    );
+    await Future.delayed(const Duration(milliseconds: 80));
+    handler(
+      KeyMessage([
+        KeyUpEvent(
+          physicalKey: physical,
+          logicalKey: logical,
+          timeStamp: at + const Duration(milliseconds: 80),
+        ),
+      ], null),
+    );
+  }
+
+  /// Whether the keyboard controls [player]: -> moves playback on, space
+  /// pauses it.
+  static Future<Map<String, Object?>> _keyProbe(
+    PlPlayerController player,
+  ) async {
+    int? pos() => player.videoPlayerController?.state.position.inMilliseconds;
+    final before = pos();
+    await _press(LogicalKeyboardKey.arrowRight, PhysicalKeyboardKey.arrowRight);
+    await Future.delayed(const Duration(milliseconds: 1500));
+    final after = pos();
+    final playingBefore = player.videoPlayerController?.state.playing;
+    await _press(LogicalKeyboardKey.space, PhysicalKeyboardKey.space);
+    await Future.delayed(const Duration(milliseconds: 800));
+    final playingAfter = player.videoPlayerController?.state.playing;
+    // as it was
+    if (playingBefore == true && playingAfter == false) {
+      await player.play();
+    }
+    return {
+      'focus': _focusChainNow().take(3).join(' > '),
+      'positionBefore': before,
+      'positionAfterArrowRight': after,
+      // playback alone moves it 1.5 s; the key, by the seek step on top
+      'arrowRightSeeked':
+          before != null && after != null && after - before > 3000,
+      'playingBefore': playingBefore,
+      'playingAfterSpace': playingAfter,
+      'spacePaused': playingBefore == true && playingAfter == false,
+    };
+  }
+
+  static List<String> _focusChainNow() => [
+    for (
+      FocusNode? node = FocusManager.instance.primaryFocus;
+      node != null;
+      node = node.parent
+    )
+      node.debugLabel ?? '${node.runtimeType}',
+  ];
+
+  /// Where focus is after a SmartDialog and after a route dialog open and
+  /// close: whether the player still gets the keys.
+  static Future<Map<String, Object>> _focusProbe() async {
+    final out = <String, Object>{'before': _focusChainNow()};
+    SmartDialog.show(
+      tag: 'focus-probe',
+      builder: (_) => const AlertDialog(content: Text('probe')),
+    );
+    await Future.delayed(const Duration(milliseconds: 600));
+    out['smartDialogOpen'] = _focusChainNow();
+    await SmartDialog.dismiss(tag: 'focus-probe');
+    await Future.delayed(const Duration(milliseconds: 600));
+    out['afterSmartDialog'] = _focusChainNow();
+    final context = Get.context;
+    if (context != null && context.mounted) {
+      unawaited(
+        showDialog<void>(
+          context: context,
+          builder: (_) => const AlertDialog(content: Text('probe')),
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 600));
+      out['routeDialogOpen'] = _focusChainNow();
+      Get.back<void>();
+      await Future.delayed(const Duration(milliseconds: 600));
+      out['afterRouteDialog'] = _focusChainNow();
+    }
+    return out;
+  }
+
   static Future<Map<String, dynamic>> _openBili(
     String url,
     int holdSeconds, {
@@ -2629,6 +2740,20 @@ abstract final class SelfTest {
       'played': played,
       'positionTimeline': timeline,
       'hostTimeline': hosts,
+      // where focus is left after a dialog of each kind opens and closes
+      if (debugFocusProbe) 'focusAfterDialogs': await _focusProbe(),
+      if (debugFocusProbe) 'keys': await _keyProbe(player),
+      // where the keyboard goes: a key the player is to act on has to reach
+      // PlayerFocus, from the focused node up
+      'focusChain': [
+        for (
+          FocusNode? node = FocusManager.instance.primaryFocus;
+          node != null;
+          node = node.parent
+        )
+          '${node.debugLabel ?? node.runtimeType}'
+              '${node.context?.widget.runtimeType == null ? '' : ' <${node.context!.widget.runtimeType}>'}',
+      ],
       'cacheEndTimeline': cacheEnds,
       'sampledAtMs': sampledAt,
       // the URLs themselves, for probing the same streams outside the app
@@ -3485,6 +3610,7 @@ abstract final class SelfTest {
     final first = player.videoPlayerController?.state.position;
     await Future.delayed(Duration(seconds: holdSeconds));
     final second = player.videoPlayerController?.state.position;
+    final keys = debugFocusProbe ? await _keyProbe(player) : null;
 
     // captions are the half that the Invidious route could never deliver
     var captionOk = false;
@@ -3525,6 +3651,7 @@ abstract final class SelfTest {
       'stoppedOnLeave': stopped,
       'positionAfterBack': afterBack?.inMilliseconds,
       'positionAfterBack2': afterBack2?.inMilliseconds,
+      'keys': ?keys,
     };
   }
 

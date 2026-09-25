@@ -44,6 +44,7 @@ class PlayerFocus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Focus(
+      debugLabel: 'PlayerFocus',
       autofocus: true,
       onKeyEvent: (node, event) {
         final handled = _handleKey(context, event);
@@ -96,6 +97,8 @@ class PlayerFocus extends StatelessWidget {
         }
         return true;
       }
+      // a page with no like / coin / favourite (YouTube)
+      if (!plPlayerController.isLive && introController == null) return false;
       if (event is KeyDownEvent) {
         if (plPlayerController.isLive) {
           onRefresh?.call();

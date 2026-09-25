@@ -21,6 +21,7 @@ import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
+import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
@@ -79,8 +80,18 @@ class _YtVideoPageState extends State<YtVideoPage>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Obx(
-      () => _scaffold(theme, controller.plPlayerController.isFullScreen.value),
+    final player = controller.plPlayerController;
+    final page = Obx(() => _scaffold(theme, player.isFullScreen.value));
+    // the keyboard controls the player as on the bilibili page: without
+    // this the page had no key handling at all, and the arrow keys only
+    // moved focus from one button to the next
+    if (!player.keyboardControl) return page;
+    return PlayerFocus(
+      plPlayerController: player,
+      // no danmaku to send, nothing to check before playing
+      onSendDanmaku: () {},
+      canPlay: () => true,
+      child: page,
     );
   }
 
