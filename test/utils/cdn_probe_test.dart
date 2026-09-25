@@ -100,6 +100,28 @@ void main() {
     });
   });
 
+  group('room to step up', () {
+    test('at least half the buffer ahead, and no stall', () {
+      expect(
+        PlPlayerController.roomy((cacheSeconds: 11, stalled: false), 16),
+        isTrue,
+      );
+      // a healthy stream refills only at two thirds: 10.7 of 16 s
+      expect(
+        PlPlayerController.roomy((cacheSeconds: 10.7, stalled: false), 16),
+        isTrue,
+      );
+      expect(
+        PlPlayerController.roomy((cacheSeconds: 7, stalled: false), 16),
+        isFalse,
+      );
+      expect(
+        PlPlayerController.roomy((cacheSeconds: 15, stalled: true), 16),
+        isFalse,
+      );
+    });
+  });
+
   group('how much the buffer can hold', () {
     test('the bytes fill before the seconds at a high bitrate', () {
       // 4 MiB at 3.8 Mbps: about 8.8 s, not the 16 s asked for
