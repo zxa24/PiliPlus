@@ -151,6 +151,18 @@ Future<String?> loadJapaneseSegmenter() async {
   }
 }
 
+/// BudouX's Simplified Chinese phrase model, or null; see
+/// [loadJapaneseSegmenter].
+Future<String?> loadChineseSegmenter() async {
+  try {
+    return await rootBundle.loadString(
+      'packages/budoux_dart/models/zh-hans.json',
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
 class AsrService extends GetxService {
   static AsrService get to => Get.find<AsrService>();
 
@@ -303,6 +315,7 @@ class AsrService extends GetxService {
         pcmPath: pcmPath,
         follow: true,
         japaneseSegmenter: await loadJapaneseSegmenter(),
+        chineseSegmenter: await loadChineseSegmenter(),
         itn: true,
         modelPath: store
             .fileOf(

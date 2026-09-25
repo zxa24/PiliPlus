@@ -3717,6 +3717,7 @@ abstract final class SelfTest {
       // download it now runs alongside
       follow: false,
       japaneseSegmenter: await loadJapaneseSegmenter(),
+      chineseSegmenter: await loadChineseSegmenter(),
       // `--asr-itn 0` turns it off, to see which recogniser artefacts it causes
       itn: _itn,
     ));

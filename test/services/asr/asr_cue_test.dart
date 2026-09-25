@@ -645,6 +645,85 @@ void main() {
           baseline.map((c) => c.content).toList());
     });
 
+    group('Chinese', () {
+      // A real transcript (BV16Ltu6wELb): 14% of its line breaks split a
+      // word, all at the width cap, and 8 lines began with a mark.
+      late BudouX chinese;
+      setUpAll(() {
+        final config = jsonDecode(
+          File('.dart_tool/package_config.json').readAsStringSync(),
+        ) as Map<String, dynamic>;
+        final entry = (config['packages'] as List).cast<Map>().firstWhere(
+          (p) => p['name'] == 'budoux_dart',
+        );
+        final raw = entry['rootUri'] as String;
+        final root = Uri.parse(raw.endsWith('/') ? raw : '$raw/');
+        chinese = BudouX(
+          File.fromUri(root.resolve('lib/models/zh-hans.json'))
+              .readAsStringSync(),
+        );
+      });
+
+      const speech =
+          '这是我沙漠生态缸里还没有孵化的鱼卵，现在仅需少量水源唤醒，'
+          '它们便能孵化出新的生命。然而，此刻河道已经干涸，即待一场大雨。'
+          '在爱回收严选入手只要2971，便宜了200多呢。';
+
+      /// Where each cue after the first begins, in characters of [speech].
+      List<int> breaks(List<AsrCue> cues) {
+        final at = <int>[];
+        var offset = 0;
+        for (final cue in cues.take(cues.length - 1)) {
+          offset += cue.content.length;
+          at.add(offset);
+        }
+        return at;
+      }
+
+      bool splits(List<int> at, String word) {
+        final start = speech.indexOf(word);
+        return at.any((b) => b > start && b < start + word.length);
+      }
+
+      test('the width cap alone splits words (the case this is for)', () {
+        final cues = AsrCueBuilder.fromSegment(
+          offset: 0,
+          duration: 20,
+          tokens: chars(speech),
+        );
+        expect(splits(breaks(cues), '鱼卵'), isTrue);
+      });
+
+      test('with its phrases, no word or number is split', () {
+        final cues = AsrCueBuilder.fromSegment(
+          offset: 0,
+          duration: 20,
+          tokens: chars(speech),
+          segmenter: chinese.parse,
+        );
+        expect(cues.map((c) => c.content).join(), speech);
+        final at = breaks(cues);
+        for (final word in ['鱼卵', '孵化', '河道', '2971', '200']) {
+          expect(splits(at, word), isFalse, reason: word);
+        }
+      });
+
+      test('no line begins with a mark', () {
+        for (final segmenter in [null, chinese.parse]) {
+          final cues = AsrCueBuilder.fromSegment(
+            offset: 0,
+            duration: 20,
+            tokens: chars(speech),
+            segmenter: segmenter,
+          );
+          for (final cue in cues) {
+            expect('，。？！、'.contains(cue.content[0]), isFalse,
+                reason: cue.content);
+          }
+        }
+      });
+    });
+
     test('kana marks Japanese; Chinese has none', () {
       expect(AsrCueBuilder.hasKana('ニューヨークにいます'), isTrue);
       expect(AsrCueBuilder.hasKana('我在纽约'), isFalse);

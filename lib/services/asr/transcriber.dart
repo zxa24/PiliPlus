@@ -94,6 +94,12 @@ typedef AsrJob = ({
   /// asset bundle is not reachable from here — and passed in as text.
   String? japaneseSegmenter,
 
+  /// BudouX's Simplified Chinese model as JSON, or null; see
+  /// [japaneseSegmenter]. Chinese marks no words either, and without it a
+  /// line past the width cap was cut wherever the cap fell: 14% of the
+  /// breaks in a real transcript split a word (鱼 / 卵, 生态平 / 衡).
+  String? chineseSegmenter,
+
   /// SenseVoice's inverse text normalisation (twenty -> 20, spoken
   /// punctuation -> marks). On in the app; a switch here so its side effects
   /// can be measured.
@@ -179,6 +185,9 @@ class AsrTranscriber {
       final budoux = job.japaneseSegmenter == null
           ? null
           : BudouX(job.japaneseSegmenter!);
+      final budouxZh = job.chineseSegmenter == null
+          ? null
+          : BudouX(job.chineseSegmenter!);
       vad = sherpa.VoiceActivityDetector(
         config: sherpa.VadModelConfig(
           sileroVad: sherpa.SileroVadModelConfig(
@@ -253,11 +262,13 @@ class AsrTranscriber {
               }
             }
           }
-          final japanese =
-              AsrCueBuilder.tagValue(result.lang) == 'ja' ||
-              AsrCueBuilder.hasKana(result.text);
+          final tag = AsrCueBuilder.tagValue(result.lang);
+          final japanese = tag == 'ja' || AsrCueBuilder.hasKana(result.text);
+          final chinese = !japanese && (tag == 'zh' || tag == 'yue');
           final cues = AsrCueBuilder.fromSegment(
-            segmenter: japanese ? budoux?.parse : null,
+            segmenter: japanese
+                ? budoux?.parse
+                : (chinese ? budouxZh?.parse : null),
             offset: start,
             duration: duration,
             text: result.text,

@@ -298,6 +298,25 @@ abstract final class AsrCueBuilder {
     return _isFullWidth(first);
   }
 
+  /// Whether [text] begins with a mark that belongs to what comes before
+  /// it: an end of sentence or clause, or a closing quote or bracket.
+  static bool _opensWithMark(String text) {
+    final trimmed = text.trimLeft();
+    if (trimmed.isEmpty) return false;
+    return _trailingMarks.contains(trimmed[0]);
+  }
+
+  /// Whether [next] carries on a run of ASCII letters or digits that [text]
+  /// ends in, with no space between them.
+  static bool _continuesRun(String text, String next) {
+    if (text.isEmpty || next.isEmpty || next.startsWith(' ')) return false;
+    return _alnum.hasMatch(text[text.length - 1]) && _alnum.hasMatch(next[0]);
+  }
+
+  static final _alnum = RegExp('[A-Za-z0-9]');
+
+  static const _trailingMarks = '$_sentenceEnd$_clauseEnd”’」』）)】》〉';
+
   static String stripTags(String text) => text.replaceAll(_tag, '').trim();
 
   /// The value inside the first `<|…|>`, e.g. `<|zh|>` → `zh`.
@@ -443,11 +462,20 @@ abstract final class AsrCueBuilder {
       // technical" / "ly fully functioning". Unreadable on screen, and
       // useless as input to a translator, which would be handed fragments
       // that are not words.
+      //
+      // Nor before a mark: a full-width one counts as a character of its
+      // own, and a line began with the comma or full stop of the line before
+      // it (8 of 198 lines in a Chinese transcript: 「，有两只」).
+      //
+      // Nor inside a number or a Latin word the recogniser spelled out a
+      // character at a time: a phrase model split 只要29 / 71.
       final atWord =
           next == null ||
-          (phraseStarts != null
-              ? phraseStarts.contains(i + 1) || next.text.startsWith(' ')
-              : _startsWord(next.text));
+          (!_opensWithMark(next.text) &&
+              !_continuesRun(token.text, next.text) &&
+              (phraseStarts != null
+                  ? phraseStarts.contains(i + 1) || next.text.startsWith(' ')
+                  : _startsWord(next.text)));
       // A tokeniser that marks no words at all must not turn the whole
       // segment into one cue: past twice the cap, break wherever we are.
       final overrun = bufferWidth >= _hardMaxWidth * 2;
