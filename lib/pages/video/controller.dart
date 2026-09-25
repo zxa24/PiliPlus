@@ -437,7 +437,9 @@ class VideoDetailController extends GetxController
     plPlayerController
       ..onCdnFailover = switchToNextCdn
       ..onStreamCut = replaceCutStreams
-      ..onStreamSlow = replaceSlowStreams;
+      ..onStreamSlow = replaceSlowStreams
+      ..onStreamRoomy = raiseQuality
+      ..onReopen = _reopenAtCurrentPosition;
     args = Get.arguments;
     videoType = args['videoType'];
     if (videoType == VideoType.pgc) {
@@ -952,9 +954,7 @@ class VideoDetailController extends GetxController
   Future<({String? video, String? audio})?> replaceSlowStreams() async {
     final video = videoUrl;
     if (isFileSource || video == null) return null;
-    if (VideoUtils.cdnService != CDNService.backupUrl) return null;
     final candidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
-    if (candidates.length < 2) return null;
     // long enough to be compared with the bitrate
     final speeds = await _measure(
       candidates.take(4).toList(),
@@ -962,14 +962,93 @@ class VideoDetailController extends GetxController
       timeout: const Duration(seconds: 4),
     );
     if (videoUrl != video) return null;
-    final current = _hostOf(video);
-    final best = CdnProbe.pick(speeds, current: current, keepRatio: 1 / 1.3);
-    if (best == null || best == current) return null;
-    if (!CdnProbe.keepsUp(speeds[best], _streamBitrate)) return null;
-    final newVideo = _onHost(candidates, best);
-    if (newVideo == null) return null;
-    videoUrl = newVideo;
-    return (video: newVideo, audio: null);
+    // another host, where the host is left to Bilibili's list: a host chosen
+    // in the settings is the viewer's
+    if (VideoUtils.cdnService == CDNService.backupUrl && !debugNoHostSwitch) {
+      final current = _hostOf(video);
+      final best = CdnProbe.pick(speeds, current: current, keepRatio: 1 / 1.3);
+      if (best != null &&
+          best != current &&
+          CdnProbe.keepsUp(speeds[best], _streamBitrate)) {
+        final newVideo = _onHost(candidates, best);
+        if (newVideo != null) {
+          videoUrl = newVideo;
+          return (video: newVideo, audio: null);
+        }
+      }
+    }
+    // no host keeps up: a lower quality does
+    return _stepQuality(down: true, speeds: speeds);
+  }
+
+  /// There has been room to spare for a while (see
+  /// [PlPlayerController.onStreamRoomy]): one quality up, if a host is fast
+  /// enough for it with room to spare and it is not above the quality the
+  /// video opened at.
+  Future<({String? video, String? audio})?> raiseQuality() async {
+    final video = videoUrl;
+    if (isFileSource || video == null || _qualityChosen) return null;
+    final candidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
+    final speeds = await _measure(
+      candidates.take(4).toList(),
+      length: 1 << 20,
+      timeout: const Duration(seconds: 4),
+    );
+    if (videoUrl != video) return null;
+    return _stepQuality(down: false, speeds: speeds);
+  }
+
+  /// For the self-test (`--no-host-switch`): as if no other host were
+  /// faster, so that the quality is what changes. Nothing else sets it.
+  static bool debugNoHostSwitch = false;
+
+  /// The viewer picked a quality: nothing changes it by itself for this
+  /// part.
+  var _qualityChosen = false;
+
+  /// The quality the part opened at: stepping back up stops there.
+  int? _qualityCeiling;
+
+  void userChoseQuality() => _qualityChosen = true;
+
+  /// One quality down or up, in the codec being played, from the fastest
+  /// host measured in [speeds] (bytes per second by host). Going up needs
+  /// that host at 1.5x the higher stream's bitrate.
+  ({String? video, String? audio})? _stepQuality({
+    required bool down,
+    required Map<String, double?> speeds,
+  }) {
+    if (_qualityChosen || isFileSource) return null;
+    final videos = data.dash?.video;
+    if (videos == null || videos.isEmpty) return null;
+    // best first
+    final codes = {for (final v in videos) v.id}.toList()
+      ..sort((a, b) => b.compareTo(a));
+    final at = codes.indexOf(currentVideoQa.value?.code ?? -1);
+    if (at == -1) return null;
+    final next = down ? at + 1 : at - 1;
+    if (next < 0 || next >= codes.length) return null;
+    if (!down) {
+      final ceiling = codes.indexOf(_qualityCeiling ?? codes.first);
+      if (ceiling != -1 && next < ceiling) return null;
+    }
+    final item = findVideoByQa(codes[next]);
+    final best = CdnProbe.pick(speeds);
+    if (!down) {
+      final bitrate = (item.bandWidth ?? 0) + (_currentAudio?.bandWidth ?? 0);
+      if (!CdnProbe.keepsUp(speeds[best], bitrate, margin: 1.5)) return null;
+    }
+    final candidates = VideoUtils.cdnCandidates(item.playUrls);
+    final url =
+        _onHost(candidates, best) ?? VideoUtils.getCdnUrl(item.playUrls);
+    firstVideo = item;
+    _setVideoHeight();
+    videoUrl = url;
+    final quality = VideoQuality.fromCode(codes[next]);
+    currentVideoQa.value = quality;
+    plPlayerController.streamBitrate = _streamBitrate;
+    SmartDialog.showToast('画质已自动调整为：${quality.desc}');
+    return (video: url, audio: null);
   }
 
   /// Whether [url] hands over the byte at [offset], asked as the player asks
@@ -1089,6 +1168,8 @@ class VideoDetailController extends GetxController
       ..onCdnFailover = switchToNextCdn
       ..onStreamCut = replaceCutStreams
       ..onStreamSlow = replaceSlowStreams
+      ..onStreamRoomy = raiseQuality
+      ..onReopen = _reopenAtCurrentPosition
       ..streamBitrate = _streamBitrate;
     _loadingSource = true;
     await plPlayerController.setDataSource(
@@ -1429,6 +1510,7 @@ class VideoDetailController extends GetxController
       final cacheVideoQa = plPlayerController.cacheVideoQa!;
       final targetVideoQa = data.findAvailableVideoQuality(cacheVideoQa);
       currentVideoQa.value = VideoQuality.fromCode(targetVideoQa);
+      _qualityCeiling = targetVideoQa;
 
       /// 优先顺序 设置中指定解码格式 -> 当前可选的首个解码格式
       final supportFormats = data.supportFormats!;
@@ -2705,6 +2787,12 @@ class VideoDetailController extends GetxController
     if (plPlayerController.onStreamSlow == replaceSlowStreams) {
       plPlayerController.onStreamSlow = null;
     }
+    if (plPlayerController.onStreamRoomy == raiseQuality) {
+      plPlayerController.onStreamRoomy = null;
+    }
+    if (plPlayerController.onReopen == _reopenAtCurrentPosition) {
+      plPlayerController.onReopen = null;
+    }
     super.onClose();
   }
 
@@ -2722,6 +2810,8 @@ class VideoDetailController extends GetxController
     audioUrl = null;
     _triedHosts.clear();
     _hostSpeeds.clear();
+    _qualityChosen = false;
+    _qualityCeiling = null;
     _currentAudio = null;
 
     // danmaku

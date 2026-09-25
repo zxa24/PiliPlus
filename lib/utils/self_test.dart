@@ -629,6 +629,7 @@ abstract final class SelfTest {
             seekTo: int.tryParse(_arg(args, '--seek-to') ?? ''),
             seekAfterMs: int.tryParse(_arg(args, '--seek-after') ?? '') ?? 0,
             dumpUrls: args.contains('--dump-urls'),
+            noHostSwitch: args.contains('--no-host-switch'),
           ),
         );
       } finally {
@@ -2314,10 +2315,12 @@ abstract final class SelfTest {
     int? seekTo,
     int seekAfterMs = 0,
     bool dumpUrls = false,
+    bool noHostSwitch = false,
   }) async {
     // the control for a recovery: what the viewer got before it existed.
     // Set before the page opens: the cut shows within its first seconds
     PlPlayerController.debugDisableRecovery = !recovery;
+    VideoDetailController.debugNoHostSwitch = noHostSwitch;
     // a seek made the way the progress bar makes it, [seekAfterMs] after
     // the link is opened: early enough and it lands while the page is
     // still loading its source

@@ -633,6 +633,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.dataSource = dataSource;
       _cutAt.clear();
       _replacedVid = null;
+      _replaced = false;
       _autoPlay = autoplay;
       // 初始化视频倍速
       // _playbackSpeed.value = speed;
@@ -1153,7 +1154,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (_replacing) return;
     switch (transportRecovery(_transportFailures++)) {
       case TransportRecovery.retrySameUrl:
-        refreshPlayer();
+        // after a stream was replaced in place, mpv's own playlist still
+        // names the one it replaced: reopening that undid the replacement
+        // (a throttled stream came back after a step down). The page opens
+        // what it plays now instead.
+        if (_replaced && onReopen != null) {
+          if (kDebugMode) debugPrint('reopen with the streams now played');
+          onReopen!();
+        } else {
+          refreshPlayer();
+        }
       case TransportRecovery.switchCdn:
         _switchCdn();
     }
@@ -1166,6 +1176,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// [cutAt], each checked to serve past it; null for one that is fine.
   /// Null when there is nothing to put in place.
   Future<({String? video, String? audio})?> Function(int cutAt)? onStreamCut;
+
+  /// A stream of the current source was replaced in place (see
+  /// [_replaceStreams]).
+  var _replaced = false;
+
+  /// Reopens the page's current streams where playback is, for a retry once
+  /// one was replaced in place.
+  VoidCallback? onReopen;
 
   /// The video track put in place of one that was cut, for whatever selects
   /// the video again ("听视频" off): `auto` would pick the cut one.
@@ -1260,6 +1278,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
       }
       _cutAt.clear();
+      _replaced = true;
       // the cut stream's cache stays where it ended until mpv lets go of it
       _dryTicks = -3;
     } catch (_) {
@@ -1274,6 +1293,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Asked for streams from a faster host when playback is not keeping up
   /// (see [_watchHealth]); null when there is none.
   Future<({String? video, String? audio})?> Function()? onStreamSlow;
+
+  /// Asked for streams one quality up after playback has had room to spare
+  /// for [roomyFor] (see [_watchHealth]); null when there is nothing to do.
+  Future<({String? video, String? audio})?> Function()? onStreamRoomy;
+
+  /// How long the buffer must have stayed comfortable before a step up.
+  static const roomyFor = 120;
+
+  /// Seconds in a row the buffer ahead has been comfortable (see [roomy]).
+  var _roomyFor = 0;
 
   /// The bitrate the current source needs, bits per second (video and
   /// audio), when the page knows it.
@@ -1314,16 +1343,26 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
     if (_health.length > 20) _health.removeAt(0);
+    final target = bufferTarget(
+      seconds: Pref.bufferSec,
+      bytes: Pref.bufferBytes(bitsPerSecond: streamBitrate),
+      bitsPerSecond: streamBitrate,
+    );
+    _roomyFor = roomy(_health.last, target) ? _roomyFor + 1 : 0;
+    if (_roomyFor >= roomyFor && onStreamRoomy != null) {
+      _roomyFor = 0;
+      _health.clear();
+      // a step up that did not work out is not tried again at once
+      _healthRest = 60;
+      _replaceStreams(onStreamRoomy!, why: 'roomy', reopen: false);
+      return;
+    }
     final advice = QualityAdvisor.advise(
       samples: _health,
       // one step down is all that is asked: whether to leave this host
       currentIndex: 0,
       qualityCount: 2,
-      targetSeconds: bufferTarget(
-        seconds: Pref.bufferSec,
-        bytes: Pref.bufferBytes(bitsPerSecond: streamBitrate),
-        bitsPerSecond: streamBitrate,
-      ),
+      targetSeconds: target,
       allowStepUp: false,
     );
     if (advice != QualityAdvice.stepDown) return;
@@ -1332,6 +1371,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _healthRest = 30;
     _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
   }
+
+  /// One second of playback with room to spare: not stalled, and at least
+  /// half of what the buffer can hold still ahead. The buffer fills to its
+  /// target and refills only once it has fallen to two thirds of it, so a
+  /// healthy stream swings between those two; "near full all the time"
+  /// would almost never hold.
+  @visibleForTesting
+  static bool roomy(PlaybackHealth sample, double targetSeconds) =>
+      !sample.stalled && sample.cacheSeconds >= targetSeconds / 2;
 
   /// How many seconds the buffer can hold ahead: [seconds] (`cache-secs`),
   /// unless [bytes] (`demuxer-max-bytes`) fill first at [bitsPerSecond]. A

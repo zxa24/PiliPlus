@@ -934,6 +934,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                       videoDetailController
                         ..plPlayerController.cacheVideoQa = newQa.code
                         ..currentVideoQa.value = newQa
+                        ..userChoseQuality()
                         ..updatePlayer();
 
                       SmartDialog.showToast("画质已变为：${newQa.desc}");
