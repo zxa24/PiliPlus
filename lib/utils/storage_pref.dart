@@ -289,9 +289,18 @@ abstract final class Pref {
     return list.isEmpty ? null : list;
   }
 
+  /// The codecs in the order they are preferred: the user's, or AV1 first
+  /// where it is decoded in hardware (see CodecSupport), AVC first
+  /// otherwise.
   static List<VideoDecodeFormatType> get preferCodecs =>
       _codecsOf(SettingBoxKey.preferCodecs) ??
-      const <VideoDecodeFormatType>[.AVC, .AV1];
+      (av1Preferred
+          ? const <VideoDecodeFormatType>[.AV1, .AVC]
+          : const <VideoDecodeFormatType>[.AVC, .AV1]);
+
+  /// AV1 is decoded in hardware here and hardware decoding is on.
+  static bool get av1Preferred =>
+      enableHA && _setting.get(SettingBoxKey.av1Hardware) == true;
 
   static List<VideoDecodeFormatType> get preferCodecsCellular =>
       _codecsOf(SettingBoxKey.preferCodecsCellular) ?? preferCodecs;

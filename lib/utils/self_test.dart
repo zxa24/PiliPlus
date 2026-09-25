@@ -596,8 +596,10 @@ abstract final class SelfTest {
       // started the way a viewer's page starts it, so what the page does
       // for playback (resuming after a CDN switch) is what is tested
       final autoplay = args.contains('--autoplay');
+      // `default`: no preference saved, as for someone who never set one
+      final codecsDefault = codecs == 'default';
       final overrides = <String, Object>{
-        SettingBoxKey.preferCodecs: ?codecs?.split(','),
+        if (!codecsDefault) SettingBoxKey.preferCodecs: ?codecs?.split(','),
         if (autoplay) SettingBoxKey.autoPlayEnable: true,
         // moving comments over a frozen picture would look like playback
         // to anything comparing frames
@@ -606,8 +608,15 @@ abstract final class SelfTest {
       };
       final before = {
         for (final key in overrides.keys) key: GStorage.setting.get(key),
+        if (codecsDefault)
+          SettingBoxKey.preferCodecs: GStorage.setting.get(
+            SettingBoxKey.preferCodecs,
+          ),
       };
       await GStorage.setting.putAll(overrides);
+      if (codecsDefault) {
+        await GStorage.setting.delete(SettingBoxKey.preferCodecs);
+      }
       try {
         await scenario(
           'openBili',

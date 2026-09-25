@@ -35,6 +35,7 @@ import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/asset_utils.dart';
+import 'package:PiliPlus/utils/codec_support.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/box_ext.dart';
@@ -1596,6 +1597,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// playback position.
   Timer? _loadWatch;
 
+  /// AV1 is preferred where the device says it decodes it in hardware (see
+  /// CodecSupport). If mpv then decodes it in software, hardware decoding
+  /// on, that is remembered and AVC comes first again. Looked at a moment
+  /// after the file is in: the decoder is chosen once frames arrive.
+  void _checkAv1Decoding(NativePlayer player) {
+    if (hwdec == null || onlyPlayAudio.value) return;
+    Future.delayed(const Duration(seconds: 3), () {
+      try {
+        if (player.getProperty('video-format') != 'av1') return;
+        final current = player.getProperty('hwdec-current');
+        if (current.isEmpty || current == 'no') CodecSupport.noteSoftwareAv1();
+      } catch (_) {
+        // disposed meanwhile
+      }
+    });
+  }
+
   /// A seek waiting for a file that is not coming: the page it was made on
   /// is closing, or moving to another part.
   void dropPendingSeek() => _pendingSeek = null;
@@ -1622,6 +1640,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       final pending = _pendingSeek;
       _pendingSeek = null;
       if (pending != null && ready) seekTo(pending, isSeek: false);
+      if (ready) _checkAv1Decoding(player);
     });
   }
 

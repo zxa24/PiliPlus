@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io';
 
 import 'package:PiliPlus/build_config.dart';
@@ -23,6 +24,7 @@ import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
+import 'package:PiliPlus/utils/codec_support.dart';
 import 'package:PiliPlus/utils/calc_window_position.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/extension/core_palettes_ext.dart';
@@ -141,6 +143,8 @@ void main(List<String> args) async {
   // stop on-device inference on memory pressure, or when the app is sent to
   // the background with nothing playing — before Android stops the app
   OnDeviceModelGuard.install();
+  // which codec a stream is chosen in (see CodecSupport); nothing waits on it
+  unawaited(CodecSupport.check());
   HttpOverrides.global = _CustomHttpOverrides();
 
   if (PlatformUtils.isMobile) {

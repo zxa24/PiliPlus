@@ -1,8 +1,44 @@
 #include "flutter_window.h"
 
+#include <d3d11.h>
+#include <flutter/standard_method_codec.h>
+#include <wrl/client.h>
+
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+
+namespace {
+
+// D3D11_DECODER_PROFILE_AV1_VLD_PROFILE0: AV1 Main, which is what Bilibili
+// and YouTube serve. Spelt out rather than taken from the SDK headers, which
+// only declare it with a recent Windows SDK.
+constexpr GUID kAv1Profile0 = {
+    0xb8be4ccb, 0xcf53, 0x46ba, {0x8d, 0x59, 0xd6, 0xb8, 0xa6, 0xda, 0x5d, 0x2a}};
+
+// Whether the default GPU offers an AV1 decoder through D3D11 video, the
+// path mpv's d3d11va hardware decoding takes.
+bool HasAv1Decoder() {
+  Microsoft::WRL::ComPtr<ID3D11Device> device;
+  if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+                               D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0,
+                               D3D11_SDK_VERSION, &device, nullptr, nullptr))) {
+    return false;
+  }
+  Microsoft::WRL::ComPtr<ID3D11VideoDevice> video;
+  if (FAILED(device.As(&video))) return false;
+  const UINT count = video->GetVideoDecoderProfileCount();
+  for (UINT i = 0; i < count; i++) {
+    GUID profile;
+    if (SUCCEEDED(video->GetVideoDecoderProfile(i, &profile)) &&
+        IsEqualGUID(profile, kAv1Profile0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -25,6 +61,19 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+
+  codecs_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "librepili/codecs",
+          &flutter::StandardMethodCodec::GetInstance());
+  codecs_channel_->SetMethodCallHandler(
+      [](const auto& call, auto result) {
+        if (call.method_name() == "av1Hardware") {
+          result->Success(flutter::EncodableValue(HasAv1Decoder()));
+        } else {
+          result->NotImplemented();
+        }
+      });
 
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 

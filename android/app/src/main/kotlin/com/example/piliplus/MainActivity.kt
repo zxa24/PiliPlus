@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
+import android.media.MediaCodecList
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -74,6 +75,15 @@ class MainActivity : AudioServiceActivity() {
         super.configureFlutterEngine(flutterEngine)
         // LibrePili: index files written to shared storage (e.g. finished
         // downloads in Download/LibrePili) so galleries / players list them.
+        // LibrePili: what the device decodes in hardware, for choosing a codec
+        // (see lib/utils/codec_support.dart)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "librepili/codecs")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "av1Hardware" -> background(result) { hasAv1Hardware() }
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "librepili/media")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -155,6 +165,17 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /// Whether a hardware decoder for AV1 is present; null below Android 10,
+    /// where a codec cannot say whether it is hardware.
+    private fun hasAv1Hardware(): Boolean? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+            !info.isEncoder &&
+                info.isHardwareAccelerated &&
+                info.supportedTypes.any { it.equals("video/av01", ignoreCase = true) }
+        }
     }
 
     private fun pick(result: MethodChannel.Result, requestCode: Int, intent: () -> Intent) {
