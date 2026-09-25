@@ -17,6 +17,12 @@ on:
                 default: true
                 type: boolean
 
+            android_dev:
+                description: "Android as the test build (com.zxa24.librepili.dev, installs alongside the normal one)"
+                required: false
+                default: false
+                type: boolean
+
             build_ios:
                 description: "Build iOS"
                 required: false
@@ -123,13 +129,13 @@ jobs:
 
             - name: Flutter Build Release Apk
               if: ${{ github.event_name == 'workflow_dispatch' }}
-              run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+              run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub ${{ github.event.inputs.android_dev == 'true' && '--android-project-arg=dev=true' || '' }}
 
             - name: Rename
               run: |
                   for file in build/app/outputs/flutter-apk/app-*-release.apk; do
                     abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
-                    mv "$file" "LibrePili_android_${{ env.version }}_${abi}.apk"
+                    mv "$file" "LibrePili_android_${{ env.version }}${{ github.event.inputs.android_dev == 'true' && '_dev' || '' }}_${abi}.apk"
                   done
               shell: bash
 
