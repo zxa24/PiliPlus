@@ -1,5 +1,6 @@
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/utils/cdn_probe.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The numbers are BV18yt46NEC5's, measured on a network routed abroad:
@@ -46,6 +47,56 @@ void main() {
     test('an unknown bitrate asks only that it delivers', () {
       expect(CdnProbe.keepsUp(1, null), isTrue);
       expect(CdnProbe.keepsUp(null, null), isFalse);
+    });
+  });
+
+  group('how big the buffer is made', () {
+    const mib = 1048576.0;
+
+    test('16 s of a 3.8 Mbps stream, not a fixed 4 MiB', () {
+      expect(
+        Pref.sizeBuffer(
+          setBytes: 4 * mib,
+          seconds: 16,
+          bitsPerSecond: 3800000,
+          mobile: false,
+        ),
+        closeTo(3800000 / 8 * 16 * 1.25, 1),
+      );
+    });
+
+    test('the setting when it is already enough', () {
+      expect(
+        Pref.sizeBuffer(
+          setBytes: 4 * mib,
+          seconds: 16,
+          bitsPerSecond: 885330,
+          mobile: false,
+        ),
+        4 * mib,
+      );
+    });
+
+    test('no more than the cap, unless the setting asks for more', () {
+      // 4K at 40 Mbps would want 100 MB
+      expect(
+        Pref.sizeBuffer(
+          setBytes: 4 * mib,
+          seconds: 16,
+          bitsPerSecond: 40000000,
+          mobile: true,
+        ),
+        32 * mib,
+      );
+      expect(
+        Pref.sizeBuffer(
+          setBytes: 100 * mib,
+          seconds: 16,
+          bitsPerSecond: 40000000,
+          mobile: true,
+        ),
+        100 * mib,
+      );
     });
   });
 

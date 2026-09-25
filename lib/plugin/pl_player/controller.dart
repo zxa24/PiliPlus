@@ -794,7 +794,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return player;
   }
 
-  late final buffer = Pref.initBuffer(_playbackSpeed.value);
+  /// The buffer for the source being opened: sized for its bitrate (see
+  /// [Pref.bufferBytes]), which the page sets before it opens it.
+  Map<String, String> get buffer =>
+      Pref.initBuffer(_playbackSpeed.value, streamBitrate);
   late final liveBuffer = Pref.initLiveBuffer();
 
   // 配置播放器
@@ -1317,7 +1320,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       qualityCount: 2,
       targetSeconds: bufferTarget(
         seconds: Pref.bufferSec,
-        bytes: Pref.bufferSize * 0x100000,
+        bytes: Pref.bufferBytes(bitsPerSecond: streamBitrate),
         bitsPerSecond: streamBitrate,
       ),
       allowStepUp: false,

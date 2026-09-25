@@ -952,9 +952,46 @@ abstract final class Pref {
   static double get bufferSec =>
       _setting.get(SettingBoxKey.bufferSec, defaultValue: 16.0);
 
-  static Map<String, String> initBuffer([double playbackSpeed = 1.0]) {
+  /// How many bytes the player may buffer ahead for a stream of
+  /// [bitsPerSecond]: the setting, or enough for [bufferSec] of the stream
+  /// with a quarter to spare when that is more, within a cap. A fixed 4 MiB
+  /// held 6 s of a 3.8 Mbps 1080P stream against the 16 s asked for, and a
+  /// connection dropped every half minute had those 6 s to come back in.
+  static double bufferBytes({int? bitsPerSecond, double playbackSpeed = 1}) =>
+      sizeBuffer(
+        setBytes: Pref.bufferSize * 0x100000,
+        seconds: bufferSec * playbackSpeed,
+        bitsPerSecond: bitsPerSecond,
+        mobile: PlatformUtils.isMobile,
+      );
+
+  /// See [bufferBytes]: the setting's [setBytes], or [seconds] of the
+  /// stream and a quarter more, whichever is larger — but no more than the
+  /// cap (what mpv keeps behind the playhead is as much again), unless the
+  /// setting itself asks for more.
+  static double sizeBuffer({
+    required double setBytes,
+    required double seconds,
+    required int? bitsPerSecond,
+    required bool mobile,
+  }) {
+    if (bitsPerSecond == null || bitsPerSecond <= 0) return setBytes;
+    final wanted = bitsPerSecond / 8 * seconds * 1.25;
+    final cap = (mobile ? 32 : 64) * 0x100000.toDouble();
+    if (wanted <= setBytes) return setBytes;
+    if (setBytes >= cap) return setBytes;
+    return wanted < cap ? wanted : cap;
+  }
+
+  static Map<String, String> initBuffer([
+    double playbackSpeed = 1.0,
+    int? bitsPerSecond,
+  ]) {
     final bufSec = Pref.bufferSec * playbackSpeed;
-    final bufSiz = (Pref.bufferSize * 0x100000).toStringAsFixed(0);
+    final bufSiz = bufferBytes(
+      bitsPerSecond: bitsPerSecond,
+      playbackSpeed: playbackSpeed,
+    ).toStringAsFixed(0);
     return {
       'cache': 'yes',
       'cache-secs': bufSec.toStringAsFixed(3),
