@@ -146,4 +146,25 @@ void main() {
       expect(dry(10.6, 8.93, null), isTrue);
     });
   });
+
+  group('a replaced video track falling behind the sound', () {
+    bool behind(double? audio, double? picture) =>
+        PlPlayerController.videoFellBehind(audio: audio, picture: picture);
+
+    test('in step, or a frame apart, is not behind', () {
+      expect(behind(120.04, 120.0), isFalse);
+      expect(behind(120.9, 120.0), isFalse);
+    });
+
+    test('more than a second behind is', () {
+      // throttled to 40 kB/s the picture fell up to 11.4 s behind
+      expect(behind(131.4, 120.0), isTrue);
+      expect(behind(121.2, 120.0), isTrue);
+    });
+
+    test('nothing known is not a reason to act', () {
+      expect(behind(null, 120), isFalse);
+      expect(behind(120, null), isFalse);
+    });
+  });
 }

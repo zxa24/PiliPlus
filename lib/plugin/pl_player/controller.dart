@@ -1203,6 +1203,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// before any recovery. Nothing else sets it.
   static bool debugDisableRecovery = false;
 
+  /// For the self-test (`--throttle-replaced-kbps`): a video URL put in
+  /// place by [_replaceStreams] passes through this. Nothing else sets it.
+  static String Function(String url)? debugWrapReplacedVideo;
+
+  /// For the self-test's control (`--no-video-watch`): no
+  /// [_watchReplacedVideo]. Nothing else sets it.
+  static bool debugNoVideoWatch = false;
+
   Future<void> _replaceCutStreams(int cutAt) => _replaceStreams(
     () async => await onStreamCut?.call(cutAt),
     why: 'cut at $cutAt',
@@ -1231,11 +1239,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (reopen) _switchCdn(fallback: true);
         return;
       }
-      for (final (kind, url) in [
+      for (var (kind, url) in [
         ('video', urls.video),
         ('audio', urls.audio),
       ]) {
         if (url == null) continue;
+        final wrap = debugWrapReplacedVideo;
+        if (kind == 'video' && wrap != null) url = wrap(url);
         if (kDebugMode) {
           debugPrint(
             'stream $why: $kind -> ${Uri.tryParse(url)?.host} '
@@ -1268,7 +1278,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (here != null) {
         await player.command(['seek', '$here', 'absolute+exact']);
         // the replacement is not done until playback is going again
-        final until = DateTime.now().add(const Duration(seconds: 10));
+        // not for long: a starving new track holds everything up, and past
+        // this [_watchReplacedVideo] takes over
+        final until = DateTime.now().add(const Duration(seconds: 5));
         while (DateTime.now().isBefore(until) &&
             identical(dataSource, source) &&
             !player.disposed) {
@@ -1471,6 +1483,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _dryTicks = 0;
     _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
       _watchHealth(player);
+      _watchReplacedVideo(player);
       if (isLive ||
           dataSource is FileSource ||
           !playerStatus.isPlaying ||
@@ -1503,6 +1516,84 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // would only cost the viewer another stall
       _switchCdn();
     });
+  }
+
+  /// Seconds in a row the replaced video track has been behind the sound,
+  /// or playback has not moved.
+  var _videoBehindTicks = 0;
+
+  /// Where playback was at the last tick, to see it standing still.
+  double? _lastPicture;
+
+  /// Watches a video track put in place by [_replaceStreams], which nothing
+  /// else can see: `demuxer-cache-*` and `paused-for-cache` describe only
+  /// the main stream, the audio. Throttled to 40 kB/s (research/seamless-
+  /// stream-switch-2026-09-25.md), such a track left `paused-for-cache` at
+  /// `no` and the cache at 430 s while the sound played on and the picture
+  /// fell 11.4 s behind; in the app it was a 20 s crawl. While video plays,
+  /// `time-pos` follows the picture and `audio-pts` the sound, so the gap
+  /// between them is the one signal there is.
+  ///
+  /// Nor can it see playback standing still for such a track: the exact
+  /// seek of a replacement waits for the new video, and with that one
+  /// starving sound and picture both stood at 8.92 s to the end of the
+  /// test, `audio-pts` unset, nothing acting.
+  ///
+  /// Three seconds behind by more than [_videoBehindBy], or not moving:
+  /// the streams played now are reopened where the sound is, with the video
+  /// in the main stream again — where a slow host buffers visibly and the
+  /// health check can move it to a faster host or a lower quality.
+  void _watchReplacedVideo(NativePlayer player) {
+    if (_replacedVid == null ||
+        _replacing ||
+        onlyPlayAudio.value ||
+        !playerStatus.isPlaying ||
+        onReopen == null ||
+        debugDisableRecovery ||
+        debugNoVideoWatch) {
+      _videoBehindTicks = 0;
+      _lastPicture = null;
+      return;
+    }
+    final bool behind;
+    try {
+      final picture = double.tryParse(player.getProperty('time-pos'));
+      final still =
+          picture != null && _lastPicture != null && picture == _lastPicture;
+      _lastPicture = picture;
+      behind =
+          still ||
+          videoFellBehind(
+            audio: double.tryParse(player.getProperty('audio-pts')),
+            picture: picture,
+          );
+    } catch (_) {
+      // disposed between ticks
+      return;
+    }
+    if (!behind) {
+      _videoBehindTicks = 0;
+      return;
+    }
+    if (++_videoBehindTicks < 3) return;
+    _videoBehindTicks = 0;
+    _lastPicture = null;
+    if (kDebugMode) debugPrint('replaced video fell behind: reopen');
+    _replacedVid = null;
+    onReopen!();
+  }
+
+  static const _videoBehindBy = 1.0;
+
+  /// Whether the picture, at [picture] seconds, is more than
+  /// [_videoBehindBy] behind the sound at [audio].
+  @visibleForTesting
+  static bool videoFellBehind({
+    required double? audio,
+    required double? picture,
+  }) {
+    if (audio == null || picture == null) return false;
+    return audio - picture > _videoBehindBy;
   }
 
   /// Whether the playhead, in seconds, has run more than a second past the

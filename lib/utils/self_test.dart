@@ -101,7 +101,10 @@ import 'package:PiliPlus/services/translate/translation_engine.dart';
 /// 2026-09-24): the body stops there, and a request that starts at or past
 /// it gets its connection dropped with no response.
 final class _CuttingProxy {
-  _CuttingProxy(this.cutAt, {this.bytesPerSecond});
+  _CuttingProxy(this.cutAt, {this.bytesPerSecond, this.oneHost = true});
+
+  /// Only the first host's streams pass through (see [wrap]).
+  final bool oneHost;
 
   final int cutAt;
 
@@ -111,8 +114,16 @@ final class _CuttingProxy {
   late final HttpServer _server;
   final requests = <String>[];
 
-  String wrap(String url) =>
-      'http://127.0.0.1:${_server.port}/cut?u=${Uri.encodeComponent(url)}';
+  /// The host the broken copy is on: the first one wrapped. A stream opened
+  /// again from another host is whole, as it was in the case this copies.
+  String? _host;
+
+  String wrap(String url) {
+    final host = Uri.tryParse(url)?.host;
+    _host ??= host;
+    if (oneHost && host != _host) return url;
+    return 'http://127.0.0.1:${_server.port}/cut?u=${Uri.encodeComponent(url)}';
+  }
 
   Future<void> start() async {
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -593,6 +604,22 @@ abstract final class SelfTest {
         await cut.start();
         VideoUtils.debugWrapVideoUrl = cut.wrap;
       }
+      // the stream a replacement brings in, slower than it plays: what the
+      // player cannot see once the video is an external track
+      _CuttingProxy? slowReplacement;
+      final replacedKbps = int.tryParse(
+        _arg(args, '--throttle-replaced-kbps') ?? '',
+      );
+      if (replacedKbps != null) {
+        slowReplacement = _CuttingProxy(
+          1 << 50,
+          bytesPerSecond: replacedKbps * 1000 ~/ 8,
+          oneHost: false,
+        );
+        await slowReplacement.start();
+        PlPlayerController.debugWrapReplacedVideo = slowReplacement.wrap;
+      }
+      PlPlayerController.debugNoVideoWatch = args.contains('--no-video-watch');
       // started the way a viewer's page starts it, so what the page does
       // for playback (resuming after a CDN switch) is what is tested
       final autoplay = args.contains('--autoplay');
@@ -634,6 +661,14 @@ abstract final class SelfTest {
         );
       } finally {
         VideoUtils.debugWrapVideoUrl = null;
+        PlPlayerController.debugWrapReplacedVideo = null;
+        PlPlayerController.debugNoVideoWatch = false;
+        if (slowReplacement != null) {
+          stderr.writeln(
+            'slow replacement: ${slowReplacement.requests.join(' | ')}',
+          );
+          await slowReplacement.close();
+        }
         if (cut != null) {
           stderr.writeln('cutting proxy: ${cut.requests.join(' | ')}');
           await cut.close();
@@ -2422,7 +2457,9 @@ abstract final class SelfTest {
           'status=${player.playerStatus.value.name} '
           // what the viewer sees, not what mpv reads while a source opens
           'shown=${player.position.value} '
-          'buffering=${player.isBuffering.value} vid=${mpv.getProperty('vid')} vpts=${mpv.getProperty('video-pts')} '
+          'buffering=${player.isBuffering.value} vid=${mpv.getProperty('vid')} '
+          'apts=${mpv.getProperty('audio-pts')} tpos=${mpv.getProperty('time-pos')} '
+          'drops=${mpv.getProperty('frame-drop-count')} '
           'gate=${controller.asrPending.value}',
         );
       }
