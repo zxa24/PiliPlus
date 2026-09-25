@@ -620,6 +620,7 @@ abstract final class SelfTest {
         PlPlayerController.debugWrapReplacedVideo = slowReplacement.wrap;
       }
       PlPlayerController.debugNoVideoWatch = args.contains('--no-video-watch');
+      PlPlayerController.debugNoHandover = args.contains('--no-handover');
       // started the way a viewer's page starts it, so what the page does
       // for playback (resuming after a CDN switch) is what is tested
       final autoplay = args.contains('--autoplay');
@@ -663,6 +664,7 @@ abstract final class SelfTest {
         VideoUtils.debugWrapVideoUrl = null;
         PlPlayerController.debugWrapReplacedVideo = null;
         PlPlayerController.debugNoVideoWatch = false;
+        PlPlayerController.debugNoHandover = false;
         if (slowReplacement != null) {
           stderr.writeln(
             'slow replacement: ${slowReplacement.requests.join(' | ')}',
@@ -2460,6 +2462,7 @@ abstract final class SelfTest {
           'buffering=${player.isBuffering.value} vid=${mpv.getProperty('vid')} '
           'apts=${mpv.getProperty('audio-pts')} tpos=${mpv.getProperty('time-pos')} '
           'drops=${mpv.getProperty('frame-drop-count')} '
+          'epoch=${player.videoControllerEpoch.value} '
           'gate=${controller.asrPending.value}',
         );
       }

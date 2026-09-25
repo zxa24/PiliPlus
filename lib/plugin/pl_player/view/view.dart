@@ -1485,7 +1485,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
               ignoring: !plPlayerController.enableDragSubtitle,
               child: Obx(
                 () => SubtitleView(
-                  controller: videoController,
+                  key: ValueKey(
+                    plPlayerController.videoControllerEpoch.value,
+                  ),
+                  controller: plPlayerController.videoController!,
                   configuration: plPlayerController.subtitleConfig.value,
                   enableDragSubtitle: plPlayerController.enableDragSubtitle,
                   onUpdatePadding: plPlayerController.onUpdatePadding,
@@ -1902,7 +1905,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                       // and 高能进度条 is a preference — with it on, the
                       // YouTube page walked straight into the force-unwrap
                       if (plPlayerController.showDmChart &&
-                          widget.videoDetailController?.showDmTrendChart.value ==
+                          widget
+                                  .videoDetailController
+                                  ?.showDmTrendChart
+                                  .value ==
                               true)
                         if (videoDetailController.dmTrend.value?.dataOrNull
                             case final list?)
@@ -2179,6 +2185,11 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                     fit: videoFit.boxFit,
                     alignment: widget.alignment,
                     child: SimpleVideo(
+                      // a new picture after a handover (see
+                      // PlPlayerController.videoControllerEpoch)
+                      key: ValueKey(
+                        plPlayerController.videoControllerEpoch.value,
+                      ),
                       controller: plPlayerController.videoController!,
                       fill: widget.fill,
                       aspectRatio: videoFit.aspectRatio,

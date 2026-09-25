@@ -758,6 +758,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   Future<Player> _initPlayer() async {
     assert(_videoPlayerController == null);
+    assert(_videoController == null);
+    final (player, controller) = await _newPlayer();
+    _videoController = controller;
+    _startListeners(player);
+    return player;
+  }
+
+  /// A player with this app's options and its picture, listened to by
+  /// nothing yet.
+  Future<(Player, VideoController)> _newPlayer() async {
     final opt = {
       'video-sync': Pref.videoSync,
       if (Platform.isAndroid) 'ao': Pref.audioOutput,
@@ -778,9 +788,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       ),
     );
 
-    assert(_videoController == null);
-
-    _videoController = await VideoController.create(
+    final controller = await VideoController.create(
       player,
       configuration: VideoControllerConfiguration(
         enableHardwareAcceleration: hwdec != null,
@@ -791,10 +799,31 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
 
-    _startListeners(player);
-
-    return player;
+    return (player, controller);
   }
+
+  /// Changes when the player is handed over to another (see [_handOver]):
+  /// what shows its picture reads it to follow.
+  final RxInt videoControllerEpoch = 0.obs;
+
+  /// The video and audio URLs the player is playing, for a handover to
+  /// open with one of them replaced; null for anything but a network
+  /// stream of both.
+  String? _playingVideo;
+  String? _playingAudio;
+
+  /// The volume normalisation the current source was opened with.
+  Volume? _openVolume;
+
+  /// The EDL mpv plays a separate video and audio stream from.
+  String _edl(String video, String audio) =>
+      'edl://'
+      '!no_chapters;'
+      // '!delay_open,media_type=video;'
+      '%${isFileSource ? utf8.encode(video).length : video.length}%$video;'
+      '!new_stream;!no_chapters;'
+      // '!delay_open,media_type=audio;'
+      '%${isFileSource ? utf8.encode(audio).length : audio.length}%$audio';
 
   /// The buffer for the source being opened: sized for its bitrate (see
   /// [Pref.bufferBytes]), which the page sets before it opens it.
@@ -839,6 +868,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     };
 
     String video = dataSource.videoSource;
+    _playingVideo = null;
+    _playingAudio = null;
+    _openVolume = volume;
     // LibrePili (Android local player): libmpv cannot open content:// URIs,
     // but reads a file descriptor (`fdclose://`: mpv closes it). A new one
     // per open, since each open consumes it.
@@ -856,15 +888,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (onlyPlayAudio.value) {
         video = audio;
       } else {
+        if (!isFileSource && fd == null) {
+          _playingVideo = video;
+          _playingAudio = audio;
+        }
         // dely_open need provide length
-        video =
-            ('edl://'
-            '!no_chapters;'
-            // '!delay_open,media_type=video;'
-            '%${isFileSource ? utf8.encode(video).length : video.length}%$video;'
-            '!new_stream;!no_chapters;'
-            // '!delay_open,media_type=audio;'
-            '%${isFileSource ? utf8.encode(audio).length : audio.length}%$audio');
+        video = _edl(video, audio);
       }
       audioFilterExtras(volume, map: extras);
     }
@@ -1100,11 +1129,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
         if (_isTransportFailure(event)) {
           final positionBefore = position.value;
+          final epoch = videoControllerEpoch.value;
           EasyThrottle.throttle(
             'controllerStream.error.listen',
             const Duration(milliseconds: 10000),
             () {
               Future.delayed(const Duration(milliseconds: 3000), () {
+                // the player that failed has been handed over from: what it
+                // lacked is what the new one was opened to bring (a check
+                // left over from the old one reopened the new one, 4 s)
+                if (videoControllerEpoch.value != epoch) return;
                 // Not "nothing is arriving". A video is two streams, and one
                 // of them can be dead while the other is fully buffered — a
                 // 192 kbps audio track that the CDN cut off at 11 668 bytes
@@ -1239,6 +1273,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (reopen) _switchCdn(fallback: true);
         return;
       }
+      if (!debugNoHandover && await _handOver(urls, source, why: why)) {
+        _cutAt.clear();
+        _replaced = false;
+        _replacedVid = null;
+        _dryTicks = -3;
+        return;
+      }
+      if (!identical(dataSource, source) || player.disposed) return;
       for (var (kind, url) in [
         ('video', urls.video),
         ('audio', urls.audio),
@@ -1300,6 +1342,219 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // what was held back while replacing
       isBuffering.value = _videoPlayerController?.state.buffering ?? false;
     }
+  }
+
+  /// For the self-test's control (`--no-handover`): a replacement goes in
+  /// as an extra track of the playing player. Nothing else sets it.
+  static bool debugNoHandover = false;
+
+  /// How far ahead of playback a second player is made ready.
+  static const _handOverLead = 5.0;
+
+  /// How much must be buffered ahead for a handover to be tried.
+  static const _handOverRoom = 3.0;
+
+  /// Puts [urls] in place by handing playback over to a second player that
+  /// plays them, made ready [_handOverLead] ahead of the first, paused, and
+  /// started the moment the first reaches that point. Neither sound nor
+  /// picture stops (research/seamless-stream-switch-2026-09-25.md: the
+  /// picture held 0.05-0.09 s, as without a switch; sound within 3 ms).
+  /// A track added to the playing player instead stopped both for 1.2-1.5 s
+  /// or longer, and was then an external track nothing could watch.
+  ///
+  /// While the first player stands still (the stream it is waiting for is
+  /// the reason for the switch), or the viewer has paused, the second takes
+  /// over where it is, as soon as it is ready. False, having changed
+  /// nothing, when no second player is ready in time.
+  Future<bool> _handOver(
+    ({String? video, String? audio}) urls,
+    DataSource source, {
+    required String why,
+  }) async {
+    final old = _videoPlayerController;
+    if (old is! NativePlayer ||
+        isLive ||
+        isFileSource ||
+        onlyPlayAudio.value ||
+        _playerCount == 0) {
+      return false;
+    }
+    final video = urls.video ?? _playingVideo;
+    final audio = urls.audio ?? _playingAudio;
+    if (video == null || audio == null) return false;
+    double? read(NativePlayer p, String name) {
+      try {
+        return double.tryParse(p.getProperty(name));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final here = read(old, 'time-pos');
+    if (here == null) return false;
+    // Only with room ahead: a second player takes 2.4-3.5 s to be ready,
+    // and one that cannot be ready before the first runs out only chases
+    // it (a slow stream at the start of a video had 1.2 s buffered).
+    final cacheEnd = read(old, 'demuxer-cache-time');
+    if (cacheEnd == null || cacheEnd - here < _handOverRoom) return false;
+    final clock = Stopwatch()..start();
+    const budget = Duration(seconds: 20);
+    final (next, picture) = await _newPlayer();
+    var handedOver = false;
+    bool gone() =>
+        !identical(dataSource, source) ||
+        old.disposed ||
+        next.disposed ||
+        clock.elapsed > budget;
+
+    /// Paused at [at] with its picture decoded. Not "a little buffered":
+    /// a paused player read `demuxer-cache-duration` 0 throughout, with its
+    /// frame at the target decoded 3 s in.
+    Future<bool> readyAt(double at) async {
+      if (kDebugMode) {
+        debugPrint(
+          'hand over: ${clock.elapsedMilliseconds} ms, readying at $at '
+          '(first at ${read(old, 'time-pos')}, '
+          'cached to ${read(old, 'demuxer-cache-time')})',
+        );
+      }
+      while (!gone()) {
+        // the first has gone too far past it meanwhile: no use
+        if ((read(old, 'time-pos') ?? 0) > at + 0.6) return false;
+        final pos = read(next, 'time-pos');
+        if (pos != null &&
+            (pos - at).abs() < 0.2 &&
+            next.getProperty('seeking') == 'no' &&
+            next.state.width > 0) {
+          if (kDebugMode) {
+            debugPrint('hand over: ${clock.elapsedMilliseconds} ms, ready');
+          }
+          return true;
+        }
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+      return false;
+    }
+
+    /// Whether the second player, ready at [ready], can take over from the
+    /// first at [at] as it is. A paused player does not read ahead: moving
+    /// it 0.35 s on took 5.8 s, a stall where a fraction of a second said
+    /// twice costs nothing. Content skipped is lost, so less of that.
+    bool closeEnough(double at, double ready) =>
+        at - ready <= 0.6 && ready - at <= 0.3;
+
+    try {
+      if (kDebugMode) {
+        debugPrint(
+          'hand over ($why) at $here: video ${Uri.tryParse(video)?.host}',
+        );
+      }
+      // ready before the first player runs out: a cut stream ends where its
+      // cache does, and a second player made ready past that point found
+      // the first standing still, and had to seek back to it (3 s more)
+      var target = here + _handOverLead;
+      if (cacheEnd - 0.5 < target) target = cacheEnd - 0.5;
+      final extras = <String, String>{...buffer};
+      audioFilterExtras(_openVolume, map: extras);
+      await next.open(
+        Media(
+          _edl(video, audio),
+          start: Duration(milliseconds: (target * 1000).round()),
+          extras: extras,
+        ),
+        play: false,
+      );
+      await next.setRate(old.state.rate);
+      if (isAnim && superResolutionType.value != .disable) {
+        await setShader(null, next);
+      }
+      if (!await readyAt(target)) return false;
+      final subtitle = old.state.track.subtitle;
+      if (subtitle.uri) await next.setSubtitleTrack(subtitle);
+
+      // Where the first player is, and whether it is getting anywhere. The
+      // second is never moved once ready: a paused player does not read
+      // ahead, so every seek of it is a new download (1.1-5.8 s measured),
+      // and one sent after the first kept arriving after it had moved on —
+      // four seeks, a 2.5 s stall where the in-place switch stopped 0.5 s.
+      // What cannot be taken over as it is goes the in-place way instead.
+      var last = read(old, 'time-pos');
+      var movedAt = clock.elapsed;
+      while (true) {
+        if (gone()) return false;
+        final now = read(old, 'audio-pts') ?? read(old, 'time-pos');
+        final pos = read(old, 'time-pos');
+        if (pos != last) {
+          last = pos;
+          movedAt = clock.elapsed;
+        }
+        final stalled =
+            clock.elapsed - movedAt > const Duration(milliseconds: 1000);
+        if (!old.state.playing || stalled || (now != null && now > target)) {
+          // paused, standing still, or past the point while the second
+          // player was getting ready: over to it if it is near enough
+          final at = pos ?? now;
+          if (at == null || !closeEnough(at, target)) return false;
+          await _takeOver(old, next, picture, play: old.state.playing);
+          handedOver = true;
+          break;
+        }
+        if (now == null) {
+          await Future.delayed(const Duration(milliseconds: 10));
+          continue;
+        }
+        if (now < target - _handOverLead - 2) return false; // seeked back
+        final left = target - now;
+        if (left <= 0.03) {
+          if (left > 0) {
+            await Future.delayed(
+              Duration(microseconds: (left / old.state.rate * 1e6).round()),
+            );
+          }
+          await _takeOver(old, next, picture, play: true);
+          handedOver = true;
+          break;
+        }
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+      _playingVideo = video;
+      _playingAudio = audio;
+      if (kDebugMode) {
+        debugPrint('handed over after ${clock.elapsedMilliseconds} ms');
+      }
+      return true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('hand over failed: $e');
+      return false;
+    } finally {
+      if (!handedOver) next.dispose();
+    }
+  }
+
+  /// The moment of the handover: [next] plays (when [play]) and becomes the
+  /// player everything listens to; [old] stops and goes.
+  Future<void> _takeOver(
+    NativePlayer old,
+    NativePlayer next,
+    VideoController picture, {
+    required bool play,
+  }) async {
+    next
+      ..setProperty('volume', old.getProperty('volume'))
+      ..setProperty('mute', old.getProperty('mute'));
+    if (play) await next.play();
+    // nothing of the old player stopping is heard as the viewer pausing
+    _removeListeners();
+    old.setProperty('mute', 'yes');
+    await old.pause();
+    _videoPlayerController = next;
+    _videoController = picture;
+    _startListeners(next);
+    _transportFailures = 0;
+    isBuffering.value = false;
+    videoControllerEpoch.value++;
+    // the picture moves over on the next frame; the old one goes after it
+    Future.delayed(const Duration(seconds: 1), old.dispose);
   }
 
   /// Asked for streams from a faster host when playback is not keeping up
