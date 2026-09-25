@@ -3731,7 +3731,12 @@ abstract final class SelfTest {
       switch (event) {
         case AsrCuesEvent(cues: final batch):
           cues.addAll(batch);
-        case AsrSegmentEvent(:final start, :final duration, :final tokens):
+        case AsrSegmentEvent(
+          :final start,
+          :final duration,
+          :final tokens,
+          :final times,
+        ):
           segments.add((start: start, duration: duration));
           if (rawTokens.length < 60) rawTokens.addAll(tokens);
           segmentDump.add({
@@ -3739,6 +3744,7 @@ abstract final class SelfTest {
             'duration': duration,
             'text': tokens.join(),
             'tokens': tokens,
+            'times': times,
           });
         case AsrLanguageEvent(language: final lang):
           language = lang;

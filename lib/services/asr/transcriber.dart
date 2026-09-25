@@ -53,6 +53,7 @@ class AsrSegmentEvent extends AsrEvent {
     this.start,
     this.duration, {
     this.tokens = const [],
+    this.times = const [],
     this.cues = const [],
   });
   final double start;
@@ -60,6 +61,10 @@ class AsrSegmentEvent extends AsrEvent {
 
   /// The recogniser's raw pieces for this segment. Diagnostic only.
   final List<String> tokens;
+
+  /// When each of [tokens] starts, relative to the segment. Diagnostic
+  /// only: where the speaker pauses, for studying where lines should break.
+  final List<double> times;
 
   /// The cues this segment produced, carried with it so a reader never holds
   /// a segment without its text, or text without the segment it belongs to:
@@ -148,6 +153,12 @@ class AsrTranscriber {
               duration,
               tokens: switch (message) {
                 {'tokens': final List raw} => raw.cast<String>(),
+                _ => const [],
+              },
+              times: switch (message) {
+                {'times': final List raw} => [
+                  for (final t in raw) (t as num).toDouble(),
+                ],
                 _ => const [],
               },
               cues: cues,
@@ -286,6 +297,7 @@ class AsrTranscriber {
             // word decides where a cue may end, and that cannot be guessed
             // from the joined text
             'tokens': [for (final t in _tokens(result)) t.text],
+            'times': [for (final t in _tokens(result)) t.time],
             'cues': cues.toJson(),
           });
         }
