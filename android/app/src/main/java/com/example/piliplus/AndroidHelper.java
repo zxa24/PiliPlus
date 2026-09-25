@@ -235,7 +235,9 @@ public final class AndroidHelper {
                     activity.setPictureInPictureParams(builder.build());
                 }
             } else {
-                activity.enterPictureInPictureMode(builder.build());
+                PictureInPictureParams params = builder.build();
+                activity.enterPictureInPictureMode(params);
+                activity.setPictureInPictureParams(params);
             }
         }
     }
