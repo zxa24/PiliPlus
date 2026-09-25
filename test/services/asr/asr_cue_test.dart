@@ -722,6 +722,60 @@ void main() {
           }
         }
       });
+
+      group('lines planned over the sentence', () {
+        List<AsrCue> planned(String text, {List<AsrToken>? tokens}) =>
+            AsrCueBuilder.fromSegment(
+              offset: 0,
+              duration: 60,
+              tokens: tokens ?? chars(text),
+              segmenter: chinese.parse,
+              planLines: true,
+            );
+
+        test('a sentence a little too wide breaks at its comma', () {
+          // the line that asked for this: filled to the width it was
+          // 「3个月前，我徒手打造了一个」/「生态缸。」
+          const text = '3个月前，我徒手打造了一个生态缸。';
+          expect(planned(text).map((c) => c.content).toList(), [
+            '3个月前，',
+            '我徒手打造了一个生态缸。',
+          ]);
+        });
+
+        test('no word or number is split, no line begins with a mark', () {
+          final cues = planned(speech);
+          expect(cues.map((c) => c.content).join(), speech);
+          final at = breaks(cues);
+          for (final word in ['鱼卵', '孵化', '河道', '2971', '200']) {
+            expect(splits(at, word), isFalse, reason: word);
+          }
+          for (final cue in cues) {
+            expect('，。？！、'.contains(cue.content[0]), isFalse,
+                reason: cue.content);
+            expect(AsrCueBuilder.displayWidth(cue.content),
+                lessThanOrEqualTo(32), reason: cue.content);
+          }
+        });
+
+        test('a sentence that fits stays one line', () {
+          const text = '然而，此刻河道已经干涸。';
+          expect(planned(text).map((c) => c.content).toList(), [text]);
+        });
+
+        test('the speaker pausing decides between equal breaks', () {
+          // no mark anywhere: where the speaker stopped for breath is where
+          // the line breaks
+          const text = '我们在沙漠里放了很多石头和沙子然后又种下了一些耐旱的植物';
+          final pauseAt = text.indexOf('然后');
+          final tokens = [
+            for (var i = 0; i < text.length; i++)
+              (text: text[i], time: i * 0.12 + (i >= pauseAt ? 0.5 : 0)),
+          ];
+          final cues = planned(text, tokens: tokens);
+          expect(cues.first.content, text.substring(0, pauseAt));
+        });
+      });
     });
 
     test('kana marks Japanese; Chinese has none', () {

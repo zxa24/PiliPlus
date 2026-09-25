@@ -280,6 +280,7 @@ class AsrTranscriber {
             segmenter: japanese
                 ? budoux?.parse
                 : (chinese ? budouxZh?.parse : null),
+            planLines: chinese,
             offset: start,
             duration: duration,
             text: result.text,

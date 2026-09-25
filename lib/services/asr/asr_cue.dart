@@ -5,6 +5,7 @@
 /// existing subtitle path work on them unchanged.
 library;
 
+import 'package:PiliPlus/services/asr/line_planner.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 
 /// One recognised token and the time it starts at, both as reported by
@@ -225,7 +226,11 @@ abstract final class AsrCueBuilder {
       }
       if (end - i > 1) {
         final stem = out[i].text.trim().toLowerCase();
-        final suffix = out.sublist(i + 1, end).map((t) => t.text).join().toLowerCase();
+        final suffix = out
+            .sublist(i + 1, end)
+            .map((t) => t.text)
+            .join()
+            .toLowerCase();
         final whole = stem + suffix;
         if (_junkSuffixes.contains(suffix) &&
             whole != 'period' &&
@@ -352,6 +357,7 @@ abstract final class AsrCueBuilder {
     String? text,
     double maxDuration = 6,
     List<String> Function(String text)? segmenter,
+    bool planLines = false,
   }) {
     final clean = dropRecogniserJunk([
       for (final token in tokens)
@@ -404,6 +410,10 @@ abstract final class AsrCueBuilder {
         : spacings[spacings.length ~/ 2];
     // enough for the word itself plus a moment to finish reading it
     final tailHold = (typicalToken * 3).clamp(_gap, 2.0);
+
+    final planned = planLines && phraseStarts != null
+        ? _plannedBreaks(clean, phraseStarts, typicalToken, maxDuration)
+        : null;
 
     final cues = <AsrCue>[];
     final buffer = StringBuffer();
@@ -485,29 +495,97 @@ abstract final class AsrCueBuilder {
           next != null &&
           bufferWidth >= _maxWidth ~/ 2 &&
           bufferWidth + (phraseWidth[i + 1] ?? 0) > _hardMaxWidth;
-      final breakHere =
-          next == null ||
-          // A pause of [_gap] is a break whatever the segmenter says: the
-          // speaker stopped, which no phrase model can overrule. Gating it
-          // on phrase starts glued ベスティ花だよ onto the sentence after it.
-          (silent && held >= _minDuration) ||
-          ((atWord || overrun) &&
-              (held >= maxDuration ||
-                  // a hard stop, so a sentence without commas cannot run on
-                  bufferWidth >= _hardMaxWidth ||
-                  nextWouldOverflow ||
-                  (held >= _minDuration &&
-                      (_sentenceEnd.contains(tail) ||
-                          silent ||
-                          // a long line breaks at the next clause end rather
-                          // than running on to the duration cap
-                          (long && _clauseEnd.contains(tail))))));
+      final breakHere = planned != null
+          ? next == null || planned.contains(i + 1)
+          : next == null ||
+                // A pause of [_gap] is a break whatever the segmenter says: the
+                // speaker stopped, which no phrase model can overrule. Gating it
+                // on phrase starts glued ベスティ花だよ onto the sentence after it.
+                (silent && held >= _minDuration) ||
+                ((atWord || overrun) &&
+                    (held >= maxDuration ||
+                        // a hard stop, so a sentence without commas cannot run on
+                        bufferWidth >= _hardMaxWidth ||
+                        nextWouldOverflow ||
+                        (held >= _minDuration &&
+                            (_sentenceEnd.contains(tail) ||
+                                silent ||
+                                // a long line breaks at the next clause end rather
+                                // than running on to the duration cap
+                                (long && _clauseEnd.contains(tail))))));
       if (breakHere) {
         flush(shownTo);
         if (next != null) start = next.time;
       }
     }
-    return _holdBriefly(_mergeRunts(cues));
+    return _holdBriefly(_mergeRunts(cues, keepSentences: planned != null));
+  }
+
+  /// With `planLines`: the tokens lines start at, chosen per sentence by
+  /// [planLineBreaks] rather than as the lines fill.
+  ///
+  /// A sentence here runs to a sentence mark or to a pause of [_gap] — the
+  /// study split only at marks; a pause that long is a break the old rule
+  /// always took, and keeping it keeps a line from holding a silence.
+  static Set<int> _plannedBreaks(
+    List<({String text, double time})> clean,
+    Set<int> phraseStarts,
+    double typical,
+    double maxDuration,
+  ) {
+    final breaks = <int>{};
+    var from = 0;
+    void plan(int to) {
+      if (from >= to) return;
+      if (from > 0) breaks.add(from);
+      final text = StringBuffer();
+      final tokenAt = <int>[];
+      final times = <double>[];
+      final starts = <int>{};
+      final phrases = <int>{};
+      for (var t = from; t < to; t++) {
+        starts.add(text.length);
+        if (phraseStarts.contains(t) || clean[t].text.startsWith(' ')) {
+          phrases.add(text.length);
+        }
+        for (var c = 0; c < clean[t].text.length; c++) {
+          tokenAt.add(t);
+          times.add(clean[t].time);
+        }
+        text.write(clean[t].text);
+      }
+      final string = text.toString();
+      for (final k in planLineBreaks(
+        string,
+        phraseStarts: phrases,
+        // only between phrases: the study let a word split at a cost, and on
+        // a sentence two lines too tight it chose 沙子然 / 后又 over a third
+        // line
+        breakable: (k) =>
+            phrases.contains(k) &&
+            !_continuesRun(clean[tokenAt[k] - 1].text, clean[tokenAt[k]].text),
+        times: times,
+        typical: typical,
+        cap: _hardMaxWidth,
+        maxDuration: maxDuration,
+      )) {
+        breaks.add(tokenAt[k]);
+      }
+      from = to;
+    }
+
+    for (var i = 0; i < clean.length; i++) {
+      final trimmed = clean[i].text.trimRight();
+      final tail = trimmed.isEmpty ? '' : trimmed[trimmed.length - 1];
+      final silent =
+          i + 1 < clean.length && clean[i + 1].time - clean[i].time >= _gap;
+      // a mark at the start of the next token still belongs to this line
+      final markNext =
+          i + 1 < clean.length && _opensWithMark(clean[i + 1].text);
+      if ((_sentenceEnd.contains(tail) || silent) && !markNext) plan(i + 1);
+    }
+    plan(clean.length);
+    return breaks;
   }
 
   /// Gives a cue that is too brief to read the time to be read, taking it
@@ -539,7 +617,14 @@ abstract final class AsrCueBuilder {
   /// Folds away cues that are too short to read or hold nothing but
   /// punctuation — a trailing `。` of its own for a tenth of a second is a
   /// flicker, not a subtitle. They keep their text by joining the cue before.
-  static List<AsrCue> _mergeRunts(List<AsrCue> cues) {
+  ///
+  /// With [keepSentences], a brief cue stays out of a sentence that has
+  /// ended: the lines were planned, and folding them undid the plan —
+  /// 「3个月前，」 went back onto 「即待一场大雨。」.
+  static List<AsrCue> _mergeRunts(
+    List<AsrCue> cues, {
+    bool keepSentences = false,
+  }) {
     final merged = <AsrCue>[];
     for (final cue in cues) {
       final bare = cue.content.replaceAll(_punctuation, '').isEmpty;
@@ -550,7 +635,8 @@ abstract final class AsrCueBuilder {
       final fits =
           merged.isNotEmpty &&
           displayWidth(merged.last.content) + displayWidth(cue.content) <=
-              _hardMaxWidth;
+              _hardMaxWidth &&
+          !(keepSentences && _endsSentence(merged.last.content));
       final isRunt =
           bare || cue.to - cue.from < _runtDuration || (brief && fits);
       if (isRunt && merged.isNotEmpty) {
@@ -571,13 +657,19 @@ abstract final class AsrCueBuilder {
     return merged;
   }
 
+  static bool _endsSentence(String text) {
+    var end = text.trimRight();
+    while (end.isNotEmpty && '”’」』）)】》〉'.contains(end[end.length - 1])) {
+      end = end.substring(0, end.length - 1);
+    }
+    return end.isNotEmpty && _sentenceEnd.contains(end[end.length - 1]);
+  }
+
   static final RegExp _punctuation = RegExp(
     r'[\s。，、！？；：.,!?;:…—-]',
   );
 
   /// SenseVoice emits BPE pieces for non-CJK: `▁` marks a word start.
-  static String _tidy(String raw) => raw
-      .replaceAll('▁', ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  static String _tidy(String raw) =>
+      raw.replaceAll('▁', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 }
