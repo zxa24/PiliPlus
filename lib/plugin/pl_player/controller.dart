@@ -19,6 +19,7 @@ import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/plugin/pl_player/quality_advisor.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/double_tap_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/duration.dart';
@@ -1180,18 +1181,32 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// before any recovery. Nothing else sets it.
   static bool debugDisableRecovery = false;
 
-  Future<void> _replaceCutStreams(int cutAt) async {
+  Future<void> _replaceCutStreams(int cutAt) => _replaceStreams(
+    () async => await onStreamCut?.call(cutAt),
+    why: 'cut at $cutAt',
+    reopen: true,
+  );
+
+  /// Puts the streams [ask] names in place of the current ones (see
+  /// [_replaceCutStreams]). With [reopen], a stream that cannot be replaced
+  /// is reopened on the next CDN — it is broken; without, it is left as it
+  /// is — it only plays slower than it should.
+  Future<void> _replaceStreams(
+    Future<({String? video, String? audio})?> Function() ask, {
+    required String why,
+    required bool reopen,
+  }) async {
     if (debugDisableRecovery) return;
     if (_replacing) return;
     _replacing = true;
     final source = dataSource;
     try {
-      final urls = await onStreamCut?.call(cutAt);
+      final urls = await ask();
       final player = _videoPlayerController;
       // moved on meanwhile: the new source has its own streams
       if (!identical(dataSource, source) || player is! NativePlayer) return;
       if (urls == null || (urls.video == null && urls.audio == null)) {
-        _switchCdn(fallback: true);
+        if (reopen) _switchCdn(fallback: true);
         return;
       }
       for (final (kind, url) in [
@@ -1201,7 +1216,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (url == null) continue;
         if (kDebugMode) {
           debugPrint(
-            'stream cut at $cutAt: $kind -> ${Uri.tryParse(url)?.host} '
+            'stream $why: $kind -> ${Uri.tryParse(url)?.host} '
             'at ${player.state.position}',
           );
         }
@@ -1209,7 +1224,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (!identical(dataSource, source) || player.disposed) return;
         final id = _externalTrack(player.getProperty('track-list'), kind, url);
         if (id == null) {
-          _switchCdn(fallback: true);
+          if (reopen) _switchCdn(fallback: true);
           return;
         }
         if (kind == 'video') {
@@ -1244,12 +1259,89 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // the cut stream's cache stays where it ended until mpv lets go of it
       _dryTicks = -3;
     } catch (_) {
-      if (identical(dataSource, source)) _switchCdn(fallback: true);
+      if (reopen && identical(dataSource, source)) _switchCdn(fallback: true);
     } finally {
       _replacing = false;
       // what was held back while replacing
       isBuffering.value = _videoPlayerController?.state.buffering ?? false;
     }
+  }
+
+  /// Asked for streams from a faster host when playback is not keeping up
+  /// (see [_watchHealth]); null when there is none.
+  Future<({String? video, String? audio})?> Function()? onStreamSlow;
+
+  /// The bitrate the current source needs, bits per second (video and
+  /// audio), when the page knows it.
+  int? streamBitrate;
+
+  /// The buffer ahead, sampled once a second (see [QualityAdvisor]).
+  final _health = <PlaybackHealth>[];
+
+  /// Seconds before playback health is judged again after acting on it.
+  var _healthRest = 0;
+
+  /// Moves to a faster host when the buffer ahead is running out. A host
+  /// that delivers, only slower than the stream plays, is not something a
+  /// failover ever looked at: Akamai dropping the connection every half
+  /// minute left a 1080P stream six seconds of buffer to recover in.
+  void _watchHealth(NativePlayer player) {
+    if (onStreamSlow == null ||
+        _replacing ||
+        isLive ||
+        dataSource is FileSource ||
+        !playerStatus.isPlaying) {
+      return;
+    }
+    if (_healthRest > 0) {
+      _healthRest--;
+      return;
+    }
+    final double? cache;
+    try {
+      cache = double.tryParse(player.getProperty('demuxer-cache-duration'));
+      if (cache == null) return;
+      _health.add((
+        cacheSeconds: cache,
+        stalled: player.getProperty('paused-for-cache') == 'yes',
+      ));
+    } catch (_) {
+      // disposed between ticks
+      return;
+    }
+    if (_health.length > 20) _health.removeAt(0);
+    final advice = QualityAdvisor.advise(
+      samples: _health,
+      // one step down is all that is asked: whether to leave this host
+      currentIndex: 0,
+      qualityCount: 2,
+      targetSeconds: bufferTarget(
+        seconds: Pref.bufferSec,
+        bytes: Pref.bufferSize * 0x100000,
+        bitsPerSecond: streamBitrate,
+      ),
+      allowStepUp: false,
+    );
+    if (advice != QualityAdvice.stepDown) return;
+    _health.clear();
+    // one look at the hosts per half minute at most
+    _healthRest = 30;
+    _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
+  }
+
+  /// How many seconds the buffer can hold ahead: [seconds] (`cache-secs`),
+  /// unless [bytes] (`demuxer-max-bytes`) fill first at [bitsPerSecond]. A
+  /// 1080P AVC stream at 3.8 Mbps filled 4 MiB in 6 s, so judging it against
+  /// 16 s would call it behind all the time.
+  @visibleForTesting
+  static double bufferTarget({
+    required double seconds,
+    required double bytes,
+    required int? bitsPerSecond,
+  }) {
+    if (bitsPerSecond == null || bitsPerSecond <= 0) return seconds;
+    final fits = bytes * 8 / bitsPerSecond;
+    return fits < seconds ? fits : seconds;
   }
 
   /// The id of the external [kind] track mpv opened from [url], in its
@@ -1326,6 +1418,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _dryWatch?.cancel();
     _dryTicks = 0;
     _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
+      _watchHealth(player);
       if (isLive ||
           dataSource is FileSource ||
           !playerStatus.isPlaying ||
@@ -1441,6 +1534,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (position < Duration.zero) {
       position = Duration.zero;
     }
+    // a seek empties the buffer on purpose: not a host falling behind
+    _health.clear();
     // mpv turns a seek down until it has the file, and the only trace was a
     // line in the log: a seek in the first seconds after opening a video was
     // lost, and it played from the start (measured: at 0.3, 1, 2 and 3 s

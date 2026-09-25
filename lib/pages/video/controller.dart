@@ -82,6 +82,8 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:PiliPlus/models/common/video/cdn_type.dart';
+import 'package:PiliPlus/utils/cdn_probe.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:crypto/crypto.dart' show md5;
@@ -434,7 +436,8 @@ class VideoDetailController extends GetxController
     // the player cannot resolve another CDN itself: it has no play-url list
     plPlayerController
       ..onCdnFailover = switchToNextCdn
-      ..onStreamCut = replaceCutStreams;
+      ..onStreamCut = replaceCutStreams
+      ..onStreamSlow = replaceSlowStreams;
     args = Get.arguments;
     videoType = args['videoType'];
     if (videoType == VideoType.pgc) {
@@ -765,9 +768,6 @@ class VideoDetailController extends GetxController
   /// list of CDN URLs.
   AudioItem? _currentAudio;
 
-  /// How many CDNs have been given up on for this part.
-  int _cdnAttempt = 0;
-
   /// Moves to the next CDN and resumes where playback was.
   ///
   /// The order matters and is deliberate: **exhaust the CDNs before touching
@@ -780,15 +780,18 @@ class VideoDetailController extends GetxController
   /// Returns false when there is nothing left to try.
   bool switchToNextCdn() {
     if (isFileSource) return false;
-    final videoCandidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
-    final next = _cdnAttempt + 1;
-    if (next >= videoCandidates.length) return false;
+    if (_hostOf(videoUrl) case final current?) _triedHosts.add(current);
+    // the fastest measured first (see [_hostSpeeds]); those never measured
+    // after them, in Bilibili's order
+    final left = _byMeasuredSpeed([
+      for (final url in VideoUtils.cdnCandidates(firstVideo.playUrls))
+        if (!_triedHosts.contains(_hostOf(url))) url,
+    ]);
+    if (left.isEmpty) return false;
 
-    _cdnAttempt = next;
-    videoUrl = videoCandidates[next];
+    videoUrl = left.first;
     if (_currentAudio case final audio?) {
-      final audioCandidates = VideoUtils.cdnCandidates(audio.playUrls);
-      if (next < audioCandidates.length) audioUrl = audioCandidates[next];
+      audioUrl = _onHost(audio.playUrls, _hostOf(left.first)) ?? audioUrl;
     }
     if (kDebugMode) {
       debugPrint('cdn failover -> ${Uri.tryParse(videoUrl!)?.host}');
@@ -816,13 +819,20 @@ class VideoDetailController extends GetxController
     ).wait;
     // both answer: not a broken copy, and a reopen is the safe way on
     if (videoOk && audioOk) return null;
+    // the fastest other host that has the byte: measured from it, which
+    // is also the check that it is there (a copy cut before it drops the
+    // connection)
     Future<String?> another(Iterable<String> urls, String current) async {
-      final host = Uri.tryParse(current)?.host;
-      for (final url in VideoUtils.cdnCandidates(urls)) {
-        if (Uri.tryParse(url)?.host == host) continue;
-        if (await servesAt(url, cutAt)) return url;
-      }
-      return null;
+      final host = _hostOf(current);
+      final others = [
+        for (final url in VideoUtils.cdnCandidates(urls))
+          if (_hostOf(url) != host) url,
+      ];
+      final speeds = await _measure(others, offset: cutAt);
+      final best = CdnProbe.pick(speeds);
+      return best == null
+          ? null
+          : others.firstWhere((url) => _hostOf(url) == best);
     }
 
     final newVideo = videoOk ? null : await another(firstVideo.playUrls, video);
@@ -834,14 +844,132 @@ class VideoDetailController extends GetxController
     }
     if (videoUrl != video || audioUrl != audio) return null;
     if (newVideo != null) {
+      if (_hostOf(video) case final cut?) _triedHosts.add(cut);
       videoUrl = newVideo;
-      final index = VideoUtils.cdnCandidates(firstVideo.playUrls).indexOf(
-        newVideo,
-      );
-      if (index > _cdnAttempt) _cdnAttempt = index;
     }
     if (newAudio != null) audioUrl = newAudio;
     return (video: newVideo, audio: newAudio);
+  }
+
+  /// Hosts given up on for this part.
+  final _triedHosts = <String>{};
+
+  /// Bytes per second each host was last measured at, for this part (null
+  /// for one that did not deliver).
+  final _hostSpeeds = <String, double?>{};
+
+  static String? _hostOf(String? url) =>
+      url == null ? null : Uri.tryParse(url)?.host;
+
+  /// The URL among [urls] on [host], if any.
+  static String? _onHost(Iterable<String> urls, String? host) {
+    for (final url in urls) {
+      if (_hostOf(url) == host) return url;
+    }
+    return null;
+  }
+
+  /// [urls] with the fastest measured host first; the order is kept among
+  /// hosts measured alike, and those never measured come last.
+  List<String> _byMeasuredSpeed(List<String> urls) {
+    double rank(String url) => _hostSpeeds[_hostOf(url)] ?? -1;
+    final indexed = [for (final (i, url) in urls.indexed) (i, url)]
+      ..sort((a, b) {
+        final byspeed = rank(b.$2).compareTo(rank(a.$2));
+        return byspeed != 0 ? byspeed : a.$1.compareTo(b.$1);
+      });
+    return [for (final (_, url) in indexed) url];
+  }
+
+  /// Measures [urls] at once (see [CdnProbe.speed]), keeping the results in
+  /// [_hostSpeeds]. By host.
+  Future<Map<String, double?>> _measure(
+    List<String> urls, {
+    int offset = 0,
+    int length = 384 << 10,
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    final speeds = await Future.wait([
+      for (final url in urls)
+        CdnProbe.speed(
+          url,
+          offset: offset,
+          length: length,
+          timeout: timeout,
+        ),
+    ]);
+    final byHost = <String, double?>{};
+    for (final (i, url) in urls.indexed) {
+      if (_hostOf(url) case final host?) byHost[host] = speeds[i];
+    }
+    _hostSpeeds.addAll(byHost);
+    if (kDebugMode) {
+      debugPrint(
+        'cdn speeds: ${byHost.entries.map((e) => '${e.key} ${e.value == null ? '-' : '${(e.value! * 8 / 1e6).toStringAsFixed(1)} Mbps'}').join(', ')}',
+      );
+    }
+    return byHost;
+  }
+
+  /// The bitrate the current streams need together, bits per second.
+  int? get _streamBitrate {
+    final video = firstVideo.bandWidth;
+    if (video == null) return null;
+    return video + (_currentAudio?.bandWidth ?? 0);
+  }
+
+  /// Picks the fastest host for the streams about to be played, before the
+  /// player opens them. Only when the host is left to Bilibili's list (the
+  /// default 备用URL): a host chosen in the settings is the viewer's.
+  /// Bounded so a slow answer cannot hold the video up for long.
+  Future<void> _pickFastestHost() async {
+    if (isFileSource || VideoUtils.cdnService != CDNService.backupUrl) return;
+    // the self-test's broken copy is to be played, not measured away
+    if (VideoUtils.debugWrapVideoUrl != null) return;
+    final video = videoUrl;
+    if (video == null) return;
+    final candidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
+    if (candidates.length < 2) return;
+    final part = cid.value;
+    final speeds = await _measure(
+      candidates.take(4).toList(),
+      timeout: const Duration(milliseconds: 1500),
+    );
+    if (isClosed || cid.value != part || videoUrl != video) return;
+    final best = CdnProbe.pick(speeds, current: _hostOf(video));
+    if (best == null || best == _hostOf(video)) return;
+    videoUrl = _onHost(candidates, best) ?? video;
+    if (_currentAudio case final audio?) {
+      audioUrl = _onHost(audio.playUrls, best) ?? audioUrl;
+    }
+  }
+
+  /// Streams from a faster host, when playback is not keeping up (see
+  /// [PlPlayerController.onStreamSlow]): every host of the current video is
+  /// measured, and one clearly faster than the current and fast enough for
+  /// the stream is moved to. Null when there is none — then only a lower
+  /// quality would help.
+  Future<({String? video, String? audio})?> replaceSlowStreams() async {
+    final video = videoUrl;
+    if (isFileSource || video == null) return null;
+    if (VideoUtils.cdnService != CDNService.backupUrl) return null;
+    final candidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
+    if (candidates.length < 2) return null;
+    // long enough to be compared with the bitrate
+    final speeds = await _measure(
+      candidates.take(4).toList(),
+      length: 1 << 20,
+      timeout: const Duration(seconds: 4),
+    );
+    if (videoUrl != video) return null;
+    final current = _hostOf(video);
+    final best = CdnProbe.pick(speeds, current: current, keepRatio: 1 / 1.3);
+    if (best == null || best == current) return null;
+    if (!CdnProbe.keepsUp(speeds[best], _streamBitrate)) return null;
+    final newVideo = _onHost(candidates, best);
+    if (newVideo == null) return null;
+    videoUrl = newVideo;
+    return (video: newVideo, audio: null);
   }
 
   /// Whether [url] hands over the byte at [offset], asked as the player asks
@@ -959,7 +1087,9 @@ class VideoDetailController extends GetxController
     // took these with it
     plPlayerController
       ..onCdnFailover = switchToNextCdn
-      ..onStreamCut = replaceCutStreams;
+      ..onStreamCut = replaceCutStreams
+      ..onStreamSlow = replaceSlowStreams
+      ..streamBitrate = _streamBitrate;
     _loadingSource = true;
     await plPlayerController.setDataSource(
       source,
@@ -1351,6 +1481,7 @@ class VideoDetailController extends GetxController
       } else {
         audioUrl = '';
       }
+      await _pickFastestHost();
       await _initPlayerIfNeeded(autoFullScreenFlag);
     } else {
       _autoPlay.value = false;
@@ -2571,6 +2702,9 @@ class VideoDetailController extends GetxController
     if (plPlayerController.onStreamCut == replaceCutStreams) {
       plPlayerController.onStreamCut = null;
     }
+    if (plPlayerController.onStreamSlow == replaceSlowStreams) {
+      plPlayerController.onStreamSlow = null;
+    }
     super.onClose();
   }
 
@@ -2586,7 +2720,8 @@ class VideoDetailController extends GetxController
     plPlayerController.dropPendingSeek();
     videoUrl = null;
     audioUrl = null;
-    _cdnAttempt = 0;
+    _triedHosts.clear();
+    _hostSpeeds.clear();
     _currentAudio = null;
 
     // danmaku

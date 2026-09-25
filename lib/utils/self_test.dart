@@ -101,9 +101,13 @@ import 'package:PiliPlus/services/translate/translation_engine.dart';
 /// 2026-09-24): the body stops there, and a request that starts at or past
 /// it gets its connection dropped with no response.
 final class _CuttingProxy {
-  _CuttingProxy(this.cutAt);
+  _CuttingProxy(this.cutAt, {this.bytesPerSecond});
 
   final int cutAt;
+
+  /// Hands the bytes over no faster than this: a host that delivers, only
+  /// slower than the stream plays.
+  final int? bytesPerSecond;
   late final HttpServer _server;
   final requests = <String>[];
 
@@ -151,7 +155,14 @@ final class _CuttingProxy {
       }
       final socket = await response.detachSocket(writeHeaders: true);
       var left = cutAt - from;
+      final clock = Stopwatch()..start();
+      var sent = 0;
       await for (final chunk in answer) {
+        if (bytesPerSecond case final rate?) {
+          final due = Duration(microseconds: sent * 1000000 ~/ rate);
+          if (due > clock.elapsed) await Future.delayed(due - clock.elapsed);
+          sent += chunk.length;
+        }
         if (chunk.length >= left) {
           socket.add(chunk.sublist(0, left));
           break;
@@ -571,8 +582,14 @@ abstract final class SelfTest {
       final codecs = _arg(args, '--codecs');
       // a broken copy on the first CDN, on demand
       _CuttingProxy? cut;
-      if (int.tryParse(_arg(args, '--cut-video-at') ?? '') case final at?) {
-        cut = _CuttingProxy(at);
+      final cutAt = int.tryParse(_arg(args, '--cut-video-at') ?? '');
+      final kbps = int.tryParse(_arg(args, '--throttle-video-kbps') ?? '');
+      if (cutAt != null || kbps != null) {
+        final at = cutAt ?? 1 << 50;
+        cut = _CuttingProxy(
+          at,
+          bytesPerSecond: kbps == null ? null : kbps * 1000 ~/ 8,
+        );
         await cut.start();
         VideoUtils.debugWrapVideoUrl = cut.wrap;
       }
