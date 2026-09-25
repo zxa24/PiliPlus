@@ -737,7 +737,12 @@ void main() {
           // the line that asked for this: filled to the width it was
           // 「3个月前，我徒手打造了一个」/「生态缸。」
           const text = '3个月前，我徒手打造了一个生态缸。';
-          expect(planned(text).map((c) => c.content).toList(), [
+          // said slowly enough that 3个月前， stays up for a second
+          final slow = [
+            for (var i = 0; i < text.length; i++)
+              (text: text[i], time: i * 0.25),
+          ];
+          expect(planned(text, tokens: slow).map((c) => c.content).toList(), [
             '3个月前，',
             '我徒手打造了一个生态缸。',
           ]);
@@ -753,9 +758,33 @@ void main() {
           for (final cue in cues) {
             expect('，。？！、'.contains(cue.content[0]), isFalse,
                 reason: cue.content);
+            // a planned line is at most 32 wide; one too brief to read
+            // takes the next with it
             expect(AsrCueBuilder.displayWidth(cue.content),
-                lessThanOrEqualTo(32), reason: cue.content);
+                lessThanOrEqualTo(48), reason: cue.content);
           }
+        });
+
+        test('a line too brief to read joins the one after it', () {
+          // 第一天， said in 0.42 s, the rest of the sentence straight after
+          const text = '能否达到生态平衡呢？第一天，我投放了一些最耐干旱的沙漠甲虫，然后等待。';
+          final first = text.indexOf('第一天');
+          final rest = text.indexOf('我投放');
+          final tokens = [
+            for (var i = 0; i < text.length; i++)
+              (
+                text: text[i],
+                time: i < first
+                    ? i * 0.25
+                    : i < rest
+                    ? first * 0.25 + 1 + (i - first) * 0.1
+                    : first * 0.25 + 1.42 + (i - rest) * 0.2,
+              ),
+          ];
+          final lines = planned(text, tokens: tokens).map((c) => c.content);
+          expect(lines, isNot(contains('第一天，')));
+          expect(lines.any((l) => l.startsWith('第一天，我投放')), isTrue,
+              reason: '$lines');
         });
 
         test('a sentence that fits stays one line', () {

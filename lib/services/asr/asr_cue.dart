@@ -518,7 +518,8 @@ abstract final class AsrCueBuilder {
         if (next != null) start = next.time;
       }
     }
-    return _holdBriefly(_mergeRunts(cues, keepSentences: planned != null));
+    final merged = _mergeRunts(cues, keepSentences: planned != null);
+    return _holdBriefly(planned != null ? _joinNext(merged) : merged);
   }
 
   /// With `planLines`: the tokens lines start at, chosen per sentence by
@@ -586,6 +587,31 @@ abstract final class AsrCueBuilder {
     }
     plan(clean.length);
     return breaks;
+  }
+
+  /// Joins a cue too brief to read onto the one after it, when that one
+  /// starts before the brief one could be held for [_minShown]: holding
+  /// cannot help it then, and the one before has ended its sentence (see
+  /// [_mergeRunts]). Planned lines left 7 of 255 under a second on a real
+  /// transcript, 「第一天，」 for 0.42 s among them.
+  static List<AsrCue> _joinNext(List<AsrCue> cues) {
+    final out = <AsrCue>[];
+    for (var i = 0; i < cues.length; i++) {
+      final cue = cues[i];
+      final next = i + 1 < cues.length ? cues[i + 1] : null;
+      if (next != null &&
+          cue.to - cue.from < _minDuration &&
+          next.from - cue.from < _minShown) {
+        cues[i + 1] = AsrCue(
+          from: cue.from,
+          to: next.to,
+          content: _tidy('${cue.content}${next.content}'),
+        );
+        continue;
+      }
+      out.add(cue);
+    }
+    return out;
   }
 
   /// Gives a cue that is too brief to read the time to be read, taking it
