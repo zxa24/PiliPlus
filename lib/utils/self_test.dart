@@ -1892,6 +1892,12 @@ abstract final class SelfTest {
       'msToSelected': selectedMs,
       'tracks': [for (final s in page.subtitles) s.lanDoc],
       'selected': page.vttSubtitlesIndex.value,
+      // the start of what the player was handed for it, as shown
+      'shownVtt': switch (page.vttSubtitles[page.vttSubtitlesIndex.value - 1]) {
+        (isData: true, :final id) =>
+          id.length > 600 ? id.substring(0, 600) : id,
+        _ => null,
+      },
       'translatedUnits': translated?.length,
       'sample': translated?.take(4).toList(),
     };

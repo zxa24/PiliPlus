@@ -10,6 +10,7 @@ import 'dart:async';
 
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -124,10 +125,29 @@ class TranslationTrack {
   String? get into => _into;
   String? _into;
 
+  /// The language of what is translated, when known: the lines shown
+  /// under the translation, or in its place while it is made, are in it.
+  String? _from;
+
+  /// The track as shown: each line with the punctuation its language shows
+  /// (see punctuateForDisplay) — the translation's, and the source's under
+  /// it or in its place.
+  List<AsrCue> _cuesOf(TranslationSession current, {bool markPending = true}) {
+    final into = _into;
+    final from = _from;
+    return current.cues(
+      display: _display,
+      markPending: markPending,
+      showTranslated: (line) => punctuateForDisplay(line, into),
+      showSource: (line) => punctuateForDisplay(line, from),
+    );
+  }
+
   /// Translates a transcript as it is being written, into [into] (the app's
   /// language by default).
   Future<void> start(AsrSession asr, {String? into}) => _startWith(
     into,
+    from: asr.state.value.language,
     () => TranslationService.to.start(
       asr: asr,
       position: position,
@@ -145,6 +165,7 @@ class TranslationTrack {
     String? from,
   }) => _startWith(
     into,
+    from: from,
     () => TranslationService.to.startCaptions(
       cues: cues,
       position: position,
@@ -157,12 +178,14 @@ class TranslationTrack {
   Future<void> _startWith(
     String? into,
     Future<TranslationSession> Function() create, {
+    String? from,
     void Function(TranslationSession current)? onAttach,
   }) async {
     // taken before anything is awaited: a stop that lands while the one
     // before this is being torn down must still count
     final generation = _starting = ++_generation;
     _into = into ?? TranslationService.to.target;
+    _from = from;
     try {
       await _detach();
       if (generation != _generation) return;
@@ -236,7 +259,7 @@ class TranslationTrack {
           // puts the source back over it
           if (_published) {
             onPublish(
-              current.cues(display: _display, markPending: false).toVtt(),
+              _cuesOf(current, markPending: false).toVtt(),
               first: false,
             );
           }
@@ -308,8 +331,8 @@ class TranslationTrack {
   String? get currentVtt {
     final current = session.value;
     if (current == null) return null;
-    final cues = current.cues(
-      display: _display,
+    final cues = _cuesOf(
+      current,
       markPending: current.state.value.stage != TranslationStage.failed,
     );
     return cues.isEmpty ? null : cues.toVtt();
@@ -323,7 +346,7 @@ class TranslationTrack {
         current.state.value.stage == TranslationStage.failed) {
       return;
     }
-    final cues = current.cues(display: _display);
+    final cues = _cuesOf(current);
     if (cues.isEmpty) return;
     final now = position();
     final at = _publishedAt;
@@ -387,7 +410,7 @@ class TranslationTrack {
             (current.state.value.stage == TranslationStage.done &&
                 current.results.length < current.units.length))) {
       onPublish(
-        current.cues(display: _display, markPending: false).toVtt(),
+        _cuesOf(current, markPending: false).toVtt(),
         first: false,
       );
     }

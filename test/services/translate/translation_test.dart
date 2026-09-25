@@ -1,3 +1,4 @@
+import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
@@ -227,6 +228,23 @@ void main() {
       ),
       TranslationUnit(from: 4, to: 7, text: 'Bye.', cues: [cue(4, 7, 'Bye.')]),
     ];
+
+    test('each line is shown with its own language’s punctuation', () {
+      // English source, Chinese translation: the Chinese loses its full
+      // stop, the English under it keeps its own, and the waiting mark is
+      // not touched
+      final out = layOutTranslation(
+        units: units,
+        results: {0: '你好，朋友。'},
+        display: TranslationDisplay.dual,
+        showTranslated: (line) => punctuateForDisplay(line, 'zh'),
+        showSource: (line) => punctuateForDisplay(line, 'en'),
+      );
+      expect(out.map((c) => c.content), [
+        '你好 朋友\nHello.',
+        'Bye.\n$translationPendingMark',
+      ]);
+    });
 
     test('waiting units show their source, marked', () {
       final out = layOutTranslation(units: units, results: {0: '你好。'});

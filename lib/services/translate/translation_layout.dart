@@ -53,23 +53,32 @@ typedef TranslationResults = Map<int, String?>;
 ///
 /// Without [markPending] nothing is shown as waiting: a translation that has
 /// failed will not fill those lines in, so they are shown as they are.
+///
+/// [showTranslated] and [showSource] turn a line of translation, or of the
+/// source, into what is shown (see punctuateForDisplay). Applied once the
+/// lines are cut, which is decided on the punctuated text.
 List<AsrCue> layOutTranslation({
   required List<TranslationUnit> units,
   required TranslationResults results,
   List<AsrCue> trailing = const [],
   TranslationDisplay display = TranslationDisplay.translated,
   bool markPending = true,
+  String Function(String line)? showTranslated,
+  String Function(String line)? showSource,
 }) {
+  List<AsrCue> source(List<AsrCue> cues) => _shown(cues, showSource);
   final out = <AsrCue>[];
   for (var i = 0; i < units.length; i++) {
     final unit = units[i];
     if (!results.containsKey(i)) {
-      out.addAll(markPending ? _pending(unit.cues) : unit.cues);
+      out.addAll(
+        markPending ? _pending(source(unit.cues)) : source(unit.cues),
+      );
       continue;
     }
     final text = results[i];
     if (text == null) {
-      out.addAll(unit.cues);
+      out.addAll(source(unit.cues));
       continue;
     }
     // A unit's last cue may be held past where the next unit starts — the
@@ -85,25 +94,45 @@ List<AsrCue> layOutTranslation({
             cues: unit.cues,
           )
         : unit;
-    final lines = timeTranslation(bounded, splitTranslation(text));
+    final lines = _shown(
+      timeTranslation(bounded, splitTranslation(text)),
+      showTranslated,
+    );
     out.addAll(
       display == TranslationDisplay.dual
-          ? _dual(lines, [
-              // the source lines under it end where the translation does
-              for (final c in unit.cues)
-                if (c.from < bounded.to)
-                  AsrCue(
-                    from: c.from,
-                    to: c.to < bounded.to ? c.to : bounded.to,
-                    content: c.content,
-                  ),
-            ])
+          ? _dual(
+              lines,
+              source([
+                // the source lines under it end where the translation does
+                for (final c in unit.cues)
+                  if (c.from < bounded.to)
+                    AsrCue(
+                      from: c.from,
+                      to: c.to < bounded.to ? c.to : bounded.to,
+                      content: c.content,
+                    ),
+              ]),
+            )
           : lines,
     );
   }
-  out.addAll(markPending ? _pending(trailing) : trailing);
+  out.addAll(
+    markPending ? _pending(source(trailing)) : source(trailing),
+  );
   return AsrCueBuilder.layOut(out);
 }
+
+List<AsrCue> _shown(List<AsrCue> cues, String Function(String line)? show) =>
+    show == null
+    ? cues
+    : [
+        for (final cue in cues)
+          AsrCue(
+            from: cue.from,
+            to: cue.to,
+            content: cue.content.split('\n').map(show).join('\n'),
+          ),
+      ];
 
 Iterable<AsrCue> _pending(List<AsrCue> cues) => cues.map(
   (cue) => AsrCue(

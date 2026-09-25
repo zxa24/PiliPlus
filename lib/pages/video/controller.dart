@@ -59,6 +59,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
@@ -1085,7 +1086,7 @@ class VideoDetailController extends GetxController
     final cues = asrSession.value?.cues;
     if (cues != null && cues.isNotEmpty) {
       final index = _asrTrackIndex = subtitles.length;
-      vttSubtitles[index] = (isData: true, id: cues.toVtt());
+      vttSubtitles[index] = (isData: true, id: _transcriptVtt(cues));
       subtitles.add(
         Subtitle(
           lan: 'asr',
@@ -1426,7 +1427,7 @@ class VideoDetailController extends GetxController
     } else if (picked >= 0 && picked == _asrTrackIndex) {
       final cues = asrSession.value?.cues;
       if (cues != null && cues.isNotEmpty) {
-        vttSubtitles[picked] = (isData: true, id: cues.toVtt());
+        vttSubtitles[picked] = (isData: true, id: _transcriptVtt(cues));
       }
     }
     return _applySubtitle(index);
@@ -1943,6 +1944,21 @@ class VideoDetailController extends GetxController
     if (!Get.isRegistered<TranslationService>()) return;
     final service = TranslationService.to;
     final language = session.state.value.language;
+    // picked from the menu before the language was known, and the speech
+    // turns out to be in it: what was picked is the transcript
+    if (_translationRequested &&
+        language != null &&
+        !service.needed(language, into: _requestedInto) &&
+        _wantedOnDevice != null &&
+        _wantedOnDevice != 'asr') {
+      _translationRequested = false;
+      _wantedOnDevice = 'asr';
+      SmartDialog.showToast(
+        '原声即为${translationLanguageLabel(_requestedInto ?? AsrService.appLanguage)}',
+      );
+      _publishAsrSubtitle(select: true, isFinal: true);
+      return;
+    }
     // asked from the menu, which has already offered the download: the
     // session fetches the model itself, into the language picked there
     final requested =
@@ -2293,6 +2309,11 @@ class VideoDetailController extends GetxController
   /// viewer nothing can be skipped.
   Duration _asrPublishedTo = Duration.zero;
 
+  /// The transcript as shown: with the punctuation its language shows in
+  /// subtitles (see punctuateForDisplay).
+  String _transcriptVtt(List<AsrCue> cues) =>
+      cues.forDisplay(asrSession.value?.state.value.language).toVtt();
+
   void _publishAsrSubtitle({bool select = false, bool isFinal = false}) {
     final session = asrSession.value;
     if (session == null || isClosed) return;
@@ -2311,7 +2332,7 @@ class VideoDetailController extends GetxController
     )) {
       return;
     }
-    final vtt = cues.toVtt();
+    final vtt = _transcriptVtt(cues);
     _asrPublishedTo = Duration(
       milliseconds: (cues.last.to * 1000).round(),
     );

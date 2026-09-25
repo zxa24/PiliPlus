@@ -15,6 +15,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
@@ -925,7 +926,7 @@ class YtVideoController extends GetxController {
     );
     _showGeneratedTrack(
       SubtitleTrack(
-        'memory://${session.cues.toVtt()}',
+        'memory://${session.cues.forDisplay(session.state.value.language).toVtt()}',
         onDeviceLabel(null),
         'asr',
         uri: true,
@@ -950,6 +951,21 @@ class YtVideoController extends GetxController {
     if (!Get.isRegistered<TranslationService>()) return;
     final service = TranslationService.to;
     final language = session.state.value.language;
+    // picked from the menu before the language was known, and the speech
+    // turns out to be in it: what was picked is the transcript
+    if (_translationRequested &&
+        language != null &&
+        !service.needed(language, into: _requestedInto) &&
+        _wantedOnDevice != null &&
+        _wantedOnDevice != 'asr') {
+      _translationRequested = false;
+      _wantedOnDevice = 'asr';
+      SmartDialog.showToast(
+        '原声即为${translationLanguageLabel(_requestedInto ?? AsrService.appLanguage)}',
+      );
+      _publishAsrSubtitle(isFinal: true);
+      return;
+    }
     // asked from the menu, which has already offered the download: the
     // session fetches the model itself, into the language picked there
     final requested =

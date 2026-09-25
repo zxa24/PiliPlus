@@ -189,6 +189,8 @@ class TranslationSession {
   List<AsrCue> cues({
     TranslationDisplay display = TranslationDisplay.translated,
     bool markPending = true,
+    String Function(String line)? showTranslated,
+    String Function(String line)? showSource,
   }) {
     final settled = units;
     // Units are cut from the front of the cue list, so the rest is what they
@@ -205,6 +207,8 @@ class TranslationSession {
       trailing: transcript.cues().skip(taken).toList(),
       display: display,
       markPending: markPending,
+      showTranslated: showTranslated,
+      showSource: showSource,
     );
   }
 
