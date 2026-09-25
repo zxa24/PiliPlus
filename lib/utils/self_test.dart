@@ -2483,6 +2483,8 @@ abstract final class SelfTest {
           'gate=${controller.asrPending.value} '
           // a second player during a handover: what it costs
           'rss=${ProcessInfo.currentRss >> 20} '
+          'speed=${mpv.getProperty('cache-speed')} '
+          'ahead=${mpv.getProperty('demuxer-cache-duration')} '
           'qa=${controller.currentVideoQa.value?.code}',
         );
       }

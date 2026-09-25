@@ -4,6 +4,7 @@ import 'dart:io' show Directory, File, HttpClient, HttpHeaders, HttpStatus;
 import 'dart:math' show min;
 import 'dart:ui';
 
+import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/pair.dart';
@@ -56,6 +57,7 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
@@ -795,9 +797,7 @@ class VideoDetailController extends GetxController
     if (_currentAudio case final audio?) {
       audioUrl = _onHost(audio.playUrls, _hostOf(left.first)) ?? audioUrl;
     }
-    if (kDebugMode) {
-      debugPrint('cdn failover -> ${Uri.tryParse(videoUrl!)?.host}');
-    }
+    EventLog.add('player', 'cdn failover -> ${Uri.tryParse(videoUrl!)?.host}');
     // silent: the viewer is told only when no host is left (the player's
     // own toast when this returns false)
     _reopenAtCurrentPosition();
@@ -905,11 +905,10 @@ class VideoDetailController extends GetxController
       if (_hostOf(url) case final host?) byHost[host] = speeds[i];
     }
     _hostSpeeds.addAll(byHost);
-    if (kDebugMode) {
-      debugPrint(
-        'cdn speeds: ${byHost.entries.map((e) => '${e.key} ${e.value == null ? '-' : '${(e.value! * 8 / 1e6).toStringAsFixed(1)} Mbps'}').join(', ')}',
-      );
-    }
+    EventLog.add(
+      'player',
+      'cdn speeds: ${byHost.entries.map((e) => '${e.key} ${e.value == null ? '-' : '${(e.value! * 8 / 1e6).toStringAsFixed(1)} Mbps'}').join(', ')}',
+    );
     return byHost;
   }
 
@@ -982,20 +981,18 @@ class VideoDetailController extends GetxController
   }
 
   /// There has been room to spare for a while (see
-  /// [PlPlayerController.onStreamRoomy]): one quality up, if a host is fast
-  /// enough for it with room to spare and it is not above the quality the
-  /// video opened at.
+  /// [PlPlayerController.onStreamRoomy]): one quality up, on the same host,
+  /// if what the network has delivered while playing keeps up with it with
+  /// room to spare (see [PlPlayerController.observedBytesPerSecond]) and it
+  /// is not above the quality the video opened at. Not on a probe: 1 MB
+  /// said a host was fast enough for 1080P, and it was not.
   Future<({String? video, String? audio})?> raiseQuality() async {
     final video = videoUrl;
     if (isFileSource || video == null || _qualityChosen) return null;
-    final candidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
-    final speeds = await _measure(
-      candidates.take(4).toList(),
-      length: 1 << 20,
-      timeout: const Duration(seconds: 4),
-    );
-    if (videoUrl != video) return null;
-    return _stepQuality(down: false, speeds: speeds);
+    final delivered = plPlayerController.observedBytesPerSecond;
+    final host = _hostOf(video);
+    if (delivered == null || host == null) return null;
+    return _stepQuality(down: false, speeds: {host: delivered});
   }
 
   /// For the self-test (`--no-host-switch`): as if no other host were
@@ -1047,7 +1044,12 @@ class VideoDetailController extends GetxController
     final quality = VideoQuality.fromCode(codes[next]);
     currentVideoQa.value = quality;
     plPlayerController.streamBitrate = _streamBitrate;
-    SmartDialog.showToast('画质已自动调整为：${quality.desc}');
+    // not announced: the network is what it is, and this is the app
+    // working around it
+    EventLog.add(
+      'player',
+      'quality ${down ? 'down' : 'up'} to ${quality.desc}',
+    );
     return (video: url, audio: null);
   }
 
@@ -1724,7 +1726,7 @@ class VideoDetailController extends GetxController
     onReady: _closeAsrGate,
     // not over another video's page: this one's menu says it when it is back
     onFailed: (message) {
-      if (_ownsPlayer) SmartDialog.showToast('翻译失败：$message');
+      if (_ownsPlayer) FailureReport.show('翻译失败', message);
     },
   );
   int? _translationTrackIndex;
@@ -1885,7 +1887,7 @@ class VideoDetailController extends GetxController
           // Not over another video's page, whose transcription this may be
           // the one displaced by
           if (_ownsPlayer) {
-            SmartDialog.showToast('转录失败：${state.message ?? ''}');
+            FailureReport.show('转录失败', state.message ?? '未知原因');
           }
         case AsrStage.idle:
           _closeAsrGate();
@@ -2197,7 +2199,7 @@ class VideoDetailController extends GetxController
       onError: (Object e) {
         if (isClosed) return;
         _closeAsrGate();
-        SmartDialog.showToast('翻译失败：$e');
+        FailureReport.show('翻译失败', '$e');
       },
     );
   }

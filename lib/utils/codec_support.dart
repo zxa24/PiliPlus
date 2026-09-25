@@ -10,9 +10,9 @@ library;
 
 import 'dart:io' show Platform;
 
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/services.dart';
 
 abstract final class CodecSupport {
@@ -29,7 +29,7 @@ abstract final class CodecSupport {
     if (GStorage.setting.get(SettingBoxKey.av1Software) == true) return;
     try {
       final hardware = await _channel.invokeMethod<bool>('av1Hardware');
-      if (kDebugMode) debugPrint('codecs: AV1 in hardware: $hardware');
+      EventLog.add('player', 'codecs: AV1 in hardware: $hardware');
       if (hardware == null) return;
       await GStorage.setting.put(SettingBoxKey.av1Hardware, hardware);
     } catch (_) {
@@ -41,7 +41,7 @@ abstract final class CodecSupport {
   /// was on: whatever the device says, AVC comes first from now on.
   static void noteSoftwareAv1() {
     if (GStorage.setting.get(SettingBoxKey.av1Software) == true) return;
-    if (kDebugMode) debugPrint('codecs: AV1 was decoded in software');
+    EventLog.add('player', 'codecs: AV1 was decoded in software');
     GStorage.setting.putAll({
       SettingBoxKey.av1Software: true,
       SettingBoxKey.av1Hardware: false,

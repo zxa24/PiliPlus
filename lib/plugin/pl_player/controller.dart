@@ -5,6 +5,7 @@ import 'dart:math' show max, min;
 import 'dart:ui' as ui;
 
 import 'package:PiliPlus/common/assets.dart';
+import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -29,6 +30,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/video_fit_type.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -633,7 +635,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.dataSource = dataSource;
       _cutAt.clear();
       _replacedVid = null;
+      _externalVideo = _externalAudio = null;
       _replaced = false;
+      // measured on the streams of the part before
+      _delivered.clear();
       _autoPlay = autoplay;
       // 初始化视频倍速
       // _playbackSpeed.value = speed;
@@ -931,7 +936,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _cutAt.clear();
     if (_videoPlayerController case final ctr? when (ctr.current.isNotEmpty)) {
       var media = ctr.current.last;
-      if (kDebugMode) debugPrint('refreshPlayer at $resumePosition');
+      EventLog.add('player', 'reopen at $resumePosition');
       if (!isLive) media = media.copyWith(start: resumePosition);
       return ctr.open(media, play: true).then((_) {
         _watchLoad(ctr);
@@ -1085,17 +1090,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           );
         }
       }),
-      if (kDebugMode)
-        stream.log.listen(((PlayerLog log) {
-          if (log.level == 'error' || log.level == 'fatal') {
-            Utils.reportError(
-              '${log.level}: ${log.prefix}: ${log.text}\n${player.state.playlist}',
-              null,
-            );
-          } else {
-            debugPrint(log.toString());
-          }
-        })),
+      // what mpv reports (warnings and up in a debug build, errors in a
+      // release one) goes to the events a failure report shows
+      stream.log.listen((PlayerLog log) {
+        EventLog.add('mpv', '${log.level} ${log.prefix}: ${log.text.trim()}');
+        if (kDebugMode && (log.level == 'error' || log.level == 'fatal')) {
+          Utils.reportError(
+            '${log.level}: ${log.prefix}: ${log.text}\n${player.state.playlist}',
+            null,
+          );
+        }
+      }),
       stream.error.listen((String event) {
         if (dataSource is FileSource &&
             event.startsWith("Failed to open file")) {
@@ -1163,7 +1168,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             },
           );
         } else if (event.startsWith('Could not open codec')) {
-          SmartDialog.showToast('无法加载解码器, $event，可能会切换至软解');
+          // mpv goes on in software by itself: nothing for the viewer to do
+          EventLog.add('player', 'codec: $event');
         } else if (!onlyPlayAudio.value) {
           if (event.startsWith("error running") ||
               event.startsWith("Failed to open .") ||
@@ -1193,7 +1199,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // (a throttled stream came back after a step down). The page opens
         // what it plays now instead.
         if (_replaced && onReopen != null) {
-          if (kDebugMode) debugPrint('reopen with the streams now played');
+          EventLog.add('player', 'reopen with the streams now played');
           onReopen!();
         } else {
           refreshPlayer();
@@ -1278,6 +1284,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         _replaced = false;
         _replacedVid = null;
         _dryTicks = -3;
+        // measured on the streams replaced
+        _delivered.clear();
+        _externalVideo = _externalAudio = null;
         return;
       }
       if (!identical(dataSource, source) || player.disposed) return;
@@ -1288,12 +1297,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (url == null) continue;
         final wrap = debugWrapReplacedVideo;
         if (kind == 'video' && wrap != null) url = wrap(url);
-        if (kDebugMode) {
-          debugPrint(
-            'stream $why: $kind -> ${Uri.tryParse(url)?.host} '
-            'at ${player.state.position}',
-          );
-        }
+        EventLog.add(
+          'player',
+          'stream $why: $kind -> ${Uri.tryParse(url)?.host} '
+              'at ${player.state.position}',
+        );
         await player.command(['$kind-add', url, 'auto']);
         if (!identical(dataSource, source) || player.disposed) return;
         final id = _externalTrack(player.getProperty('track-list'), kind, url);
@@ -1303,8 +1311,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
         if (kind == 'video') {
           _replacedVid = id;
+          _externalVideo = url;
           if (!onlyPlayAudio.value) player.setProperty('vid', id);
         } else {
+          _externalAudio = url;
           player.setProperty('aid', id);
         }
       }
@@ -1333,6 +1343,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       _cutAt.clear();
       _replaced = true;
+      _delivered.clear();
+      // settle before moving it into the main stream (see [_rehome])
+      _rehomeRest = 10;
       // the cut stream's cache stays where it ended until mpv lets go of it
       _dryTicks = -3;
     } catch (_) {
@@ -1379,8 +1392,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         _playerCount == 0) {
       return false;
     }
-    final video = urls.video ?? _playingVideo;
-    final audio = urls.audio ?? _playingAudio;
+    final video = urls.video ?? _externalVideo ?? _playingVideo;
+    final audio = urls.audio ?? _externalAudio ?? _playingAudio;
     if (video == null || audio == null) return false;
     double? read(NativePlayer p, String name) {
       try {
@@ -1411,13 +1424,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     /// a paused player read `demuxer-cache-duration` 0 throughout, with its
     /// frame at the target decoded 3 s in.
     Future<bool> readyAt(double at) async {
-      if (kDebugMode) {
-        debugPrint(
-          'hand over: ${clock.elapsedMilliseconds} ms, readying at $at '
-          '(first at ${read(old, 'time-pos')}, '
-          'cached to ${read(old, 'demuxer-cache-time')})',
-        );
-      }
+      EventLog.add(
+        'player',
+        'hand over: ${clock.elapsedMilliseconds} ms, readying at $at '
+            '(first at ${read(old, 'time-pos')}, '
+            'cached to ${read(old, 'demuxer-cache-time')})',
+      );
       while (!gone()) {
         // the first has gone too far past it meanwhile: no use
         if ((read(old, 'time-pos') ?? 0) > at + 0.6) return false;
@@ -1426,9 +1438,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             (pos - at).abs() < 0.2 &&
             next.getProperty('seeking') == 'no' &&
             next.state.width > 0) {
-          if (kDebugMode) {
-            debugPrint('hand over: ${clock.elapsedMilliseconds} ms, ready');
-          }
+          EventLog.add(
+            'player',
+            'hand over: ${clock.elapsedMilliseconds} ms, ready',
+          );
           return true;
         }
         await Future.delayed(const Duration(milliseconds: 50));
@@ -1444,11 +1457,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         at - ready <= 0.6 && ready - at <= 0.3;
 
     try {
-      if (kDebugMode) {
-        debugPrint(
-          'hand over ($why) at $here: video ${Uri.tryParse(video)?.host}',
-        );
-      }
+      EventLog.add(
+        'player',
+        'hand over ($why) at $here: video ${Uri.tryParse(video)?.host}',
+      );
       // ready before the first player runs out: a cut stream ends where its
       // cache does, and a second player made ready past that point found
       // the first standing still, and had to seek back to it (3 s more)
@@ -1519,12 +1531,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       _playingVideo = video;
       _playingAudio = audio;
-      if (kDebugMode) {
-        debugPrint('handed over after ${clock.elapsedMilliseconds} ms');
-      }
+      EventLog.add(
+        'player',
+        'handed over after ${clock.elapsedMilliseconds} ms',
+      );
       return true;
     } catch (e) {
-      if (kDebugMode) debugPrint('hand over failed: $e');
+      EventLog.add('player', 'hand over failed: $e');
       return false;
     } finally {
       if (!handedOver) next.dispose();
@@ -1581,6 +1594,30 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Seconds before playback health is judged again after acting on it.
   var _healthRest = 0;
 
+  /// What the network delivered, bytes per second, in the seconds the
+  /// buffer was filling (see [observedBytesPerSecond]).
+  final _delivered = <double>[];
+
+  /// How fast the network has delivered what is being played, bytes per
+  /// second, over the last [roomyFor] seconds; null with fewer than
+  /// [_deliveredEnough] seconds of it.
+  ///
+  /// Only the seconds the buffer was filling count: a full one reads
+  /// nothing, and would put the network at zero. `cache-speed` is what the
+  /// video and audio streams together read (throttled to 187.5 KB/s, it
+  /// read 186-229 KB/s), so it is compared with both bitrates together.
+  ///
+  /// A step up used to rest on a 1 MB probe of the host: it passed at 1.5x
+  /// the higher bitrate, and the stream then drained the buffer from 14 s
+  /// to nothing in 30 s and stalled.
+  double? get observedBytesPerSecond {
+    if (_delivered.length < _deliveredEnough) return null;
+    final sorted = [..._delivered]..sort();
+    return sorted[sorted.length ~/ 2];
+  }
+
+  static const _deliveredEnough = 10;
+
   /// Moves to a faster host when the buffer ahead is running out. A host
   /// that delivers, only slower than the stream plays, is not something a
   /// failover ever looked at: Akamai dropping the connection every half
@@ -1615,10 +1652,27 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       bytes: Pref.bufferBytes(bitsPerSecond: streamBitrate),
       bitsPerSecond: streamBitrate,
     );
+    try {
+      final speed = double.tryParse(player.getProperty('cache-speed'));
+      // filling: the network is what limits it. Not with the video on an
+      // external track: then all of this is the audio's (52 KB/s bursts,
+      // the buffer "ahead" the audio's too), and a step up would be judged
+      // on it
+      if (_replacedVid == null &&
+          speed != null &&
+          speed > 0 &&
+          cache < target * 0.9) {
+        _delivered.add(speed);
+        if (_delivered.length > roomyFor) _delivered.removeAt(0);
+      }
+    } catch (_) {
+      return;
+    }
     _roomyFor = roomy(_health.last, target) ? _roomyFor + 1 : 0;
     if (_roomyFor >= roomyFor && onStreamRoomy != null) {
       _roomyFor = 0;
       _health.clear();
+      _delivered.clear();
       // a step up that did not work out is not tried again at once
       _healthRest = 60;
       _replaceStreams(onStreamRoomy!, why: 'roomy', reopen: false);
@@ -1634,6 +1688,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     );
     if (advice != QualityAdvice.stepDown) return;
     _health.clear();
+    _delivered.clear();
     // one look at the hosts per half minute at most
     _healthRest = 30;
     _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
@@ -1702,7 +1757,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (onCdnFailover?.call() ?? false) {
           _transportFailures = 0;
         } else {
-          SmartDialog.showToast('视频加载失败，请检查网络或切换线路');
+          FailureReport.show('视频无法播放', '所有线路都试过了，仍无法加载这个视频。');
         }
       },
     );
@@ -1739,6 +1794,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
       _watchHealth(player);
       _watchReplacedVideo(player);
+      _rehome();
       if (isLive ||
           dataSource is FileSource ||
           !playerStatus.isPlaying ||
@@ -1771,6 +1827,57 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // would only cost the viewer another stall
       _switchCdn();
     });
+  }
+
+  /// The streams put in place as extra tracks by [_replaceStreams], while
+  /// they are.
+  String? _externalVideo;
+  String? _externalAudio;
+
+  /// Seconds until the next [_rehome] is tried.
+  var _rehomeRest = 0;
+
+  /// Moves streams put in place as extra tracks (when there was no room
+  /// for a handover) into the main stream of a second player, by a handover
+  /// to the same streams. As extra tracks nothing sees how they are doing:
+  /// the buffer and the speed read are the audio's, so a video starving
+  /// went unseen and a step back up was judged on the audio (it never came,
+  /// 250 s at 720P on a host that had recovered). Tried every 30 s until
+  /// it works; while it does not, [_watchReplacedVideo] keeps watch.
+  void _rehome() {
+    if (_replacedVid == null ||
+        _externalVideo == null ||
+        _replacing ||
+        debugDisableRecovery ||
+        debugNoHandover ||
+        onlyPlayAudio.value ||
+        !playerStatus.isPlaying) {
+      return;
+    }
+    if (_rehomeRest > 0) {
+      _rehomeRest--;
+      return;
+    }
+    _rehomeRest = 30;
+    final source = dataSource;
+    _replacing = true;
+    _handOver(
+          (video: _externalVideo, audio: _externalAudio),
+          source,
+          why: 'rehome',
+        )
+        .then((done) {
+          if (!done || !identical(dataSource, source)) return;
+          _replacedVid = null;
+          _replaced = false;
+          _externalVideo = _externalAudio = null;
+          _delivered.clear();
+          _dryTicks = -3;
+        })
+        .whenComplete(() {
+          _replacing = false;
+          isBuffering.value = _videoPlayerController?.state.buffering ?? false;
+        });
   }
 
   /// Seconds in a row the replaced video track has been behind the sound,
@@ -1833,7 +1940,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (++_videoBehindTicks < 3) return;
     _videoBehindTicks = 0;
     _lastPicture = null;
-    if (kDebugMode) debugPrint('replaced video fell behind: reopen');
+    EventLog.add('player', 'replaced video fell behind: reopen');
     _replacedVid = null;
     onReopen!();
   }

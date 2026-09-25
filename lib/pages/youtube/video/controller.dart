@@ -9,6 +9,7 @@ library;
 
 import 'dart:async';
 
+import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
@@ -597,7 +598,7 @@ class YtVideoController extends GetxController {
     onReady: _closeAsrGate,
     onFailed: (message) {
       // not over another video's page (see VideoDetailController)
-      if (_ownsPlayer) SmartDialog.showToast('翻译失败：$message');
+      if (_ownsPlayer) FailureReport.show('翻译失败', message);
       _showUntranslated();
     },
   );
@@ -747,7 +748,7 @@ class YtVideoController extends GetxController {
           // only errors interrupt; progress lives in the subtitle menu. Not
           // over another video's page (see VideoDetailController)
           if (_ownsPlayer) {
-            SmartDialog.showToast('转录失败：${state.message ?? ''}');
+            FailureReport.show('转录失败', state.message ?? '未知原因');
           }
         case AsrStage.idle:
           _closeAsrGate();
@@ -989,7 +990,7 @@ class YtVideoController extends GetxController {
       onError: (Object e) {
         if (isClosed) return;
         _closeAsrGate();
-        SmartDialog.showToast('翻译失败：$e');
+        FailureReport.show('翻译失败', '$e');
       },
     );
   }
