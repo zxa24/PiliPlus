@@ -794,10 +794,13 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                           AsrEntry.startFor(context, ctr.showTranscript);
                         }
                       },
-                      child: label(
-                        OnDeviceMenu.itemLabel(
-                          onDeviceLabel(null),
-                          ctr.onDeviceStatus('asr'),
+                      // follows the run while the menu is open
+                      child: Obx(
+                        () => label(
+                          OnDeviceMenu.itemLabel(
+                            onDeviceLabel(null),
+                            ctr.onDeviceStatus('asr'),
+                          ),
                         ),
                       ),
                     ),
@@ -807,10 +810,12 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                         value: OnDeviceMenu.valueOf(code),
                         height: 35,
                         onTap: () => showTranslation(code),
-                        child: label(
-                          OnDeviceMenu.itemLabel(
-                            onDeviceLabel(code),
-                            ctr.onDeviceStatus(code),
+                        child: Obx(
+                          () => label(
+                            OnDeviceMenu.itemLabel(
+                              onDeviceLabel(code),
+                              ctr.onDeviceStatus(code),
+                            ),
                           ),
                         ),
                       ),

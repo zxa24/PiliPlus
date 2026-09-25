@@ -1249,6 +1249,19 @@ class _YtVideoPageState extends State<YtVideoPage>
                 if (controller.onDeviceBusy)
                   (value: OnDeviceMenu.stop, label: '停止端侧生成', enabled: true),
               ],
+              live: {
+                if (canTranscribe)
+                  OnDeviceMenu.original: () => OnDeviceMenu.itemLabel(
+                    onDeviceLabel(null),
+                    controller.onDeviceStatus('asr'),
+                  ),
+                if (canTranslate)
+                  for (final code in OnDeviceMenu.listed(current))
+                    OnDeviceMenu.valueOf(code): () => OnDeviceMenu.itemLabel(
+                      onDeviceLabel(code),
+                      controller.onDeviceStatus(code),
+                    ),
+              },
               onSelected: (value) async {
                 switch (value) {
                   case OnDeviceMenu.original:
@@ -1338,6 +1351,9 @@ class _YtVideoPageState extends State<YtVideoPage>
     required List<({T value, String label, bool enabled})> items,
     required ValueChanged<T> onSelected,
     required Widget child,
+    // labels that follow a state while the menu is open: a model download's
+    // progress, read once when the menu opened, stood still
+    Map<T, ValueGetter<String>> live = const {},
   }) => PopupMenuButton<T>(
     tooltip: tooltip,
     requestFocus: false,
@@ -1351,15 +1367,20 @@ class _YtVideoPageState extends State<YtVideoPage>
           padding: const EdgeInsets.only(left: 30, right: 10),
           value: item.value,
           enabled: item.enabled,
-          child: Text(
-            item.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-          ),
+          child: switch (live[item.value]) {
+            final label? => Obx(() => _popupItemText(label())),
+            null => _popupItemText(item.label),
+          },
         ),
     ],
     child: child,
+  );
+
+  static Widget _popupItemText(String text) => Text(
+    text,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: const TextStyle(color: Colors.white, fontSize: 13),
   );
 
   static Widget _popupLabel(String text) => Padding(

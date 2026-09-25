@@ -209,7 +209,21 @@ class TranslationSession {
       markPending: markPending,
       showTranslated: showTranslated,
       showSource: showSource,
+      // a model still coming down is not a translation under way
+      pendingMark: isDownloading
+          ? translationDownloadingMark
+          : translationPendingMark,
     );
+  }
+
+  /// The model is being downloaded (or checked after it), not loaded or
+  /// translating.
+  bool get isDownloading => _downloading(state.value);
+
+  static bool _downloading(TranslationState state) {
+    final message = state.message ?? '';
+    return state.stage == TranslationStage.loading &&
+        (message.startsWith('下载') || message.startsWith('校验'));
   }
 
   /// Where the stretch of settled units starting at [at] ends — translated

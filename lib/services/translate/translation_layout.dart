@@ -25,6 +25,10 @@ enum TranslationDisplay { translated, dual }
 /// Shown under a source line whose translation has not arrived.
 const translationPendingMark = '（正在翻译…）';
 
+/// The mark while the model is still being downloaded: 正在翻译 on screen
+/// for the minutes of a first download said something that was not so.
+const translationDownloadingMark = '（下载翻译模型中）';
+
 /// A translated line may be this wide, in half-width units.
 ///
 /// Wider than the 32 a transcript line gets: that limit is for someone
@@ -65,14 +69,16 @@ List<AsrCue> layOutTranslation({
   bool markPending = true,
   String Function(String line)? showTranslated,
   String Function(String line)? showSource,
+  String pendingMark = translationPendingMark,
 }) {
   List<AsrCue> source(List<AsrCue> cues) => _shown(cues, showSource);
+  Iterable<AsrCue> pending(List<AsrCue> cues) => _pending(cues, pendingMark);
   final out = <AsrCue>[];
   for (var i = 0; i < units.length; i++) {
     final unit = units[i];
     if (!results.containsKey(i)) {
       out.addAll(
-        markPending ? _pending(source(unit.cues)) : source(unit.cues),
+        markPending ? pending(source(unit.cues)) : source(unit.cues),
       );
       continue;
     }
@@ -117,7 +123,7 @@ List<AsrCue> layOutTranslation({
     );
   }
   out.addAll(
-    markPending ? _pending(source(trailing)) : source(trailing),
+    markPending ? pending(source(trailing)) : source(trailing),
   );
   return AsrCueBuilder.layOut(out);
 }
@@ -134,11 +140,11 @@ List<AsrCue> _shown(List<AsrCue> cues, String Function(String line)? show) =>
           ),
       ];
 
-Iterable<AsrCue> _pending(List<AsrCue> cues) => cues.map(
+Iterable<AsrCue> _pending(List<AsrCue> cues, String mark) => cues.map(
   (cue) => AsrCue(
     from: cue.from,
     to: cue.to,
-    content: '${cue.content}\n$translationPendingMark',
+    content: '${cue.content}\n$mark',
   ),
 );
 

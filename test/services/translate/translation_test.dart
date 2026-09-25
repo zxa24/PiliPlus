@@ -510,6 +510,24 @@ void main() {
       await session.dispose();
     });
 
+    test('lines wait for the download, not for a translation, while the '
+        'model is coming down', () {
+      final session = make()
+        ..state.value = const TranslationState(
+          TranslationStage.loading,
+          message: '下载模型 34%',
+        );
+      expect(
+        session.cues().first.content,
+        endsWith(translationDownloadingMark),
+      );
+      session.state.value = const TranslationState(
+        TranslationStage.loading,
+        message: '加载模型',
+      );
+      expect(session.cues().first.content, endsWith(translationPendingMark));
+    });
+
     test('settledFrom stops at the first unit still waiting', () {
       final session = make()
         ..units = buildTranslationUnits(

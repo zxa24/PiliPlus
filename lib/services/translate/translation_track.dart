@@ -125,6 +125,9 @@ class TranslationTrack {
   String? get into => _into;
   String? _into;
 
+  /// The waiting lines last handed over said the model was downloading.
+  var _shownDownloading = false;
+
   /// The language of what is translated, when known: the lines shown
   /// under the translation, or in its place while it is made, are in it.
   String? _from;
@@ -274,6 +277,14 @@ class TranslationTrack {
         case _:
           // back at work after a done: a seek back to what was skipped
           startRefresh();
+          // the waiting lines say something else once the download is done
+          // (see TranslationSession.cues): handed over again at once rather
+          // than when the next line is translated
+          final downloading = current.isDownloading;
+          if (_published && downloading != _shownDownloading) {
+            publish(isFinal: true);
+          }
+          _shownDownloading = downloading;
           // with no speech to translate near the playhead no result comes
           // to ask the question on, and the page would sit out its cap
           if (!_readySent && _hasLead(current)) {
