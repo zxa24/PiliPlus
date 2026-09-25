@@ -101,7 +101,17 @@ import 'package:PiliPlus/services/translate/translation_engine.dart';
 /// 2026-09-24): the body stops there, and a request that starts at or past
 /// it gets its connection dropped with no response.
 final class _CuttingProxy {
-  _CuttingProxy(this.cutAt, {this.bytesPerSecond, this.oneHost = true});
+  _CuttingProxy(
+    this.cutAt, {
+    this.bytesPerSecond,
+    this.oneHost = true,
+    this.throttleFor,
+  });
+
+  /// How long [bytesPerSecond] holds from the start; after that the host is
+  /// as fast as it is. Null: for good.
+  final Duration? throttleFor;
+  final _since = Stopwatch()..start();
 
   /// Only the first host's streams pass through (see [wrap]).
   final bool oneHost;
@@ -169,7 +179,8 @@ final class _CuttingProxy {
       final clock = Stopwatch()..start();
       var sent = 0;
       await for (final chunk in answer) {
-        if (bytesPerSecond case final rate?) {
+        if (bytesPerSecond case final rate?
+            when throttleFor == null || _since.elapsed < throttleFor!) {
           final due = Duration(microseconds: sent * 1000000 ~/ rate);
           if (due > clock.elapsed) await Future.delayed(due - clock.elapsed);
           sent += chunk.length;
@@ -597,9 +608,13 @@ abstract final class SelfTest {
       final kbps = int.tryParse(_arg(args, '--throttle-video-kbps') ?? '');
       if (cutAt != null || kbps != null) {
         final at = cutAt ?? 1 << 50;
+        final throttleFor = int.tryParse(_arg(args, '--throttle-for') ?? '');
         cut = _CuttingProxy(
           at,
           bytesPerSecond: kbps == null ? null : kbps * 1000 ~/ 8,
+          throttleFor: throttleFor == null
+              ? null
+              : Duration(seconds: throttleFor),
         );
         await cut.start();
         VideoUtils.debugWrapVideoUrl = cut.wrap;
@@ -654,6 +669,7 @@ abstract final class SelfTest {
             autoplay: autoplay,
             recovery: !args.contains('--no-recovery'),
             sampleMs: int.tryParse(_arg(args, '--sample-ms') ?? '') ?? 2000,
+            sampleSeconds: int.tryParse(_arg(args, '--sample-for') ?? '') ?? 50,
             seekTo: int.tryParse(_arg(args, '--seek-to') ?? ''),
             seekAfterMs: int.tryParse(_arg(args, '--seek-after') ?? '') ?? 0,
             dumpUrls: args.contains('--dump-urls'),
@@ -2349,6 +2365,7 @@ abstract final class SelfTest {
     bool autoplay = false,
     bool recovery = true,
     int sampleMs = 2000,
+    int sampleSeconds = 50,
     int? seekTo,
     int seekAfterMs = 0,
     bool dumpUrls = false,
@@ -2445,7 +2462,7 @@ abstract final class SelfTest {
     // a jump that was only a late sample
     final sampledAt = <int>[];
     final clock = Stopwatch()..start();
-    for (var i = 0; i < 50000 ~/ sampleMs; i++) {
+    for (var i = 0; i < sampleSeconds * 1000 ~/ sampleMs; i++) {
       await Future.delayed(Duration(milliseconds: sampleMs));
       sampledAt.add(clock.elapsedMilliseconds);
       timeline.add(
@@ -2463,7 +2480,10 @@ abstract final class SelfTest {
           'apts=${mpv.getProperty('audio-pts')} tpos=${mpv.getProperty('time-pos')} '
           'drops=${mpv.getProperty('frame-drop-count')} '
           'epoch=${player.videoControllerEpoch.value} '
-          'gate=${controller.asrPending.value}',
+          'gate=${controller.asrPending.value} '
+          // a second player during a handover: what it costs
+          'rss=${ProcessInfo.currentRss >> 20} '
+          'qa=${controller.currentVideoQa.value?.code}',
         );
       }
       final host = Uri.tryParse(controller.videoUrl ?? '')?.host;
