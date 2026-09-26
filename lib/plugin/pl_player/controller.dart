@@ -327,6 +327,28 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   late RuleFilter filters = Pref.danmakuFilterRule;
   // 关联弹幕控制器
   DanmakuController<DanmakuExtra>? danmakuController;
+
+  /// LibrePili: how many times the danmaku on screen were thrown away
+  /// because playback moved elsewhere (a seek, a new source). The danmaku
+  /// view refills the screen from the position that follows, with what is
+  /// still on screen there (see PlDanmaku): after a reload in place the
+  /// position does not jump, so this is how it knows.
+  int danmakuResets = 0;
+
+  /// LibrePili: where the last of [danmakuResets] sent playback, if known:
+  /// until mpv reports a position there, the positions it still reports
+  /// are the old place's, and refilling from them would flash the old
+  /// place's danmaku.
+  Duration? danmakuResetTo;
+
+  /// The danmaku on screen belong to where playback was: they go, and the
+  /// danmaku view is told (see [danmakuResets]).
+  void _resetDanmaku({Duration? to}) {
+    danmakuResets++;
+    danmakuResetTo = to;
+    danmakuController?.clear();
+  }
+
   bool showDanmaku = true;
   Set<int> dmState = <int>{};
   late final mergeDanmaku = Pref.mergeDanmaku;
@@ -844,7 +866,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   ) async {
     isBuffering.value = false;
     _heartDuration = 0;
-    danmakuController?.clear();
+    _resetDanmaku(to: seekTo);
 
     var player = _videoPlayerController;
 
@@ -2058,7 +2080,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         /// 拖动进度条调节时，不等待第一帧，防止抖动
         await _videoPlayerController?.stream.buffer.first;
       }
-      danmakuController?.clear();
+      _resetDanmaku(to: position);
       try {
         await _videoPlayerController?.seek(position);
       } catch (e) {

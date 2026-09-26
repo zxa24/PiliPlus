@@ -41,6 +41,7 @@ class PlDanmakuController {
     _requestedSeg.clear();
     _failCount.clear();
     _retryAfter.clear();
+    _loadedSeg.clear();
   }
 
   Future<void> queryDanmaku(int segmentIndex) async {
@@ -67,6 +68,7 @@ class PlDanmakuController {
       _failCount.remove(segmentIndex);
       _retryAfter.remove(segmentIndex);
       handleDanmaku(response.elems);
+      _loadedSeg.add(segmentIndex);
     } else {
       _requestedSeg.remove(segmentIndex);
       final count = (_failCount[segmentIndex] ?? 0) + 1;
@@ -166,6 +168,38 @@ class PlDanmakuController {
       handleDanmaku(elem);
     } catch (e, s) {
       Utils.reportError(e, s);
+    } finally {
+      _fileDmReady = true;
     }
+  }
+
+  /// LibrePili: the file's danmaku have been read (or there were none).
+  bool _fileDmReady = false;
+
+  /// LibrePili: segments whose danmaku have arrived (see [isLoaded]).
+  late final Set<int> _loadedSeg = HashSet();
+
+  /// LibrePili: one 100 ms bucket as stored, fetching nothing: for looking
+  /// back over what is still on screen (see aliveDanmakuAt).
+  List<DanmakuElem>? bucketAt(int bucket) => _dmSegMap[bucket];
+
+  /// LibrePili: whether the danmaku for [from]..[to] (ms of video) are all
+  /// in, asking for any segment of that range not yet asked for. Until they
+  /// are, a look back over the range would find the screen emptier than it
+  /// is, so it is put off.
+  bool isLoaded(int from, int to) {
+    if (_isFileSource) {
+      initFileDmIfNeeded();
+      return _fileDmReady;
+    }
+    var loaded = true;
+    final last = DmUtils.calcSegment(to);
+    for (var s = DmUtils.calcSegment(from < 0 ? 0 : from); s <= last; s++) {
+      if (!_loadedSeg.contains(s)) {
+        loaded = false;
+        queryDanmaku(s);
+      }
+    }
+    return loaded;
   }
 }

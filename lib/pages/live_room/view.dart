@@ -157,6 +157,13 @@ class _LiveRoomPageState extends State<LiveRoomPage>
     super.didPushNext();
   }
 
+  // LibrePili: unlike a video's (see PlDanmaku), a live room's danmaku do
+  // not stop while the player buffers, nor get refilled after. They are the
+  // room's chat as it is sent (the same messages as the chat panel), not
+  // comments pinned to a place in the stream: there is no position to put
+  // them back in step with, and a stalled picture does not stall the room.
+  // Paused, the renderer would also hold every message that came in at the
+  // right edge, filling the tracks, and drop most of what followed.
   void playerListener(PlayerStatus status) {
     if (status.isPlaying) {
       _liveRoomController
