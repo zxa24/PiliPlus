@@ -518,6 +518,11 @@ abstract final class SelfTest {
     _itn = _arg(args, '--asr-itn') != '0';
     debugFocusProbe = args.contains('--focus-probe');
     debugCommentsProbe = args.contains('--comments-probe');
+    // a model file given directly (a phone test build has none installed:
+    // its data is its own), for the translation probes
+    if (_arg(args, '--translate-model') case final model?) {
+      TranslationService.to.useModelFile(model);
+    }
     if (_arg(args, '--native') case final native?) {
       TextLanguage.debugNative = native.split('+');
     }

@@ -482,6 +482,14 @@ class TranslationService extends GetxService {
     return disposed;
   }
 
+  /// For the self-test (`--translate-model`): translations load [path]
+  /// instead of the installed model — a phone test build has none of its
+  /// own. Nothing else calls it.
+  void useModelFile(String path) => debugEngine = (report) {
+    report('加载模型');
+    return LlamaTranslationEngine.load(path);
+  };
+
   /// Stands in for loading the model, in tests.
   @visibleForTesting
   Future<TranslationEngine> Function(ValueChanged<String> report)? debugEngine;
