@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev webkit2gtk-4.1 libasound2-dev libmpv-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev webkit2gtk-4.1 libasound2-dev libmpv-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xvfb
         shell: bash
 
       - name: Setup flutter
@@ -46,6 +46,22 @@ jobs:
         #TODO: deb and rpm packages need to be build
       - name: Build Linux
         run: flutter build linux --release --dart-define-from-file=pili_release.json --no-pub
+
+      # the built app started for real under a virtual display, offline
+      # checks only (see SelfTest.ciSmokeFlags); a failure stops the job
+      # before anything is packaged or released
+      - name: Self-test
+        timeout-minutes: 15
+        shell: pwsh
+        run: lib/scripts/selftest_ci.ps1 -Exe xvfb-run -LauncherArgs '-a','-s','-screen 0 1600x900x24','build/linux/x64/release/bundle/librepili' -Out selftest-linux.json
+
+      - name: Upload self-test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: selftest-linux
+          path: selftest-linux.json
+          if-no-files-found: warn
 
       - name: Package .tar.gz
         run: tar -zcvf LibrePili_linux_${{ env.version }}_amd64.tar.gz -C build/linux/x64/release/bundle .

@@ -37,6 +37,22 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release --dart-define-from-file=pili_release.json --no-pub
 
+      # the built exe started for real, offline checks only (no network,
+      # models or camera; see SelfTest.ciSmokeFlags). A failure stops the
+      # job here, before anything is packaged or released.
+      - name: Self-test
+        timeout-minutes: 15
+        shell: pwsh
+        run: lib/scripts/selftest_ci.ps1 -Exe build/windows/x64/runner/Release/LibrePili.exe -Out selftest-windows.json
+
+      - name: Upload self-test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: selftest-windows
+          path: selftest-windows.json
+          if-no-files-found: warn
+
       - name: Prepare Upload
         run: |
           mkdir -p Release/LibrePili-Win

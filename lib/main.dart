@@ -104,7 +104,7 @@ Future<void> _initTmpPath() async {
 Future<void> _initAppPath() async {
   var dir = (await getApplicationSupportDirectory()).path;
   if (isSelfTestProfile) {
-    dir = path.join(dir, 'selftest');
+    dir = path.join(dir, selfTestProfileDir);
     await Directory(dir).create(recursive: true);
   }
   appSupportDirPath = dir;
@@ -114,6 +114,7 @@ void main(List<String> args) async {
   ScaledWidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   isSelfTestProfile = SelfTest.isRequested(args);
+  if (isSelfTestProfile) selfTestProfileDir = SelfTest.profileDir(args);
   // before anything that can fail: `--out` is read from the args alone, and
   // a caller must not see "no report + exit 0" as a pass
   if (isSelfTestProfile) SelfTest.markStarted(args);

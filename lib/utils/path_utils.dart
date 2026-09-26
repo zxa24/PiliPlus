@@ -16,6 +16,13 @@ late String downloadPath;
 /// never reads or deletes the user's own data.
 bool isSelfTestProfile = false;
 
+/// The folder name of that profile. `--profile NAME` makes it
+/// `selftest-NAME`, so a run that must start from nothing (the CI smoke)
+/// can have a profile of its own to delete first, without wiping the one
+/// other self-test runs keep their downloaded models in — and without two
+/// runs at once fighting over the same locked Hive boxes.
+String selfTestProfileDir = 'selftest';
+
 String get defDownloadPath =>
     path.join(appSupportDirPath, PathUtils.downloadDir);
 
@@ -34,7 +41,7 @@ Future<Directory> appTempDirectory() async {
     path.joinAll([
       dir.path,
       Constants.appName,
-      if (isSelfTestProfile) 'selftest',
+      if (isSelfTestProfile) selfTestProfileDir,
     ]),
   ).create(recursive: true);
 }

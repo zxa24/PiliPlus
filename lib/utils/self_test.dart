@@ -120,9 +120,11 @@ import 'package:PiliPlus/services/translate/translation_engine.dart';
 ///
 ///   LibrePili.exe --selftest [--download BVxxx] [--qn 80] [--local]
 ///                 [--keep] [--out result.json]
+///   LibrePili.exe --selftest --ci-smoke --profile ci --out result.json
 ///
 /// Runs after the app has started normally, writes a JSON report and exits
-/// with 0 when every check passed, 1 otherwise.
+/// with 0 when every check passed, 1 otherwise. With no check flags nothing
+/// is checked and the report passes: that only says the app started.
 /// Stands between the player and a CDN and cuts the file short at [cutAt]
 /// bytes, the way a broken copy on one host did (BV16Ltu6wELb on akamai,
 /// 2026-09-24): the body stops there, and a request that starts at or past
@@ -246,6 +248,30 @@ final class _CuttingProxy {
 
 abstract final class SelfTest {
   static bool isRequested(List<String> args) => args.contains('--selftest');
+
+  /// The profile folder for this run (see [selfTestProfileDir]). Only
+  /// letters, digits, `-` and `_` are kept from `--profile`, so the name can
+  /// never climb out of the app's data folder.
+  static String profileDir(List<String> args) {
+    final name = (_arg(args, '--profile') ?? '').replaceAll(
+      RegExp(r'[^A-Za-z0-9_-]'),
+      '',
+    );
+    return name.isEmpty ? 'selftest' : 'selftest-$name';
+  }
+
+  /// `--ci-smoke`: the checks that need nothing from outside the build — no
+  /// network, no models, no camera — run together, so CI can start the real
+  /// app on a fresh runner and fail the job when it breaks. Each one also
+  /// has its own flag; this only switches them all on at once, so the set
+  /// CI runs is named in one place.
+  static const ciSmokeFlags = {
+    '--local',
+    '--dialog-probe',
+    '--settings-reachable',
+    '--platform-search',
+    '--metrics',
+  };
 
   /// Inverse text normalisation for probe runs; see [AsrJob.itn].
   static bool _itn = true;
@@ -575,10 +601,18 @@ abstract final class SelfTest {
       checks.add(result);
     }
 
+    final smoke = args.contains('--ci-smoke');
+    bool on(String flag) =>
+        args.contains(flag) || (smoke && ciSmokeFlags.contains(flag));
+    if (smoke) {
+      report['smoke'] = ciSmokeFlags.toList();
+      await scenario('startup', _startup);
+    }
+
     if (_arg(args, '--feed') case final mid?) {
       await scenario('feed', () => _feed(int.parse(mid)));
     }
-    if (args.contains('--local')) {
+    if (on('--local')) {
       await scenario('localLibrary', _localLibrary);
     }
     if (_arg(args, '--open-local') case final target?) {
@@ -806,13 +840,13 @@ abstract final class SelfTest {
     if (args.contains('--import-settings')) {
       await scenario('importSettings', _importSettings);
     }
-    if (args.contains('--settings-reachable')) {
+    if (on('--settings-reachable')) {
       await scenario('settingsReachable', _settingsReachable);
     }
-    if (args.contains('--metrics')) {
+    if (on('--metrics')) {
       await scenario('metrics', _uiMetrics);
     }
-    if (args.contains('--platform-search')) {
+    if (on('--platform-search')) {
       await scenario('platformSearch', _platformSearch);
     }
     if (_arg(args, '--yt-channel') case final channel?) {
@@ -838,7 +872,7 @@ abstract final class SelfTest {
     if (args.contains('--comment-translate-probe')) {
       await scenario('commentTranslateProbe', _commentTranslateProbe);
     }
-    if (args.contains('--dialog-probe')) {
+    if (on('--dialog-probe')) {
       // the app's own dialogs, shown in the real app: a widget test with a
       // plain MaterialApp let one built on the wrong material library pass
       await scenario('dialogProbe', () async {
@@ -1007,6 +1041,36 @@ abstract final class SelfTest {
   }
 
   // ------------------------------------------------------------ scenarios
+
+  /// LibrePili: did the app come up as far as a person would see it?
+  ///
+  /// The first thing the CI smoke asks. A run that reached this point has
+  /// a process, storage and a first frame; what is left to check is that
+  /// the frame is the app — a navigator with a route, a view with a size,
+  /// and some text in the tree — and not a blank window, which on a
+  /// runner with no desktop is the likeliest way to fail. Framework errors
+  /// thrown while the home page built are charged to this check by
+  /// [scenario], since nothing earlier collects them.
+  static Future<Map<String, dynamic>> _startup() async {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final texts = _visibleTexts();
+    return {
+      'pass':
+          Get.context != null &&
+          Get.currentRoute.isNotEmpty &&
+          !view.physicalSize.isEmpty &&
+          texts.isNotEmpty,
+      'route': Get.currentRoute,
+      'physicalSize': '${view.physicalSize.width}x${view.physicalSize.height}',
+      'devicePixelRatio': view.devicePixelRatio,
+      'textsOnScreen': texts.length,
+      'someTexts': texts.take(12).toList(),
+      // a CI runner's service session has no interactive desktop; recorded
+      // so a failure there can be told from one on a real machine
+      if (Platform.isWindows)
+        'sessionName': Platform.environment['SESSIONNAME'],
+    };
+  }
 
   /// LibrePili: after toggling fullscreen, does moving the mouse over the
   /// video bring the control bars back?
