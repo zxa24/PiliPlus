@@ -111,6 +111,23 @@ class TranslationService extends GetxService {
       from != null &&
       AsrService.isSameMajorLanguage(from, 'zh');
 
+  /// What becomes of a unit of a transcript in [language] translated into
+  /// [into] (research/subtitle-switch-design-2026-09-26.md, 2A): Chinese
+  /// into Traditional Chinese is converted, a unit already in [into] is
+  /// shown as it is, and anything else — a language not known too — goes
+  /// to the model.
+  static UnitRoute routeFor(String language, String into) {
+    // not known: not assumed to be the viewer's own ([needed] says no to
+    // an empty tag, which is the session's question, not a unit's)
+    if (language.isEmpty) return UnitRoute.model;
+    if (convertsOnly(language, into)) return UnitRoute.convert;
+    if (into != traditionalChinese &&
+        AsrService.isSameMajorLanguage(language, into)) {
+      return UnitRoute.pass;
+    }
+    return UnitRoute.model;
+  }
+
   /// Whether the user chose automatic translation and it can run now.
   bool get shouldAutoTranslate =>
       supported &&
@@ -130,6 +147,10 @@ class TranslationService extends GetxService {
   /// [TranslationSession.ownsPlayer]).
   ///
   /// [into] is the language to translate into, the app's by default.
+  ///
+  /// Started whatever the speech's language: each unit is decided by its
+  /// own (see [routeFor]), and one already in [into] is shown as it is
+  /// without the model being loaded for it.
   Future<TranslationSession> start({
     required AsrSession asr,
     required double Function() position,
@@ -144,7 +165,7 @@ class TranslationService extends GetxService {
     position,
     ownsPlayer,
     into ?? target,
-    from: asr.state.value.language,
+    perUnit: true,
   );
 
   /// Starts translating a video's own captions, all known up front.
@@ -172,11 +193,20 @@ class TranslationService extends GetxService {
     bool Function()? ownsPlayer,
     String into, {
     String? from,
+    bool perUnit = false,
   }) {
     final stops = _stops;
     _pending++;
     final started = _starting.then(
-      (_) => _startNow(transcript, position, ownsPlayer, into, from, stops),
+      (_) => _startNow(
+        transcript,
+        position,
+        ownsPlayer,
+        into,
+        from,
+        stops,
+        perUnit: perUnit,
+      ),
     );
     _starting = started.then((_) {}, onError: (_) {});
     return started;
@@ -188,8 +218,9 @@ class TranslationService extends GetxService {
     bool Function()? ownsPlayer,
     String into,
     String? from,
-    int stops,
-  ) async {
+    int stops, {
+    required bool perUnit,
+  }) async {
     try {
       // the one this replaces belongs to a page this one's covers: it waits
       // for that page to be back rather than being stopped. A page starting
@@ -203,6 +234,7 @@ class TranslationService extends GetxService {
         ownsPlayer,
         into,
         from: from,
+        perUnit: perUnit,
         stopped: stops != _stops,
       );
     } finally {
@@ -357,6 +389,7 @@ class TranslationService extends GetxService {
     bool Function()? ownsPlayer,
     String into, {
     String? from,
+    bool perUnit = false,
     required bool stopped,
   }) {
     final traditional = into == traditionalChinese;
@@ -369,7 +402,10 @@ class TranslationService extends GetxService {
       convert: traditional
           ? () async => (await S2twpConverter.load()).convert
           : null,
-      modelFree: convertsOnly(from, into),
+      // captions are of one language, [from]; a transcript's units are
+      // decided one by one
+      modelFree: !perUnit && convertsOnly(from, into),
+      routeOf: perUnit ? (language) => routeFor(language, into) : null,
       ownsPlayer: ownsPlayer,
     )..claim = _claim;
     _wireExtras(session);
@@ -381,8 +417,9 @@ class TranslationService extends GetxService {
     }
     _current = session;
     session.start();
-    // a modelFree one cannot do them: they need a session of their own
-    if (session.modelFree) _serveExtras();
+    // a modelFree one cannot do them, nor one deciding unit by unit that
+    // has not needed the model yet: they need a session of their own
+    if (!session.servesExtras) _serveExtras();
     return session;
   }
 

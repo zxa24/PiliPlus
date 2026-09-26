@@ -742,21 +742,10 @@ class YtVideoController extends GetxController {
       (_) => _publishAsrSubtitle(),
     );
     _asrStateWorker = ever(session.state, (state) {
-      // the language is known from the first segment on
-      if (state.language != null) {
-        // a corrected language can turn out to be the user's own
-        if (translation.isActive &&
-            !TranslationService.to.needed(
-              state.language,
-              // the language it is being translated into, which is not the
-              // app's when picked from the menu (Chinese speech in
-              // Traditional Chinese is still to be converted)
-              into: translation.into,
-            )) {
-          _stopTranscriptTranslation();
-        }
-        _maybeTranslate(session, auto: auto);
-      }
+      // see VideoDetailController: a translation asked for does not wait
+      // for the language, and one under way goes on whatever it turns out
+      // to be
+      _maybeTranslate(session, auto: auto);
       switch (state.stage) {
         case AsrStage.done:
           if (!_gateOnTranslation) _closeAsrGate();
@@ -988,25 +977,10 @@ class YtVideoController extends GetxController {
     if (!Get.isRegistered<TranslationService>()) return;
     final service = TranslationService.to;
     final language = session.state.value.language;
-    // picked from the menu before the language was known, and the speech
-    // turns out to be in it: what was picked is the transcript
-    if (_translationRequested &&
-        language != null &&
-        !service.needed(language, into: _requestedInto) &&
-        _wantedOnDevice != null &&
-        _wantedOnDevice != 'asr') {
-      _translationRequested = false;
-      _wantedOnDevice = 'asr';
-      SmartDialog.showToast(
-        '原声即为${translationLanguageLabel(_requestedInto ?? AsrService.appLanguage)}',
-      );
-      _publishAsrSubtitle(isFinal: true);
-      return;
-    }
     // asked from the menu, which has already offered the download: the
-    // session fetches the model itself, into the language picked there
-    final requested =
-        _translationRequested && service.needed(language, into: _requestedInto);
+    // session fetches the model itself, into the language picked there,
+    // if a line turns out to need it
+    final requested = _translationRequested;
     final wanted =
         requested || (!_autoTranslateOff && service.shouldAutoStart(language));
     if (!wanted) return;
@@ -1132,18 +1106,6 @@ class YtVideoController extends GetxController {
       if (isClosed) return;
       await startAsr();
       _translationRequested = true;
-      return;
-    }
-    if (session.state.value.language == null) return;
-    if (!TranslationService.to.needed(
-      session.state.value.language,
-      into: into,
-    )) {
-      // the transcript is already in that language, and is what is shown
-      SmartDialog.showToast(
-        '原声即为${translationLanguageLabel(into ?? AsrService.appLanguage)}',
-      );
-      if (_wantedOnDevice != null) await showTranscript();
       return;
     }
     // a finished or failed translation is started over

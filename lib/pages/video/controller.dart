@@ -1886,21 +1886,11 @@ class VideoDetailController extends GetxController
       _publishAtNewPosition(session);
     });
     _asrStateWorker = ever(session.state, (state) {
-      // the language is known from the first segment on
-      if (state.language != null) {
-        // a corrected language can turn out to be the user's own
-        if (_translatingTranscript &&
-            !TranslationService.to.needed(
-              state.language,
-              // the language it is being translated into, which is not the
-              // app's when picked from the menu (Chinese speech in
-              // Traditional Chinese is still to be converted)
-              into: translation.into,
-            )) {
-          _stopTranscriptTranslation();
-        }
-        _maybeTranslate(session, auto: auto);
-      }
+      // an automatic translation waits for the language to be known; one
+      // asked for does not (see _maybeTranslate). One under way goes on
+      // whatever the language turns out to be: each line is translated, or
+      // shown as it is, by its own (design 2026-09-26, 2A)
+      _maybeTranslate(session, auto: auto);
       switch (state.stage) {
         case AsrStage.done:
           if (!_gateOnTranslation) _closeAsrGate();
@@ -2182,34 +2172,24 @@ class VideoDetailController extends GetxController
     if (vttSubtitlesIndex.value == index + 1) _applyOwnSubtitle(0);
   }
 
-  /// Starts translating [session] once its language is known, if it should
-  /// be: automatically when the user chose that, or because they asked from
-  /// the menu. Never for speech already in the app's language.
+  /// Starts translating [session], if it should be: because they asked
+  /// from the menu — at once, whatever the speech's language — or
+  /// automatically when the user chose that, once the language is known to
+  /// be foreign.
+  ///
+  /// Speech in the language asked for is no reason not to: each line is
+  /// decided by its own language, and one already in it is shown as it is
+  /// without the model being loaded (design 2026-09-26, 2A).
   void _maybeTranslate(AsrSession session, {required bool auto}) {
     // isActive, not session: a start in progress has no session yet
     if (translation.isActive || isClosed) return;
     if (!Get.isRegistered<TranslationService>()) return;
     final service = TranslationService.to;
     final language = session.state.value.language;
-    // picked from the menu before the language was known, and the speech
-    // turns out to be in it: what was picked is the transcript
-    if (_translationRequested &&
-        language != null &&
-        !service.needed(language, into: _requestedInto) &&
-        _wantedOnDevice != null &&
-        _wantedOnDevice != 'asr') {
-      _translationRequested = false;
-      _wantedOnDevice = 'asr';
-      SmartDialog.showToast(
-        '原声即为${translationLanguageLabel(_requestedInto ?? AsrService.appLanguage)}',
-      );
-      _publishAsrSubtitle(select: true, isFinal: true);
-      return;
-    }
     // asked from the menu, which has already offered the download: the
-    // session fetches the model itself, into the language picked there
-    final requested =
-        _translationRequested && service.needed(language, into: _requestedInto);
+    // session fetches the model itself, into the language picked there,
+    // if a line turns out to need it
+    final requested = _translationRequested;
     final wanted =
         requested || (!_autoTranslateOff && service.shouldAutoStart(language));
     if (!wanted) return;
@@ -2237,8 +2217,8 @@ class VideoDetailController extends GetxController
   }
 
   /// Ends a translation of the transcript once the transcript has stopped
-  /// short of done, or is in the user's own language after all. It would
-  /// otherwise wait for the rest forever, with the model loaded.
+  /// short of done. It would otherwise wait for the rest forever, with the
+  /// model loaded.
   ///
   /// One that has finished or failed is left for the menu to show, unless
   /// [always]: its track is about to come off, and its refresh timer would
@@ -2333,9 +2313,9 @@ class VideoDetailController extends GetxController
   }
 
   /// Translates from the menu: the video's own captions when they are in a
-  /// language the user does not read, otherwise the transcript — now if one
-  /// is running or finished, else as soon as transcription has found the
-  /// language.
+  /// language the user does not read, otherwise the transcript — now,
+  /// whether it is running or finished or has only just started. Lines
+  /// already in the language asked for are shown as they are.
   ///
   /// [mayTranscribe] asks whether falling back to transcription may fetch
   /// the recogniser's models; without it, missing models are not fetched.
@@ -2363,18 +2343,6 @@ class VideoDetailController extends GetxController
       if (isClosed) return;
       await startAsr();
       _translationRequested = true;
-      return;
-    }
-    if (session.state.value.language == null) return;
-    if (!TranslationService.to.needed(
-      session.state.value.language,
-      into: into,
-    )) {
-      // the transcript is already in that language, and is what is shown
-      SmartDialog.showToast(
-        '原声即为${translationLanguageLabel(into ?? AsrService.appLanguage)}',
-      );
-      if (_wantedOnDevice != null) await showTranscript();
       return;
     }
     // a finished or failed translation is started over (重新翻译, 点击重试):

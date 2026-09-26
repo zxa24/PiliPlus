@@ -2342,23 +2342,30 @@ abstract final class SelfTest {
     }
     gate.dispose();
     final session = page.translation.session.value;
+    // by the model, and shown as they are — already in the language asked
+    // for (design 2026-09-26, 2A)
     final translated = session?.results.values
+        .where((r) => !r.passed)
         .map((r) => r.text)
         .whereType<String>()
+        .toList();
+    final passed = session?.results.values
+        .where((r) => r.passed)
+        .map((r) => r.source)
         .toList();
     final result = {
       'pass':
           translatedTrackMs != null &&
           selectedMs != null &&
-          (translated?.isNotEmpty ?? false),
+          ((translated?.isNotEmpty ?? false) || (passed?.isNotEmpty ?? false)),
       if (comments != null)
         'comments': await comments.timeout(
           const Duration(seconds: 60),
           onTimeout: () => {'error': 'comments still translating after 60 s'},
         ),
       'subtitleLabel': page.onDeviceStatus(language),
-      'translationStarting': page.translation.isActive &&
-          page.translation.session.value == null,
+      'translationStarting':
+          page.translation.isActive && page.translation.session.value == null,
       'mode': auto ? 'auto' : 'menu',
       'local': local,
       'videoOwnSubtitles': ownSubtitles,
@@ -2380,7 +2387,12 @@ abstract final class SelfTest {
         _ => null,
       },
       'translatedUnits': translated?.length,
+      'passedUnits': passed?.length,
+      // whether the translation model was loaded at all: speech already in
+      // the language asked for should never load it
+      'modelLoaded': (session?.modelLoads ?? 0) > 0,
       'sample': translated?.take(4).toList(),
+      'passedSample': passed?.take(4).toList(),
     };
     await page.stopAsr();
     Get.back();
@@ -2395,6 +2407,11 @@ abstract final class SelfTest {
   /// a video in the app's own language gives up and stops; the translation
   /// into that language is then picked from the menu. What both rows of the
   /// menu say afterwards, and whether anything is still waiting.
+  ///
+  /// The translation picked is then a track of its own, selected, whose
+  /// lines are the speech as it is: already in that language, each is
+  /// passed through without the model (design 2026-09-26, 2A). With
+  /// `--pick-original`, the transcript is picked and shown instead.
   static Future<Map<String, dynamic>> _gaveUpProbe(
     String bv, {
     bool original = false,
@@ -2438,7 +2455,8 @@ abstract final class SelfTest {
       language = state?.language ?? language;
       final name = state?.stage.name ?? 'none';
       if (stages.isEmpty || stages.last != name) stages.add(name);
-      gaveUp = session != null &&
+      gaveUp =
+          session != null &&
           state?.stage == AsrStage.idle &&
           session.runCount > 0;
     }
@@ -2454,13 +2472,33 @@ abstract final class SelfTest {
     final hasOriginal = page.subtitles.any(
       (t) => t.lanDoc == onDeviceLabel(null),
     );
+    final translatedIndex = page.subtitles.indexWhere(
+      (t) =>
+          t.source == SubtitleSource.device &&
+          t.lan == 'asr-translated' &&
+          t.lanDoc == onDeviceLabel(picked),
+    );
+    final session = page.translation.session.value;
+    final results = session?.results.values.toList() ?? const [];
+    final passed = results.where((r) => r.passed).length;
+    final byModel = results.where((r) => !r.passed && r.text != null).length;
+    final shown = page.vttSubtitlesIndex.value > 0
+        ? page.vttSubtitles[page.vttSubtitlesIndex.value - 1]
+        : null;
     final result = {
       // the pick led somewhere: text is being made again and shown, rather
-      // than a label waiting on a transcription that has stopped
+      // than a label waiting on a transcription that has stopped — the
+      // transcript when that was picked; else the translation's own track,
+      // selected, its lines the speech passed through as it is
       'pass':
           translationLabel != '准备中' &&
-          hasOriginal &&
-          page.asrSession.value?.hasEnded == false,
+          page.asrSession.value?.hasEnded == false &&
+          (original
+              ? hasOriginal
+              : translatedIndex >= 0 &&
+                    page.vttSubtitlesIndex.value == translatedIndex + 1 &&
+                    passed > 0 &&
+                    byModel == 0),
       'bv': bv,
       'asrStages': stages,
       'detectedLanguage': language,
@@ -2472,6 +2510,22 @@ abstract final class SelfTest {
       'asrLanguageAfter': page.asrSession.value?.state.value.language,
       'subtitleIndex': page.vttSubtitlesIndex.value,
       'tracks': [for (final t in page.subtitles) t.lanDoc],
+      'translatedTrack': translatedIndex >= 0,
+      'passedUnits': passed,
+      'translatedUnits': byModel,
+      'modelLoaded': (session?.modelLoads ?? 0) > 0,
+      'position': page.plPlayerController.position.value,
+      // lines of the shown track still marked as waiting for a translation
+      'waitingLines': switch (shown) {
+        (isData: true, :final id) =>
+          translationPendingMark.allMatches(id).length,
+        _ => null,
+      },
+      'shownVtt': switch (shown) {
+        (isData: true, :final id) =>
+          id.length > 400 ? id.substring(0, 400) : id,
+        _ => null,
+      },
     };
     await page.stopAsr();
     Get.back();

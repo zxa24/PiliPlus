@@ -127,12 +127,19 @@ TranscriptView transcriptView(
     final trailing = <AsrCue>[];
     final done = complete();
     for (final run in store.runs) {
+      final settled = done || run.finished;
       final made = buildTranslationUnits(
         segments: [
           for (final s in run.segments) (start: s.start, duration: s.duration),
         ],
         cues: run.cues,
-        complete: done || run.finished,
+        complete: settled,
+        // each segment's own language, a stray short tag evened out: a
+        // unit never spans two, and each is translated or not by its own
+        languages: smoothSegmentLanguages([
+          for (final s in run.segments)
+            (language: s.language, weight: s.weight),
+        ], complete: settled),
       );
       units.addAll(made);
       // units are cut from the front of the run's cues, so the rest of
@@ -161,6 +168,22 @@ TranscriptView transcriptView(
   );
 }
 
+/// What becomes of one unit (research/subtitle-switch-design-2026-09-26.md,
+/// decision 2A): a video can change language part way, so each unit is
+/// decided by its own language, not the session's.
+enum UnitRoute {
+  /// Translated by the model.
+  model,
+
+  /// Already in the language asked for: shown as it is, in the same track,
+  /// without loading the model.
+  pass,
+
+  /// Chinese asked for in Traditional characters: only converted (see
+  /// S2twpConverter), without loading the model.
+  convert,
+}
+
 class TranslationSession {
   TranslationSession({
     required this.transcript,
@@ -170,6 +193,7 @@ class TranslationSession {
     this.ownsPlayer,
     this.convert,
     this.modelFree = false,
+    this.routeOf,
     this.extrasOnly = false,
     this.linger = extraLinger,
   });
@@ -206,9 +230,29 @@ class TranslationSession {
   final Future<String Function(String)> Function()? convert;
   String Function(String)? _converter;
 
-  /// No model at all: each unit is only [convert]ed — Chinese speech or
-  /// captions shown in Traditional Chinese.
+  /// No model at all: each unit is only [convert]ed — Chinese captions
+  /// shown in Traditional Chinese.
   final bool modelFree;
+
+  /// What becomes of a unit in [language] (see [UnitRoute]); every unit
+  /// goes to the model without it. A transcript's units are decided one by
+  /// one: a unit already in the language asked for is settled as it is,
+  /// before anything would load the model for it.
+  final UnitRoute Function(String language)? routeOf;
+
+  /// Some unit has needed the model. Until then a session deciding unit by
+  /// unit ([routeOf]) leaves [ExtraText]s to a session of their own: taking
+  /// them would load the model — and keep it — for a transcript that may
+  /// never need it.
+  var _usesModel = false;
+
+  bool get _takesExtras => routeOf == null || _usesModel;
+
+  /// How many times the model has been asked for (loaded, or downloaded
+  /// and loaded). For the self-test: a transcript already in the language
+  /// asked for should never load it.
+  int get modelLoads => _modelLoads;
+  var _modelLoads = 0;
 
   /// Whether the page this translates for still has the player, set by the
   /// page's track. The player is one for the whole app: while another video
@@ -245,6 +289,7 @@ class TranslationSession {
   /// paused under another page's.
   bool get servesExtras =>
       !modelFree &&
+      _takesExtras &&
       _loop != null &&
       !_closed &&
       !_ended &&
@@ -291,6 +336,7 @@ class TranslationSession {
     bool markPending = true,
     String Function(String line)? showTranslated,
     String Function(String line)? showSource,
+    String Function(String line, String language)? showSourceIn,
   }) {
     return layOutTranslation(
       units: units,
@@ -300,6 +346,7 @@ class TranslationSession {
       markPending: markPending,
       showTranslated: showTranslated,
       showSource: showSource,
+      showSourceIn: showSourceIn,
       // a model still coming down is not a translation under way
       pendingMark: isDownloading
           ? translationDownloadingMark
@@ -356,6 +403,11 @@ class TranslationSession {
   /// While a save waits for the whole translation ([requestFullCoverage]),
   /// one past the lead or behind the playhead too: the viewer's first, the
   /// rest from the start.
+  ///
+  /// Then, wherever it lies, one that needs no model ([routeOf]): shown as
+  /// it is or only converted, it costs nothing, and left for the viewer to
+  /// come round to it would show as waiting for a translation it never
+  /// needed.
   @visibleForTesting
   TranslationUnit? next() {
     final now = position();
@@ -364,6 +416,14 @@ class TranslationSession {
       if (unit.to < now - _behind) continue;
       if (unit.from > horizon) break;
       if (!results.settles(unit)) return unit;
+    }
+    final route = routeOf;
+    if (route != null && !modelFree) {
+      for (final unit in units) {
+        if (!results.settles(unit) && route(unit.language) != UnitRoute.model) {
+          return unit;
+        }
+      }
     }
     if (_fullCoverage == 0) return null;
     for (final unit in units) {
@@ -524,7 +584,8 @@ class TranslationSession {
         final due = next();
         // nothing of the transcript due: short texts go in the gap. The
         // transcript has the player's clock to keep; they do not.
-        final extraDue = due == null && (hasExtra?.call() ?? false);
+        final extraDue =
+            due == null && _takesExtras && (hasExtra?.call() ?? false);
         if (due == null && !extraDue && extrasOnly) {
           // held a little for the next burst, then let go
           if (DateTime.now().difference(_lastExtra) > linger) {
@@ -571,9 +632,22 @@ class TranslationSession {
           await _nap();
           continue;
         }
-        if (modelFree && due != null) {
+        final route = due == null || modelFree
+            ? null
+            : (routeOf?.call(due.language) ?? UnitRoute.model);
+        if (route == UnitRoute.pass) {
+          // already in the language asked for: shown as it is
           _set(const TranslationState(TranslationStage.translating));
-          final converter = _converter ??= await convert!();
+          results.record(due!, due.text, passed: true);
+          revision.value++;
+          continue;
+        }
+        if (route == UnitRoute.model) _usesModel = true;
+        if ((modelFree || route == UnitRoute.convert) && due != null) {
+          _set(const TranslationState(TranslationStage.translating));
+          final converter = convert == null
+              ? (String text) => text
+              : (_converter ??= await convert!());
           if (_closed) return;
           results.record(due, converter(due.text));
           revision.value++;
@@ -588,6 +662,7 @@ class TranslationSession {
           if (_closed) return;
           if (_parking != null || ownsPlayer?.call() == false) continue;
           _set(const TranslationState(TranslationStage.loading));
+          _modelLoads++;
           try {
             _engine = await engine(
               (message) => _set(

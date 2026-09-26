@@ -19,7 +19,7 @@ TranslationResults resultsFor(
   Map<int, String?> byIndex,
 ) => {
   for (final MapEntry(:key, :value) in byIndex.entries)
-    units[key].key: (source: units[key].text, text: value),
+    units[key].key: (source: units[key].text, text: value, passed: false),
 };
 
 void main() {

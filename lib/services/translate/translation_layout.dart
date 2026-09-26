@@ -46,8 +46,9 @@ const _minLineWidth = 12;
 const _sliver = 0.3;
 
 /// What became of one unit: the text it was made from, and the translation
-/// — null when it failed.
-typedef TranslationResult = ({String source, String? text});
+/// — null when it failed. [passed] when it was already in the language asked
+/// for, and is shown as it is (its [text] is then its source).
+typedef TranslationResult = ({String source, String? text, bool passed});
 
 /// Results by [TranslationUnit.key]. A unit with none, or with one made from
 /// other text than its own, is still waiting.
@@ -67,8 +68,8 @@ extension TranslationResultsOf on TranslationResults {
   /// Whether [unit] is settled: translated, or failed for good.
   bool settles(TranslationUnit unit) => of(unit) != null;
 
-  void record(TranslationUnit unit, String? text) =>
-      this[unit.key] = (source: unit.text, text: text);
+  void record(TranslationUnit unit, String? text, {bool passed = false}) =>
+      this[unit.key] = (source: unit.text, text: text, passed: passed);
 }
 
 /// The display cues for a translation track.
@@ -83,7 +84,13 @@ extension TranslationResultsOf on TranslationResults {
 ///
 /// [showTranslated] and [showSource] turn a line of translation, or of the
 /// source, into what is shown (see punctuateForDisplay). Applied once the
-/// lines are cut, which is decided on the punctuated text.
+/// lines are cut, which is decided on the punctuated text. [showSourceIn],
+/// when given, does it for a unit whose language is known, in that
+/// language: a video can change language part way.
+///
+/// A unit [TranslationResult.passed] through — already in the language
+/// asked for — shows its source lines, once, in either display: under
+/// itself they would say the same thing twice.
 List<AsrCue> layOutTranslation({
   required List<TranslationUnit> units,
   required TranslationResults results,
@@ -92,9 +99,16 @@ List<AsrCue> layOutTranslation({
   bool markPending = true,
   String Function(String line)? showTranslated,
   String Function(String line)? showSource,
+  String Function(String line, String language)? showSourceIn,
   String pendingMark = translationPendingMark,
 }) {
   List<AsrCue> source(List<AsrCue> cues) => _shown(cues, showSource);
+  List<AsrCue> sourceOf(TranslationUnit unit, List<AsrCue> cues) {
+    final language = unit.language;
+    if (language.isEmpty || showSourceIn == null) return source(cues);
+    return _shown(cues, (line) => showSourceIn(line, language));
+  }
+
   Iterable<AsrCue> pending(List<AsrCue> cues) => _pending(cues, pendingMark);
   final out = <AsrCue>[];
   // Lines in no unit yet go in at their time, not after every unit: with
@@ -117,14 +131,13 @@ List<AsrCue> layOutTranslation({
     trailingBefore(unit.from);
     final result = results.of(unit);
     if (result == null) {
-      out.addAll(
-        markPending ? pending(source(unit.cues)) : source(unit.cues),
-      );
+      final lines = sourceOf(unit, unit.cues);
+      out.addAll(markPending ? pending(lines) : lines);
       continue;
     }
     final text = result.text;
-    if (text == null) {
-      out.addAll(source(unit.cues));
+    if (text == null || result.passed) {
+      out.addAll(sourceOf(unit, unit.cues));
       continue;
     }
     // A unit's last cue may be held past where the next unit starts — the
@@ -138,6 +151,7 @@ List<AsrCue> layOutTranslation({
             to: next,
             text: unit.text,
             cues: unit.cues,
+            language: unit.language,
           )
         : unit;
     final lines = _shown(
@@ -148,7 +162,7 @@ List<AsrCue> layOutTranslation({
       display == TranslationDisplay.dual
           ? _dual(
               lines,
-              source([
+              sourceOf(unit, [
                 // the source lines under it end where the translation does
                 for (final c in unit.cues)
                   if (c.from < bounded.to)

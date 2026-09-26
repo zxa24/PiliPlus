@@ -134,20 +134,25 @@ class TranslationTrack {
   var _shownDownloading = false;
 
   /// The language of what is translated, when known: the lines shown
-  /// under the translation, or in its place while it is made, are in it.
-  String? _from;
+  /// under the translation, or in its place while it is made, are in it —
+  /// those of a unit whose own language is known are in that.
+  ///
+  /// Read when shown, not when started: a transcript's is not known before
+  /// its first segment, and a translation no longer waits for it.
+  String? Function() _from = () => null;
 
   /// The track as shown: each line with the punctuation its language shows
   /// (see punctuateForDisplay) — the translation's, and the source's under
   /// it or in its place.
   List<AsrCue> _cuesOf(TranslationSession current, {bool markPending = true}) {
     final into = _into;
-    final from = _from;
+    final from = _from();
     return current.cues(
       display: _display,
       markPending: markPending,
       showTranslated: (line) => punctuateForDisplay(line, into),
       showSource: (line) => punctuateForDisplay(line, from),
+      showSourceIn: punctuateForDisplay,
     );
   }
 
@@ -155,7 +160,7 @@ class TranslationTrack {
   /// language by default).
   Future<void> start(AsrSession asr, {String? into}) => _startWith(
     into,
-    from: asr.state.value.language,
+    from: () => asr.state.value.language,
     () => TranslationService.to.start(
       asr: asr,
       position: position,
@@ -173,7 +178,7 @@ class TranslationTrack {
     String? from,
   }) => _startWith(
     into,
-    from: from,
+    from: () => from,
     () => TranslationService.to.startCaptions(
       cues: cues,
       position: position,
@@ -186,7 +191,7 @@ class TranslationTrack {
   Future<void> _startWith(
     String? into,
     Future<TranslationSession> Function() create, {
-    String? from,
+    required String? Function() from,
     void Function(TranslationSession current)? onAttach,
   }) async {
     // taken before anything is awaited: a stop that lands while the one
