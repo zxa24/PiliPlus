@@ -508,6 +508,7 @@ abstract final class SelfTest {
     final out = _arg(args, '--out') ?? path.join(tmpDirPath, 'selftest.json');
     _itn = _arg(args, '--asr-itn') != '0';
     debugFocusProbe = args.contains('--focus-probe');
+    debugDumpUrls = args.contains('--dump-urls');
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
       'args': args,
@@ -2401,6 +2402,9 @@ abstract final class SelfTest {
   /// [_keyProbe]).
   static bool debugFocusProbe = false;
 
+  /// `--dump-urls`: pages report the stream URLs they played.
+  static bool debugDumpUrls = false;
+
   /// Presses [logical] the way a keyboard does: the key message goes to the
   /// focus system (the handler the engine calls), from the focused node up.
   static Future<void> _press(
@@ -3675,6 +3679,8 @@ abstract final class SelfTest {
       'captionTracks': controller.captions.length,
       'captionShown': captionOk,
       'via': controller.streams?.sourceId,
+      // the streams themselves, for probes run against them (--dump-urls)
+      if (debugDumpUrls) 'audioUrlFull': controller.streams?.audioUrl,
       'stoppedOnLeave': stopped,
       'positionAfterBack': afterBack?.inMilliseconds,
       'positionAfterBack2': afterBack2?.inMilliseconds,
