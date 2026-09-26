@@ -137,9 +137,9 @@ class TranslationService extends GetxService {
     String? into,
   }) => _start(
     transcriptView(
-      segments: () => asr.segments,
-      cues: () => asr.cues,
+      asr.transcript,
       complete: () => asr.state.value.stage == AsrStage.done,
+      resting: () => asr.state.value.stage == AsrStage.standby,
     ),
     position,
     ownsPlayer,
@@ -157,9 +157,8 @@ class TranslationService extends GetxService {
     String? into,
     String? from,
   }) {
-    final units = buildCaptionUnits(cues);
     return _start(
-      (units: () => units, cues: () => cues, complete: () => true),
+      fixedTranscript(buildCaptionUnits(cues)),
       position,
       ownsPlayer,
       into ?? target,
@@ -279,11 +278,7 @@ class TranslationService extends GetxService {
     // nothing about to start either: a start takes them over
     if (_pending > 0) return;
     final session = _extrasSession = TranslationSession(
-      transcript: (
-        units: () => const [],
-        cues: () => const [],
-        complete: () => true,
-      ),
+      transcript: fixedTranscript(const []),
       position: () => 0,
       engine: debugEngine ?? _loader(),
       target: target,

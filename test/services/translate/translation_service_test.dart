@@ -63,7 +63,7 @@ void main() {
         expect(session.target, 'zh');
         // the dictionaries come from the app's assets
         await pumpUntil(() => session.results.isNotEmpty, tries: 2000);
-        expect(session.results.values.single, '軟體和網路。');
+        expect(session.results.values.single.text, '軟體和網路。');
         expect(engines, isEmpty);
       },
     );
@@ -81,7 +81,7 @@ void main() {
         expect(session.target, 'zh');
         await pumpUntil(() => session.results.isNotEmpty, tries: 2000);
         // the fake engine answers '译:<text>', which comes out converted
-        expect(session.results.values.single, '譯:Software.');
+        expect(session.results.values.single.text, '譯:Software.');
         expect(
           engines.single.prompts.single,
           startsWith('将以下文本翻译为中文'),
@@ -142,7 +142,8 @@ void main() {
       expect(a.state.value.stage, TranslationStage.paused);
       expect(a.isRunning, isFalse);
       expect(engines.first.disposed, isTrue);
-      expect(a.results.keys, [0, 1]);
+      // kept by where each unit starts, in milliseconds
+      expect(a.results.keys, [0, 100000]);
       expect(service.debugIsParked(a), isTrue);
       expect(service.debugCurrent, same(b));
       await pumpUntil(() => b.results.length == 2);
@@ -155,7 +156,7 @@ void main() {
       a.poke();
       await pumpUntil(() => a.results.length == 3);
       expect(engines, hasLength(3));
-      expect(a.results.keys, [0, 1, 2]);
+      expect(a.results.keys, [0, 100000, 200000]);
       expect(service.debugCurrent, same(a));
       expect(service.debugIsParked(a), isFalse);
     });

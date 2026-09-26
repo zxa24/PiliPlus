@@ -45,13 +45,36 @@ const _minLineWidth = 12;
 /// its own; it goes to the piece before it.
 const _sliver = 0.3;
 
-/// How a unit stands: absent is still waiting, null is failed, text is done.
-typedef TranslationResults = Map<int, String?>;
+/// What became of one unit: the text it was made from, and the translation
+/// — null when it failed.
+typedef TranslationResult = ({String source, String? text});
+
+/// Results by [TranslationUnit.key]. A unit with none, or with one made from
+/// other text than its own, is still waiting.
+typedef TranslationResults = Map<int, TranslationResult>;
+
+extension TranslationResultsOf on TranslationResults {
+  /// [unit]'s result, if one was made from its text.
+  ///
+  /// The text is checked, not only the key: a stretch transcribed again
+  /// can put different words at the same moment, and the old translation
+  /// must not be shown for them.
+  TranslationResult? of(TranslationUnit unit) {
+    final result = this[unit.key];
+    return result != null && result.source == unit.text ? result : null;
+  }
+
+  /// Whether [unit] is settled: translated, or failed for good.
+  bool settles(TranslationUnit unit) => of(unit) != null;
+
+  void record(TranslationUnit unit, String? text) =>
+      this[unit.key] = (source: unit.text, text: text);
+}
 
 /// The display cues for a translation track.
 ///
-/// [units] are the settled units in order and [results] what is known about
-/// each, by index. [trailing] are cues the recogniser has produced that are
+/// [units] are the settled units in time order and [results] what is known
+/// about each (see [TranslationResultsOf.of]). [trailing] are cues the recogniser has produced that are
 /// not in a unit yet; they are shown as waiting. The result is laid out
 /// the same way a transcript is (small holes closed, no overlaps).
 ///
@@ -74,15 +97,32 @@ List<AsrCue> layOutTranslation({
   List<AsrCue> source(List<AsrCue> cues) => _shown(cues, showSource);
   Iterable<AsrCue> pending(List<AsrCue> cues) => _pending(cues, pendingMark);
   final out = <AsrCue>[];
+  // Lines in no unit yet go in at their time, not after every unit: with
+  // the transcript in several stretches, one stretch's newest line comes
+  // before the next stretch's units. With one stretch they are all past
+  // the last unit, as before.
+  var t = 0;
+  void trailingBefore(double time) {
+    final start = t;
+    while (t < trailing.length && trailing[t].from < time) {
+      t++;
+    }
+    if (t == start) return;
+    final lines = trailing.sublist(start, t);
+    out.addAll(markPending ? pending(source(lines)) : source(lines));
+  }
+
   for (var i = 0; i < units.length; i++) {
     final unit = units[i];
-    if (!results.containsKey(i)) {
+    trailingBefore(unit.from);
+    final result = results.of(unit);
+    if (result == null) {
       out.addAll(
         markPending ? pending(source(unit.cues)) : source(unit.cues),
       );
       continue;
     }
-    final text = results[i];
+    final text = result.text;
     if (text == null) {
       out.addAll(source(unit.cues));
       continue;
@@ -122,9 +162,7 @@ List<AsrCue> layOutTranslation({
           : lines,
     );
   }
-  out.addAll(
-    markPending ? pending(source(trailing)) : source(trailing),
-  );
+  trailingBefore(double.infinity);
   return AsrCueBuilder.layOut(out);
 }
 

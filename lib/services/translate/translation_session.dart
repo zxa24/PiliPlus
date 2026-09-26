@@ -16,6 +16,7 @@ library;
 import 'dart:async';
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_unit.dart';
@@ -77,30 +78,86 @@ class TranslationState {
 /// What the session reads from the text it translates: a transcript still
 /// being written, or a video's own captions.
 typedef TranscriptView = ({
-  /// The settled units so far; later calls return the same ones first.
+  /// The settled units so far, in time order. A unit once returned is
+  /// returned again unchanged — never cut differently — though others may
+  /// come before it as well as after.
   List<TranslationUnit> Function() units,
 
-  /// Every source line so far, including those not in a unit yet.
-  List<AsrCue> Function() cues,
+  /// The source lines not in a unit yet, in time order.
+  List<AsrCue> Function() trailing,
+
+  /// The stretches of media whose text is known (see TranscriptStore); text
+  /// can still turn up in the gaps between them.
+  List<TimeSpan> Function() covered,
 
   /// True once no more text is coming: the last unit is settled.
   bool Function() complete,
+
+  /// The transcript is paused, not finished: far enough ahead of the
+  /// viewer for now (AsrStage.standby).
+  bool Function() resting,
 });
 
-/// A transcript as a [TranscriptView]: units along its VAD segments.
-TranscriptView transcriptView({
-  required List<AsrSegmentSpan> Function() segments,
-  required List<AsrCue> Function() cues,
+/// Text known in full from the start: captions, or nothing at all.
+TranscriptView fixedTranscript(
+  List<TranslationUnit> units, {
+  List<AsrCue> trailing = const [],
+}) {
+  final keyed = withUniqueKeys(units);
+  return (
+    units: () => keyed,
+    trailing: () => trailing,
+    covered: () => const [(from: double.negativeInfinity, to: double.infinity)],
+    complete: () => true,
+    resting: () => false,
+  );
+}
+
+/// A transcript as a [TranscriptView]: units along its VAD segments, cut
+/// within each run and never across two (research/chunked-transcription-
+/// design-2026-09-25.md, 4.6). A run's newest segment settles when the run
+/// is finished or [complete] says the transcript is.
+TranscriptView transcriptView(
+  TranscriptStore store, {
   required bool Function() complete,
-}) => (
-  units: () => buildTranslationUnits(
-    segments: segments(),
-    cues: cues(),
-    complete: complete(),
-  ),
-  cues: cues,
-  complete: complete,
-);
+  bool Function()? resting,
+}) {
+  ({List<TranslationUnit> units, List<AsrCue> trailing}) cut() {
+    final units = <TranslationUnit>[];
+    final trailing = <AsrCue>[];
+    final done = complete();
+    for (final run in store.runs) {
+      final made = buildTranslationUnits(
+        segments: run.segments,
+        cues: run.cues,
+        complete: done || run.finished,
+      );
+      units.addAll(made);
+      // units are cut from the front of the run's cues, so the rest of
+      // them is what the units have not taken. Not "starts after the last
+      // unit's end": that unit's last cue can be held past the start of
+      // the next segment's first one, which then went missing until its
+      // own unit settled.
+      var taken = 0;
+      for (final unit in made) {
+        taken += unit.cues.length;
+      }
+      trailing.addAll(run.cues.skip(taken));
+    }
+    // runs are in time order and do not overlap, so this is only a guard
+    mergeSort(units, compare: (a, b) => a.from.compareTo(b.from));
+    mergeSort(trailing, compare: (a, b) => a.from.compareTo(b.from));
+    return (units: withUniqueKeys(units), trailing: trailing);
+  }
+
+  return (
+    units: () => cut().units,
+    trailing: () => cut().trailing,
+    covered: () => store.covered,
+    complete: complete,
+    resting: resting ?? () => false,
+  );
+}
 
 class TranslationSession {
   TranslationSession({
@@ -233,19 +290,10 @@ class TranslationSession {
     String Function(String line)? showTranslated,
     String Function(String line)? showSource,
   }) {
-    final settled = units;
-    // Units are cut from the front of the cue list, so the rest is what they
-    // have not taken. Not "starts after the last unit's end": that unit's
-    // last cue can be held past the start of the next segment's first one,
-    // which then went missing until its own unit settled.
-    var taken = 0;
-    for (final unit in settled) {
-      taken += unit.cues.length;
-    }
     return layOutTranslation(
-      units: settled,
+      units: units,
       results: results,
-      trailing: transcript.cues().skip(taken).toList(),
+      trailing: _outsideUnits(),
       display: display,
       markPending: markPending,
       showTranslated: showTranslated,
@@ -273,30 +321,60 @@ class TranslationSession {
   /// This, not the furthest translated unit, is what decides whether the
   /// viewer is about to run out: a hole in the middle would otherwise be
   /// invisible to the publishing gate.
-  double settledFrom(double at) {
+  ///
+  /// Nor does the stretch run on over a gap in the transcript: past it the
+  /// text is not known, whatever is settled beyond.
+  ///
+  /// [asOf] reads the results as they were when a track was handed over:
+  /// the source text each key then had a result for.
+  double settledFrom(double at, {Map<int, String>? asOf}) {
+    bool settled(TranslationUnit unit) =>
+        asOf == null ? results.settles(unit) : asOf[unit.key] == unit.text;
+    final known = coveredEndOf(transcript.covered(), at);
     var end = at;
-    for (var i = 0; i < units.length; i++) {
-      final unit = units[i];
+    for (final unit in units) {
       if (unit.to < at) continue;
-      if (!results.containsKey(i)) break;
+      if (unit.from > known || !settled(unit)) break;
       end = unit.to;
     }
     return end;
   }
 
+  /// The results as they stand, to hand [settledFrom] later as `asOf`.
+  Map<int, String> resultsSnapshot() => {
+    for (final entry in results.entries) entry.key: entry.value.source,
+  };
+
+  /// Whether every unit so far is settled.
+  bool get allSettled => units.every(results.settles);
+
   /// The next unit to translate: the first one not behind the playhead that
   /// has no result, if it starts within [translationLead].
   @visibleForTesting
-  int? next() {
+  TranslationUnit? next() {
     final now = position();
     final horizon = now + translationLead.inMilliseconds / 1000;
-    for (var i = 0; i < units.length; i++) {
-      final unit = units[i];
+    for (final unit in units) {
       if (unit.to < now - _behind) continue;
       if (unit.from > horizon) return null;
-      if (!results.containsKey(i)) return i;
+      if (!results.settles(unit)) return unit;
     }
     return null;
+  }
+
+  /// The source lines not in one of [units]: those in no unit yet, and those
+  /// in units settled since [units] was last read.
+  List<AsrCue> _outsideUnits() {
+    final trailing = transcript.trailing();
+    final known = {for (final unit in units) unit.key};
+    final newer = [
+      for (final unit in transcript.units())
+        if (!known.contains(unit.key)) ...unit.cues,
+    ];
+    if (newer.isEmpty) return trailing;
+    final out = [...newer, ...trailing];
+    mergeSort(out, compare: (a, b) => a.from.compareTo(b.from));
+    return out;
   }
 
   /// Whether nothing between the playhead and [within] seconds past it is
@@ -307,22 +385,31 @@ class TranslationSession {
   /// Units behind the playhead do not count: a resume or a seek forward
   /// leaves them without a result, and the session would otherwise wait for
   /// them for as long as the page is open.
+  ///
+  /// Text past [within] proves the text up to it known only when no gap in
+  /// the transcript lies between: a gap may yet fill with speech.
   bool nothingPendingAhead({double? within}) {
     final now = position();
     final end = within == null ? double.infinity : now + within;
-    var taken = 0;
-    for (var i = 0; i < units.length; i++) {
-      final unit = units[i];
-      taken += unit.cues.length;
+    final complete = transcript.complete();
+    final covered = transcript.covered();
+    // the stretch of known text the playhead is in
+    final known = complete
+        ? (from: double.negativeInfinity, to: double.infinity)
+        : coveredSpanOf(covered, now);
+    for (final unit in units) {
       if (unit.to < now - _behind) continue;
-      if (unit.from > end) return true;
-      if (!results.containsKey(i)) return false;
+      if (unit.from > end) return unit.from <= known.to;
+      if (!results.settles(unit)) return false;
     }
-    if (transcript.complete()) return true;
+    if (complete) return true;
     // lines not in a unit yet are still to be translated; and with none
-    // past [end] the recogniser has not got that far
-    final rest = transcript.cues().skip(taken);
-    return rest.isNotEmpty && rest.first.from > end;
+    // past [end] the recogniser has not got that far. Only this stretch's:
+    // another's are no sign of how far this one has got.
+    final rest = _outsideUnits().where((c) => c.from >= known.from);
+    return rest.isNotEmpty &&
+        rest.first.from > end &&
+        rest.first.from <= known.to;
   }
 
   void _refreshUnits() => units = transcript.units();
@@ -394,11 +481,11 @@ class TranslationSession {
           }
         }
         _refreshUnits();
-        final i = next();
+        final due = next();
         // nothing of the transcript due: short texts go in the gap. The
         // transcript has the player's clock to keep; they do not.
-        final extraDue = i == null && (hasExtra?.call() ?? false);
-        if (i == null && !extraDue && extrasOnly) {
+        final extraDue = due == null && (hasExtra?.call() ?? false);
+        if (due == null && !extraDue && extrasOnly) {
           // held a little for the next burst, then let go
           if (DateTime.now().difference(_lastExtra) > linger) {
             _set(const TranslationState(TranslationStage.done));
@@ -410,17 +497,24 @@ class TranslationSession {
           await _nap();
           continue;
         }
-        if (i == null && !extraDue) {
+        if (due == null && !extraDue) {
           // an empty transcript is finished too, with nothing to translate
-          final finished =
-              transcript.complete() && results.length == units.length;
+          final finished = transcript.complete() && allSettled;
           if (finished) {
             _set(const TranslationState(TranslationStage.done));
             return;
           }
-          if (transcript.complete() && nothingPendingAhead()) {
-            // done for as far as the viewer goes: the model is let go of,
-            // and a seek back to what was skipped loads it again
+          // Done for as far as the viewer goes: the model is let go of, and
+          // a seek back to what was skipped loads it again. A transcript
+          // paused ahead of the viewer counts once the lead is translated:
+          // otherwise the model (1-3 GB) would stay loaded all through the
+          // pause (research/chunked-transcription-design-2026-09-25.md,
+          // 4.5).
+          if ((transcript.complete() && nothingPendingAhead()) ||
+              (transcript.resting() &&
+                  nothingPendingAhead(
+                    within: translationLead.inMilliseconds / 1000,
+                  ))) {
             final loaded = _engine;
             _engine = null;
             await loaded?.dispose();
@@ -437,11 +531,11 @@ class TranslationSession {
           await _nap();
           continue;
         }
-        if (modelFree && i != null) {
+        if (modelFree && due != null) {
           _set(const TranslationState(TranslationStage.translating));
           final converter = _converter ??= await convert!();
           if (_closed) return;
-          results[i] = converter(units[i].text);
+          results.record(due, converter(due.text));
           revision.value++;
           continue;
         }
@@ -470,12 +564,12 @@ class TranslationSession {
           if (_closed) return;
           if (_parking != null) continue;
         }
-        if (i == null) {
+        if (due == null) {
           await _translateExtra();
           continue;
         }
         _set(const TranslationState(TranslationStage.translating));
-        final unit = units[i];
+        final unit = due;
         String? text;
         try {
           final reply = await _engine!.complete(
@@ -490,14 +584,14 @@ class TranslationSession {
           if (_closed) return;
           // cancelled to let go of the model: the unit is translated later
           if (_parking != null || ownsPlayer?.call() == false) continue;
-          if (kDebugMode) debugPrint('translate: unit $i failed: $e');
+          if (kDebugMode) debugPrint('translate: unit ${unit.from} failed: $e');
           if (++_failures >= _giveUpAfter) {
             _set(TranslationState(TranslationStage.failed, message: '$e'));
             return;
           }
         }
         if (_closed) return;
-        results[i] = text;
+        results.record(unit, text);
         revision.value++;
       }
     } catch (e) {

@@ -61,6 +61,7 @@ import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
@@ -2521,8 +2522,9 @@ class VideoDetailController extends GetxController
   /// Puts what has been recognised so far into the subtitle list, adding the
   /// track the first time and replacing its data afterwards.
   /// How far the published track reaches, so a refresh that would gain the
-  /// viewer nothing can be skipped.
-  Duration _asrPublishedTo = Duration.zero;
+  /// viewer nothing can be skipped: stretch by stretch of the transcript,
+  /// read at the playhead (see [PublishedReach]).
+  PublishedReach _asrPublished = PublishedReach.none;
 
   /// The transcript as shown: with the punctuation its language shows in
   /// subtitles (see punctuateForDisplay).
@@ -2538,19 +2540,20 @@ class VideoDetailController extends GetxController
     // Handing mpv a rebuilt track reloads it, and the line on screen blinks.
     // While the transcript already runs well ahead of the playhead there is
     // nothing to gain by paying that.
+    // the player counts whole seconds
+    final position = plPlayerController.position.value;
     if (!shouldPublishAsr(
-      publishedTo: _asrPublishedTo,
-      // the player counts whole seconds
-      position: Duration(seconds: plPlayerController.position.value),
+      publishedTo: Duration(
+        milliseconds: (_asrPublished.at(position.toDouble()) * 1000).round(),
+      ),
+      position: Duration(seconds: position),
       isFirst: _asrTrackIndex == null,
       isFinal: isFinal || select,
     )) {
       return;
     }
     final vtt = _transcriptVtt(cues);
-    _asrPublishedTo = Duration(
-      milliseconds: (cues.last.to * 1000).round(),
-    );
+    _asrPublished = PublishedReach.of(cues, session.transcript.covered);
 
     var index = _asrTrackIndex;
     if (index == null) {

@@ -28,16 +28,27 @@ const translationJoinGap = 0.5;
 const translationMaxSegments = 2;
 
 class TranslationUnit {
-  const TranslationUnit({
+  TranslationUnit({
     required this.from,
     required this.to,
     required this.text,
     required this.cues,
-  });
+    int? key,
+  }) : key = key ?? (from * 1000).round();
 
   /// Where the unit's first cue starts and its last one ends, in seconds.
   final double from;
   final double to;
+
+  /// What its translation is kept under: where it starts, in milliseconds.
+  ///
+  /// Not its place in the list. Text can now arrive in front of what is
+  /// already there — a run started further on, then one from before it
+  /// (research/chunked-transcription-design-2026-09-25.md, 4.6) — and every
+  /// unit after it would move up a place, taking the translation of the
+  /// one before. The time a unit starts does not move. Two units that
+  /// start in the same millisecond are told apart by [withUniqueKeys].
+  final int key;
 
   /// The source text as one piece, as the translator sees it.
   final String text;
@@ -51,7 +62,34 @@ class TranslationUnit {
 
 typedef AsrSegmentSpan = ({double start, double duration});
 
-/// Groups [cues] into translation units along [segments].
+/// [units], in the order given, with no two sharing a [TranslationUnit.key]:
+/// one that would is moved to the next free millisecond. A translation is
+/// kept with the text it was made from, so a key that ends up naming
+/// another unit only loses a translation, never shows the wrong one.
+List<TranslationUnit> withUniqueKeys(List<TranslationUnit> units) {
+  final seen = <int>{};
+  var out = units;
+  for (var i = 0; i < units.length; i++) {
+    final unit = units[i];
+    var key = unit.key;
+    if (seen.add(key)) continue;
+    while (!seen.add(key)) {
+      key++;
+    }
+    if (identical(out, units)) out = List.of(units);
+    out[i] = TranslationUnit(
+      from: unit.from,
+      to: unit.to,
+      text: unit.text,
+      cues: unit.cues,
+      key: key,
+    );
+  }
+  return out;
+}
+
+/// Groups [cues] into translation units along [segments]: one run's (see
+/// TranscriptStore), since a unit is never made across two.
 ///
 /// Both lists grow while recognition runs and only ever at the end. A unit
 /// whose last segment is also the newest one cannot be settled yet — the

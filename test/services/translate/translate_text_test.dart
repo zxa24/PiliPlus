@@ -126,11 +126,7 @@ void main() {
 
   test('a paused session does not take texts', () async {
     final session = TranslationSession(
-      transcript: (
-        units: () => const [],
-        cues: () => const [],
-        complete: () => true,
-      ),
+      transcript: fixedTranscript(const []),
       position: () => 0,
       engine: (_) async => FakeEngine(),
       target: 'zh',

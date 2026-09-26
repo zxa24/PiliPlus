@@ -1,5 +1,6 @@
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -9,6 +10,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 AsrCue cue(double from, double to, String content) =>
     AsrCue(from: from, to: to, content: content);
+
+/// Results for [units], given by position the way a test reads them: the
+/// translation, or null for one that failed. Kept as the session keeps
+/// them, under each unit's start and with its text.
+TranslationResults resultsFor(
+  List<TranslationUnit> units,
+  Map<int, String?> byIndex,
+) => {
+  for (final MapEntry(:key, :value) in byIndex.entries)
+    units[key].key: (source: units[key].text, text: value),
+};
 
 void main() {
   group('buildTranslationUnits', () {
@@ -235,7 +247,7 @@ void main() {
       // not touched
       final out = layOutTranslation(
         units: units,
-        results: {0: '你好，朋友。'},
+        results: resultsFor(units, {0: '你好，朋友。'}),
         display: TranslationDisplay.dual,
         showTranslated: (line) => punctuateForDisplay(line, 'zh'),
         showSource: (line) => punctuateForDisplay(line, 'en'),
@@ -247,7 +259,10 @@ void main() {
     });
 
     test('waiting units show their source, marked', () {
-      final out = layOutTranslation(units: units, results: {0: '你好。'});
+      final out = layOutTranslation(
+        units: units,
+        results: resultsFor(units, {0: '你好。'}),
+      );
       expect(out.map((c) => c.content), [
         '你好。',
         'Bye.\n$translationPendingMark',
@@ -255,14 +270,17 @@ void main() {
     });
 
     test('a failed unit shows its source unmarked', () {
-      final out = layOutTranslation(units: units, results: {0: '你好。', 1: null});
+      final out = layOutTranslation(
+        units: units,
+        results: resultsFor(units, {0: '你好。', 1: null}),
+      );
       expect(out.last.content, 'Bye.');
     });
 
     test('dual puts the source line under the translation', () {
       final out = layOutTranslation(
         units: units,
-        results: {0: '你好。', 1: '再见。'},
+        results: resultsFor(units, {0: '你好。', 1: '再见。'}),
         display: TranslationDisplay.dual,
       );
       expect(out.map((c) => c.content), ['你好。\nHello.', '再见。\nBye.']);
@@ -277,7 +295,12 @@ void main() {
       );
       final out = layOutTranslation(
         units: [unit],
-        results: {0: '一二三四五六七八九十一二三。十四十五十六十七十八十九二十。'},
+        results: resultsFor(
+          [unit],
+          {
+            0: '一二三四五六七八九十一二三。十四十五十六十七十八十九二十。',
+          },
+        ),
         display: TranslationDisplay.dual,
       );
       for (final c in out) {
@@ -291,40 +314,28 @@ void main() {
     test('a unit held past the next one ends where the next begins', () {
       // measured on a real transcript: the last cue of one unit was held
       // to 300.78 while the next unit started at 299.52
+      final held = [
+        TranslationUnit(
+          from: 294.8,
+          to: 300.8,
+          text: 'a',
+          cues: [cue(294.8, 300.8, 'a')],
+        ),
+        TranslationUnit(
+          from: 299.5,
+          to: 301.1,
+          text: 'b',
+          cues: [cue(299.5, 301.1, 'b')],
+        ),
+      ];
       final out = layOutTranslation(
-        units: [
-          TranslationUnit(
-            from: 294.8,
-            to: 300.8,
-            text: 'a',
-            cues: [cue(294.8, 300.8, 'a')],
-          ),
-          TranslationUnit(
-            from: 299.5,
-            to: 301.1,
-            text: 'b',
-            cues: [cue(299.5, 301.1, 'b')],
-          ),
-        ],
-        results: {0: '甲。', 1: '乙。'},
+        units: held,
+        results: resultsFor(held, {0: '甲。', 1: '乙。'}),
       );
       expect(out.map((c) => (c.from, c.to)), [(294.8, 299.5), (299.5, 301.1)]);
       final dual = layOutTranslation(
-        units: [
-          TranslationUnit(
-            from: 294.8,
-            to: 300.8,
-            text: 'a',
-            cues: [cue(294.8, 300.8, 'a')],
-          ),
-          TranslationUnit(
-            from: 299.5,
-            to: 301.1,
-            text: 'b',
-            cues: [cue(299.5, 301.1, 'b')],
-          ),
-        ],
-        results: {0: '甲。', 1: '乙。'},
+        units: held,
+        results: resultsFor(held, {0: '甲。', 1: '乙。'}),
         display: TranslationDisplay.dual,
       );
       expect(dual.map((c) => (c.from, c.to)), [(294.8, 299.5), (299.5, 301.1)]);
@@ -409,30 +420,23 @@ void main() {
   });
 
   group('TranslationSession', () {
-    late List<AsrSegmentSpan> segments;
-    late List<AsrCue> cues;
+    late TranscriptStore store;
     late bool complete;
     late double now;
     late FakeEngine engine;
 
     TranslationSession make() => TranslationSession(
-      transcript: transcriptView(
-        segments: () => segments,
-        cues: () => cues,
-        complete: () => complete,
-      ),
+      transcript: transcriptView(store, complete: () => complete),
       position: () => now,
       engine: (_) async => engine,
       target: 'zh',
     );
 
     setUp(() {
-      segments = [
-        for (var i = 0; i < 5; i++) (start: i * 100.0, duration: 3.0),
-      ];
-      cues = [
-        for (var i = 0; i < 5; i++) cue(i * 100.0, i * 100.0 + 3, 'unit $i'),
-      ];
+      store = storeOf(
+        [for (var i = 0; i < 5; i++) (start: i * 100.0, duration: 3.0)],
+        [for (var i = 0; i < 5; i++) cue(i * 100.0, i * 100.0 + 3, 'unit $i')],
+      );
       complete = true;
       now = 0;
       engine = FakeEngine();
@@ -445,8 +449,9 @@ void main() {
             session.state.value.stage == TranslationStage.waiting &&
             session.results.length == 2,
       );
-      // units at 0 and 100 are within 120 s; 200 is not
-      expect(session.results.keys, [0, 1]);
+      // units at 0 and 100 are within 120 s; 200 is not. Kept by where
+      // each starts, in milliseconds
+      expect(session.results.keys, [0, 100000]);
       expect(engine.prompts.map((p) => p.split('\n\n').last), [
         'unit 0',
         'unit 1',
@@ -464,7 +469,7 @@ void main() {
             session.state.value.stage == TranslationStage.waiting,
       );
       // 300 is within 120 s of 250; 400 is not yet
-      expect(session.results.keys, [3]);
+      expect(session.results.keys, [300000]);
       expect(session.cues().first.content, endsWith(translationPendingMark));
       await session.dispose();
     });
@@ -476,11 +481,7 @@ void main() {
       var loads = 0;
       final session =
           TranslationSession(
-              transcript: transcriptView(
-                segments: () => segments,
-                cues: () => cues,
-                complete: () => complete,
-              ),
+              transcript: transcriptView(store, complete: () => complete),
               position: () => now,
               engine: (_) async {
                 loads++;
@@ -493,7 +494,7 @@ void main() {
       await pumpUntil(
         () => session.state.value.stage == TranslationStage.done,
       );
-      expect(session.results.keys, [4]);
+      expect(session.results.keys, [400000]);
       expect(engine.disposed, isTrue);
       // another video on the player, its playhead before what was skipped
       owns = false;
@@ -506,7 +507,7 @@ void main() {
       session.poke();
       await pumpUntil(() => session.results.length == 3);
       expect(loads, 2);
-      expect(session.results.keys.toSet(), {0, 1, 4});
+      expect(session.results.keys.toSet(), {0, 100000, 400000});
       await session.dispose();
     });
 
@@ -530,22 +531,18 @@ void main() {
 
     test('settledFrom stops at the first unit still waiting', () {
       final session = make()
-        ..units = buildTranslationUnits(
-          segments: segments,
-          cues: cues,
-          complete: true,
-        );
-      session.results.addAll({0: 'a', 1: null});
+        ..units = transcriptView(store, complete: () => true).units();
+      session.results.addAll(resultsFor(session.units, {0: 'a', 1: null}));
       expect(session.settledFrom(0), 103);
       expect(session.settledFrom(150), 150);
     });
 
     test('three failures in a row give up', () async {
       engine.fail = true;
-      segments = [for (var i = 0; i < 5; i++) (start: i * 10.0, duration: 3.0)];
-      cues = [
-        for (var i = 0; i < 5; i++) cue(i * 10.0, i * 10.0 + 3, 'unit $i'),
-      ];
+      store = storeOf(
+        [for (var i = 0; i < 5; i++) (start: i * 10.0, duration: 3.0)],
+        [for (var i = 0; i < 5; i++) cue(i * 10.0, i * 10.0 + 3, 'unit $i')],
+      );
       final session = make()..start();
       await pumpUntil(
         () => session.state.value.stage == TranslationStage.failed,
@@ -558,8 +555,7 @@ void main() {
       'done once every unit of a finished transcript has a result',
       () async {
         now = 0;
-        segments = [(start: 0, duration: 3)];
-        cues = [cue(0, 3, 'Hello.')];
+        store = storeOf([(start: 0, duration: 3)], [cue(0, 3, 'Hello.')]);
         final session = make()..start();
         await pumpUntil(
           () => session.state.value.stage == TranslationStage.done,
@@ -568,6 +564,30 @@ void main() {
       },
     );
   });
+}
+
+/// A transcript of one run from [start]: each of [segments] with the [cues]
+/// starting in it (the first takes any before it too), added the way the
+/// recogniser adds them.
+TranscriptStore storeOf(
+  List<AsrSegmentSpan> segments,
+  List<AsrCue> cues, {
+  double start = 0,
+  TranscriptStore? into,
+}) {
+  final store = into ?? TranscriptStore();
+  final run = store.startRun(start);
+  for (var k = 0; k < segments.length; k++) {
+    final s = segments[k];
+    final next = k + 1 < segments.length
+        ? segments[k + 1].start
+        : double.infinity;
+    store.addSegment(run, s.start, s.duration, [
+      for (final c in cues)
+        if ((k == 0 || c.from >= s.start) && c.from < next) c,
+    ]);
+  }
+  return store;
 }
 
 class FakeEngine implements TranslationEngine {

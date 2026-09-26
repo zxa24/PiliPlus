@@ -16,6 +16,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
@@ -892,8 +893,9 @@ class YtVideoController extends GetxController {
 
   /// Shows what has been recognised so far. The page has no track list of its
   /// own to insert into, so the transcript simply becomes the shown subtitle.
-  /// How far the published track reaches; see [shouldPublishAsr].
-  Duration _asrPublishedTo = Duration.zero;
+  /// How far the published track reaches; see [shouldPublishAsr] and
+  /// [PublishedReach].
+  PublishedReach _asrPublishedReach = PublishedReach.none;
 
   /// This run's transcript has been put on screen once.
   var _asrPublished = false;
@@ -918,17 +920,22 @@ class YtVideoController extends GetxController {
       if (_asrPublished && captionIndex.value != -2) return;
     }
     // each of these reloads the track and blinks whatever is on screen
+    // the player counts whole seconds
+    final position = plPlayerController.position.value;
     if (!shouldPublishAsr(
-      publishedTo: _asrPublishedTo,
-      // the player counts whole seconds
-      position: Duration(seconds: plPlayerController.position.value),
+      publishedTo: Duration(
+        milliseconds: (_asrPublishedReach.at(position.toDouble()) * 1000)
+            .round(),
+      ),
+      position: Duration(seconds: position),
       isFirst: !_asrPublished,
       isFinal: isFinal,
     )) {
       return;
     }
-    _asrPublishedTo = Duration(
-      milliseconds: (session.cues.last.to * 1000).round(),
+    _asrPublishedReach = PublishedReach.of(
+      session.cues,
+      session.transcript.covered,
     );
     _showGeneratedTrack(
       SubtitleTrack(

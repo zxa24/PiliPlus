@@ -17,6 +17,7 @@ import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
+import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -25,7 +26,21 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 
-enum AsrStage { idle, models, extracting, transcribing, done, failed }
+enum AsrStage {
+  idle,
+  models,
+  extracting,
+  transcribing,
+
+  /// Alive but not recognising: far enough ahead of the viewer, or waiting
+  /// for a seek (research/chunked-transcription-design-2026-09-25.md, 4.5).
+  /// Neither finished nor failed: the track stays and translation goes on.
+  /// Nothing enters it yet — a session is still one run from 0 to the end —
+  /// until runs can pause.
+  standby,
+  done,
+  failed,
+}
 
 class AsrState {
   const AsrState({
@@ -54,6 +69,7 @@ class AsrState {
     AsrStage.models => message ?? '准备模型',
     AsrStage.extracting => '提取音频',
     AsrStage.transcribing => '识别中',
+    AsrStage.standby => '已暂停',
     AsrStage.done => '已完成',
     AsrStage.failed => message ?? '失败',
   };
@@ -72,12 +88,17 @@ class AsrSession {
   final String key;
 
   final state = const AsrState.idle().obs;
-  final cues = <AsrCue>[].obs;
 
-  /// Stretches the VAD called speech. Diagnostic only — nothing in the UI
-  /// reads it — but it is the only way to tell a gap that is silence from a
-  /// gap where speech was recognised into nothing.
-  final segments = <({double start, double duration})>[];
+  /// What has been recognised, kept by time (see [TranscriptStore]).
+  final transcript = TranscriptStore();
+
+  /// Every cue so far, in time order. Listened to for "there is new text".
+  RxList<AsrCue> get cues => transcript.cues;
+
+  /// Stretches the VAD called speech, in time order. Translation cuts its
+  /// units along them; they are also the only way to tell a gap that is
+  /// silence from a gap where speech was recognised into nothing.
+  List<TranscriptSegment> get segments => transcript.segments;
 
   AsrTranscriber? _transcriber;
   StreamSubscription<AsrEvent>? _events;
@@ -330,6 +351,8 @@ class AsrService extends GetxService {
       if (extractError != null) throw extractError!;
 
       session._set(const AsrState(stage: AsrStage.transcribing, progress: 0));
+      // one run, from the start of the media to its end
+      final run = session.transcript.startRun(0);
       final transcriber = await AsrTranscriber.start((
         pcmPath: pcmPath,
         follow: true,
@@ -368,8 +391,7 @@ class AsrService extends GetxService {
               // both lists, and must never see one ahead of the other. The
               // segments also let a caller tell a silent stretch from speech
               // that produced nothing.
-              session.segments.add((start: start, duration: duration));
-              if (cues.isNotEmpty) session.cues.addAll(cues);
+              session.transcript.addSegment(run, start, duration, cues);
             case AsrProgressUpdate(:final done, :final total):
               session._set(
                 AsrState(
@@ -424,6 +446,8 @@ class AsrService extends GetxService {
       if (session._closed) return;
       if (session.state.value.stage != AsrStage.failed &&
           session.state.value.stage != AsrStage.idle) {
+        // the run reached the end of the media, and so did the transcript
+        run.finish();
         session._set(
           AsrState(
             stage: AsrStage.done,

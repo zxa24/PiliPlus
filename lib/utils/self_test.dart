@@ -1873,8 +1873,12 @@ abstract final class SelfTest {
       'publishCount': publishes.length,
       'publishes': publishes,
       'units': current?.units.length,
-      'translatedUnits': current?.results.values.where((t) => t != null).length,
-      'failedUnits': current?.results.values.where((t) => t == null).length,
+      'translatedUnits': current?.results.values
+          .where((r) => r.text != null)
+          .length,
+      'failedUnits': current?.results.values
+          .where((r) => r.text == null)
+          .length,
       'sample': current == null
           ? null
           : [
@@ -1952,7 +1956,10 @@ abstract final class SelfTest {
     }
     gate.dispose();
     final session = controller.translation.session.value;
-    final translated = session?.results.values.whereType<String>().toList();
+    final translated = session?.results.values
+        .map((r) => r.text)
+        .whereType<String>()
+        .toList();
     // into Chinese, some of it must read as Chinese; into another language
     // there is no such cheap check, and a translation at all has to do
     final inLanguage = language == 'zh'
@@ -2072,7 +2079,10 @@ abstract final class SelfTest {
     }
     gate.dispose();
     final session = page.translation.session.value;
-    final translated = session?.results.values.whereType<String>().toList();
+    final translated = session?.results.values
+        .map((r) => r.text)
+        .whereType<String>()
+        .toList();
     final result = {
       'pass':
           translatedTrackMs != null &&

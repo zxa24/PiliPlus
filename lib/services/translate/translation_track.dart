@@ -11,6 +11,7 @@ import 'dart:async';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
+import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -28,7 +29,8 @@ import 'package:get/get.dart';
 ///
 /// [publishedSettled] and [settled] are where the translated (or failed)
 /// stretch starting at the playhead ends in the published track and in the
-/// current one; [publishedEnd] and [end] where each track's last line ends.
+/// current one; [publishedEnd] and [end] where each track's lines reach from
+/// the playhead (see PublishedReach).
 @visibleForTesting
 bool shouldPublishTranslation({
   required double position,
@@ -97,9 +99,12 @@ class TranslationTrack {
   /// A waiting line this close to the playhead is replaced at once.
   static const _urgent = 3.0;
 
-  /// Units that had a result when the track was last published.
-  Set<int> _publishedResults = {};
-  double _publishedEnd = -1;
+  /// The results when the track was last published: for each key, the text
+  /// it had a result for (see [TranslationSession.settledFrom]).
+  Map<int, String> _publishedResults = {};
+
+  /// How far the track last published reaches, stretch by stretch.
+  PublishedReach _publishedReach = PublishedReach.none;
   var _published = false;
 
   bool get isRunning => session.value?.isRunning ?? false;
@@ -322,7 +327,7 @@ class TranslationTrack {
     // a short video can be settled end to end below the lead
     return current.state.value.stage == TranslationStage.done ||
         (current.units.isNotEmpty &&
-            current.results.length == current.units.length &&
+            current.allSettled &&
             current.transcript.complete());
   }
 
@@ -361,7 +366,10 @@ class TranslationTrack {
     if (cues.isEmpty) return;
     final now = position();
     final at = _publishedAt;
-    final publishedSettled = _settledIn(current, _publishedResults, now);
+    final publishedSettled = current.settledFrom(
+      now,
+      asOf: _publishedResults,
+    );
     final settled = current.settledFrom(now);
     // the published track shows a waiting line within moments, and it has
     // been translated since: one blink beats reading the untranslated line
@@ -373,12 +381,13 @@ class TranslationTrack {
         DateTime.now().difference(at) < _minInterval) {
       return;
     }
+    final reach = PublishedReach.of(cues, current.transcript.covered());
     if (!shouldPublishTranslation(
       position: now,
       publishedSettled: publishedSettled,
       settled: settled,
-      publishedEnd: _publishedEnd,
-      end: cues.last.to,
+      publishedEnd: _publishedReach.at(now),
+      end: reach.at(now),
       isFirst: !_published,
       isFinal: isFinal,
     )) {
@@ -387,25 +396,9 @@ class TranslationTrack {
     final first = !_published;
     _published = true;
     _publishedAt = DateTime.now();
-    _publishedResults = current.results.keys.toSet();
-    _publishedEnd = cues.last.to;
+    _publishedResults = current.resultsSnapshot();
+    _publishedReach = reach;
     onPublish(cues.toVtt(), first: first);
-  }
-
-  /// [TranslationSession.settledFrom] as it stood for [results].
-  static double _settledIn(
-    TranslationSession current,
-    Set<int> results,
-    double at,
-  ) {
-    var end = at;
-    for (var i = 0; i < current.units.length; i++) {
-      final unit = current.units[i];
-      if (unit.to < at) continue;
-      if (!results.contains(i)) break;
-      end = unit.to;
-    }
-    return end;
   }
 
   /// With [finish], a track already handed over is handed over once more
@@ -419,7 +412,7 @@ class TranslationTrack {
         current != null &&
         (current.isActive ||
             (current.state.value.stage == TranslationStage.done &&
-                current.results.length < current.units.length))) {
+                !current.allSettled))) {
       onPublish(
         _cuesOf(current, markPending: false).toVtt(),
         first: false,
@@ -441,7 +434,7 @@ class TranslationTrack {
     _readySent = false;
     _published = false;
     _publishedResults = {};
-    _publishedEnd = -1;
+    _publishedReach = PublishedReach.none;
     _publishedAt = null;
     final had = session.value;
     session.value = null;
