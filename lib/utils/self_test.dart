@@ -554,6 +554,7 @@ abstract final class SelfTest {
     _itn = _arg(args, '--asr-itn') != '0';
     debugFocusProbe = args.contains('--focus-probe');
     debugCommentsProbe = args.contains('--comments-probe');
+    debugCommentsFirst = args.contains('--comments-first');
     // a model file given directly (a phone test build has none installed:
     // its data is its own), for the translation probes
     if (_arg(args, '--translate-model') case final model?) {
@@ -2308,6 +2309,13 @@ abstract final class SelfTest {
       await Future.delayed(const Duration(seconds: 1));
     }
     final ownSubtitles = [for (final s in page.subtitles) s.lanDoc];
+    // `--comments-first`: the comments are being translated (the same
+    // model) when the subtitles are asked for, as a viewer may well do
+    Future<Map<String, Object?>>? comments;
+    if (debugCommentsFirst) {
+      comments = _commentsProbe(page);
+      await Future.delayed(const Duration(seconds: 2));
+    }
     // the menu's path: picking the language shows it, making it first
     if (!auto) await page.showTranslation(language);
 
@@ -2337,6 +2345,14 @@ abstract final class SelfTest {
           translatedTrackMs != null &&
           selectedMs != null &&
           (translated?.isNotEmpty ?? false),
+      if (comments != null)
+        'comments': await comments.timeout(
+          const Duration(seconds: 60),
+          onTimeout: () => {'error': 'comments still translating after 60 s'},
+        ),
+      'subtitleLabel': page.onDeviceStatus(language),
+      'translationStarting': page.translation.isActive &&
+          page.translation.session.value == null,
       'mode': auto ? 'auto' : 'menu',
       'local': local,
       'videoOwnSubtitles': ownSubtitles,
@@ -2807,6 +2823,9 @@ abstract final class SelfTest {
 
   /// `--comments-probe`: see [_commentsProbe].
   static bool debugCommentsProbe = false;
+
+  /// `--comments-first`: see [_translatePageBili].
+  static bool debugCommentsFirst = false;
 
   /// The page's comments, translated as the 翻译 button does it
   /// (research/comment-translation-design-2026-09-25.md, E3): how many were
