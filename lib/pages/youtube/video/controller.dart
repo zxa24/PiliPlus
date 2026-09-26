@@ -1120,7 +1120,9 @@ class YtVideoController extends GetxController {
     }
     _translationRequested = true;
     final session = asrSession.value;
-    if (session == null || session.state.value.stage == AsrStage.failed) {
+    // see VideoDetailController.startTranslation: an ended one is not
+    // waited on
+    if (session == null || session.hasEnded) {
       // captions that could not be fetched land here too, and the menu has
       // not asked about the recogniser's download for them
       if (!AsrService.to.modelsReady &&
@@ -1260,7 +1262,8 @@ class YtVideoController extends GetxController {
     _viewerChose = true;
     _wantedOnDevice = 'asr';
     final session = asrSession.value;
-    if (session == null || session.state.value.stage == AsrStage.failed) {
+    // an ended one (failed, or given up on the app's language) starts again
+    if (session == null || session.hasEnded) {
       await startAsr();
       return;
     }

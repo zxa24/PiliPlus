@@ -2350,7 +2350,10 @@ class VideoDetailController extends GetxController
     }
     _translationRequested = true;
     final session = asrSession.value;
-    if (session == null || session.state.value.stage == AsrStage.failed) {
+    // one that has ended (an automatic run that gave up on the app's own
+    // language, too) makes no more text: waiting on it left the menu at
+    // 准备中 for good
+    if (session == null || session.hasEnded) {
       // captions that could not be fetched land here too, and the menu has
       // not asked about the recogniser's download for them
       if (!AsrService.to.modelsReady &&
@@ -2594,7 +2597,10 @@ class VideoDetailController extends GetxController
     }
     _wantedOnDevice = 'asr';
     final session = asrSession.value;
-    if ((index == null && session == null) ||
+    // one that has ended with nothing shown starts again (a failed one in
+    // any case): an automatic run that gave up on the app's language left
+    // this entry doing nothing
+    if ((index == null && (session == null || session.hasEnded)) ||
         session?.state.value.stage == AsrStage.failed) {
       await startAsr();
     }

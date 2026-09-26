@@ -240,6 +240,17 @@ class AsrSession {
   /// none).
   int get runCount => _serials;
 
+  /// It will make no more text: it failed, or it ran and then stopped —
+  /// among others by giving up on speech in the app's language, which also
+  /// forgets the language it found. A page asked by the user for this
+  /// transcript, or a translation of it, starts a new one instead of
+  /// waiting on this.
+  bool get hasEnded {
+    final stage = state.value.stage;
+    return stage == AsrStage.failed ||
+        (stage == AsrStage.idle && runCount > 0);
+  }
+
   /// Pauses and resumes so far, for the probes.
   var pauses = 0;
   var resumes = 0;

@@ -690,6 +690,12 @@ abstract final class SelfTest {
         () => _translateLatency(video, _arg(args, '--model'), seconds),
       );
     }
+    if (_arg(args, '--gaveup-probe') case final bv?) {
+      await scenario(
+        'gaveUpProbe',
+        () => _gaveUpProbe(bv, original: args.contains('--pick-original')),
+      );
+    }
     if (_arg(args, '--translate-page') case final video?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 45;
       final bv = IdUtils.bvRegex.firstMatch(video)?.group(0);
@@ -2385,6 +2391,93 @@ abstract final class SelfTest {
   /// profile's own settings (the profile has its own storage; the user's
   /// are not touched). Always set, both ways: the profile keeps them, and a
   /// menu run after an automatic one was found starting by itself.
+  /// `--gaveup-probe BV…`: automatic transcription (foreign speech only) on
+  /// a video in the app's own language gives up and stops; the translation
+  /// into that language is then picked from the menu. What both rows of the
+  /// menu say afterwards, and whether anything is still waiting.
+  static Future<Map<String, dynamic>> _gaveUpProbe(
+    String bv, {
+    bool original = false,
+  }) async {
+    if (!AsrService.to.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    await GStorage.setting.putAll({
+      SettingBoxKey.asrAsked: true,
+      SettingBoxKey.asrMode: AsrMode.foreign.index,
+      SettingBoxKey.translateAsked: true,
+      SettingBoxKey.translateMode: TranslateMode.manual.index,
+    });
+    // a file: the page's local mode, with no platform subtitles in the way
+    const localTag = 'selftest_gaveup_local';
+    final local = File(bv).existsSync();
+    if (local) {
+      unawaited(LocalPlayer.open(bv, heroTag: localTag));
+    } else {
+      await PiliScheme.routePushFromUrl('https://www.bilibili.com/video/$bv');
+    }
+    VideoDetailController? page;
+    for (var i = 0; i < 20 && page == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        page = Get.find<VideoDetailController>(
+          tag: local
+              ? localTag
+              : Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+        );
+      } catch (_) {}
+    }
+    if (page == null) return {'pass': false, 'reason': 'no page'};
+    final stages = <String>[];
+    String? language;
+    var gaveUp = false;
+    for (var i = 0; i < 120 && !gaveUp; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      final session = page.asrSession.value;
+      final state = session?.state.value;
+      language = state?.language ?? language;
+      final name = state?.stage.name ?? 'none';
+      if (stages.isEmpty || stages.last != name) stages.add(name);
+      gaveUp = session != null &&
+          state?.stage == AsrStage.idle &&
+          session.runCount > 0;
+    }
+    // `--pick-original`: 原文（端侧） is picked instead
+    final picked = original ? 'asr' : AsrService.appLanguage;
+    if (original) {
+      await page.showTranscript();
+    } else {
+      await page.showTranslation(picked);
+    }
+    await Future.delayed(const Duration(seconds: 20));
+    final translationLabel = page.onDeviceStatus(picked);
+    final hasOriginal = page.subtitles.any(
+      (t) => t.lanDoc == onDeviceLabel(null),
+    );
+    final result = {
+      // the pick led somewhere: text is being made again and shown, rather
+      // than a label waiting on a transcription that has stopped
+      'pass':
+          translationLabel != '准备中' &&
+          hasOriginal &&
+          page.asrSession.value?.hasEnded == false,
+      'bv': bv,
+      'asrStages': stages,
+      'detectedLanguage': language,
+      'gaveUp': gaveUp,
+      'picked': picked,
+      'labelOriginal': page.onDeviceStatus('asr'),
+      'labelTranslation': translationLabel,
+      'asrStageAfter': page.asrSession.value?.state.value.stage.name,
+      'asrLanguageAfter': page.asrSession.value?.state.value.language,
+      'subtitleIndex': page.vttSubtitlesIndex.value,
+      'tracks': [for (final t in page.subtitles) t.lanDoc],
+    };
+    await page.stopAsr();
+    Get.back();
+    return result;
+  }
+
   static Future<void> _setAutoTranslation(bool on) => GStorage.setting.putAll({
     SettingBoxKey.asrAsked: true,
     SettingBoxKey.asrMode: (on ? AsrMode.foreign : AsrMode.manual).index,
