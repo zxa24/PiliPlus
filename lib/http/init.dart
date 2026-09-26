@@ -6,6 +6,7 @@ import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/retry_interceptor.dart';
+import 'package:PiliPlus/http/timing_interceptor.dart';
 import 'package:PiliPlus/http/user.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
@@ -227,6 +228,9 @@ class Request {
       ..httpClientAdapter = _enableHttp2
           ? Http2Adapter(connectionManager, fallbackAdapter: h11)
           : h11;
+
+    // LibrePili: before the retries, so each attempt is timed
+    dio.interceptors.add(TimingInterceptor());
 
     // 先于其他Interceptor
     if (Pref.retryCount != 0) {

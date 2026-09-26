@@ -8,6 +8,7 @@ import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/pages/rcmd/controller.dart';
 import 'package:PiliPlus/http/member.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -49,6 +50,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
@@ -609,6 +611,39 @@ abstract final class SelfTest {
       await scenario('startup', _startup);
     }
 
+    if (args.contains('--home-probe')) {
+      // the home page's first load, as the user meets it at startup: how
+      // long until it shows something, and what (the slow and failed
+      // requests on the way are in the report's eventLog)
+      await scenario('homeProbe', () async {
+        final clock = Stopwatch()..start();
+        while (!Get.isRegistered<RcmdController>() &&
+            clock.elapsed < const Duration(seconds: 30)) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        if (!Get.isRegistered<RcmdController>()) {
+          return {'pass': false, 'reason': 'home page never built'};
+        }
+        final controller = Get.find<RcmdController>();
+        while (controller.loadingState.value is Loading &&
+            clock.elapsed < const Duration(seconds: 120)) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        final state = controller.loadingState.value;
+        final items = switch (state) {
+          Success(:final response) => response?.length,
+          _ => null,
+        };
+        return {
+          'pass': (items ?? 0) > 0,
+          'appRcmd': controller.appRcmd,
+          'ms': clock.elapsedMilliseconds,
+          'state': state.runtimeType.toString(),
+          'items': items,
+          'error': state is Error ? state.errMsg : null,
+        };
+      });
+    }
     if (_arg(args, '--feed') case final mid?) {
       await scenario('feed', () => _feed(int.parse(mid)));
     }
@@ -1066,6 +1101,9 @@ abstract final class SelfTest {
 
     report
       ..['pass'] = ok
+      // what the app noted on the way (slow and failed requests, the
+      // player's errors): the report says why, not only that
+      ..['eventLog'] = EventLog.recent
       ..['finishedAt'] = DateTime.now().toIso8601String();
     await File(out).writeAsString(
       const JsonEncoder.withIndent('  ').convert(report),
