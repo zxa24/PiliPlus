@@ -819,14 +819,27 @@ abstract final class SelfTest {
       await scenario('scanProbe', () async {
         ScanPage.debugProblem = null;
         ScanPage.debugFrames = 0;
-        unawaited(scanQrCode());
-        await Future.delayed(const Duration(seconds: 8));
+        ScanPage.debugRead = null;
+        // --scan-wait: time to hold a code up to the camera
+        final wait = int.tryParse(_arg(args, '--scan-wait') ?? '') ?? 8;
+        final read = scanQrCode();
+        final clock = Stopwatch()..start();
+        while (ScanPage.debugRead == null &&
+            clock.elapsed < Duration(seconds: wait)) {
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
         final result = {
           'pass': true,
           'problem': ScanPage.debugProblem,
           'frames': ScanPage.debugFrames,
+          'read': ScanPage.debugRead,
+          'readAfterMs': ScanPage.debugRead == null
+              ? null
+              : clock.elapsedMilliseconds,
         };
-        Get.back<void>();
+        // a code read closes the page by itself
+        if (ScanPage.debugRead == null) Get.back<void>();
+        await read;
         await Future.delayed(const Duration(seconds: 1));
         return result;
       });

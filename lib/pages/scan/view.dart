@@ -15,9 +15,10 @@ library;
 
 import 'dart:async';
 import 'dart:io' show Platform, Process;
+import 'dart:math' as math;
 
 import 'package:PiliPlus/utils/permission_handler.dart' show openAppSettings;
-import 'package:camera/camera.dart';
+import 'package:camera/camera.dart' hide ImageFormat;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
 import 'package:get/get.dart';
@@ -36,6 +37,7 @@ class ScanPage extends StatefulWidget {
   /// frames it has had. Nothing else reads it.
   static String? debugProblem;
   static var debugFrames = 0;
+  static String? debugRead;
 
   @override
   State<ScanPage> createState() => _ScanPageState();
@@ -151,13 +153,27 @@ class _ScanPageState extends State<ScanPage> {
     if (_decoding || _done) return;
     _decoding = true;
     try {
+      // what the frame is and how big: without them the decoder read a
+      // 0×0 luminance image and found nothing in any frame (the scan page
+      // never read a code until these were given, as the plugin's own
+      // reader gives them)
+      final format = cameraImageFormat(image);
+      if (format == ImageFormat.none) return;
       final code = await zx.processCameraImage(
         image,
-        DecodeParams(tryHarder: true),
+        DecodeParams(
+          imageFormat: format,
+          width: image.width,
+          height: image.height,
+          tryHarder: true,
+          tryRotate: true,
+          tryInverted: true,
+        ),
       );
       final text = code.text;
       if (code.isValid && text != null && text.isNotEmpty && !_done) {
         _done = true;
+        ScanPage.debugRead = text;
         Get.back(result: text);
       }
     } catch (_) {
@@ -229,11 +245,27 @@ class _ScanPageState extends State<ScanPage> {
           : Stack(
               fit: StackFit.expand,
               children: [
-                Center(
-                  child: AspectRatio(
-                    aspectRatio: camera.value.aspectRatio,
-                    child: CameraPreview(camera),
-                  ),
+                // the preview sizes itself for the orientation; wrapped in the
+                // sensor's own (landscape) ratio as well it was stretched on
+                // a phone held upright. Filled and cropped, as the plugin's
+                // own reader shows it
+                LayoutBuilder(
+                  builder: (context, box) {
+                    final side = math.max(box.maxWidth, box.maxHeight);
+                    return ClipRect(
+                      child: OverflowBox(
+                        maxWidth: side,
+                        maxHeight: side,
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                            width: side,
+                            child: CameraPreview(camera),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 Center(
                   child: Container(
