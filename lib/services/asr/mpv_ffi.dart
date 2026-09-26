@@ -20,6 +20,9 @@ abstract final class MpvEventId {
   static const shutdown = 1;
   static const logMessage = 2;
   static const endFile = 7;
+
+  /// A seek (or the start position) has been reached and playback goes on.
+  static const playbackRestart = 21;
 }
 
 // mpv_event { int event_id; int error; uint64 reply_userdata; void* data; }
@@ -44,12 +47,13 @@ final class MpvLogMessage extends Struct {
 typedef _CreateNative = Pointer<Void> Function();
 typedef _IntCtxNative = Int32 Function(Pointer<Void>);
 typedef _IntCtxDart = int Function(Pointer<Void>);
-typedef _SetOptNative =
-    Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
-typedef _SetOptDart =
-    int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
-typedef _CommandNative =
-    Int32 Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
+typedef _SetOptNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+);
+typedef _SetOptDart = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _CommandNative = Int32 Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
 typedef _CommandDart = int Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
 typedef _WaitNative = Pointer<Void> Function(Pointer<Void>, Double);
 typedef _WaitDart = Pointer<Void> Function(Pointer<Void>, double);

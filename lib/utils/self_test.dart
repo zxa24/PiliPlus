@@ -134,6 +134,9 @@ final class _CuttingProxy {
   late final HttpServer _server;
   final requests = <String>[];
 
+  /// Bytes handed to the player, all requests together.
+  var bytesSent = 0;
+
   /// The host the broken copy is on: the first one wrapped. A stream opened
   /// again from another host is whole, as it was in the case this copies.
   String? _host;
@@ -197,10 +200,20 @@ final class _CuttingProxy {
         }
         if (chunk.length >= left) {
           socket.add(chunk.sublist(0, left));
+          bytesSent += left;
           break;
         }
         socket.add(chunk);
+        bytesSent += chunk.length;
         left -= chunk.length;
+        // only as fast as the player reads: without waiting, everything the
+        // CDN sent was counted (and buffered) even after the player had
+        // hung up — every probe run showed the whole file downloaded
+        try {
+          await socket.flush();
+        } catch (_) {
+          break;
+        }
       }
       await socket.flush();
       socket.destroy();
@@ -760,6 +773,20 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--asr-download') case final dir?) {
       await scenario('asrDownload', () => _asrDownload(dir));
+    }
+    if (_arg(args, '--asr-start-probe') case final source?) {
+      await scenario(
+        'asrStartProbe',
+        () => _asrStartProbe(
+          source,
+          at: [
+            for (final a in (_arg(args, '--at') ?? '0,120,300').split(','))
+              double.parse(a),
+          ],
+          window: double.tryParse(_arg(args, '--window') ?? '') ?? 40,
+          dir: _arg(args, '--dir') ?? path.join(tmpDirPath, 'asr_probe'),
+        ),
+      );
     }
     if (_arg(args, '--asr') case final source?) {
       await scenario(
@@ -3864,6 +3891,71 @@ abstract final class SelfTest {
   /// LibrePili: end-to-end on-device transcription over a real file or URL —
   /// libmpv audio extraction, Silero VAD, SenseVoice — with the timings the
   /// benchmarks are compared against.
+  /// Chunked transcription, probe P0
+  /// (research/chunked-transcription-design-2026-09-25.md): audio extracted
+  /// from each position in [at], [window] seconds of it, through a proxy
+  /// that counts the bytes. Answers where a run from a position really
+  /// starts (the PCM is kept in [dir] to be lined up against a run from 0),
+  /// whether the audio before it is downloaded, and how long it takes.
+  static Future<Map<String, dynamic>> _asrStartProbe(
+    String source, {
+    required List<double> at,
+    required double window,
+    required String dir,
+  }) async {
+    await Directory(dir).create(recursive: true);
+    final last = at.reduce(math.max);
+    final runs = <Map<String, Object?>>[];
+    for (final start in at) {
+      final proxy = _CuttingProxy(1 << 50);
+      await proxy.start();
+      final output = path.join(dir, 'pcm_${start.round()}.pcm');
+      final cancel = '$output.cancel';
+      // the run from 0 goes past every other start, to line them up with
+      final seconds = start == 0 ? last + window : window;
+      final clock = Stopwatch()..start();
+      Timer? watch;
+      watch = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        final file = File(output);
+        if (file.existsSync() &&
+            file.lengthSync() >= seconds * asrBytesPerSecond) {
+          File(cancel).writeAsStringSync('stop');
+          watch?.cancel();
+        }
+      });
+      Object? error;
+      try {
+        await AsrAudioExtractor.extract(
+          source: proxy.wrap(source),
+          output: output,
+          referer: HttpString.baseUrl,
+          userAgent: BrowserUa.pc,
+          cancelPath: cancel,
+          startSeconds: start,
+          timeout: const Duration(minutes: 10),
+        );
+      } catch (e) {
+        error = e;
+      } finally {
+        watch.cancel();
+        await proxy.close();
+      }
+      final landing = File(AsrAudioExtractor.landingFileFor(output));
+      runs.add({
+        'at': start,
+        'wallMs': clock.elapsedMilliseconds,
+        'pcmBytes': File(output).existsSync() ? File(output).lengthSync() : 0,
+        'bytesDownloaded': proxy.bytesSent,
+        'requests': proxy.requests,
+        'landing': landing.existsSync()
+            ? jsonDecode(landing.readAsStringSync())
+            : null,
+        'error': ?error?.toString(),
+      });
+    }
+    return {'pass': runs.every((r) => r['error'] == null), 'runs': runs};
+  }
+
   static Future<Map<String, dynamic>> _asr(
     String source, {
     String? modelDir,

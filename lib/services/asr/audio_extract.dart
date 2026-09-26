@@ -9,6 +9,7 @@ library;
 
 import 'dart:async';
 import 'dart:ffi';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -41,9 +42,13 @@ typedef _ExtractArgs = ({
   String? userAgent,
   int timeoutSeconds,
   String? cancelPath,
+  double? startSeconds,
 });
 
 abstract final class AsrAudioExtractor {
+  /// Where a run started at a position records where it really landed.
+  static String landingFileFor(String output) => '$output.landing.json';
+
   /// Decodes [source] — a URL, a plain path, or `fdclose://<fd>` — into raw
   /// signed 16-bit little-endian mono samples at [asrSampleRate].
   ///
@@ -62,6 +67,7 @@ abstract final class AsrAudioExtractor {
     Duration timeout = const Duration(minutes: 30),
     ValueChanged<double>? onSeconds,
     String? cancelPath,
+    double? startSeconds,
   }) async {
     final file = File(output);
     if (file.existsSync()) await file.delete();
@@ -94,6 +100,7 @@ abstract final class AsrAudioExtractor {
         userAgent: userAgent,
         timeoutSeconds: timeout.inSeconds,
         cancelPath: cancelPath,
+        startSeconds: startSeconds,
       );
       final bytes = await _spawn(args);
       if (bytes <= 0) {
@@ -151,6 +158,13 @@ abstract final class AsrAudioExtractor {
         // run decoded 212 s in 0.28 s — and adding an untested option to a
         // verified configuration only risks changing the samples
         'keep-open': 'no',
+        // from a position rather than the start (chunked transcription,
+        // research/chunked-transcription-design-2026-09-25.md): an exact
+        // seek, and where it really landed is measured, not assumed
+        if (args.startSeconds case final start?) ...{
+          'start': '$start',
+          'hr-seek': 'yes',
+        },
         'terminal': 'no',
         'msg-level': 'all=warn',
         if (headers.isNotEmpty) 'http-header-fields': headers.join(','),
@@ -172,6 +186,10 @@ abstract final class AsrAudioExtractor {
       final started = DateTime.now();
       final errors = <String>[];
       var ended = false;
+      // when a start position was asked for: where decoding really began
+      // and how long each step took, written next to the output
+      final landing = <String, Object?>{'requested': args.startSeconds};
+      final output = File(args.output);
       // Leaving the page has to stop the decode. It used to run to the end
       // regardless, which only wasted the tail of a download nobody was
       // waiting for; now that playback starts while this is still going, a
@@ -189,6 +207,30 @@ abstract final class AsrAudioExtractor {
             ended = true;
           case MpvEventId.shutdown:
             ended = true;
+          case MpvEventId.playbackRestart:
+            if (args.startSeconds != null && !landing.containsKey('audioPts')) {
+              landing
+                ..['restartMs'] = DateTime.now()
+                    .difference(started)
+                    .inMilliseconds
+                ..['audioPts'] = double.tryParse(
+                  mpv.property(ctx, 'audio-pts') ?? '',
+                )
+                ..['timePos'] = double.tryParse(
+                  mpv.property(ctx, 'time-pos') ?? '',
+                )
+                ..['bytesAtRestart'] = output.existsSync()
+                    ? output.lengthSync()
+                    : 0;
+            }
+        }
+        if (args.startSeconds != null &&
+            !landing.containsKey('firstBytesMs') &&
+            output.existsSync() &&
+            output.lengthSync() > 0) {
+          landing['firstBytesMs'] = DateTime.now()
+              .difference(started)
+              .inMilliseconds;
         }
         if (ended) break;
       }
@@ -200,6 +242,13 @@ abstract final class AsrAudioExtractor {
       }
       if (size == 0 && errors.isNotEmpty) {
         throw AsrExtractException(errors.first);
+      }
+      if (args.startSeconds != null) {
+        try {
+          File(landingFileFor(args.output)).writeAsStringSync(
+            jsonEncode(landing..['bytes'] = size),
+          );
+        } catch (_) {}
       }
       return size;
     } finally {
