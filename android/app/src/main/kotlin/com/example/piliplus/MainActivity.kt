@@ -44,7 +44,13 @@ class MainActivity : AudioServiceActivity() {
     // release builds, so debuggable alone would not do.)
     override fun provideFlutterEngine(context: Context): FlutterEngine? {
         val args = intent?.getStringArrayExtra("selftest_args")
-        if (args != null && selfTestAllowed()) {
+        // Reopened from recents, the activity gets its first intent again,
+        // extras and all: a test run from adb days before ran again when
+        // the app was brought back (measured: the camera-permission probe
+        // re-ran 25 minutes after it was started, on a screen wake).
+        val fromRecents =
+            (intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        if (args != null && !fromRecents && selfTestAllowed()) {
             val cache = FlutterEngineCache.getInstance()
             val id = AudioServicePlugin.getFlutterEngineId()
             cache.get(id)?.let { return it }
