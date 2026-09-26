@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' show max;
 
+import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
 import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/fav.dart';
@@ -169,6 +170,14 @@ class PgcIntroController extends CommonIntroController {
             onPressed: () {
               Get.back();
               Utils.copyText(videoUrl);
+            },
+          ),
+          DialogOption(
+            child: const Text('分享为二维码', style: TextStyle(fontSize: 14)),
+            onPressed: () {
+              Get.back();
+              // the episode and where playback is, as in 复制链接
+              showQrShare(context, url: videoUrl, title: pgcItem.title);
             },
           ),
           DialogOption(
