@@ -105,9 +105,8 @@ class AsrSession {
   @visibleForTesting
   void debugSet(AsrState value) => _set(value);
 
-  /// The recogniser behind this session, for the leak probe to see how its
-  /// isolate ended.
-  @visibleForTesting
+  /// The recogniser behind this session, for the self-test's leak probe
+  /// (`--asr-leak`) to see how its isolate ended. Nothing else reads it.
   AsrTranscriber? get debugTranscriber => _transcriber;
 
   Future<void> dispose() async {
