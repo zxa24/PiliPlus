@@ -395,8 +395,33 @@ class AsrSession {
   AsrLeadWindow get leadWindow => asrLeadWindow(
     speed: pace.speed,
     restartCost: pace.restartCost,
-    power: power,
+    // a save waiting for the whole transcript: every gap is filled,
+    // wherever the viewer is (design 13), as where running on is free
+    power: _fullCoverage > 0 ? AsrPower.unlimited : power,
   );
+
+  /// How many saves are waiting for the whole transcript.
+  var _fullCoverage = 0;
+
+  /// Whether a save is waiting for the whole transcript.
+  bool get fullCoverageRequested => _fullCoverage > 0;
+
+  /// A save wants the whole transcript (design 13): until
+  /// [endFullCoverage], the session never pauses ahead of the viewer and
+  /// fills every gap, whatever the lead rule of the device says. One call
+  /// of [endFullCoverage] for each call of this.
+  void requestFullCoverage() {
+    _fullCoverage++;
+    if (_fullCoverage == 1 && _models != null) _tick();
+  }
+
+  /// The save no longer waits: back to the lead rule — a run far enough
+  /// ahead of the viewer pauses again at the next tick.
+  void endFullCoverage() {
+    if (_fullCoverage == 0) return;
+    _fullCoverage--;
+    if (_fullCoverage == 0 && _models != null) _tick();
+  }
 
   void _readPlayhead() {
     final now = DateTime.now();

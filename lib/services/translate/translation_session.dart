@@ -350,16 +350,54 @@ class TranslationSession {
 
   /// The next unit to translate: the first one not behind the playhead that
   /// has no result, if it starts within [translationLead].
+  ///
+  /// While a save waits for the whole translation ([requestFullCoverage]),
+  /// one past the lead or behind the playhead too: the viewer's first, the
+  /// rest from the start.
   @visibleForTesting
   TranslationUnit? next() {
     final now = position();
     final horizon = now + translationLead.inMilliseconds / 1000;
     for (final unit in units) {
       if (unit.to < now - _behind) continue;
-      if (unit.from > horizon) return null;
+      if (unit.from > horizon) break;
+      if (!results.settles(unit)) return unit;
+    }
+    if (_fullCoverage == 0) return null;
+    for (final unit in units) {
       if (!results.settles(unit)) return unit;
     }
     return null;
+  }
+
+  /// How many saves are waiting for the whole translation.
+  var _fullCoverage = 0;
+
+  /// A save wants the whole translation (design 13): until
+  /// [endFullCoverage], every unit is translated, not only those within the
+  /// lead. One call of [endFullCoverage] for each call of this.
+  void requestFullCoverage() {
+    _fullCoverage++;
+    poke();
+  }
+
+  void endFullCoverage() {
+    if (_fullCoverage > 0) _fullCoverage--;
+  }
+
+  /// Every line of a finished transcript is translated (or failed, which is
+  /// as final): nothing more will come.
+  bool get translatedAll {
+    if (!transcript.complete()) return false;
+    final all = transcript.units();
+    return all.every(results.settles) && transcript.trailing().isEmpty;
+  }
+
+  /// The share of the transcript's units settled so far, 0..1.
+  double get settledShare {
+    final all = transcript.units();
+    if (all.isEmpty) return transcript.complete() ? 1 : 0;
+    return all.where(results.settles).length / all.length;
   }
 
   /// The source lines not in one of [units]: those in no unit yet, and those

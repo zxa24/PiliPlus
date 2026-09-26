@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:convert' show utf8;
+import 'dart:convert' show jsonEncode, utf8;
 import 'dart:io' show Directory, File, HttpClient, HttpHeaders, HttpStatus;
 import 'dart:math' show min;
+import 'dart:typed_data' show Uint8List;
 import 'dart:ui';
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
@@ -61,6 +62,11 @@ import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/asr_status.dart';
+import 'package:PiliPlus/services/asr/fill_export.dart';
+import 'package:PiliPlus/pages/video/widgets/fill_export_dialog.dart';
+import 'package:PiliPlus/utils/storage_utils.dart';
+import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
@@ -2116,6 +2122,7 @@ class VideoDetailController extends GetxController
   /// the video's own captions has nothing to do with the transcript and goes
   /// on, unless the part or the page is [leaving].
   Future<void> stopAsr({bool keepGate = false, bool leaving = false}) async {
+    _cancelFillExport(leaving: leaving);
     if (!keepGate) {
       _holdingForSubtitles = false;
       _closeAsrGate();
@@ -2375,7 +2382,111 @@ class VideoDetailController extends GetxController
 
   /// Stops translating; what has been translated stays in the menu, in the
   /// entry a restart then refreshes rather than adding another beside it.
+  /// A save of an on-device subtitle waiting for it to be whole
+  /// (research/chunked-transcription-design-2026-09-25.md, 13).
+  FillExport? _fillExport;
+
+  /// See [_fillExport]; for the self-test.
+  FillExport? get pendingFillExport => _fillExport;
+
+  /// Where the self-test's saves go, instead of the save dialog.
+  static Future<void> Function(String name, Uint8List bytes)? debugSaveTo;
+
+  /// The on-device subtitle at [index] of [subtitles] in [format]: from its
+  /// session while there is one, else from the track as it was shown.
+  Uint8List? _onDeviceBytes(int index, SubtitleFormat format) {
+    final lan = subtitles[index].lan;
+    List<AsrCue>? cues;
+    final session = asrSession.value;
+    if (lan == 'asr' && session != null) {
+      cues = session.cues.forDisplay(session.state.value.language);
+    } else if (lan == 'asr-translated') {
+      cues = translation.savedCues;
+    }
+    if (cues != null) {
+      return utf8.encode(switch (format) {
+        .vtt => cues.toVtt(),
+        .srt => cues.toSrt(),
+        .json => jsonEncode({'body': cues.displayed.toJson()}),
+      });
+    }
+    final kept = vttSubtitles[index];
+    if (kept == null || !kept.isData) return null;
+    return utf8.encode(switch (format) {
+      .vtt => kept.id,
+      .srt => SubtitleUtils.json2Srt(SubtitleUtils.vtt2Json(kept.id)),
+      .json => jsonEncode({'body': SubtitleUtils.vtt2Json(kept.id)}),
+    });
+  }
+
+  /// What a save of the on-device subtitle [lan] waits on, or null when
+  /// there is nothing left to make it whole.
+  FillTarget? _fillTargetFor(String lan) {
+    final asr = asrSession.value;
+    final transcript = asr == null
+        ? null
+        : TranscriptFillTarget(asr, alive: () => asrSession.value == asr);
+    if (lan == 'asr') return transcript;
+    final session = translation.session.value;
+    if (lan != 'asr-translated' || session == null) return null;
+    return TranslationFillTarget(
+      session,
+      transcript: _translatingTranscript ? transcript : null,
+      alive: () => translation.session.value == session,
+    );
+  }
+
+  /// Saves the on-device subtitle at [index] of [subtitles] as [name] in
+  /// [format] — at once when it is whole, else once its gaps are filled
+  /// (see [FillExportDialog]).
+  void saveOnDeviceSubtitle(
+    int index,
+    SubtitleFormat format, {
+    required String name,
+  }) {
+    _cancelFillExport();
+    Future<void> save({required bool background}) async {
+      if (isClosed) return;
+      final bytes = _onDeviceBytes(index, format);
+      if (bytes == null) {
+        SmartDialog.showToast('没有可保存的字幕');
+        return;
+      }
+      // feedback on the user's own save, which finished out of sight
+      final saved = background ? '字幕已补全并保存' : '已保存';
+      if (debugSaveTo case final write?) {
+        await write(name, bytes);
+        SmartDialog.showToast(saved);
+        return;
+      }
+      await StorageUtils.saveBytes2File(
+        name: name,
+        bytes: bytes,
+        allowedExtensions: [format.name],
+        savedMessage: saved,
+      );
+    }
+
+    _fillExport = FillExportDialog.saveWhenWhole(
+      target: _fillTargetFor(subtitles[index].lan),
+      save: save,
+    );
+  }
+
+  /// A save waiting for its subtitle to be whole is given up: the page is
+  /// going ([leaving]), or what it waits on is being stopped.
+  void _cancelFillExport({bool leaving = false}) {
+    final flow = _fillExport;
+    _fillExport = null;
+    if (flow == null || flow.isOver) return;
+    flow.cancel();
+    SmartDialog.showToast(
+      leaving ? '已离开页面，字幕补全保存已取消' : '字幕补全保存已取消',
+    );
+  }
+
   Future<void> stopTranslation() async {
+    _cancelFillExport();
     _translationStops++;
     _translationRequested = false;
     // nor does automatic translation start it again for this part
@@ -2430,7 +2541,22 @@ class VideoDetailController extends GetxController
       AsrStage.failed => '失败，点击重试',
       _ => null,
     };
-    if (code == 'asr') return asrStatus();
+    if (code == 'asr') {
+      // how far the text is known (research/chunked-transcription-design-
+      // 2026-09-25.md, P4): 已生成到 12:30, 已暂停（已领先 4:00）…
+      final session = asrSession.value;
+      if (session != null && asr != null) {
+        final coverage = asrCoverageLabel(
+          stage: asr.stage,
+          message: asr.message,
+          covered: session.transcript.covered,
+          duration: session.duration,
+          playhead: plPlayerController.position.value.toDouble(),
+        );
+        if (coverage != null) return coverage;
+      }
+      return asrStatus();
+    }
     final state = translation.session.value?.state.value;
     if (state != null && (translation.into ?? AsrService.appLanguage) == code) {
       return switch (state.stage) {
@@ -2866,6 +2992,8 @@ class VideoDetailController extends GetxController
     // a transcription belongs to the part it was started for; the next part
     // plays as its own opening decides, not as this one's gate held back
     _playOnRelease = false;
+    // another part, not another page: said as a plain cancel
+    _cancelFillExport();
     stopAsr(leaving: true);
     // and so do the once-per-part automatic translation and loading gate,
     // and the viewer's pick of subtitle

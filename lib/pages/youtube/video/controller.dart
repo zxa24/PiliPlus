@@ -16,6 +16,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/asr_status.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
@@ -1222,7 +1223,22 @@ class YtVideoController extends GetxController {
       AsrStage.failed => '失败，点击重试',
       _ => null,
     };
-    if (code == 'asr') return asrStatus();
+    if (code == 'asr') {
+      // how far the text is known (research/chunked-transcription-design-
+      // 2026-09-25.md, P4): 已生成到 12:30, 已暂停（已领先 4:00）…
+      final session = asrSession.value;
+      if (session != null && asr != null) {
+        final coverage = asrCoverageLabel(
+          stage: asr.stage,
+          message: asr.message,
+          covered: session.transcript.covered,
+          duration: session.duration,
+          playhead: plPlayerController.position.value.toDouble(),
+        );
+        if (coverage != null) return coverage;
+      }
+      return asrStatus();
+    }
     final state = translation.session.value?.state.value;
     if (state != null && (translation.into ?? AsrService.appLanguage) == code) {
       return switch (state.stage) {

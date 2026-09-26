@@ -36,6 +36,36 @@ abstract final class SubtitleUtils {
     return sb.toString();
   }
 
+  static final _vttCue = RegExp(
+    r'^(?:(\d+):)?(\d{1,2}):(\d{2})\.(\d{3})\s+-->\s+(?:(\d+):)?(\d{1,2}):(\d{2})\.(\d{3})',
+  );
+
+  static double _vttSeconds(RegExpMatch m, int at) =>
+      int.parse(m[at] ?? '0') * 3600 +
+      int.parse(m[at + 1]!) * 60 +
+      int.parse(m[at + 2]!) +
+      int.parse(m[at + 3]!) / 1000;
+
+  /// LibrePili: [json2Vtt] backwards — `{from, to, content}` for each cue
+  /// of [vtt]. For a track kept only as the VTT it was shown as (an
+  /// on-device subtitle whose session was stopped), saved in another format.
+  static List<Map<String, dynamic>> vtt2Json(String vtt) {
+    final out = <Map<String, dynamic>>[];
+    final blocks = vtt.replaceAll('\r\n', '\n').split(RegExp(r'\n\s*\n'));
+    for (final block in blocks) {
+      final lines = block.split('\n');
+      final at = lines.indexWhere((l) => _vttCue.hasMatch(l.trim()));
+      if (at == -1) continue;
+      final m = _vttCue.firstMatch(lines[at].trim())!;
+      out.add({
+        'from': _vttSeconds(m, 1),
+        'to': _vttSeconds(m, 5),
+        'content': lines.skip(at + 1).join('\n').trim(),
+      });
+    }
+    return out;
+  }
+
   static String _srtTimecode(num seconds) {
     // as in [_vttTimecode]: rounding the millisecond part on its own can
     // produce ",1000"

@@ -354,6 +354,13 @@ class TranslationTrack {
     return cues.isEmpty ? null : cues.toVtt();
   }
 
+  /// The track as a save writes it: as shown, with no line marked as
+  /// waiting. Null with no translation.
+  List<AsrCue>? get savedCues {
+    final current = session.value;
+    return current == null ? null : _cuesOf(current, markPending: false);
+  }
+
   /// Rebuilds and hands over the track if the viewer would gain from it.
   void publish({bool isFinal = false}) {
     final current = session.value;

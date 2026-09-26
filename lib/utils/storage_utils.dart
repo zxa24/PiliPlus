@@ -11,6 +11,7 @@ abstract final class StorageUtils {
     required Uint8List bytes,
     required List<String> allowedExtensions,
     FileType type = FileType.custom,
+    String savedMessage = '已保存',
   }) async {
     try {
       final path = await FilePicker.saveFile(
@@ -26,7 +27,7 @@ abstract final class StorageUtils {
       if (PlatformUtils.isDesktop) {
         await File(path.toFilePath()).writeAsBytes(bytes);
       }
-      SmartDialog.showToast("已保存");
+      SmartDialog.showToast(savedMessage);
     } catch (e) {
       SmartDialog.showToast("保存失败: $e");
     }

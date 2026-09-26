@@ -15,6 +15,7 @@ import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/live.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
+import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/models/common/super_resolution_type.dart';
 import 'package:PiliPlus/models/common/video/audio_quality.dart';
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
@@ -768,8 +769,11 @@ class HeaderControlState extends State<HeaderControl>
                 ),
                 // LibrePili: on-device subtitles are picked by language in
                 // the subtitle menu, not started from here
-                if (!videoDetailCtr.isFileSource &&
-                    videoDetailCtr.subtitles.isNotEmpty)
+                // a local file's own subtitles are files already; what is
+                // made on the device is saved from here too
+                if (videoDetailCtr.subtitles.any(
+                  (s) => !isFileSource || s.source == SubtitleSource.device,
+                ))
                   ListTile(
                     dense: true,
                     onTap: () {
@@ -1239,77 +1243,100 @@ class HeaderControlState extends State<HeaderControl>
               ),
             ],
           ),
-          children: List.generate(subtitles.length, (i) {
-            final item = subtitles[i];
-            return DialogOption(
-              onPressed: () async {
-                Get.back();
-                final url = item.subtitleUrl;
-                if (url == null || url.isEmpty) return;
-                try {
-                  final Uint8List bytes;
-                  switch (format) {
-                    case .vtt || .srt:
-                      var subtitle = format == .vtt
-                          ? videoDetailCtr.vttSubtitles[i]?.id
-                          : null;
-                      if (subtitle == null) {
-                        final res = await VideoHttp.getSubtitles(
-                          item.subtitleUrl!,
-                          format: format,
-                        );
-                        if (res == null) return;
-                        subtitle = res;
-                        if (format == .vtt) {
-                          videoDetailCtr.vttSubtitles[i] = (
-                            isData: true,
-                            id: res,
-                          );
-                        }
-                      }
-                      bytes = utf8.encode(subtitle);
-                    case .json:
-                      final res = await Request.dio.get<Uint8List>(
-                        url.http2https,
-                        options: Options(
-                          responseType: .bytes,
-                          headers: Constants.baseHeaders,
-                          extra: {'account': const NoAccount()},
-                        ),
-                      );
-                      if (res.statusCode != 200) return;
-                      bytes = Uint8List.fromList(
-                        Request.responseBytesDecoder(
-                          res.data!,
-                          res.headers.map,
-                        ),
-                      );
-                  }
-                  final videoDetail = introController.videoDetail.value;
-                  final name =
-                      '${videoDetail.title}-${videoDetail.owner?.name}(${videoDetail.owner?.mid})-${videoDetailCtr.bvid}-${videoDetailCtr.cid.value}-${item.lanDoc}.${format.name}'
-                          .replaceAll(
-                            Platform.isWindows ? RegExp(r'[<>:/\\|?*"]') : '/',
-                            '_',
-                          );
-                  // Reserved characters may not be used in file names. See: https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions
-                  StorageUtils.saveBytes2File(
-                    name: name,
-                    bytes: bytes,
-                    allowedExtensions: [format.name],
-                  );
-                } catch (e, s) {
-                  Utils.reportError(e, s);
-                  SmartDialog.showToast(e.toString());
-                }
-              },
-              child: Text(item.displayName),
-            );
-          }),
+          children: [
+            for (final (i, item) in subtitles.indexed)
+              if (!isFileSource || item.source == SubtitleSource.device)
+                _exportOption(i, item, () => format),
+          ],
         );
       },
     );
   }
+
+  /// The file a subtitle is saved as.
+  String _exportName(Subtitle item, SubtitleFormat format) {
+    final videoDetail = introController.videoDetail.value;
+    final name = isFileSource
+        ? '${videoDetail.title}-${item.lanDoc}.${format.name}'
+        : '${videoDetail.title}-${videoDetail.owner?.name}(${videoDetail.owner?.mid})-${videoDetailCtr.bvid}-${videoDetailCtr.cid.value}-${item.lanDoc}.${format.name}';
+    // Reserved characters may not be used in file names. See: https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions
+    return name.replaceAll(
+      Platform.isWindows ? RegExp(r'[<>:/\\|?*"]') : '/',
+      '_',
+    );
+  }
+
+  Widget _exportOption(
+    int i,
+    Subtitle item,
+    SubtitleFormat Function() formatOf,
+  ) => DialogOption(
+    onPressed: () async {
+      Get.back();
+      final format = formatOf();
+      if (item.source == SubtitleSource.device) {
+        // LibrePili: made here, and possibly not whole yet
+        // (research/chunked-transcription-design-2026-09-25.md, 13)
+        videoDetailCtr.saveOnDeviceSubtitle(
+          i,
+          format,
+          name: _exportName(item, format),
+        );
+        return;
+      }
+      final url = item.subtitleUrl;
+      if (url == null || url.isEmpty) return;
+      try {
+        final Uint8List bytes;
+        switch (format) {
+          case .vtt || .srt:
+            var subtitle = format == .vtt
+                ? videoDetailCtr.vttSubtitles[i]?.id
+                : null;
+            if (subtitle == null) {
+              final res = await VideoHttp.getSubtitles(
+                item.subtitleUrl!,
+                format: format,
+              );
+              if (res == null) return;
+              subtitle = res;
+              if (format == .vtt) {
+                videoDetailCtr.vttSubtitles[i] = (
+                  isData: true,
+                  id: res,
+                );
+              }
+            }
+            bytes = utf8.encode(subtitle);
+          case .json:
+            final res = await Request.dio.get<Uint8List>(
+              url.http2https,
+              options: Options(
+                responseType: .bytes,
+                headers: Constants.baseHeaders,
+                extra: {'account': const NoAccount()},
+              ),
+            );
+            if (res.statusCode != 200) return;
+            bytes = Uint8List.fromList(
+              Request.responseBytesDecoder(
+                res.data!,
+                res.headers.map,
+              ),
+            );
+        }
+        StorageUtils.saveBytes2File(
+          name: _exportName(item, format),
+          bytes: bytes,
+          allowedExtensions: [format.name],
+        );
+      } catch (e, s) {
+        Utils.reportError(e, s);
+        SmartDialog.showToast(e.toString());
+      }
+    },
+    child: Text(item.displayName),
+  );
 
   void showDanmakuPool() {
     final ctr = plPlayerController.danmakuController;

@@ -218,6 +218,9 @@ AsrStep decideAsrStep({
       (run.frontier - span.to).abs() <= _eps;
   if (serving) {
     if (run.paused) {
+      // a lead that never pauses — a charger plugged in, or a save waiting
+      // for the whole transcript — has no business with a paused run
+      if (!lead.pauses) return const AsrResume();
       return ahead < lead.low ? const AsrResume() : const AsrKeep();
     }
     if (lead.pauses && ahead >= lead.high) return const AsrPause();
