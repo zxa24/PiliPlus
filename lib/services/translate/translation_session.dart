@@ -32,6 +32,21 @@ const _behind = 2.0;
 /// This many failures in a row means the engine is not coming back.
 const _giveUpAfter = 3;
 
+/// A short text translated in the gaps of a session: a comment
+/// (research/comment-translation-design-2026-09-25.md, E1). [tag] is who
+/// asked, so what it no longer needs can be dropped.
+typedef ExtraText = ({
+  String text,
+  String target,
+  Object? tag,
+  Completer<String?> done,
+});
+
+/// How long a session kept only for [ExtraText]s holds the model after the
+/// last one: a screen of comments arrives as a burst, the next page's a
+/// little later, and loading the model again costs seconds.
+const extraLinger = Duration(seconds: 15);
+
 enum TranslationStage {
   idle,
   loading,
@@ -96,7 +111,22 @@ class TranslationSession {
     this.ownsPlayer,
     this.convert,
     this.modelFree = false,
+    this.extrasOnly = false,
+    this.linger = extraLinger,
   });
+
+  /// How long a session [extrasOnly] holds the model after its last text.
+  final Duration linger;
+
+  /// A session with no transcript, kept for [ExtraText]s alone.
+  final bool extrasOnly;
+
+  /// Where [ExtraText]s come from (the service's queue): whether one is
+  /// waiting, the next one, and one handed back unfinished.
+  bool Function()? hasExtra;
+  ExtraText? Function()? takeExtra;
+  void Function(ExtraText extra)? giveBack;
+  DateTime _lastExtra = DateTime.now();
 
   final TranscriptView transcript;
 
@@ -150,6 +180,17 @@ class TranslationSession {
   Completer<void>? _parking;
 
   bool get isRunning => state.value.isBusy;
+
+  /// Whether this session can take [ExtraText]s: its loop is alive (it
+  /// naps, not ends, when done for as far as the viewer goes) and it is not
+  /// paused under another page's.
+  bool get servesExtras =>
+      !modelFree &&
+      _loop != null &&
+      !_closed &&
+      !_ended &&
+      !state.value.isPaused;
+  var _ended = false;
 
   /// Running, or paused to go on later.
   bool get isActive => isRunning || state.value.isPaused;
@@ -304,6 +345,32 @@ class TranslationSession {
     ]);
   }
 
+  /// One [ExtraText], with the model loaded. Taken only now, so one that
+  /// has to wait for the model is not held by a session that may yet be
+  /// parked; one cut short by a park or a stop is handed back.
+  Future<void> _translateExtra() async {
+    final extra = takeExtra?.call();
+    if (extra == null) return;
+    _lastExtra = DateTime.now();
+    if (extrasOnly) _set(const TranslationState(TranslationStage.translating));
+    try {
+      final reply = await _engine!.complete(
+        translationPrompt(extra.text, target: extra.target),
+      );
+      if (!extra.done.isCompleted) {
+        extra.done.complete(cleanTranslation(reply, source: extra.text));
+      }
+    } catch (e) {
+      if (_closed || _parking != null || ownsPlayer?.call() == false) {
+        giveBack?.call(extra);
+        return;
+      }
+      if (kDebugMode) debugPrint('translate: text failed: $e');
+      if (!extra.done.isCompleted) extra.done.complete(null);
+    }
+    _lastExtra = DateTime.now();
+  }
+
   Future<void> _run() async {
     try {
       while (!_closed) {
@@ -328,7 +395,22 @@ class TranslationSession {
         }
         _refreshUnits();
         final i = next();
-        if (i == null) {
+        // nothing of the transcript due: short texts go in the gap. The
+        // transcript has the player's clock to keep; they do not.
+        final extraDue = i == null && (hasExtra?.call() ?? false);
+        if (i == null && !extraDue && extrasOnly) {
+          // held a little for the next burst, then let go
+          if (DateTime.now().difference(_lastExtra) > linger) {
+            _set(const TranslationState(TranslationStage.done));
+            return;
+          }
+          if (_engine != null) {
+            _set(const TranslationState(TranslationStage.waiting));
+          }
+          await _nap();
+          continue;
+        }
+        if (i == null && !extraDue) {
           // an empty transcript is finished too, with nothing to translate
           final finished =
               transcript.complete() && results.length == units.length;
@@ -355,7 +437,7 @@ class TranslationSession {
           await _nap();
           continue;
         }
-        if (modelFree) {
+        if (modelFree && i != null) {
           _set(const TranslationState(TranslationStage.translating));
           final converter = _converter ??= await convert!();
           if (_closed) return;
@@ -388,6 +470,10 @@ class TranslationSession {
           if (_closed) return;
           if (_parking != null) continue;
         }
+        if (i == null) {
+          await _translateExtra();
+          continue;
+        }
         _set(const TranslationState(TranslationStage.translating));
         final unit = units[i];
         String? text;
@@ -417,6 +503,7 @@ class TranslationSession {
     } catch (e) {
       _set(TranslationState(TranslationStage.failed, message: '$e'));
     } finally {
+      _ended = true;
       final engine = _engine;
       _engine = null;
       await engine?.dispose();

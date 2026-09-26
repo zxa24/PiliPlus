@@ -10,6 +10,8 @@
 /// its page has the player again (see [TranslationSession.park]).
 library;
 
+import 'dart:async';
+import 'dart:collection' show Queue;
 import 'dart:ffi' show IntPtr, sizeOf;
 import 'dart:io';
 
@@ -46,6 +48,13 @@ class TranslationService extends GetxService {
 
   TranslationSession? _current;
   AsrCancelToken? _download;
+
+  /// Short texts waiting to be translated (see [translateText]).
+  final _extras = Queue<ExtraText>();
+
+  /// A session kept for [_extras] alone, while no transcript's session can
+  /// take them (see [_serveExtras]).
+  TranslationSession? _extrasSession;
 
   /// Translations that gave the model up for another page's and wait for
   /// their own page to have the player again. None holds a model.
@@ -187,6 +196,7 @@ class TranslationService extends GetxService {
       // for that page to be back rather than being stopped. A page starting
       // again stops its own first (see TranslationTrack).
       await _park();
+      await _endExtrasSession();
       await _disposing;
       return _create(
         transcript,
@@ -199,6 +209,106 @@ class TranslationService extends GetxService {
     } finally {
       _pending--;
     }
+  }
+
+  /// Translates [text] into [into] (the app's language by default) with the
+  /// same model as the subtitles, and without taking it from them: a
+  /// translation of a transcript or captions under way does these in its
+  /// gaps, with the viewer's lines first; with none under way a session is
+  /// kept for them alone. Null when it failed.
+  ///
+  /// [tag] names who asked, for [dropTexts].
+  Future<String?> translateText(String text, {String? into, Object? tag}) {
+    into ??= target;
+    final traditional = into == traditionalChinese;
+    final done = Completer<String?>();
+    _extras.add((
+      text: text,
+      // the model writes Chinese, and the conversion does the rest
+      target: traditional ? 'zh' : into,
+      tag: tag,
+      done: done,
+    ));
+    _serveExtras();
+    if (!traditional) return done.future;
+    return done.future.then((result) async {
+      if (result == null) return null;
+      return (await S2twpConverter.load()).convert(result);
+    });
+  }
+
+  /// Drops the texts [tag] asked for that are not translated yet: each one
+  /// comes back null.
+  void dropTexts(Object tag) {
+    final dropped = _extras.where((e) => e.tag == tag).toList();
+    _extras.removeWhere((e) => e.tag == tag);
+    for (final extra in dropped) {
+      if (!extra.done.isCompleted) extra.done.complete(null);
+    }
+  }
+
+  bool _hasExtra() => _extras.isNotEmpty;
+
+  ExtraText? _takeExtra() => _extras.isEmpty ? null : _extras.removeFirst();
+
+  void _giveBack(ExtraText extra) {
+    _extras.addFirst(extra);
+    _serveExtras();
+  }
+
+  /// Gets [_extras] done: by the transcript's session when it has the model
+  /// or will load it, otherwise by a session of their own. Never a second
+  /// model: a session of their own starts only while no other can hold one,
+  /// and a transcript's session taking the model back ends it first (see
+  /// [_claim] and [_startNow]).
+  void _serveExtras() {
+    if (!supported || _extras.isEmpty) return;
+    final current = _current;
+    if (current != null && current.servesExtras) {
+      current.poke();
+      return;
+    }
+    // alive, not busy: one just started has not said so yet, and asking
+    // "is it running" there started a second one — and a second model —
+    // for the second text of a burst
+    final own = _extrasSession;
+    if (own != null && own.servesExtras) {
+      own.poke();
+      return;
+    }
+    // nothing about to start either: a start takes them over
+    if (_pending > 0) return;
+    final session = _extrasSession = TranslationSession(
+      transcript: (
+        units: () => const [],
+        cues: () => const [],
+        complete: () => true,
+      ),
+      position: () => 0,
+      engine: debugEngine ?? _loader(),
+      target: target,
+      extrasOnly: true,
+      linger: debugExtraLinger ?? extraLinger,
+    );
+    _wireExtras(session);
+    session.start();
+  }
+
+  void _wireExtras(TranslationSession session) {
+    if (session.modelFree) return;
+    session
+      ..hasExtra = _hasExtra
+      ..takeExtra = _takeExtra
+      ..giveBack = _giveBack;
+  }
+
+  /// Ends the session kept for texts alone, before another loads the model;
+  /// what it had not done goes back in the queue for that one.
+  Future<void> _endExtrasSession() async {
+    final session = _extrasSession;
+    _extrasSession = null;
+    if (session == null) return;
+    await _dispose(session);
   }
 
   /// Moves the current translation aside, once it has let go of the model.
@@ -216,7 +326,14 @@ class TranslationService extends GetxService {
   /// while no other is at work with it — the current one paused, finished or
   /// failed, and no start on its way.
   Future<bool> _claim(TranslationSession session) async {
-    if (identical(_current, session)) return true;
+    if (identical(_current, session)) {
+      // about to load the model: a session kept for texts alone may hold
+      // one — it ends, and this one takes its texts over. Only that one is
+      // waited for, not [_disposing]: a stop of this session awaits its loop,
+      // which is here, and waiting on the stop from inside it never ended
+      await _endExtrasSession();
+      return identical(_current, session);
+    }
     if (!_parked.contains(session) || _pending > 0) return false;
     final holder = _current;
     if (holder != null) {
@@ -234,6 +351,7 @@ class TranslationService extends GetxService {
     }
     _parked.remove(session);
     _current = session;
+    await _endExtrasSession();
     await _disposing;
     return identical(_current, session);
   }
@@ -259,6 +377,7 @@ class TranslationService extends GetxService {
       modelFree: convertsOnly(from, into),
       ownsPlayer: ownsPlayer,
     )..claim = _claim;
+    _wireExtras(session);
     if (stopped) {
       // stopped before it began: nothing is loaded, and its page hears why
       // as it would have had it been running
@@ -267,6 +386,8 @@ class TranslationService extends GetxService {
     }
     _current = session;
     session.start();
+    // a modelFree one cannot do them: they need a session of their own
+    if (session.modelFree) _serveExtras();
     return session;
   }
 
@@ -328,6 +449,16 @@ class TranslationService extends GetxService {
       }
     }
     await _stop(reason: reason, only: only);
+    if (only == null) {
+      // memory, the background, the model deleted: the texts waiting stop
+      // too, as failed
+      await _endExtrasSession();
+      final waiting = _extras.toList();
+      _extras.clear();
+      for (final extra in waiting) {
+        if (!extra.done.isCompleted) extra.done.complete(null);
+      }
+    }
     // one replaced earlier may still have the file mapped, and the model
     // being deleted is one of the reasons to stop everything
     if (only == null) await _disposing;
@@ -360,6 +491,12 @@ class TranslationService extends GetxService {
 
   @visibleForTesting
   TranslationSession? get debugCurrent => _current;
+
+  @visibleForTesting
+  TranslationSession? get debugExtrasSession => _extrasSession;
+
+  @visibleForTesting
+  Duration? debugExtraLinger;
 
   @visibleForTesting
   void debugAdopt(TranslationSession session) => _current = session;
