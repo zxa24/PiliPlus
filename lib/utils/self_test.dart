@@ -827,6 +827,16 @@ abstract final class SelfTest {
         ),
       );
     }
+    if (_arg(args, '--asr-leak') case final source?) {
+      await scenario(
+        'asrLeak',
+        () => _asrLeak(
+          source,
+          cycles: int.tryParse(_arg(args, '--cycles') ?? '') ?? 20,
+          settleMs: int.tryParse(_arg(args, '--settle-ms') ?? '') ?? 3000,
+        ),
+      );
+    }
     if (_arg(args, '--asr') case final source?) {
       await scenario(
         'asr',
@@ -3998,6 +4008,89 @@ abstract final class SelfTest {
       });
     }
     return {'pass': runs.every((r) => r['error'] == null), 'runs': runs};
+  }
+
+  /// Chunked transcription, V0
+  /// (research/chunked-transcription-design-2026-09-25.md): does stopping a
+  /// transcription give back the recogniser's native memory?
+  ///
+  /// Each cycle goes through the app's own path — [AsrService.start], then
+  /// [AsrService.stop] once the first segment is in, the way leaving a page
+  /// does — and the process RSS is read [settleMs] after the stop. A stop
+  /// that leaks shows as RSS climbing by about one recogniser per cycle; one
+  /// that does not, as a flat line within noise.
+  static Future<Map<String, dynamic>> _asrLeak(
+    String source, {
+    required int cycles,
+    required int settleMs,
+  }) async {
+    final service = AsrService.to;
+    if (!service.modelsReady) {
+      return {
+        'pass': false,
+        'error': 'models missing under ${service.store.root.path}',
+      };
+    }
+    int rssMb() => ProcessInfo.currentRss ~/ (1024 * 1024);
+    final isBili =
+        (Uri.tryParse(source)?.host ?? '').contains('bilivideo') ||
+        (Uri.tryParse(source)?.host ?? '').contains('akamaized');
+    final rows = <Map<String, Object?>>[];
+    final baseline = rssMb();
+    String? error;
+    for (var i = 0; i < cycles; i++) {
+      final clock = Stopwatch()..start();
+      final session = await service.start(
+        key: 'selftest-leak',
+        source: source,
+        referer: isBili ? HttpString.baseUrl : null,
+        userAgent: BrowserUa.pc,
+      );
+      // stop mid-run, as a page does: the recogniser is loaded and busy
+      final deadline = DateTime.now().add(const Duration(seconds: 90));
+      while (session.segments.isEmpty &&
+          session.state.value.stage != AsrStage.failed &&
+          DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      final firstSegmentMs = clock.elapsedMilliseconds;
+      final segments = session.segments.length;
+      final stage = session.state.value.stage.name;
+      final running = rssMb();
+      await service.stop(only: session);
+      await Future.delayed(Duration(milliseconds: settleMs));
+      rows.add({
+        'cycle': i,
+        'firstSegmentMs': firstSegmentMs,
+        'segments': segments,
+        'stageAtStop': stage,
+        'rssRunningMb': running,
+        'rssAfterStopMb': rssMb(),
+      });
+      if (segments == 0) {
+        error = 'cycle $i produced no segment (stage $stage)';
+        break;
+      }
+    }
+    // anything freed late shows up here rather than in the last row
+    await Future.delayed(const Duration(seconds: 10));
+    final after = [for (final r in rows) r['rssAfterStopMb'] as int];
+    return {
+      'pass': error == null,
+      'error': ?error,
+      'source': source,
+      'cycles': rows.length,
+      'settleMs': settleMs,
+      'rssBaselineMb': baseline,
+      'rssAfterStopSeriesMb': after,
+      'rssFinalMb': rssMb(),
+      // first stop to last: one-off growth (models mapped once, caches
+      // warmed) is in the first row, a per-stop leak is in the slope
+      'mbPerCycle': after.length < 2
+          ? null
+          : (after.last - after.first) / (after.length - 1),
+      'rows': rows,
+    };
   }
 
   static Future<Map<String, dynamic>> _asr(
