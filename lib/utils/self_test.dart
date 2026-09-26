@@ -2198,6 +2198,8 @@ abstract final class SelfTest {
       await track.startCaptions(cues, from: from);
       final session = track.session.value;
       if (session == null) return {'pass': false, 'reason': 'no session'};
+      // everything, not only the lead ahead of a playhead that never moves
+      session.requestFullCoverage();
       final deadline = DateTime.now().add(const Duration(minutes: 60));
       while (!session.translatedAll &&
           failure == null &&
