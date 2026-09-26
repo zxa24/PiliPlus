@@ -24,7 +24,28 @@ import 'package:get/get.dart';
 typedef TimeSpan = ({double from, double to});
 
 /// A stretch the VAD called speech, and the run it came from.
-typedef TranscriptSegment = ({double start, double duration, int run});
+///
+/// [language] is what the recogniser tagged it as (`zh`, `en`, …; empty when
+/// it gave none): a video can change language part way, and each segment
+/// keeps its own rather than the session's (research/subtitle-switch-
+/// design-2026-09-26.md, 2A).
+typedef TranscriptSegment = ({
+  double start,
+  double duration,
+  int run,
+  String language,
+});
+
+/// A segment as its run keeps it. [weight] is how much its [language] tag
+/// counts: the text's length plus one, as in the session's language vote
+/// (see AsrLanguageVote) — a stray word is tagged wrong far more often than
+/// a sentence.
+typedef RunSegment = ({
+  double start,
+  double duration,
+  String language,
+  int weight,
+});
 
 /// One run's share of the transcript: its segments and cues, in the order
 /// the recogniser produced them, which is time order within a run.
@@ -36,7 +57,7 @@ class TranscriptRun {
   /// Where in the media the run started.
   final double start;
 
-  final segments = <({double start, double duration})>[];
+  final segments = <RunSegment>[];
   final cues = <AsrCue>[];
 
   /// How many of [cues] each of [segments] brought: which cues go when a
@@ -111,7 +132,8 @@ class TranscriptStore {
     return run;
   }
 
-  /// A segment [run] recognised, with the cues it produced.
+  /// A segment [run] recognised, with the cues it produced, and the
+  /// [language] it was tagged as with its [weight] (see [RunSegment]).
   ///
   /// Both go in at their place in time. Together, in one call: translation
   /// builds its units from both, and must never see one ahead of the other.
@@ -119,10 +141,22 @@ class TranscriptStore {
     TranscriptRun run,
     double start,
     double duration,
-    List<AsrCue> segmentCues,
-  ) {
-    final segment = (start: start, duration: duration, run: run.id);
-    run.segments.add((start: start, duration: duration));
+    List<AsrCue> segmentCues, {
+    String language = '',
+    int weight = 0,
+  }) {
+    final segment = (
+      start: start,
+      duration: duration,
+      run: run.id,
+      language: language,
+    );
+    run.segments.add((
+      start: start,
+      duration: duration,
+      language: language,
+      weight: weight,
+    ));
     run.cues.addAll(segmentCues);
     run._cueCounts.add(segmentCues.length);
     final end = start + duration;
@@ -163,7 +197,12 @@ class TranscriptStore {
       for (var i = 0; i < other.segments.length;) {
         final s = other.segments[i];
         final count = other._cueCounts[i];
-        if (removes((start: s.start, duration: s.duration, run: other.id))) {
+        if (removes((
+          start: s.start,
+          duration: s.duration,
+          run: other.id,
+          language: s.language,
+        ))) {
           other.segments.removeAt(i);
           other._cueCounts.removeAt(i);
           other.cues.removeRange(cueAt, cueAt + count);
@@ -174,7 +213,12 @@ class TranscriptStore {
       }
     }
     for (final segment in segments) {
-      run.segments.add((start: segment.start, duration: segment.duration));
+      run.segments.add((
+        start: segment.start,
+        duration: segment.duration,
+        language: segment.language,
+        weight: segment.weight,
+      ));
       run.cues.addAll(segment.cues);
       run._cueCounts.add(segment.cues.length);
       advance(run, segment.start + segment.duration);
@@ -184,7 +228,12 @@ class TranscriptStore {
       ..addAll([
         for (final other in _runs)
           for (final s in other.segments)
-            (start: s.start, duration: s.duration, run: other.id),
+            (
+              start: s.start,
+              duration: s.duration,
+              run: other.id,
+              language: s.language,
+            ),
       ]);
     mergeSortBy(_segments, (s) => s.start);
     final all = [for (final other in _runs) ...other.cues];

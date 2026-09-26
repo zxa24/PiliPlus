@@ -247,8 +247,7 @@ class AsrSession {
   /// waiting on this.
   bool get hasEnded {
     final stage = state.value.stage;
-    return stage == AsrStage.failed ||
-        (stage == AsrStage.idle && runCount > 0);
+    return stage == AsrStage.failed || (stage == AsrStage.idle && runCount > 0);
   }
 
   /// Pauses and resumes so far, for the probes.
@@ -1039,6 +1038,8 @@ class AsrSession {
       start: event.start,
       duration: event.duration,
       cues: event.cues,
+      language: event.language,
+      weight: event.weight,
     );
     final end = event.start + event.duration;
     final skip = run.skipUntil;
@@ -1083,7 +1084,14 @@ class AsrSession {
       if (commit != null) _commitJoin(run, commit);
       return;
     }
-    transcript.addSegment(run.store, event.start, event.duration, event.cues);
+    transcript.addSegment(
+      run.store,
+      event.start,
+      event.duration,
+      event.cues,
+      language: event.language,
+      weight: event.weight,
+    );
   }
 
   /// The join is made: the old segments the new run's overlap go, whole,

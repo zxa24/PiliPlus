@@ -31,6 +31,34 @@ void main() {
       return Future<void>.delayed(Duration.zero, () => expect(changes, 2));
     });
 
+    test('each segment keeps its language, untagged by default', () {
+      final store = TranscriptStore();
+      final late = store.startRun(100);
+      store.addSegment(
+        late,
+        100,
+        5,
+        [cue(100, 105, 'late')],
+        language: 'en',
+        weight: 5,
+      );
+      final early = store.startRun(0);
+      store
+        ..addSegment(early, 0, 5, [cue(0, 5, '早')], language: 'zh', weight: 2)
+        ..addSegment(early, 10, 5, [cue(10, 15, 'x')]);
+      // sorted by time across runs, each with its own tag
+      expect(store.segments.map((s) => (s.start, s.language)), [
+        (0.0, 'zh'),
+        (10.0, ''),
+        (100.0, 'en'),
+      ]);
+      expect(early.segments.map((s) => (s.language, s.weight)), [
+        ('zh', 2),
+        ('', 0),
+      ]);
+      expect(late.segments.single.weight, 5);
+    });
+
     test('text arriving in front of what is there goes in at its time', () {
       final store = TranscriptStore();
       var changes = 0;

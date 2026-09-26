@@ -128,7 +128,9 @@ TranscriptView transcriptView(
     final done = complete();
     for (final run in store.runs) {
       final made = buildTranslationUnits(
-        segments: run.segments,
+        segments: [
+          for (final s in run.segments) (start: s.start, duration: s.duration),
+        ],
         cues: run.cues,
         complete: done || run.finished,
       );

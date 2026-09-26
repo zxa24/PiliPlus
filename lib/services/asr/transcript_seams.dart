@@ -14,8 +14,15 @@ library;
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 
-/// A segment the VAD called speech, with the cues recognised in it.
-typedef SeamSegment = ({double start, double duration, List<AsrCue> cues});
+/// A segment the VAD called speech, with the cues recognised in it and the
+/// language it was tagged as (see RunSegment).
+typedef SeamSegment = ({
+  double start,
+  double duration,
+  List<AsrCue> cues,
+  String language,
+  int weight,
+});
 
 /// Two boundaries this close are the same boundary.
 const seamTolerance = 0.3;

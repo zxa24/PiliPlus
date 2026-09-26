@@ -10,8 +10,13 @@ import 'package:flutter_test/flutter_test.dart';
 AsrCue cue(double from, double to, String content) =>
     AsrCue(from: from, to: to, content: content);
 
-SeamSegment seg(double start, double end, String text) =>
-    (start: start, duration: end - start, cues: [cue(start, end, text)]);
+SeamSegment seg(double start, double end, String text, [String lang = '']) => (
+  start: start,
+  duration: end - start,
+  cues: [cue(start, end, text)],
+  language: lang,
+  weight: text.length + 1,
+);
 
 void main() {
   group('start of a run', () {
@@ -149,6 +154,63 @@ void main() {
       // one stretch now: the early run reaches where the later one goes on
       expect(store.covered, [(from: 100.0, to: 215.0)]);
       return Future<void>.delayed(Duration.zero, () => expect(changes, 1));
+    });
+
+    test('each segment keeps its language through a seam and the sort', () {
+      final store = TranscriptStore();
+      final later = store.startRun(200);
+      store
+        ..addSegment(
+          later,
+          200,
+          6,
+          [cue(200, 206, 'o1')],
+          language: 'en',
+          weight: 3,
+        )
+        ..addSegment(
+          later,
+          207,
+          8,
+          [cue(207, 215, 'o2')],
+          language: 'ja',
+          weight: 3,
+        );
+      final early = store.startRun(100);
+      store
+        ..addSegment(
+          early,
+          190,
+          5,
+          [cue(190, 195, 'e1')],
+          language: 'zh',
+          weight: 3,
+        )
+        // the new segments of the join: one Chinese, one untagged
+        ..replace(
+          early,
+          [seg(198, 203, 'n1', 'zh'), seg(203.2, 206.1, 'n2')],
+          (s) => s.run == later.id && s.start < 206.1 - seamTolerance,
+        );
+      expect(store.segments.map((s) => (s.start, s.language)), [
+        (190.0, 'zh'),
+        (198.0, 'zh'),
+        (203.2, ''),
+        (207.0, 'ja'),
+      ]);
+      expect(early.segments.map((s) => (s.language, s.weight)), [
+        ('zh', 3),
+        ('zh', 3),
+        ('', 3),
+      ]);
+      expect(later.segments.single.language, 'ja');
+    });
+
+    test('a join hands on the language of each segment it held', () {
+      final join = SeamJoin([(start: 200, duration: 5)], from: 200);
+      expect(join.offer(seg(196, 199, 'a', 'en')), isNull);
+      final commit = join.offer(seg(199.2, 205, 'b', 'zh'))!;
+      expect(commit.segments.map((s) => s.language), ['en', 'zh']);
     });
 
     test('a run keeps a sentence it began before its target', () {

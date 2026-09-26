@@ -332,6 +332,8 @@ void main() {
         start: 196,
         duration: 3,
         cues: [cue(196, 199, 'new 196.0')],
+        language: '',
+        weight: 0,
       )),
       isNull,
     );
@@ -339,6 +341,8 @@ void main() {
       start: 200,
       duration: 3,
       cues: [cue(200, 203, 'new 200.0')],
+      language: '',
+      weight: 0,
     ))!;
     store.replace(
       early,
