@@ -2572,6 +2572,54 @@ abstract final class SelfTest {
     };
   }
 
+  /// [_commentsProbe] for a YouTube page: what language the comments are
+  /// in, by [TextLanguage], and how they translate.
+  static Future<Map<String, Object?>> _ytCommentsProbe(
+    YtVideoController controller,
+  ) async {
+    controller.ensureCommentsStarted();
+    for (var i = 0; i < 80 && controller.comments.isEmpty; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    final items = controller.comments.toList();
+    final languages = <String, int>{};
+    for (final c in items) {
+      final lang =
+          TextLanguage.detect(
+            CommentTranslator.protectPlain(c.content).plain,
+          ) ??
+          'none';
+      languages[lang] = (languages[lang] ?? 0) + 1;
+    }
+    final translator = controller.commentTranslator;
+    final clock = Stopwatch()..start();
+    translator.toggleTexts(controller.loadedCommentTexts);
+    final total = translator.total.value;
+    while (translator.done.value < translator.total.value &&
+        clock.elapsed < const Duration(minutes: 3)) {
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    final pairs = [
+      for (final c in items)
+        if (translator.textFor(c.commentId) case final t?)
+          {'from': c.content, 'to': t},
+    ];
+    final failed = items
+        .where((c) => translator.textFailed(c.commentId))
+        .length;
+    translator.toggleTexts(const []);
+    return {
+      'native': TextLanguage.native,
+      'loaded': items.length,
+      'languages': languages,
+      'toTranslate': total,
+      'translated': pairs.length,
+      'failed': failed,
+      'ms': clock.elapsedMilliseconds,
+      'samples': pairs.take(6).toList(),
+    };
+  }
+
   /// `--dump-urls`: pages report the stream URLs they played.
   static bool debugDumpUrls = false;
 
@@ -3813,6 +3861,9 @@ abstract final class SelfTest {
     await Future.delayed(Duration(seconds: holdSeconds));
     final second = player.videoPlayerController?.state.position;
     final keys = debugFocusProbe ? await _keyProbe(player) : null;
+    final comments = debugCommentsProbe
+        ? await _ytCommentsProbe(controller)
+        : null;
 
     // captions are the half that the Invidious route could never deliver
     var captionOk = false;
@@ -3856,6 +3907,7 @@ abstract final class SelfTest {
       'positionAfterBack': afterBack?.inMilliseconds,
       'positionAfterBack2': afterBack2?.inMilliseconds,
       'keys': ?keys,
+      'comments': ?comments,
     };
   }
 

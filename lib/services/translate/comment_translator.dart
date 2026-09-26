@@ -56,6 +56,65 @@ class CommentTranslator {
   final _failed = <int>{};
   final _asked = <int>{};
 
+  /// Plain comments (YouTube's), by their id.
+  final _texts = <String, String>{};
+  final _textsFailed = <String>{};
+  final _textsAsked = <String>{};
+
+  /// What the plain comment [id] shows instead of its own text, if anything.
+  String? textFor(String id) => enabled.value ? _texts[id] : null;
+
+  bool textFailed(String id) => enabled.value && _textsFailed.contains(id);
+
+  /// [toggle] for plain comments: ([id], text) pairs.
+  void toggleTexts(Iterable<(String, String)> loaded) {
+    if (enabled.value) {
+      enabled.value = false;
+      _stop();
+    } else {
+      enabled.value = true;
+      addTexts(loaded);
+    }
+    revision.value++;
+  }
+
+  /// [add] for plain comments.
+  void addTexts(Iterable<(String, String)> comments) {
+    if (!enabled.value) return;
+    for (final (id, text) in comments) {
+      if (_texts.containsKey(id) || _textsAsked.contains(id)) continue;
+      final protected = protectPlain(text);
+      if (!TextLanguage.needsTranslation(protected.plain)) continue;
+      _textsAsked.add(id);
+      _textsFailed.remove(id);
+      _ask(protected, (restored) {
+        _textsAsked.remove(id);
+        if (restored == null) {
+          _textsFailed.add(id);
+        } else {
+          _texts[id] = restored;
+        }
+      });
+    }
+  }
+
+  /// One text to the model, and what came back, restored, to [onResult].
+  void _ask(ProtectedText protected, void Function(String? restored) onResult) {
+    total.value++;
+    TranslationService.to
+        .translateText(
+          protected.text,
+          into: TextLanguage.native.first,
+          tag: this,
+        )
+        .then((result) {
+          if (!_all.containsValue(this)) return;
+          onResult(result == null ? null : protected.restore(result));
+          done.value++;
+          revision.value++;
+        });
+  }
+
   bool get busy => enabled.value && done.value < total.value;
 
   /// What [reply] shows instead of its own text, if anything.
@@ -99,42 +158,39 @@ class CommentTranslator {
     if (!TextLanguage.needsTranslation(protected.plain)) return;
     _asked.add(id);
     _failed.remove(id);
-    total.value++;
-    TranslationService.to
-        .translateText(
-          protected.text,
-          into: TextLanguage.native.first,
-          tag: this,
-        )
-        .then((result) {
-          _asked.remove(id);
-          if (!_all.containsValue(this)) return;
-          final restored = result == null ? null : protected.restore(result);
-          if (restored == null) {
-            _failed.add(id);
-          } else {
-            _translated[id] = content.deepCopy()..message = restored;
-          }
-          done.value++;
-          revision.value++;
-        });
+    _ask(protected, (restored) {
+      _asked.remove(id);
+      if (restored == null) {
+        _failed.add(id);
+      } else {
+        _translated[id] = content.deepCopy()..message = restored;
+      }
+    });
   }
 
   void _stop() {
     TranslationService.to.dropTexts(this);
     _asked.clear();
+    _textsAsked.clear();
     done.value = 0;
     total.value = 0;
   }
 
+  /// [protect] for a plain comment: timestamps and links are all it has.
+  static ProtectedText protectPlain(String text) => _protect(text, const []);
+
   /// [content]'s text with what must survive translation replaced by
   /// numbered marks, and the way back.
-  static ProtectedText protect(Content content) {
+  static ProtectedText protect(Content content) => _protect(content.message, [
+    ...content.emotes.keys,
+    ...content.topics.keys.map((e) => '#$e#'),
+    ...content.atNameToMid.keys.map((e) => '@$e'),
+    ...content.urls.keys,
+  ]);
+
+  static ProtectedText _protect(String message, List<String> special) {
     final tokens = [
-      ...content.emotes.keys,
-      ...content.topics.keys.map((e) => '#$e#'),
-      ...content.atNameToMid.keys.map((e) => '@$e'),
-      ...content.urls.keys,
+      ...special,
     ]..sort((a, b) => b.length.compareTo(a.length));
     // the same things, found the same way, as the comment renders them
     // (ReplyItemGrpc._buildMessage)
@@ -147,7 +203,7 @@ class CommentTranslator {
       ].join('|'),
     );
     final kept = <String>[];
-    var text = content.message.replaceAllMapped(pattern, (m) {
+    var text = message.replaceAllMapped(pattern, (m) {
       kept.add(m[0]!);
       return '⟦${kept.length}⟧';
     });
@@ -167,7 +223,7 @@ class CommentTranslator {
       kept: kept,
       prefix: unmark(head),
       suffix: unmark(tail),
-      plain: content.message.replaceAll(pattern, ' '),
+      plain: message.replaceAll(pattern, ' '),
     );
   }
 }

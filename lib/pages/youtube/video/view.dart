@@ -22,6 +22,7 @@ import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
+import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
@@ -34,6 +35,7 @@ import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/bottom_control.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/play_pause_btn.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
@@ -638,7 +640,7 @@ class _YtVideoPageState extends State<YtVideoPage>
       );
     }
 
-    return refreshIndicator(
+    final list = refreshIndicator(
       onRefresh: controller.refreshComments,
       child: ListView.separated(
         padding: EdgeInsets.zero,
@@ -650,7 +652,45 @@ class _YtVideoPageState extends State<YtVideoPage>
         },
       ),
     );
+    if (!TranslationService.supported) return list;
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 2, 6, 2),
+            child: _translateCommentsButton(theme),
+          ),
+        ),
+        Expanded(child: list),
+      ],
+    );
   });
+
+  /// Translate the comments not in a language the viewer reads, on the
+  /// device; again, back to the originals (the bilibili page has the same).
+  Widget _translateCommentsButton(ThemeData theme) {
+    final translator = controller.commentTranslator;
+    return Obx(() {
+      final on = translator.enabled.value;
+      final done = translator.done.value;
+      final total = translator.total.value;
+      final label = !on
+          ? '翻译'
+          : done < total
+          ? '翻译中 $done/$total'
+          : '原文';
+      final color = theme.colorScheme.secondary;
+      return TextButton.icon(
+        onPressed: () async {
+          if (!on && !await TranslateEntry.ensureModel(context)) return;
+          translator.toggleTexts(controller.loadedCommentTexts);
+        },
+        icon: Icon(Icons.translate, size: 16, color: color),
+        label: Text(label, style: TextStyle(fontSize: 13, color: color)),
+      );
+    });
+  }
 
   /// What the bilibili list puts at the bottom: loading, the end, or the
   /// reason the next page did not arrive.
@@ -695,6 +735,8 @@ class _YtVideoPageState extends State<YtVideoPage>
         child: Padding(
           padding: CommentChrome.itemPadding,
           child: Obx(() {
+            // the preview's replies change as their translations arrive
+            CommentTranslator.revision.value;
             final loaded = controller.replies[comment.commentId];
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -864,7 +906,13 @@ class _YtVideoPageState extends State<YtVideoPage>
                           ),
                         ],
                         const TextSpan(text: ': '),
-                        TextSpan(text: reply.content),
+                        TextSpan(
+                          text:
+                              controller.commentTranslator.textFor(
+                                reply.commentId,
+                              ) ??
+                              reply.content,
+                        ),
                       ],
                     ),
                   ),
@@ -1132,10 +1180,31 @@ class _YtVideoPageState extends State<YtVideoPage>
               // long-press opens 复制全部 / 自由复制, which is how the
               // bilibili item does copying. A SelectableText here would eat
               // both gestures.
-              Text(
-                comment.content,
-                style: const TextStyle(fontSize: 14, height: 1.75),
-              ),
+              Obx(() {
+                CommentTranslator.revision.value;
+                final translator = controller.commentTranslator;
+                final failed = translator.textFailed(comment.commentId);
+                return Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text:
+                            translator.textFor(comment.commentId) ??
+                            comment.content,
+                      ),
+                      if (failed)
+                        TextSpan(
+                          text: '  未能翻译',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                    ],
+                  ),
+                  style: const TextStyle(fontSize: 14, height: 1.75),
+                );
+              }),
               if (comment.likeCountText case final likes?)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),

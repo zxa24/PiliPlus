@@ -19,6 +19,7 @@ import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
+import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -59,6 +60,9 @@ class YtVideoController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    // comments loaded while translation is on are translated too
+    // (user 2026-09-25, 1A)
+    ever(comments, (_) => translateLoadedComments());
     unawaited(load());
   }
 
@@ -558,6 +562,7 @@ class YtVideoController extends GetxController {
     repliesLoading.remove(commentId);
     if (result.ok && result.value != null) {
       (replies[commentId] ??= <YtComment>[].obs).addAll(result.value!.items);
+      translateLoadedComments();
       replies.refresh();
       _moreReplies[commentId] = result.value!.continuation;
       repliesError.remove(commentId);
@@ -1279,8 +1284,24 @@ class YtVideoController extends GetxController {
 
   YtStreamPair? get streams => _streams;
 
+  /// LibrePili: this video's on-device comment translation
+  /// (research/comment-translation-design-2026-09-25.md, E4).
+  late final commentTranslator = CommentTranslator.of('yt:$videoId');
+
+  /// The comments loaded, and the replies previewed, as the translator
+  /// takes them.
+  Iterable<(String, String)> get loadedCommentTexts => [
+    for (final c in comments) (c.commentId, c.content),
+    for (final list in replies.values)
+      for (final r in list) (r.commentId, r.content),
+  ];
+
+  void translateLoadedComments() =>
+      commentTranslator.addTexts(loadedCommentTexts);
+
   @override
   void onClose() {
+    CommentTranslator.release('yt:$videoId');
     _stopWatchingPlayback();
     // the gate coming down on the way out must not start the player again
     _releaseHold();
