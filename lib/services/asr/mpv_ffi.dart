@@ -36,6 +36,20 @@ final class MpvEvent extends Struct {
   external Pointer<Void> data;
 }
 
+/// mpv_event_end_file { int reason; int error; ... }: reason 0 is the end
+/// of the file, 4 an error.
+final class MpvEndFile extends Struct {
+  @Int32()
+  external int reason;
+  @Int32()
+  external int error;
+}
+
+abstract final class MpvEndFileReason {
+  static const eof = 0;
+  static const error = 4;
+}
+
 final class MpvLogMessage extends Struct {
   external Pointer<Utf8> prefix;
   external Pointer<Utf8> level;
@@ -82,6 +96,9 @@ class Mpv {
       _getProperty = lib.lookupFunction<_GetPropNative, _GetPropDart>(
         'mpv_get_property_string',
       ),
+      _setProperty = lib.lookupFunction<_SetOptNative, _SetOptDart>(
+        'mpv_set_property_string',
+      ),
       _terminateDestroy = lib.lookupFunction<_VoidCtxNative, _VoidCtxDart>(
         'mpv_terminate_destroy',
       ),
@@ -97,6 +114,7 @@ class Mpv {
   final int Function(Pointer<Void>, Pointer<Pointer<Utf8>>) _command;
   final Pointer<Void> Function(Pointer<Void>, double) _waitEvent;
   final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _getProperty;
+  final int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>) _setProperty;
   final void Function(Pointer<Void>) _terminateDestroy;
   final void Function(Pointer<Void>) _free;
   final int Function(Pointer<Void>, Pointer<Utf8>) _requestLog;
@@ -120,6 +138,20 @@ class Mpv {
     final v = value.toNativeUtf8();
     try {
       return _setOption(ctx, k, v);
+    } finally {
+      calloc
+        ..free(k)
+        ..free(v);
+    }
+  }
+
+  /// Sets a property of a running instance (an option is only read before
+  /// it is initialised).
+  int setProperty(Pointer<Void> ctx, String key, String value) {
+    final k = key.toNativeUtf8();
+    final v = value.toNativeUtf8();
+    try {
+      return _setProperty(ctx, k, v);
     } finally {
       calloc
         ..free(k)

@@ -1835,6 +1835,29 @@ class VideoDetailController extends GetxController
       referer: isFileSource ? null : HttpString.baseUrl,
       userAgent: isFileSource ? null : BrowserUa.pc,
       auto: auto,
+      // Runs from where the viewer is (research/chunked-transcription-
+      // design-2026-09-25.md) need a source that can be started from a
+      // position: not a document read once through its descriptor, nor the
+      // durl/FLV fallback, which has no index to seek by. Those keep the
+      // one run from 0.
+      seekable:
+          !source.startsWith('fdclose://') &&
+          (isFileSource || (audioUrl?.isNotEmpty ?? false)),
+      // only while the player is this page's: another page's position
+      // says nothing about where this video's viewer is
+      playhead: () =>
+          _ownsPlayer ? plPlayerController.position.value.toDouble() : null,
+      duration: () => _ownsPlayer && plPlayerController.duration.value > 0
+          ? plPlayerController.duration.value.toDouble()
+          : null,
+      // the stream URL the page has now: it replaces an expired one when
+      // it fails over or refreshes for its own playback
+      refresh: ({bool expired = false}) async {
+        final now = _asrSource;
+        return now == null || now.isEmpty || now.startsWith('content://')
+            ? null
+            : now;
+      },
     );
     // closed meanwhile: onClose found no session to stop, and nothing else
     // would ever stop this one
@@ -1854,6 +1877,7 @@ class VideoDetailController extends GetxController
     // are about to be translated, in which case it waits for that
     _asrCueSub = session.cues.listen((_) {
       if (!_gateOnTranslation) _closeAsrGate();
+      _publishAtNewPosition(session);
     });
     _asrStateWorker = ever(session.state, (state) {
       // the language is known from the first segment on
@@ -2530,6 +2554,19 @@ class VideoDetailController extends GetxController
   /// subtitles (see punctuateForDisplay).
   String _transcriptVtt(List<AsrCue> cues) =>
       cues.forDisplay(asrSession.value?.state.value.language).toVtt();
+
+  /// Text has come for where the viewer is, and the track on screen has
+  /// none there — the first cues of a run started for a jump: handed over
+  /// at once, as the first cues ever are, not at the next refresh.
+  void _publishAtNewPosition(AsrSession session) {
+    if (_asrTrackIndex == null) return;
+    final position = plPlayerController.position.value.toDouble();
+    if (_asrPublished.at(position) > position) return;
+    final span = coveredSpanOf(session.transcript.covered, position);
+    if (span.from <= position && span.to > position) {
+      _publishAsrSubtitle(isFinal: true);
+    }
+  }
 
   void _publishAsrSubtitle({bool select = false, bool isFinal = false}) {
     final session = asrSession.value;

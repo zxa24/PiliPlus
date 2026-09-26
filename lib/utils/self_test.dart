@@ -54,9 +54,11 @@ import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
+import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
+import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -877,10 +879,60 @@ abstract final class SelfTest {
         ),
       );
     }
-    if (_arg(args, '--asr-session') case final source?) {
+    if (_arg(args, '--asr-session') case final given?) {
+      // @path: the URL read from a file (see --asr-start-probe)
+      final source = given.startsWith('@')
+          ? File(given.substring(1)).readAsStringSync().trim()
+          : given;
       await scenario(
         'asrSession',
-        () => _asrSession(source, srtOut: _arg(args, '--asr-srt')),
+        () => _asrSession(
+          source,
+          srtOut: _arg(args, '--asr-srt'),
+          power: _power(_arg(args, '--asr-power')),
+          playheadSpeed: double.tryParse(
+            _arg(args, '--asr-playhead-speed') ?? '',
+          ),
+        ),
+      );
+    }
+    if (_arg(args, '--asr-seam-probe') case final given?) {
+      final source = given.startsWith('@')
+          ? File(given.substring(1)).readAsStringSync().trim()
+          : given;
+      await scenario(
+        'asrSeamProbe',
+        () => _asrSeamProbe(
+          source,
+          at: [
+            for (final a in (_arg(args, '--at') ?? '240+120').split(
+              RegExp('[,+]'),
+            ))
+              double.parse(a),
+          ],
+          lead: double.tryParse(_arg(args, '--lead') ?? '') ?? 45,
+          out: _arg(args, '--seam-out'),
+        ),
+      );
+    }
+    if (_arg(args, '--asr-seek-probe') case final given?) {
+      // @path: the URL read from a file (see --asr-start-probe)
+      final source = given.startsWith('@')
+          ? File(given.substring(1)).readAsStringSync().trim()
+          : given;
+      await scenario(
+        'asrSeekProbe',
+        () => _asrSeekProbe(
+          source,
+          seeks: [
+            for (final a in (_arg(args, '--seek') ?? '1800').split(
+              RegExp('[,+]'),
+            ))
+              double.parse(a),
+          ],
+          window: double.tryParse(_arg(args, '--window') ?? '') ?? 30,
+          dwell: int.tryParse(_arg(args, '--dwell') ?? '') ?? 0,
+        ),
       );
     }
     if (_arg(args, '--asr') case final source?) {
@@ -4235,9 +4287,24 @@ abstract final class SelfTest {
   /// [srtOut]. `--asr` drives the recogniser alone and never sees the
   /// session; a change to how the session keeps the text is checked with
   /// this, a run before it against a run after, cue for cue.
+  static AsrPower? _power(String? name) =>
+      AsrPower.values.where((p) => p.name == name).firstOrNull;
+
+  static bool _isBiliUrl(String source) {
+    final host = Uri.tryParse(source)?.host ?? '';
+    return host.contains('bilivideo') || host.contains('akamaized');
+  }
+
+  /// [power] forces the lead rule (design 12) — `battery` on a desktop is
+  /// how pausing and resuming are exercised here — and [playheadSpeed]
+  /// moves a pretend playhead from 0 at that many times real time, as a
+  /// viewer watching straight through would (only faster). Without it the
+  /// playhead stays at 0, as it did before there was one.
   static Future<Map<String, dynamic>> _asrSession(
     String source, {
     String? srtOut,
+    AsrPower? power,
+    double? playheadSpeed,
   }) async {
     final service = AsrService.to;
     if (!service.modelsReady) {
@@ -4249,8 +4316,12 @@ abstract final class SelfTest {
     final session = await service.start(
       key: 'selftest-session',
       source: source,
-      referer: isFile ? null : HttpString.baseUrl,
+      referer: _isBiliUrl(source) ? HttpString.baseUrl : null,
       userAgent: isFile ? null : BrowserUa.pc,
+      power: power,
+      playhead: playheadSpeed == null
+          ? null
+          : () => clock.elapsedMilliseconds / 1000 * playheadSpeed,
     );
     // each change is one segment's cues arriving: the pace every listener
     // (page gates, the translation track) is woken at
@@ -4259,15 +4330,32 @@ abstract final class SelfTest {
     while (session.state.value.isBusy && DateTime.now().isBefore(deadline)) {
       await Future.delayed(const Duration(milliseconds: 200));
     }
+    // standby is alive too: paused ahead of a playhead still coming
+    while ((session.state.value.isBusy ||
+            session.state.value.stage == AsrStage.standby) &&
+        DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
     await sub.cancel();
     final cues = session.cues.toList();
     final segments = session.segments.length;
     final state = session.state.value;
+    final runs = session.runCount;
+    final pace = session.pace;
     await service.stop(only: session);
     if (srtOut != null && cues.isNotEmpty) {
       await File(srtOut).writeAsString(cues.toSrt());
     }
     return {
+      'runs': runs,
+      'pauses': session.pauses,
+      'resumes': session.resumes,
+      'power': session.power.name,
+      'speed': pace.speed,
+      'speedSamples': pace.speedSamples,
+      'restartCost': pace.restartCost,
+      'restartSamples': pace.costSamples,
+      'seams': session.debugSeams,
       'pass': state.stage == AsrStage.done && cues.isNotEmpty,
       'source': source,
       'stage': state.stage.name,
@@ -4278,6 +4366,214 @@ abstract final class SelfTest {
       'cueChanges': changes,
       'lastCueEnd': cues.isEmpty ? null : cues.last.to,
     };
+  }
+
+  /// Chunked transcription, V4/V5
+  /// (research/chunked-transcription-design-2026-09-25.md): a transcription
+  /// as a page runs it, the viewer jumping to each of [seeks] in turn; for
+  /// each, how long until the transcript covers [window] seconds from there
+  /// — what the page hands the player at once when it does — and how many
+  /// runs the session has made by then.
+  static Future<Map<String, dynamic>> _asrSeekProbe(
+    String source, {
+    required List<double> seeks,
+    required double window,
+    int dwell = 0,
+  }) async {
+    final service = AsrService.to;
+    if (!service.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    final isFile = File(source).existsSync();
+    final isBili =
+        (Uri.tryParse(source)?.host ?? '').contains('bilivideo') ||
+        (Uri.tryParse(source)?.host ?? '').contains('akamaized');
+    final clock = Stopwatch()..start();
+    // the viewer: at each seek point in turn, playing on from there
+    var seekAt = seeks.first;
+    final seekClock = Stopwatch()..start();
+    final session = await service.start(
+      key: 'selftest-seek',
+      source: source,
+      referer: isBili ? HttpString.baseUrl : null,
+      userAgent: isFile ? null : BrowserUa.pc,
+      playhead: () => seekAt + seekClock.elapsedMilliseconds / 1000,
+    );
+    bool covers(double from, double to) {
+      final span = coveredSpanOf(session.transcript.covered, from);
+      return span.from <= from && span.to >= to;
+    }
+
+    final rows = <Map<String, Object?>>[];
+    for (final p in seeks) {
+      seekAt = p;
+      seekClock.reset();
+      final runsBefore = session.runCount;
+      final coveredBefore = covers(p, p + window);
+      final deadline = DateTime.now().add(const Duration(minutes: 20));
+      while (!covers(p, p + window) &&
+          session.state.value.stage != AsrStage.failed &&
+          DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+      rows.add({
+        'seek': p,
+        'coveredAlready': coveredBefore,
+        'msToCover': covers(p, p + window)
+            ? seekClock.elapsedMilliseconds
+            : null,
+        'sinceStartMs': clock.elapsedMilliseconds,
+        'runsBefore': runsBefore,
+        'runsAfter': session.runCount,
+        'stage': session.state.value.stage.name,
+      });
+      // a little viewing before the next jump
+      await Future.delayed(Duration(seconds: dwell));
+      rows.last['runsAfterDwell'] = session.runCount;
+    }
+    final covered = [
+      for (final s in session.transcript.covered) [s.from, s.to],
+    ];
+    final pace = session.pace;
+    await service.stop(only: session);
+    return {
+      'pass': rows.every((r) => r['msToCover'] != null),
+      'speed': pace.speed,
+      'restartCost': pace.restartCost,
+      'seams': session.debugSeams,
+      'source': source,
+      'window': window,
+      'rows': rows,
+      'covered': covered,
+    };
+  }
+
+  /// Chunked transcription, V3
+  /// (research/chunked-transcription-design-2026-09-25.md): seams against a
+  /// transcription from 0.
+  ///
+  /// First the whole media from 0, never pausing: the baseline. Then a
+  /// session whose viewer lands at each of [at] in turn — each moved to the
+  /// middle of the baseline cue nearest it, so the jump lands mid-speech —
+  /// and jumps on once [lead] seconds past it are known. On a desktop that
+  /// session then runs forward to the end and fills the gaps, so every kind
+  /// of seam appears: a start mid-speech, a start exactly where known text
+  /// ends, and joins into known text. Both transcripts, cue by cue with
+  /// their times, and what each seam did go to [out] for comparison.
+  static Future<Map<String, dynamic>> _asrSeamProbe(
+    String source, {
+    required List<double> at,
+    required double lead,
+    String? out,
+  }) async {
+    final service = AsrService.to;
+    if (!service.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    final isFile = File(source).existsSync();
+    Future<AsrSession> open(String key, double Function() playhead) =>
+        service.start(
+          key: key,
+          source: source,
+          referer: _isBiliUrl(source) ? HttpString.baseUrl : null,
+          userAgent: isFile ? null : BrowserUa.pc,
+          power: AsrPower.unlimited,
+          playhead: playhead,
+        );
+    Future<void> settle(AsrSession session) async {
+      final deadline = DateTime.now().add(const Duration(minutes: 30));
+      while (session.state.value.stage != AsrStage.done &&
+          session.state.value.stage != AsrStage.failed &&
+          DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+    }
+
+    List<Map<String, Object?>> dump(List<AsrCue> cues) => [
+      for (final c in cues) {'from': c.from, 'to': c.to, 'text': c.content},
+    ];
+
+    final baseClock = Stopwatch()..start();
+    final base = await open('selftest-seam-base', () => 0);
+    await settle(base);
+    final baseCues = base.cues.toList();
+    final baseStage = base.state.value.stage.name;
+    await service.stop(only: base);
+    final baseMs = baseClock.elapsedMilliseconds;
+
+    // each point moved into the cue nearest it
+    final points = [
+      for (final t in at)
+        if (baseCues.isNotEmpty)
+          () {
+            final cue = baseCues.reduce(
+              (a, b) =>
+                  ((a.from + a.to) / 2 - t).abs() <=
+                      ((b.from + b.to) / 2 - t).abs()
+                  ? a
+                  : b,
+            );
+            return (cue.from + cue.to) / 2;
+          }(),
+    ];
+    if (points.isEmpty) {
+      return {'pass': false, 'reason': 'baseline has no cues'};
+    }
+    var viewer = points.first;
+    final viewClock = Stopwatch()..start();
+    final clock = Stopwatch()..start();
+    final session = await open(
+      'selftest-seam',
+      () => viewer + viewClock.elapsedMilliseconds / 1000,
+    );
+    final jumps = <Map<String, Object?>>[];
+    for (var i = 0; i < points.length; i++) {
+      viewer = points[i];
+      viewClock.reset();
+      jumps.add({'to': viewer, 'atMs': clock.elapsedMilliseconds});
+      if (i == points.length - 1) break;
+      final deadline = DateTime.now().add(const Duration(minutes: 5));
+      while (DateTime.now().isBefore(deadline)) {
+        final span = coveredSpanOf(session.transcript.covered, viewer);
+        if (span.from <= viewer && span.to >= viewer + lead) break;
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
+    await settle(session);
+    final cues = session.cues.toList();
+    final result = {
+      'pass':
+          baseStage == 'done' &&
+          session.state.value.stage == AsrStage.done &&
+          cues.isNotEmpty,
+      'source': source,
+      'baseStage': baseStage,
+      'baseMs': baseMs,
+      'stage': session.state.value.stage.name,
+      'ms': clock.elapsedMilliseconds,
+      'runs': session.runCount,
+      'language': session.state.value.language,
+      'speed': session.pace.speed,
+      'restartCost': session.pace.restartCost,
+      'jumps': jumps,
+      'seams': session.debugSeams,
+      'covered': [
+        for (final s in session.transcript.covered) [s.from, s.to],
+      ],
+      'baseCueCount': baseCues.length,
+      'cueCount': cues.length,
+    };
+    await service.stop(only: session);
+    if (out != null) {
+      await File(out).writeAsString(
+        jsonEncode({
+          ...result,
+          'baseCues': dump(baseCues),
+          'cues': dump(cues),
+        }),
+      );
+    }
+    return result;
   }
 
   /// Chunked transcription, V0
@@ -4424,6 +4720,7 @@ abstract final class SelfTest {
     // hard cap? That decides what unit a translator should be handed.
     final segmentDump = <Map<String, Object?>>[];
     String? error;
+    final vote = AsrLanguageVote();
     final transcriber = await AsrTranscriber.start((
       pcmPath: audio.path,
       modelPath: store
@@ -4464,7 +4761,16 @@ abstract final class SelfTest {
           :final duration,
           :final tokens,
           :final times,
+          language: final tagged,
+          :final weight,
         ):
+          // the vote a session keeps (see AsrLanguageVote)
+          if (vote.add(tagged, weight) case final lang?) {
+            language = lang;
+            if (languageEvents.isEmpty || languageEvents.last != lang) {
+              languageEvents.add(lang);
+            }
+          }
           segments.add((start: start, duration: duration));
           if (rawTokens.length < 60) rawTokens.addAll(tokens);
           segmentDump.add({
@@ -4474,14 +4780,9 @@ abstract final class SelfTest {
             'tokens': tokens,
             'times': times,
           });
-        case AsrLanguageEvent(language: final lang):
-          language = lang;
-          if (languageEvents.isEmpty || languageEvents.last != lang) {
-            languageEvents.add(lang);
-          }
         case AsrErrorEvent(message: final message):
           error = message;
-        case AsrProgressUpdate():
+        case AsrProgressUpdate() || AsrRunEndEvent():
           break;
       }
     }

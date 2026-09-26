@@ -714,6 +714,17 @@ class YtVideoController extends GetxController {
       key: 'yt:$videoId',
       source: source,
       auto: auto,
+      // see [VideoDetailController.startAsr]; itag 140/251 are indexed and
+      // start from a position
+      playhead: () =>
+          _ownsPlayer ? plPlayerController.position.value.toDouble() : null,
+      duration: () => _ownsPlayer && plPlayerController.duration.value > 0
+          ? plPlayerController.duration.value.toDouble()
+          : null,
+      refresh: ({bool expired = false}) async {
+        final now = asrSource;
+        return now == null || now.isEmpty ? null : now;
+      },
     );
     // see [VideoDetailController.startAsr]
     if (isClosed) {
@@ -723,6 +734,7 @@ class YtVideoController extends GetxController {
     asrSession.value = session;
     _asrCueSub = session.cues.listen((_) {
       if (!_gateOnTranslation) _closeAsrGate();
+      _publishAtNewPosition(session);
     });
     _asrRefresh = Timer.periodic(
       const Duration(seconds: 5),
@@ -899,6 +911,17 @@ class YtVideoController extends GetxController {
 
   /// This run's transcript has been put on screen once.
   var _asrPublished = false;
+
+  /// See [VideoDetailController._publishAtNewPosition].
+  void _publishAtNewPosition(AsrSession session) {
+    if (!_asrPublished) return;
+    final position = plPlayerController.position.value.toDouble();
+    if (_asrPublishedReach.at(position) > position) return;
+    final span = coveredSpanOf(session.transcript.covered, position);
+    if (span.from <= position && span.to > position) {
+      _publishAsrSubtitle(isFinal: true);
+    }
+  }
 
   void _publishAsrSubtitle({bool isFinal = false}) {
     final session = asrSession.value;

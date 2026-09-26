@@ -31,7 +31,16 @@ class AsrExtractException implements Exception {
   String toString() => 'AsrExtractException: $message';
 }
 
-typedef AsrExtractResult = ({String path, double durationSeconds});
+/// [reachedEnd]: decoding stopped at the end of the media, rather than
+/// being cancelled or cut short by an error.
+typedef AsrExtractResult = ({
+  String path,
+  double durationSeconds,
+  bool reachedEnd,
+});
+
+/// What the extraction isolate hands back.
+typedef _ExtractOutcome = ({int bytes, bool reachedEnd});
 
 /// Arguments crossing the isolate boundary: everything here must be a plain
 /// value.
@@ -42,12 +51,50 @@ typedef _ExtractArgs = ({
   String? userAgent,
   int timeoutSeconds,
   String? cancelPath,
+  String? pausePath,
   double? startSeconds,
 });
 
 abstract final class AsrAudioExtractor {
   /// Where a run started at a position records where it really landed.
   static String landingFileFor(String output) => '$output.landing.json';
+
+  /// While this file exists, decoding is paused and — the demuxer's
+  /// read-ahead being capped — nothing more is downloaded (design 4.4: a
+  /// run far enough ahead of the viewer pauses instead of stopping).
+  static String pauseFileFor(String output) => '$output.pause';
+
+  /// Whether [message] (an extraction error) is the server refusing the
+  /// URL — a signed stream URL that has expired, which a fresh URL fixes.
+  static bool isForbidden(Object message) =>
+      RegExp(r'\b403\b|Forbidden').hasMatch(message.toString());
+
+  /// How far the landing a run measured may be off the position it asked
+  /// for before the run is not trusted (design 14: starts measured
+  /// sample-accurate by cross-correlation, while this estimate itself reads
+  /// 60–110 ms late; half a second off means the seek went wrong).
+  static const landingTolerance = 0.5;
+
+  /// How much audio may be on disk when the restart is read for the
+  /// estimate to mean anything. `audio-pts` is read when the event loop gets
+  /// to the event, and decoding is untimed: from a local file mpv had
+  /// written 18 s by then while `audio-pts` still read the start, and the
+  /// estimate put a sample-accurate start 18 s early. Over the network P0
+  /// saw about 4 s.
+  static const landingReadable = 6 * asrBytesPerSecond;
+
+  /// How far a run from [requested] seconds landed off it, as estimated
+  /// from [landing] (the file [landingFileFor] names), or null when it
+  /// cannot tell — including when decoding had run too far ahead of the
+  /// event for the estimate to hold (see [landingReadable]).
+  static double? landingError(Map<String, Object?> landing, double requested) {
+    final pts = landing['audioPts'];
+    final bytes = landing['bytesAtRestart'];
+    if (pts is! num || bytes is! num) return null;
+    if (bytes > landingReadable) return null;
+    final landed = pts - bytes / asrBytesPerSecond;
+    return landed - requested;
+  }
 
   /// Decodes [source] — a URL, a plain path, or `fdclose://<fd>` — into raw
   /// signed 16-bit little-endian mono samples at [asrSampleRate].
@@ -64,9 +111,10 @@ abstract final class AsrAudioExtractor {
     required String output,
     String? referer,
     String? userAgent,
-    Duration timeout = const Duration(minutes: 30),
+    Duration timeout = const Duration(minutes: 2),
     ValueChanged<double>? onSeconds,
     String? cancelPath,
+    String? pausePath,
     double? startSeconds,
   }) async {
     final file = File(output);
@@ -79,6 +127,10 @@ abstract final class AsrAudioExtractor {
     }
     final done = File(PcmWindowReader.doneMarkerFor(output));
     if (done.existsSync()) await done.delete();
+    if (pausePath != null) {
+      final pause = File(pausePath);
+      if (pause.existsSync()) await pause.delete();
+    }
 
     Timer? ticker;
     if (onSeconds != null) {
@@ -100,13 +152,18 @@ abstract final class AsrAudioExtractor {
         userAgent: userAgent,
         timeoutSeconds: timeout.inSeconds,
         cancelPath: cancelPath,
+        pausePath: pausePath,
         startSeconds: startSeconds,
       );
-      final bytes = await _spawn(args);
-      if (bytes <= 0) {
+      final outcome = await _spawn(args);
+      if (outcome.bytes <= 0) {
         throw const AsrExtractException('没有解出音频');
       }
-      return (path: output, durationSeconds: bytes / asrBytesPerSecond);
+      return (
+        path: output,
+        durationSeconds: outcome.bytes / asrBytesPerSecond,
+        reachedEnd: outcome.reachedEnd,
+      );
     } finally {
       ticker?.cancel();
       // Whatever happened — finished, failed, cancelled — a reader following
@@ -131,11 +188,11 @@ abstract final class AsrAudioExtractor {
   /// decoding started with "object is unsendable - Class: _Timer". It never
   /// showed on the desktop because the self-test passes no progress callback,
   /// so no Timer existed there.
-  static Future<int> _spawn(_ExtractArgs args) =>
+  static Future<_ExtractOutcome> _spawn(_ExtractArgs args) =>
       Isolate.run(() => _extract(args));
 
   /// Runs entirely inside the spawned isolate.
-  static int _extract(_ExtractArgs args) {
+  static _ExtractOutcome _extract(_ExtractArgs args) {
     final mpv = Mpv.open();
     final ctx = mpv.create();
     if (ctx == nullptr) throw const AsrExtractException('无法创建解码实例');
@@ -165,6 +222,14 @@ abstract final class AsrAudioExtractor {
           'start': '$start',
           'hr-seek': 'yes',
         },
+        // A paused run must stop downloading too: the demuxer otherwise
+        // reads ahead into its cache — up to 150 MiB by default — while
+        // nothing decodes. 2 MiB is about two minutes of the audio streams
+        // used here; decoding is untimed, so while it runs it drains this
+        // as fast as the network fills it and the cap costs nothing. Not
+        // set for local files, which download nothing.
+        if (args.pausePath != null && _isNetwork(args.source))
+          'demuxer-max-bytes': '2MiB',
         'terminal': 'no',
         'msg-level': 'all=warn',
         if (headers.isNotEmpty) 'http-header-fields': headers.join(','),
@@ -186,6 +251,15 @@ abstract final class AsrAudioExtractor {
       final started = DateTime.now();
       final errors = <String>[];
       var ended = false;
+      var reachedEnd = false;
+      // The timeout is for a decode making no progress, not for one that is
+      // slow or paused: a run can now last as long as the viewer watches,
+      // paused for most of it. It used to cap the whole extraction at 30
+      // minutes, after which the rest of a long video was silently dropped.
+      var lastGrowth = started;
+      var lastSize = 0;
+      var paused = false;
+      final pause = args.pausePath == null ? null : File(args.pausePath!);
       // when a start position was asked for: where decoding really began
       // and how long each step took, written next to the output
       final landing = <String, Object?>{'requested': args.startSeconds};
@@ -195,9 +269,16 @@ abstract final class AsrAudioExtractor {
       // waiting for; now that playback starts while this is still going, a
       // user who moves on would otherwise leave it pulling the whole stream.
       final cancel = args.cancelPath == null ? null : File(args.cancelPath!);
-      while (DateTime.now().difference(started).inSeconds <
+      while (DateTime.now().difference(lastGrowth).inSeconds <
           args.timeoutSeconds) {
         if (cancel != null && cancel.existsSync()) break;
+        if (pause != null) {
+          final wanted = pause.existsSync();
+          if (wanted != paused) {
+            paused = wanted;
+            mpv.setProperty(ctx, 'pause', paused ? 'yes' : 'no');
+          }
+        }
         final event = mpv.waitEvent(ctx, 0.1);
         switch (event.ref.eventId) {
           case MpvEventId.logMessage:
@@ -205,6 +286,10 @@ abstract final class AsrAudioExtractor {
             errors.add(message.ref.text.toDartString().trim());
           case MpvEventId.endFile:
             ended = true;
+            final data = event.ref.data;
+            reachedEnd =
+                data != nullptr &&
+                data.cast<MpvEndFile>().ref.reason == MpvEndFileReason.eof;
           case MpvEventId.shutdown:
             ended = true;
           case MpvEventId.playbackRestart:
@@ -222,7 +307,19 @@ abstract final class AsrAudioExtractor {
                 ..['bytesAtRestart'] = output.existsSync()
                     ? output.lengthSync()
                     : 0;
+              // at once, not only at the end: the session checks where the
+              // run landed before it trusts the run's first segments
+              try {
+                File(
+                  landingFileFor(args.output),
+                ).writeAsStringSync(jsonEncode(landing));
+              } catch (_) {}
             }
+        }
+        final size = output.existsSync() ? output.lengthSync() : 0;
+        if (size != lastSize || paused) {
+          lastSize = size;
+          lastGrowth = DateTime.now();
         }
         if (args.startSeconds != null &&
             !landing.containsKey('firstBytesMs') &&
@@ -241,7 +338,11 @@ abstract final class AsrAudioExtractor {
         throw const AsrExtractException('音频提取超时');
       }
       if (size == 0 && errors.isNotEmpty) {
-        throw AsrExtractException(errors.first);
+        // the refusal, when there is one: it is what tells an expired URL
+        // (fetch a new one) from a stream that is broken (see isForbidden)
+        throw AsrExtractException(
+          errors.firstWhere(isForbidden, orElse: () => errors.first),
+        );
       }
       if (args.startSeconds != null) {
         try {
@@ -250,9 +351,12 @@ abstract final class AsrAudioExtractor {
           );
         } catch (_) {}
       }
-      return size;
+      return (bytes: size, reachedEnd: reachedEnd);
     } finally {
       mpv.destroy(ctx);
     }
   }
+
+  static bool _isNetwork(String source) =>
+      source.startsWith('http://') || source.startsWith('https://');
 }

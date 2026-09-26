@@ -16,6 +16,7 @@ class PcmWindowReader {
     this.follow = false,
     this.idleTimeout = const Duration(seconds: 90),
     this.stopped,
+    this.held,
   }) : _path = path,
        _file = File(path).openSync();
 
@@ -54,6 +55,13 @@ class PcmWindowReader {
   /// [idleTimeout], with the recogniser held all the while.
   final bool Function()? stopped;
 
+  /// Whether the owner is holding the run: its extraction is paused too, so
+  /// no bytes coming meanwhile is expected, and does not count toward
+  /// [idleTimeout]. Without this a run paused while the reader waited was
+  /// taken, 90 s later, for a decoder that had died — and ended as if the
+  /// audio had.
+  final bool Function()? held;
+
   var _samplesRead = 0;
 
   /// Seconds of audio on disk so far. In [follow] mode this grows as the
@@ -77,9 +85,12 @@ class PcmWindowReader {
   /// whole job is a blocking loop over the decoder.
   bool _waitForMore() {
     if (!follow) return false;
-    final deadline = DateTime.now().add(idleTimeout);
+    var deadline = DateTime.now().add(idleTimeout);
     while (DateTime.now().isBefore(deadline)) {
       if (stopped?.call() ?? false) return false;
+      if (held?.call() ?? false) {
+        deadline = DateTime.now().add(idleTimeout);
+      }
       // read the flag first: if extraction finished *during* the sleep, the
       // bytes it wrote are already on disk and one more read gets them
       final finished = _extractionFinished;

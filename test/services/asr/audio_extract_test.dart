@@ -30,7 +30,7 @@ void main() {
     );
 
     final spawn = RegExp(
-      r'static Future<int> _spawn\(_ExtractArgs args\) =>\s*'
+      r'static Future<_ExtractOutcome> _spawn\(_ExtractArgs args\) =>\s*'
       r'Isolate\.run\(\(\) => _extract\(args\)\);',
     );
     expect(

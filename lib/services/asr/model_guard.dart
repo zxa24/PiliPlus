@@ -110,6 +110,11 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _watchPlayback(state);
     _apply(lifecycle: state);
+    if (state == AppLifecycleState.resumed &&
+        Get.isRegistered<AsrService>() &&
+        !Get.isPrepared<AsrService>()) {
+      AsrService.to.resume();
+    }
   }
 
   Worker? _playback;
@@ -135,7 +140,8 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
     // lazily registered and never created means nothing can be running, and
     // finding it here would create it for no reason
     bool live<S>() => Get.isRegistered<S>() && !Get.isPrepared<S>();
-    final asr = live<AsrService>() && AsrService.to.isBusy;
+    // a paused run holds the recogniser as much as a running one does
+    final asr = live<AsrService>() && AsrService.to.holdsModels;
     final translation =
         live<TranslationService>() && TranslationService.to.isBusy;
     if (!asr && !translation) return;
@@ -152,6 +158,9 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
     if (translation) {
       TranslationService.to.stop(reason: reason.translationMessage);
     }
-    if (asr) AsrService.to.stop(reason: reason.message);
+    // the run ends and the recogniser goes, but the transcript stays: the
+    // page keeps its track, and runs start again once the app is back
+    // (research/chunked-transcription-design-2026-09-25.md, 4.4)
+    if (asr) AsrService.to.suspend(reason.message);
   }
 }
