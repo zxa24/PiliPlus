@@ -43,6 +43,7 @@ import 'package:PiliPlus/utils/request_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -348,6 +349,23 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
                     },
                   )
                 : null,
+          ),
+          ListTile(
+            dense: true,
+            title: const Text(
+              '分享为二维码',
+              style: TextStyle(fontSize: 14),
+            ),
+            onTap: () {
+              Get.back();
+              // the part and where playback is: scanning it opens the same
+              // place (user 2026-09-25)
+              showQrShare(
+                context,
+                url: '$videoUrl$playedTimePos',
+                title: videoDetail.title,
+              );
+            },
           ),
           ListTile(
             dense: true,

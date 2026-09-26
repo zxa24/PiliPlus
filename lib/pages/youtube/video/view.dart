@@ -43,6 +43,7 @@ import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -552,6 +553,20 @@ class _YtVideoPageState extends State<YtVideoPage>
             onTap: () {
               Get.back();
               Utils.copyText(url);
+            },
+          ),
+          ListTile(
+            dense: true,
+            title: const Text('分享为二维码', style: TextStyle(fontSize: 14)),
+            onTap: () {
+              Get.back();
+              // where playback is, as YouTube's own share does with t=
+              final at = controller.plPlayerController.position.value;
+              showQrShare(
+                context,
+                url: at > 0 ? '$url&t=${at}s' : url,
+                title: detail?.title,
+              );
             },
           ),
           ListTile(
