@@ -35,6 +35,11 @@ class FlutterWindow : public Win32Window {
   // (lib/utils/codec_support.dart).
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       codecs_channel_;
+
+  // LibrePili: the self-test's window, resized without being raised or
+  // focused (lib/utils/self_test_window.dart).
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      self_test_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

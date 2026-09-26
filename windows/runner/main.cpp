@@ -122,6 +122,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
+  // shown at the bottom and not activated: a test run started from a
+  // terminal leaves the focus and the window order as they were (the Dart
+  // side does not show it; lib/main.dart)
+  if (self_test) {
+    ::SetWindowPos(window.GetHandle(), HWND_BOTTOM, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  }
 
   ::MSG msg;
   while (::GetMessage(&msg, nullptr, 0, 0)) {

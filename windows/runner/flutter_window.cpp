@@ -75,6 +75,28 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  // window_manager's show / setSize bring the window to the top and take
+  // the focus; the self-test runs behind whatever the user is doing
+  self_test_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "librepili/selftest",
+          &flutter::StandardMethodCodec::GetInstance());
+  self_test_channel_->SetMethodCallHandler(
+      [this](const auto& call, auto result) {
+        const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        if (call.method_name() == "resize" && args) {
+          const int width =
+              std::get<int>(args->at(flutter::EncodableValue("width")));
+          const int height =
+              std::get<int>(args->at(flutter::EncodableValue("height")));
+          ::SetWindowPos(GetHandle(), nullptr, 0, 0, width, height,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      });
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   // flutter_controller_->engine()->SetNextFrameCallback([&]() {

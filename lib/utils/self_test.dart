@@ -74,6 +74,7 @@ import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/settings_import.dart';
+import 'package:PiliPlus/utils/self_test_window.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart'
@@ -421,7 +422,7 @@ abstract final class SelfTest {
     final before = await windowManager.getSize();
     final seen = uiErrors.length;
     try {
-      await windowManager.setSize(Size(width, before.height));
+      await SelfTestWindow.setSize(Size(width, before.height));
       await Future.delayed(hold);
       // what the app actually laid out at, so a resize that silently did
       // nothing cannot read as "no overflow at phone width"
@@ -430,7 +431,7 @@ abstract final class SelfTest {
       return uiErrors.sublist(seen).toList();
     } finally {
       uiErrors.removeRange(seen, uiErrors.length);
-      await windowManager.setSize(before);
+      await SelfTestWindow.setSize(before);
       await Future.delayed(const Duration(milliseconds: 600));
     }
   }

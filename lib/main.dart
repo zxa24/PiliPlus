@@ -36,6 +36,7 @@ import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/request_utils.dart';
 import 'package:PiliPlus/utils/self_test.dart';
+import 'package:PiliPlus/utils/self_test_window.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -211,6 +212,8 @@ void main(List<String> args) async {
       title: Constants.appName,
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
+      // shown by the runner, at the bottom and not focused
+      if (isSelfTestProfile && SelfTestWindow.quiet) return;
       final windowSize = Pref.windowSize;
       await windowManager.setBounds(
         await calcWindowPosition(windowSize) & windowSize,
