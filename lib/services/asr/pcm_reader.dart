@@ -15,6 +15,7 @@ class PcmWindowReader {
     String path, {
     this.follow = false,
     this.idleTimeout = const Duration(seconds: 90),
+    this.stopped,
   }) : _path = path,
        _file = File(path).openSync();
 
@@ -47,6 +48,12 @@ class PcmWindowReader {
   /// without writing its marker must not wedge the reader forever.
   final Duration idleTimeout;
 
+  /// Whether the reader's owner has given up on it. Checked while waiting
+  /// for more data in [follow] mode: a stopped job's extractor is cancelled
+  /// and its files deleted, so otherwise the wait could only end at
+  /// [idleTimeout], with the recogniser held all the while.
+  final bool Function()? stopped;
+
   var _samplesRead = 0;
 
   /// Seconds of audio on disk so far. In [follow] mode this grows as the
@@ -72,6 +79,7 @@ class PcmWindowReader {
     if (!follow) return false;
     final deadline = DateTime.now().add(idleTimeout);
     while (DateTime.now().isBefore(deadline)) {
+      if (stopped?.call() ?? false) return false;
       // read the flag first: if extraction finished *during* the sleep, the
       // bytes it wrote are already on disk and one more read gets them
       final finished = _extractionFinished;

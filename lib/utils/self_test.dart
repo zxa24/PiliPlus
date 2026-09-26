@@ -4057,9 +4057,20 @@ abstract final class SelfTest {
       final segments = session.segments.length;
       final stage = session.state.value.stage.name;
       final running = rssMb();
+      final transcriber = session.debugTranscriber;
+      final stopClock = Stopwatch()..start();
+      int? exitMs;
+      unawaited(
+        transcriber?.exited.then((_) => exitMs = stopClock.elapsedMilliseconds),
+      );
       await service.stop(only: session);
+      final stopMs = stopClock.elapsedMilliseconds;
       await Future.delayed(Duration(milliseconds: settleMs));
       rows.add({
+        // how long the caller was held, and how long the isolate took to go
+        'stopMs': stopMs,
+        'exitMs': exitMs,
+        'killed': transcriber?.killed,
         'cycle': i,
         'firstSegmentMs': firstSegmentMs,
         'segments': segments,

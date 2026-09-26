@@ -7,14 +7,15 @@
 library;
 
 import 'dart:async';
-
+import 'dart:ffi';
 import 'dart:isolate';
-
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:budoux_dart/budoux.dart';
+import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 /// Where the recogniser has got to, in seconds of audio.
@@ -111,18 +112,82 @@ typedef AsrJob = ({
   bool itn,
 });
 
+/// What the transcription isolate is started with.
+typedef AsrIsolateArgs = ({AsrJob job, SendPort send, int stopFlag});
+
+/// Whether the owner has asked the isolate to stop.
+///
+/// A byte of native memory rather than a message: the isolate spends its
+/// whole life in a blocking loop over the decoder and never returns to its
+/// event loop, so a message sent to it would only be read once it had
+/// finished anyway. Reading one byte per 512-sample window costs nothing.
+bool asrStopRequested(int stopFlag) =>
+    Pointer<Uint8>.fromAddress(stopFlag).value != 0;
+
 class AsrTranscriber {
-  AsrTranscriber._(this._isolate, this._port, this.events);
+  AsrTranscriber._(
+    this._isolate,
+    this._port,
+    this._stopFlag,
+    this._grace,
+    this.events,
+  );
 
   final Isolate _isolate;
   final ReceivePort _port;
   final Stream<AsrEvent> events;
+
+  /// Freed only once the isolate has exited: until then it may still read it.
+  final Pointer<Uint8> _stopFlag;
+  final Duration _grace;
+  final _exited = Completer<void>();
+  Timer? _killTimer;
   var _stopped = false;
+  var _killed = false;
+
+  /// How long a stopped isolate gets to wind down before it is killed.
+  ///
+  /// It checks the flag between windows and between segments, so it is
+  /// normally out within one segment's decode (~2 s of arm64 CPU for the
+  /// 20 s maximum). This is only the net under a decode that never returns.
+  static const stopGrace = Duration(seconds: 10);
+
+  /// Completes when the isolate is gone — by itself after a [stop], or
+  /// killed after [stopGrace]. Not something the UI waits on: a stop returns
+  /// at once and this completes in the background.
+  Future<void> get exited => _exited.future;
+
+  /// Whether the isolate had to be killed, and so leaked the recogniser's
+  /// native memory (sherpa_onnx has no finalisers).
+  bool get killed => _killed;
 
   /// Starts transcription and returns immediately; consume [events].
-  static Future<AsrTranscriber> start(AsrJob job) async {
+  static Future<AsrTranscriber> start(AsrJob job) => spawn(_run, job);
+
+  /// [start] with the isolate body given, so the stop protocol can be tested
+  /// without the native models.
+  @visibleForTesting
+  static Future<AsrTranscriber> spawn(
+    void Function(AsrIsolateArgs) entry,
+    AsrJob job, {
+    Duration grace = stopGrace,
+  }) async {
     final port = ReceivePort();
-    final isolate = await Isolate.spawn(_run, (job: job, send: port.sendPort));
+    final exit = ReceivePort();
+    final flag = calloc<Uint8>();
+    final Isolate isolate;
+    try {
+      isolate = await Isolate.spawn(
+        entry,
+        (job: job, send: port.sendPort, stopFlag: flag.address),
+        onExit: exit.sendPort,
+      );
+    } catch (_) {
+      port.close();
+      exit.close();
+      calloc.free(flag);
+      rethrow;
+    }
     final controller = StreamController<AsrEvent>.broadcast();
     port.listen((message) {
       switch (message) {
@@ -171,26 +236,61 @@ class AsrTranscriber {
           port.close();
       }
     },
-    // a killed isolate never sends 'done'; close on the port itself so the
-    // caller's `await` for completion cannot hang forever
+    // a stopped job's port is closed before its isolate sends 'done'; close
+    // on the port itself so the caller's `await` for completion cannot hang
     onDone: controller.close);
-    return AsrTranscriber._(isolate, port, controller.stream);
+    final transcriber = AsrTranscriber._(
+      isolate,
+      port,
+      flag,
+      grace,
+      controller.stream,
+    );
+    exit.first.then((_) {
+      exit.close();
+      transcriber._killTimer?.cancel();
+      calloc.free(flag);
+      transcriber._exited.complete();
+    });
+    return transcriber;
   }
 
-  /// Abandons the job. The models are freed with the isolate.
+  /// Abandons the job, and returns at once.
+  ///
+  /// Nothing more is delivered on [events] after this. The isolate is asked
+  /// to stop rather than killed: a killed isolate never runs its `finally`,
+  /// and that `finally` is what frees the recogniser and the VAD — measured
+  /// at ~330 MB of native memory lost per stop on desktop before this
+  /// (V0, research/chunked-transcription-design-2026-09-25.md). It winds
+  /// down in the background within about one segment; see [exited].
   void stop() {
     if (_stopped) return;
     _stopped = true;
-    _isolate.kill(priority: Isolate.immediate);
     _port.close();
+    if (_exited.isCompleted) return;
+    _stopFlag.value = 1;
+    _killTimer = Timer(_grace, () {
+      if (_exited.isCompleted) return;
+      // still leaks, as every stop used to; a decode that does not return
+      // must still not keep a CPU busy for a job nobody wants
+      _killed = true;
+      if (kDebugMode) debugPrint('asr: isolate did not stop, killing it');
+      _isolate.kill(priority: Isolate.immediate);
+    });
   }
 
   /// The isolate entry point. Everything below runs off the UI thread.
-  static void _run(({AsrJob job, SendPort send}) args) {
+  ///
+  /// Every exit, a stop included, goes through the `finally` that frees the
+  /// native objects: sherpa_onnx has no finalisers, so anything not freed
+  /// there is lost for the life of the process.
+  static void _run(AsrIsolateArgs args) {
     final send = args.send;
     final job = args.job;
+    bool stopping() => asrStopRequested(args.stopFlag);
     sherpa.OfflineRecognizer? recognizer;
     sherpa.VoiceActivityDetector? vad;
+    PcmWindowReader? reader;
     try {
       sherpa.initBindings();
       final budoux = job.japaneseSegmenter == null
@@ -228,8 +328,14 @@ class AsrTranscriber {
       );
       // segment offsets are counted from the last reset, not from zero
       vad.reset();
+      // loading the models takes a while; a stop may have come meanwhile
+      if (stopping()) return;
 
-      final reader = PcmWindowReader(job.pcmPath, follow: job.follow);
+      reader = PcmWindowReader(
+        job.pcmPath,
+        follow: job.follow,
+        stopped: stopping,
+      );
       // In follow mode the file is still growing, so this is a lower bound
       // that is re-read as the run goes; a progress bar computed from the
       // first value alone would sit at 100% for most of the job.
@@ -244,7 +350,8 @@ class AsrTranscriber {
       var lastProgress = 0.0;
 
       void drain() {
-        while (!vad!.isEmpty()) {
+        // between segments too: a backlog of them is seconds of decoding
+        while (!vad!.isEmpty() && !stopping()) {
           final segment = vad.front();
           final start = segment.start / asrSampleRate;
           final duration = segment.samples.length / asrSampleRate;
@@ -305,6 +412,7 @@ class AsrTranscriber {
       }
 
       for (final window in reader.windows()) {
+        if (stopping()) return;
         vad.acceptWaveform(window);
         drain();
         final done = reader.samplesRead / asrSampleRate;
@@ -314,16 +422,21 @@ class AsrTranscriber {
           send.send({'type': 'progress', 'done': done, 'total': total});
         }
       }
+      // the reader also ends early when asked to stop; that is not the end
+      // of the audio, and there is nobody left to send the tail to
+      if (stopping()) return;
       // only once the reader has really ended: in follow mode it returns
       // when the extractor's marker appears, not at the first empty read
       vad.flush();
       drain();
       final played = reader.samplesRead / asrSampleRate;
-      reader.close();
       send.send({'type': 'progress', 'done': played, 'total': played});
     } catch (e) {
       send.send({'type': 'error', 'message': e.toString()});
     } finally {
+      try {
+        reader?.close();
+      } catch (_) {}
       vad?.free();
       recognizer?.free();
       send.send({'type': 'done'});

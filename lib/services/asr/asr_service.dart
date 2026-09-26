@@ -105,6 +105,11 @@ class AsrSession {
   @visibleForTesting
   void debugSet(AsrState value) => _set(value);
 
+  /// The recogniser behind this session, for the leak probe to see how its
+  /// isolate ended.
+  @visibleForTesting
+  AsrTranscriber? get debugTranscriber => _transcriber;
+
   Future<void> dispose() async {
     _closed = true;
     _download?.cancel();
@@ -120,8 +125,23 @@ class AsrSession {
     }
     _pcmPath = null;
     if (pcm != null) {
-      await _deleteScratch(pcm);
+      // in the background: the recogniser winds down within a segment, and
+      // leaving a page must not wait for it
+      unawaited(_deleteScratchWhenFree(pcm));
     }
+  }
+
+  /// [_deleteScratch] once the recogniser has let go of the PCM.
+  ///
+  /// A stopped recogniser is no longer killed but asked to stop, and it
+  /// holds the file open until it has; on Windows a file that is open
+  /// cannot be deleted, and the attempt fails silently here. (While it was
+  /// killed instead, every stop on Windows left the whole PCM behind in the
+  /// temp directory — 20 of 20 in the V0 run, 16 MB each for an 8-minute
+  /// video.)
+  Future<void> _deleteScratchWhenFree(String pcm) async {
+    await _transcriber?.exited;
+    await _deleteScratch(pcm);
   }
 
   /// The PCM and the two markers beside it.
@@ -426,7 +446,7 @@ class AsrService extends GetxService {
       final pcm = session._pcmPath;
       session._pcmPath = null;
       if (pcm != null) {
-        await AsrSession._deleteScratch(pcm);
+        await session._deleteScratchWhenFree(pcm);
       }
     }
   }
