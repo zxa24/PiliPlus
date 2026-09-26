@@ -17,6 +17,9 @@ import 'package:PiliPlus/grpc/bilibili/community/service/dm/v1.pb.dart'
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/pages/scan/view.dart';
+import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
+    show Content, Emote;
+import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
@@ -77,6 +80,7 @@ import 'package:flutter/gestures.dart'
         PointerHoverEvent,
         PointerScrollEvent,
         PointerUpEvent;
+import 'package:fixnum/fixnum.dart' show Int64;
 import 'package:flutter/services.dart'
     show
         KeyDownEvent,
@@ -777,6 +781,9 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--asr-download') case final dir?) {
       await scenario('asrDownload', () => _asrDownload(dir));
+    }
+    if (args.contains('--comment-translate-probe')) {
+      await scenario('commentTranslateProbe', _commentTranslateProbe);
     }
     if (args.contains('--dialog-probe')) {
       // the app's own dialogs, shown in the real app: a widget test with a
@@ -2445,6 +2452,69 @@ abstract final class SelfTest {
   /// quality coming back, the URL resolving but the transport stalling, or
   /// the page throwing while it draws. Each of those looks the same from the
   /// outside and needs a different fix, so each is reported separately.
+
+  /// Comment translation with the real model
+  /// (research/comment-translation-design-2026-09-25.md, C2): whether the
+  /// marks standing for emotes, @names, timestamps and links come back, what
+  /// the translations read like, and how long each takes.
+  static Future<Map<String, dynamic>> _commentTranslateProbe() async {
+    Content c(
+      String message, {
+      List<String> emotes = const [],
+      List<String> at = const [],
+    }) {
+      final content = Content(message: message);
+      for (final e in emotes) {
+        content.emotes[e] = Emote(text: e);
+      }
+      for (final name in at) {
+        content.atNameToMid[name] = Int64(1);
+      }
+      return content;
+    }
+
+    final comments = [
+      c('This part at 3:20 is my favourite [doge]', emotes: ['[doge]']),
+      c('@小明 you have to watch this, it is amazing', at: ['小明']),
+      c('この動画めっちゃ好きです[笑哭]', emotes: ['[笑哭]']),
+      c('한국에서 보고 있어요 너무 좋아요'),
+      c('Who else is here after the update? 1:02:15 is the best bit'),
+      c('The song is https://example.com/song check it out'),
+      c("C'est vraiment une très belle vidéo, merci [OK]", emotes: ['[OK]']),
+      c('I love how you explained it, thanks!'),
+      c(
+        '@Alice @Bob look at 12:30 [doge][doge]',
+        emotes: ['[doge]'],
+        at: ['Alice', 'Bob'],
+      ),
+      c('Das ist wirklich sehr schön gemacht'),
+    ];
+    final results = <Map<String, Object?>>[];
+    final clock = Stopwatch()..start();
+    for (final content in comments) {
+      final protected = CommentTranslator.protect(content);
+      final started = clock.elapsedMilliseconds;
+      final reply = await TranslationService.to.translateText(
+        protected.text,
+        into: 'zh',
+      );
+      final restored = reply == null ? null : protected.restore(reply);
+      results.add({
+        'source': content.message,
+        'sent': protected.text,
+        'reply': reply,
+        'restored': restored,
+        'marksKept': restored != null,
+        'ms': clock.elapsedMilliseconds - started,
+      });
+    }
+    final kept = results.where((r) => r['marksKept'] == true).length;
+    return {
+      'pass': kept == results.length,
+      'kept': '$kept/${results.length}',
+      'results': results,
+    };
+  }
 
   /// `--focus-probe`: see [_focusProbe]; also presses keys (see
   /// [_keyProbe]).

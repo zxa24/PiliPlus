@@ -15,6 +15,8 @@ import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/pages/video/reply/vote/reply_vote_item.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/pages/video/reply_reply/view.dart';
+import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -98,6 +100,8 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
                           sortType.desc,
                           style: const TextStyle(fontSize: 13),
                         ),
+                        const Spacer(),
+                        if (TranslationService.supported) _translateButton(),
                         TextButton.icon(
                           style: Style.buttonStyle,
                           onPressed: _videoReplyController.queryBySort,
@@ -150,6 +154,38 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
         ),
       ),
     );
+  }
+
+  /// LibrePili: translate every comment here that is not in a language the
+  /// viewer reads, on the device; again, back to the originals
+  /// (research/comment-translation-design-2026-09-25.md).
+  Widget _translateButton() {
+    final translator = _videoReplyController.translator;
+    return Obx(() {
+      final on = translator.enabled.value;
+      final done = translator.done.value;
+      final total = translator.total.value;
+      final label = !on
+          ? '翻译'
+          : done < total
+          ? '翻译中 $done/$total'
+          : '原文';
+      return TextButton.icon(
+        style: Style.buttonStyle,
+        onPressed: () async {
+          if (!on && !await TranslateEntry.ensureModel(context)) return;
+          final loaded = _videoReplyController.loadingState.value;
+          translator.toggle(
+            loaded is Success<List<ReplyInfo>?> ? loaded.response ?? [] : [],
+          );
+        },
+        icon: Icon(Icons.translate, size: 16, color: colorScheme.secondary),
+        label: Text(
+          label,
+          style: TextStyle(fontSize: 13, color: colorScheme.secondary),
+        ),
+      );
+    });
   }
 
   Widget _buildBody(LoadingState<List<ReplyInfo>?> loadingState) {

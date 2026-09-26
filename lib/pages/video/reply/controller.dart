@@ -6,6 +6,7 @@ import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/pages/common/reply_controller.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/reply/vote/reply_vote_mixin.dart';
+import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:get/get.dart';
 
@@ -25,6 +26,28 @@ class VideoReplyController extends ReplyController<MainListReply>
 
   @override
   dynamic get sourceId => IdUtils.av2bv(aid);
+
+  /// LibrePili: this list's on-device comment translation.
+  late final translatorKey = CommentTranslator.keyOf(
+    videoType.replyType,
+    isPugv ? videoCtr.epId! : aid,
+  );
+
+  CommentTranslator get translator => CommentTranslator.of(translatorKey);
+
+  /// A page loaded while translation is on is translated too
+  /// (user 2026-09-25, 1A).
+  @override
+  void handleListResponse(List<ReplyInfo> dataList) {
+    super.handleListResponse(dataList);
+    translator.add(dataList);
+  }
+
+  @override
+  void onClose() {
+    CommentTranslator.release(translatorKey);
+    super.onClose();
+  }
 
   @override
   List<ReplyInfo>? getDataList(MainListReply response) {

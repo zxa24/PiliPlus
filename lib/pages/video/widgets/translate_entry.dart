@@ -97,6 +97,14 @@ abstract final class TranslateEntry {
       ..put(SettingBoxKey.translateMode, (mode ?? TranslateMode.manual).index);
   }
 
+  /// Asks before the model is downloaded, if it is not there: for what
+  /// translates without a subtitle menu (the comments). Whether to go on.
+  static Future<bool> ensureModel(BuildContext context) async {
+    final service = TranslationService.to;
+    if (service.modelReady) return true;
+    return await _askForModel(context, service) == true;
+  }
+
   static Future<bool?> _askForModel(
     BuildContext context,
     TranslationService service,

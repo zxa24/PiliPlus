@@ -27,6 +27,7 @@ import 'package:PiliPlus/pages/member/widget/medal_widget.dart';
 import 'package:PiliPlus/pages/save_panel/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/zan_grpc.dart';
+import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/bili_utils.dart';
@@ -337,37 +338,54 @@ class ReplyItemGrpc extends StatelessWidget {
           ),
         Padding(
           padding: padding,
-          child: TextMore.rich(
-            primary: colorScheme.primary,
-            style: const TextStyle(height: 1.75, fontSize: 14),
-            maxLines: replyLevel == 1 ? replyLengthLimit : null,
-            TextSpan(
-              children: [
-                if (replyControl.isUpTop) ...[
-                  const WidgetSpan(
-                    alignment: .middle,
-                    child: PBadge(
-                      text: 'TOP',
-                      size: .small,
-                      isStack: false,
-                      type: .line_primary,
-                      fontSize: 9,
-                      textScaleFactor: 1,
+          // LibrePili: a comment translated on the device shows in place of
+          // its text (CommentTranslator), and changes as translations arrive
+          child: Obx(() {
+            CommentTranslator.revision.value;
+            final translator = CommentTranslator.forReply(replyItem);
+            final translated = translator?.contentFor(replyItem);
+            final failed = translator?.failedFor(replyItem) ?? false;
+            return TextMore.rich(
+              primary: colorScheme.primary,
+              style: const TextStyle(height: 1.75, fontSize: 14),
+              maxLines: replyLevel == 1 ? replyLengthLimit : null,
+              TextSpan(
+                children: [
+                  if (replyControl.isUpTop) ...[
+                    const WidgetSpan(
+                      alignment: .middle,
+                      child: PBadge(
+                        text: 'TOP',
+                        size: .small,
+                        isStack: false,
+                        type: .line_primary,
+                        fontSize: 9,
+                        textScaleFactor: 1,
+                      ),
                     ),
+                    const TextSpan(text: ' '),
+                  ],
+                  _buildMessage(
+                    context,
+                    colorScheme,
+                    translated ??
+                        (replyControl.showTranslation
+                            ? replyItem.translatedContent
+                            : replyItem.content),
+                    replyControl,
                   ),
-                  const TextSpan(text: ' '),
+                  if (failed)
+                    TextSpan(
+                      text: '  未能翻译',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.outline,
+                      ),
+                    ),
                 ],
-                _buildMessage(
-                  context,
-                  colorScheme,
-                  replyControl.showTranslation
-                      ? replyItem.translatedContent
-                      : replyItem.content,
-                  replyControl,
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          }),
         ),
         if (replyItem.content.pictures.isNotEmpty) ...[
           Padding(
@@ -665,7 +683,10 @@ class ReplyItemGrpc extends StatelessWidget {
                           _buildMessage(
                             context,
                             colorScheme,
-                            childReply.content,
+                            CommentTranslator.forReply(
+                                  childReply,
+                                )?.contentFor(childReply) ??
+                                childReply.content,
                             childReply.replyControl,
                           ),
                         ],
