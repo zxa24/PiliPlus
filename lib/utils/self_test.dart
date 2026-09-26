@@ -37,12 +37,16 @@ import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart'
     as bili_sub;
 import 'package:PiliPlus/pages/danmaku/controller.dart';
+import 'package:PiliPlus/pages/danmaku/view.dart' show PlDanmaku;
+import 'package:canvas_danmaku/canvas_danmaku.dart' show DanmakuScreen;
 import 'package:PiliPlus/pages/local/favs.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -743,6 +747,40 @@ abstract final class SelfTest {
               ? await GStorage.setting.delete(key)
               : await GStorage.setting.put(key, value);
         }
+      }
+    }
+    if (_arg(args, '--danmaku-probe') case final bv?) {
+      // the reverse checks: each assertion has to fail without its fix
+      PlDanmaku.debugFollowBuffering = !args.contains('--no-buffer-follow');
+      PlDanmaku.debugRefill = !args.contains('--no-refill');
+      // shown, whatever an earlier run (`--open-bili --no-danmaku`) left in
+      // this profile; put back after
+      final shown = GStorage.setting.get(SettingBoxKey.enableShowDanmaku);
+      await GStorage.setting.put(SettingBoxKey.enableShowDanmaku, true);
+      // the tracks as the renderer fills them without overlap (massive
+      // mode piles danmaku onto them regardless)
+      final massive = DanmakuOptions.danmakuMassiveMode;
+      if (args.contains('--no-massive')) {
+        DanmakuOptions.danmakuMassiveMode = false;
+      }
+      try {
+        await scenario(
+          'danmakuProbe',
+          () => _danmakuProbe(
+            bv,
+            seekTo: int.tryParse(_arg(args, '--seek-to') ?? '') ?? 120,
+          ),
+        );
+      } finally {
+        PlDanmaku.debugFollowBuffering = true;
+        PlDanmaku.debugRefill = true;
+        DanmakuOptions.danmakuMassiveMode = massive;
+        shown == null
+            ? await GStorage.setting.delete(SettingBoxKey.enableShowDanmaku)
+            : await GStorage.setting.put(
+                SettingBoxKey.enableShowDanmaku,
+                shown,
+              );
       }
     }
     if (_arg(args, '--hover-controls') case final video?) {
@@ -2846,6 +2884,242 @@ abstract final class SelfTest {
       out['afterRouteDialog'] = _focusChainNow();
     }
     return out;
+  }
+
+  /// `--danmaku-probe <BV>`: whether a video page's danmaku follow the
+  /// picture (research: TODO 「快进/后退后弹幕清空」 and 「弹幕跟随
+  /// isBuffering」).
+  ///
+  /// - After a seek forward and one back, how many danmaku are on screen
+  ///   once playback has landed, and how many of them are already part way
+  ///   across. The screen used to be emptied by the seek and filled only as
+  ///   new ones came: a few at most, all at the right edge.
+  /// - All along (sampled every 20 ms from before the page opens), whether
+  ///   the danmaku were moving while mpv said "playing" but was buffering —
+  ///   the first frame not yet in, or a seek into what was not downloaded.
+  ///
+  /// `--no-refill` and `--no-buffer-follow` turn each fix off, for the
+  /// reverse checks: the matching assertion has to fail.
+  static Future<Map<String, dynamic>> _danmakuProbe(
+    String bv, {
+    required int seekTo,
+  }) async {
+    PlPlayerController? player;
+    // how wide the danmaku's view is: what "on screen" is measured against
+    double viewWidth() {
+      final screen = _findElement((e) => e.widget is DanmakuScreen)?.widget;
+      return screen is DanmakuScreen ? screen.size.width : 0;
+    }
+
+    // on screen now: scrolling ones painted and inside the view, static ones
+    ({int scroll, int fixed, int partWay}) onScreen() {
+      final ctr = player?.danmakuController;
+      if (ctr == null) return (scroll: 0, fixed: 0, partWay: 0);
+      final width = viewWidth();
+      var scroll = 0;
+      var partWay = 0;
+      for (final track in ctr.scrollDanmaku) {
+        for (final item in track) {
+          if (item.expired || item.drawTick == null) continue;
+          if (item.xPosition + item.width <= 0 || item.xPosition >= width) {
+            continue;
+          }
+          scroll++;
+          // left of the middle: on screen for a good while already
+          if (item.xPosition < width / 2) partWay++;
+        }
+      }
+      final fixed = ctr.staticDanmaku.nonNulls.length;
+      return (scroll: scroll, fixed: fixed, partWay: partWay);
+    }
+
+    // the sampler: mpv "playing" but buffering, and the danmaku then
+    var samples = 0;
+    var playingBuffering = 0;
+    var runningWhileBuffering = 0;
+    var runningWhilePaused = 0;
+    final bufferingLog = <String>[];
+    final clock = Stopwatch()..start();
+    final sampler = Timer.periodic(const Duration(milliseconds: 20), (_) {
+      final p = player;
+      final ctr = p?.danmakuController;
+      if (p == null || ctr == null) return;
+      samples++;
+      final playing = p.playerStatus.isPlaying;
+      final buffering = p.isBuffering.value;
+      if (playing && buffering) {
+        playingBuffering++;
+        if (ctr.running) runningWhileBuffering++;
+        if (bufferingLog.length < 40) {
+          bufferingLog.add(
+            '${clock.elapsedMilliseconds} ms: running=${ctr.running} '
+            'pos=${p.videoPlayerController?.state.position.inMilliseconds}',
+          );
+        }
+      }
+      if (!playing &&
+          ctr.running &&
+          !ctr.scrollDanmaku.every((t) => t.isEmpty)) {
+        runningWhilePaused++;
+      }
+    });
+
+    VideoDetailController? controller;
+    final seeks = <Map<String, Object?>>[];
+    try {
+      final routed = await PiliScheme.routePushFromUrl(
+        'https://www.bilibili.com/video/$bv',
+      );
+      for (var i = 0; i < 100 && controller == null; i++) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        try {
+          controller = Get.find<VideoDetailController>(
+            tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+          );
+        } catch (_) {}
+      }
+      if (controller == null) {
+        return {'pass': false, 'routed': routed, 'reason': 'no page'};
+      }
+      for (var i = 0; i < 30 && !controller.videoState.value; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+      final p = player = controller.plPlayerController;
+      await p.play();
+
+      int position() =>
+          p.videoPlayerController?.state.position.inMilliseconds ?? -1;
+      // playing, and some danmaku shown
+      for (var i = 0; i < 300; i++) {
+        final now = onScreen();
+        if (position() > 5000 && now.scroll + now.fixed > 0) break;
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      final before = onScreen();
+
+      Future<Map<String, Object?>> seekAndCount(int seconds) async {
+        final target = seconds * 1000;
+        final from = position();
+        final sw = Stopwatch()..start();
+        await p.seekTo(Duration(seconds: seconds));
+        // landed: playing from there (mpv reports the target at once, before
+        // it has anything to show), not buffering
+        var landedMs = -1;
+        while (sw.elapsed < const Duration(seconds: 30)) {
+          final at = position();
+          if (at >= target + 300 &&
+              at <= target + 4000 &&
+              p.playerStatus.isPlaying &&
+              !p.isBuffering.value) {
+            landedMs = sw.elapsedMilliseconds;
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 10));
+        }
+        // a few frames: the refilled ones are placed after their first
+        await Future.delayed(const Duration(milliseconds: 250));
+        final after = onScreen();
+        final record = {
+          'from': from,
+          'to': target,
+          'landedAfterMs': landedMs,
+          'positionAtCount': position(),
+          'onScreenScroll': after.scroll,
+          'onScreenFixed': after.fixed,
+          'partWay': after.partWay,
+          'refill': PlDanmaku.debugLastRefill == null
+              ? null
+              : {
+                  'alive': PlDanmaku.debugLastRefill!.alive,
+                  'placed': PlDanmaku.debugLastRefill!.placed,
+                  'ms': PlDanmaku.debugLastRefill!.micros / 1000,
+                },
+        };
+        PlDanmaku.debugLastRefill = null;
+        // settle before the next one: danmaku seen again
+        await Future.delayed(const Duration(seconds: 3));
+        record['onScreenAfter3s'] = onScreen().scroll + onScreen().fixed;
+        return record;
+      }
+
+      seeks
+        ..add(await seekAndCount(seekTo))
+        ..add(await seekAndCount(seekTo - 60))
+        // far ahead: nothing of it downloaded, so mpv buffers there
+        ..add(
+          await seekAndCount(
+            math.max(seekTo + 60, p.duration.value * 3 ~/ 4),
+          ),
+        );
+      // what plain playback keeps on screen, for comparison: longer than a
+      // danmaku lives, so nothing refilled is left
+      await Future.delayed(
+        Duration(
+          milliseconds:
+              (p.danmakuController?.option.durationInMilliseconds ?? 10000)
+                  .round() +
+              1000,
+        ),
+      );
+      final steady = onScreen();
+
+      final landedAll = seeks.every((s) => (s['landedAfterMs'] as int) >= 0);
+      final minOnScreen = seeks
+          .map(
+            (s) => (s['onScreenScroll'] as int) + (s['onScreenFixed'] as int),
+          )
+          .reduce(math.min);
+      final minPartWay = seeks.map((s) => s['partWay'] as int).reduce(math.min);
+      final refilled = minOnScreen >= 8 && minPartWay >= 3;
+      final followed = playingBuffering > 0 && runningWhileBuffering == 0;
+      return {
+        'pass': landedAll && refilled && followed,
+        'refill': PlDanmaku.debugRefill,
+        'followBuffering': PlDanmaku.debugFollowBuffering,
+        'routed': routed,
+        'duration': p.duration.value,
+        'danmakuLoaded': PlDanmakuController.lastLoadedCount,
+        // the first segment asked for directly: whether danmaku come at all
+        'segment1': switch (await DmGrpc.dmSegMobile(
+          cid: controller.cid.value,
+          segmentIndex: 1,
+        )) {
+          Success(:final response) => '${response.elems.length} danmaku',
+          final other => '$other',
+        },
+        'trackCount': p.danmakuController?.trackCount,
+        'viewWidth': viewWidth(),
+        'option': {
+          'duration': p.danmakuController?.option.duration,
+          'staticDuration': p.danmakuController?.option.staticDuration,
+          'fixedVelocity': p.danmakuController?.option.scrollFixedVelocity,
+          'massive': p.danmakuController?.option.massiveMode,
+        },
+        'beforeSeek': {
+          'scroll': before.scroll,
+          'fixed': before.fixed,
+          'partWay': before.partWay,
+        },
+        'seeks': seeks,
+        'steadyOnScreen': steady.scroll + steady.fixed,
+        'landedAll': landedAll,
+        'minOnScreenAfterSeek': minOnScreen,
+        'minPartWayAfterSeek': minPartWay,
+        'refilled': refilled,
+        'samples': samples,
+        'playingBufferingSamples': playingBuffering,
+        'runningWhileBuffering': runningWhileBuffering,
+        'runningWhilePaused': runningWhilePaused,
+        'followedBuffering': followed,
+        'bufferingLog': bufferingLog,
+      };
+    } finally {
+      sampler.cancel();
+      if (controller != null) {
+        Get.back<void>();
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    }
   }
 
   static Future<Map<String, dynamic>> _openBili(
