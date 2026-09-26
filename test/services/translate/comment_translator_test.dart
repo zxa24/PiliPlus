@@ -1,5 +1,5 @@
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
-    show Content, Emote;
+    show Content, Emote, Url;
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -61,5 +61,27 @@ void main() {
       content('@小明 [doge] this is great', emotes: ['[doge]'], at: ['小明']),
     );
     expect(p.plain.trim(), 'this is great');
+  });
+
+  test('a mark the model wrote its own way still counts', () {
+    final p = CommentTranslator.protect(
+      content('reply to @Bob: see you tomorrow ok', at: ['Bob']),
+    );
+    expect(p.text, 'reply to ⟦1⟧: see you tomorrow ok');
+    // seen from the real model: ⟦1⟧ written back as [1]
+    expect(p.restore('回复 [1]：明天见'), '回复 @Bob：明天见');
+    expect(p.restore('回复 【1】：明天见'), '回复 @Bob：明天见');
+  });
+
+  test('a search keyword is a word to translate, a link is kept', () {
+    final c = Content(message: '那我干嘛不玩辐射 4 VR？ https://b23.tv/abc')
+      ..urls['辐射 4'] = Url()
+      ..urls['https://b23.tv/abc'] = Url();
+    final p = CommentTranslator.protect(c);
+    expect(p.text, '那我干嘛不玩辐射 4 VR？');
+    expect(
+      p.restore('Then why not play Fallout 4 VR?'),
+      'Then why not play Fallout 4 VR? https://b23.tv/abc',
+    );
   });
 }

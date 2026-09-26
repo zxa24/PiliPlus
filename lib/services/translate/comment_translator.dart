@@ -185,7 +185,11 @@ class CommentTranslator {
     ...content.emotes.keys,
     ...content.topics.keys.map((e) => '#$e#'),
     ...content.atNameToMid.keys.map((e) => '@$e'),
-    ...content.urls.keys,
+    // links only: bilibili also marks search keywords in a comment (辐射 4
+    // shown as a link to its search), and those are words of the sentence —
+    // set aside, the model dropped the noun they stood for. Translated, the
+    // word loses its search link
+    ...content.urls.keys.where((k) => k.contains('://')),
   ]);
 
   static ProtectedText _protect(String message, List<String> special) {
@@ -249,11 +253,20 @@ class ProtectedText {
   final String plain;
 
   static final _mark = RegExp('⟦(\\d+)⟧');
+  static final _looseMark = RegExp(r'[\[【⟦]\s*(\d+)\s*[\]】⟧]');
 
   /// [translated] with the marks put back; null unless every mark came back
   /// exactly once — a model that dropped or doubled one would show a
   /// comment missing an emote or a name, or with one twice.
   String? restore(String translated) {
+    // the model sometimes writes a mark its own way ([1], 【1】, ⟦ 1 ⟧);
+    // taken as the mark unless the text itself had that form
+    translated = translated.replaceAllMapped(_looseMark, (m) {
+      final n = int.parse(m[1]!);
+      return n >= 1 && n <= kept.length && !text.contains(m[0]!)
+          ? '⟦$n⟧'
+          : m[0]!;
+    });
     List<int> marks(String text) =>
         [for (final m in _mark.allMatches(text)) int.parse(m[1]!)]..sort();
     final sent = marks(text);

@@ -2653,7 +2653,29 @@ abstract final class SelfTest {
         if (translator.contentFor(r) case final t?)
           {'from': r.content.message, 'to': t.message},
     ];
-    final failed = list.where(translator.failedFor).length;
+    final failedList = [
+      for (final r in list)
+        if (translator.failedFor(r)) r,
+      for (final r in list)
+        for (final c in r.replies)
+          if (translator.failedFor(c)) c,
+    ];
+    final failed = failedList.length;
+    // what failed, and what the model makes of it now, to see why
+    final failedDetail = <Map<String, Object?>>[];
+    for (final r in failedList.take(5)) {
+      final protected = CommentTranslator.protect(r.content);
+      final reply = await TranslationService.to.translateText(
+        protected.text,
+        into: TextLanguage.native.first,
+      );
+      failedDetail.add({
+        'source': r.content.message,
+        'sent': protected.text,
+        'reply': reply,
+        'restored': reply == null ? null : protected.restore(reply),
+      });
+    }
     // leave it off, as a viewer would find it
     translator.toggle(const []);
     return {
@@ -2662,6 +2684,7 @@ abstract final class SelfTest {
       'toTranslate': total,
       'translated': pairs.length,
       'failed': failed,
+      'failedDetail': failedDetail,
       'ms': clock.elapsedMilliseconds,
       'samples': pairs.take(6).toList(),
     };
