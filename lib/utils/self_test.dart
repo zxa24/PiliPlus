@@ -872,6 +872,39 @@ abstract final class SelfTest {
     if (args.contains('--comment-translate-probe')) {
       await scenario('commentTranslateProbe', _commentTranslateProbe);
     }
+    if (_arg(args, '--net-probe') case final url?) {
+      // the app's own sockets (Dart), to a host the player could not reach:
+      // tells a blocked destination from a blocked player
+      await scenario('netProbe', () async {
+        final client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 30);
+        final clock = Stopwatch()..start();
+        try {
+          final request = await client.getUrl(Uri.parse(url));
+          final connectedMs = clock.elapsedMilliseconds;
+          request.headers
+            ..set(HttpHeaders.userAgentHeader, BrowserUa.pc)
+            ..set(HttpHeaders.refererHeader, 'https://www.bilibili.com')
+            ..set(HttpHeaders.rangeHeader, 'bytes=0-1023');
+          final response = await request.close();
+          await response.drain<void>();
+          return {
+            'pass': true,
+            'connectedMs': connectedMs,
+            'status': response.statusCode,
+            'totalMs': clock.elapsedMilliseconds,
+          };
+        } catch (e) {
+          return {
+            'pass': false,
+            'error': '$e',
+            'ms': clock.elapsedMilliseconds,
+          };
+        } finally {
+          client.close(force: true);
+        }
+      });
+    }
     if (on('--dialog-probe')) {
       // the app's own dialogs, shown in the real app: a widget test with a
       // plain MaterialApp let one built on the wrong material library pass
