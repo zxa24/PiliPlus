@@ -18,8 +18,10 @@ import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/pages/scan/view.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
-    show Content, Emote;
+    show Content, Emote, ReplyInfo;
+import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
+import 'package:PiliPlus/services/translate/text_language.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
@@ -515,6 +517,10 @@ abstract final class SelfTest {
     final out = _arg(args, '--out') ?? path.join(tmpDirPath, 'selftest.json');
     _itn = _arg(args, '--asr-itn') != '0';
     debugFocusProbe = args.contains('--focus-probe');
+    debugCommentsProbe = args.contains('--comments-probe');
+    if (_arg(args, '--native') case final native?) {
+      TextLanguage.debugNative = native.split('+');
+    }
     debugDumpUrls = args.contains('--dump-urls');
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
@@ -2520,6 +2526,52 @@ abstract final class SelfTest {
   /// [_keyProbe]).
   static bool debugFocusProbe = false;
 
+  /// `--comments-probe`: see [_commentsProbe].
+  static bool debugCommentsProbe = false;
+
+  /// The page's comments, translated as the 翻译 button does it
+  /// (research/comment-translation-design-2026-09-25.md, E3): how many were
+  /// to be translated, how many were, a few of them side by side, and how
+  /// long it took. The comments tab is shown, so they are rendered.
+  static Future<Map<String, Object?>> _commentsProbe(
+    VideoDetailController controller,
+  ) async {
+    controller.tabCtr.animateTo(1);
+    final reply = Get.find<VideoReplyController>(tag: controller.heroTag);
+    if (reply.loadingState.value is Loading) unawaited(reply.queryData());
+    for (var i = 0; i < 80 && reply.loadingState.value is! Success; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    final state = reply.loadingState.value;
+    if (state is! Success<List<ReplyInfo>?>) return {'error': '$state'};
+    final list = state.response ?? const [];
+    final translator = reply.translator;
+    final clock = Stopwatch()..start();
+    translator.toggle(list);
+    final total = translator.total.value;
+    while (translator.done.value < translator.total.value &&
+        clock.elapsed < const Duration(minutes: 3)) {
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    final pairs = [
+      for (final r in list)
+        if (translator.contentFor(r) case final t?)
+          {'from': r.content.message, 'to': t.message},
+    ];
+    final failed = list.where(translator.failedFor).length;
+    // leave it off, as a viewer would find it
+    translator.toggle(const []);
+    return {
+      'native': TextLanguage.native,
+      'loaded': list.length,
+      'toTranslate': total,
+      'translated': pairs.length,
+      'failed': failed,
+      'ms': clock.elapsedMilliseconds,
+      'samples': pairs.take(6).toList(),
+    };
+  }
+
   /// `--dump-urls`: pages report the stream URLs they played.
   static bool debugDumpUrls = false;
 
@@ -2892,6 +2944,7 @@ abstract final class SelfTest {
       // where focus is left after a dialog of each kind opens and closes
       if (debugFocusProbe) 'focusAfterDialogs': await _focusProbe(),
       if (debugFocusProbe) 'keys': await _keyProbe(player),
+      if (debugCommentsProbe) 'comments': await _commentsProbe(controller),
       // where the keyboard goes: a key the player is to act on has to reach
       // PlayerFocus, from the focused node up
       'focusChain': [

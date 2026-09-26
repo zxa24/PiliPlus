@@ -430,10 +430,12 @@ abstract final class TextLanguage {
 
   /// The languages the viewer reads without a translation: the app's and
   /// those kept in the subtitle menu (user 2026-09-25, 4B).
-  static List<String> get native => [
-    AsrService.appLanguage,
-    ...pinnedTranslationLanguages,
-  ];
+  static List<String> get native =>
+      debugNative ?? [AsrService.appLanguage, ...pinnedTranslationLanguages];
+
+  /// For the self-test (`--native`): the viewer's languages. Nothing else
+  /// sets it.
+  static List<String>? debugNative;
 
   /// Whether [text] should be translated for a viewer reading [native]:
   /// it is in a language told apart from all of them. An unknown Latin
