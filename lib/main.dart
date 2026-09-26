@@ -15,6 +15,7 @@ import 'package:PiliPlus/router/app_pages.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
+import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -147,6 +148,9 @@ void main(List<String> args) async {
   OnDeviceModelGuard.install();
   // which codec a stream is chosen in (see CodecSupport); nothing waits on it
   unawaited(CodecSupport.check());
+  // the command-line reader (设置 → 其它设置 → 允许命令行读取状态); off, it
+  // only clears a ctl.json a crashed run left
+  unawaited(Ctl.apply(Pref.ctlServer));
   HttpOverrides.global = _CustomHttpOverrides();
 
   if (PlatformUtils.isMobile) {
@@ -351,6 +355,7 @@ class MyApp extends StatelessWidget {
       ),
       navigatorObservers: [
         routeObserver,
+        Ctl.routes,
         FlutterSmartDialog.observer,
       ],
       scrollBehavior: PlatformUtils.isDesktop

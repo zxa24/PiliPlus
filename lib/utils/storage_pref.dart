@@ -618,6 +618,10 @@ abstract final class Pref {
   static bool get showScanButton =>
       _setting.get(SettingBoxKey.showScanButton, defaultValue: true);
 
+  /// LibrePili: whether the command-line reader serves (off unless asked).
+  static bool get ctlServer =>
+      _setting.get(SettingBoxKey.ctlServer, defaultValue: false);
+
   static bool get showDecorate =>
       _setting.get(SettingBoxKey.showDecorate, defaultValue: true);
 

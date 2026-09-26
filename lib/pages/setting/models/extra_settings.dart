@@ -30,6 +30,7 @@ import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/slider_dialog.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
+import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
@@ -375,6 +376,16 @@ List<SettingsModel> get extraSettings => [
     leading: Icon(Icons.qr_code_scanner),
     setKey: SettingBoxKey.showScanButton,
     defaultVal: true,
+  ),
+  const SwitchModel(
+    title: '允许命令行读取状态',
+    subtitle:
+        '在本机回环地址上提供只读状态（当前视频、字幕生成与翻译进度、事件日志），'
+        '供 lib/scripts/librepili_ctl.py 读取；端口和口令写在应用数据目录的 ctl.json',
+    leading: Icon(Icons.terminal),
+    setKey: SettingBoxKey.ctlServer,
+    defaultVal: false,
+    onChanged: Ctl.apply,
   ),
   const SwitchModel(
     title: '记录搜索历史',

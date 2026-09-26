@@ -21,9 +21,12 @@ library;
 
 import 'dart:io';
 
+import 'package:PiliPlus/services/ctl/ctl_server.dart';
 import 'package:win32/win32.dart' as kernel32;
 
 Never appExit([int code = 0]) {
+  // the command-line reader's port and token: no one is listening any more
+  CtlServer.current?.removeFileSync();
   if (Platform.isWindows) {
     kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code);
   }

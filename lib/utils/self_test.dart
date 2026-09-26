@@ -51,6 +51,7 @@ import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
@@ -705,6 +706,16 @@ abstract final class SelfTest {
       await scenario(
         'gaveUpProbe',
         () => _gaveUpProbe(bv, original: args.contains('--pick-original')),
+      );
+    }
+    if (_arg(args, '--ctl-probe') case final file?) {
+      await scenario(
+        'ctlProbe',
+        () => _ctlProbe(
+          file,
+          hold: int.tryParse(_arg(args, '--hold') ?? '') ?? 90,
+          holdOff: int.tryParse(_arg(args, '--hold-off') ?? '') ?? 15,
+        ),
       );
     }
     if (_arg(args, '--translate-page') case final video?) {
@@ -2408,6 +2419,139 @@ abstract final class SelfTest {
       'sample': translated?.take(4).toList(),
     };
     await controller.stopAsr();
+    Get.back();
+    return result;
+  }
+
+  /// `--ctl-probe FILE [--hold N] [--hold-off M]`: the command-line reader
+  /// (CtlServer) against a page that is transcribing. The setting is turned
+  /// on in this profile's own storage, FILE opens in the page's local mode
+  /// and its transcript is asked for from the menu's path; the run then
+  /// holds N seconds with the reader serving, so `librepili_ctl.py
+  /// --profile NAME status` can be run against it from outside, and M more
+  /// with the setting turned off again (no ctl.json).
+  ///
+  /// It also asks itself, so the run passes or fails on its own: a request
+  /// without the token is refused, and `/status` shows the file's page with
+  /// its transcription moving.
+  static Future<Map<String, dynamic>> _ctlProbe(
+    String file, {
+    required int hold,
+    required int holdOff,
+  }) async {
+    if (!AsrService.to.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    await GStorage.setting.putAll({
+      SettingBoxKey.ctlServer: true,
+      // nothing starts by itself: the transcript is asked for below
+      SettingBoxKey.asrAsked: true,
+      SettingBoxKey.asrMode: AsrMode.manual.index,
+    });
+    await Ctl.apply(true);
+    final served = Ctl.servedFile;
+    if (served == null) return {'pass': false, 'reason': 'not serving'};
+    final port = served['port'] as int;
+    final token = served['token'] as String;
+    final ctlFile = File(path.join(appSupportDirPath, 'ctl.json'));
+
+    Future<(int, Object?)> ask(String route, {bool withToken = true}) async {
+      final client = HttpClient();
+      try {
+        final request = await client.getUrl(
+          Uri.parse('http://127.0.0.1:$port$route'),
+        );
+        if (withToken) {
+          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+        }
+        final response = await request.close();
+        final body = await response.transform(utf8.decoder).join();
+        return (response.statusCode, jsonDecode(body));
+      } finally {
+        client.close(force: true);
+      }
+    }
+
+    const tag = 'selftest_ctl_local';
+    unawaited(LocalPlayer.open(file, heroTag: tag));
+    VideoDetailController? page;
+    for (var i = 0; i < 20 && page == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        page = Get.find<VideoDetailController>(tag: tag);
+      } catch (_) {}
+    }
+    if (page == null) return {'pass': false, 'reason': 'no page'};
+    for (var i = 0; i < 20 && !page.videoState.value; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    // the menu's path to 原文（端侧）
+    await page.showTranscript();
+    EventLog.add('selftest', 'ctl probe: serving on $port for $hold s');
+
+    final (refused, _) = await ask('/status', withToken: false);
+    final (healthCode, _) = await ask('/health', withToken: false);
+    // the transcription stage as /status reports it, each change once
+    final stages = <String>[];
+    Map? lastPage;
+    final labels = <String>{};
+    for (var i = 0; i < hold; i++) {
+      final (code, status) = await ask('/status');
+      if (code == 200 && status is Map) {
+        final top = (status['pages'] as List).firstOrNull as Map?;
+        if (top != null) {
+          lastPage = top;
+          final stage =
+              (top['transcription'] as Map?)?['stage'] as String? ?? 'none';
+          if (stages.isEmpty || stages.last != stage) stages.add(stage);
+          for (final row in (top['onDevice'] as Map)['menu'] as List) {
+            labels.add((row as Map)['text'] as String);
+          }
+        }
+      }
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final (logCode, log) = await ask('/log');
+    final (settingsCode, settings) = await ask('/settings');
+
+    // off again: the server closes and its file goes
+    await GStorage.setting.put(SettingBoxKey.ctlServer, false);
+    await Ctl.apply(false);
+    final fileGone = !ctlFile.existsSync();
+    var refusedAfterOff = false;
+    try {
+      await ask('/health', withToken: false);
+    } on SocketException {
+      refusedAfterOff = true;
+    }
+    EventLog.add('selftest', 'ctl probe: reader off, holding $holdOff s');
+    await Future.delayed(Duration(seconds: holdOff));
+
+    final result = {
+      'pass':
+          refused == HttpStatus.unauthorized &&
+          healthCode == 200 &&
+          lastPage?['platform'] == 'local' &&
+          stages.length >= 2 &&
+          logCode == 200 &&
+          (((log as Map?)?['count'] as int?) ?? 0) > 0 &&
+          settingsCode == 200 &&
+          !(jsonEncode(settings).contains('cookie')) &&
+          fileGone &&
+          refusedAfterOff,
+      'port': port,
+      'statusWithoutToken': refused,
+      'health': healthCode,
+      'stagesSeen': stages,
+      'menuLabelsSeen': labels.toList(),
+      'lastTranscription': lastPage?['transcription'],
+      'title': lastPage?['title'],
+      'logLines': (log as Map?)?['count'],
+      'settingsKeys': (settings as Map?)?.length,
+      'fileGoneWhenOff': fileGone,
+      'refusedWhenOff': refusedAfterOff,
+    };
+    await page.stopAsr();
     Get.back();
     return result;
   }

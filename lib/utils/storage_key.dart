@@ -130,6 +130,8 @@ abstract final class SettingBoxKey {
       // first use has been explained
       showScanButton = 'showScanButton',
       scanExplained = 'scanExplained',
+      // LibrePili: the command-line reader of the app's state (CtlServer)
+      ctlServer = 'ctlServer',
       showDecorate = 'showDynDecorate',
       showMedal = 'showMedal',
       enableLivePhoto = 'enableLivePhoto',

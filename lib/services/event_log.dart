@@ -16,16 +16,31 @@ abstract final class EventLog {
 
   static final _lines = <String>[];
 
+  /// When each of [_lines] was added, for a reader asking only for what is
+  /// new since a moment (the command-line reader, `/log?since=`).
+  static final _times = <DateTime>[];
+
   /// Records [message] under [area] (`player`, `asr`, `mpv`…), and prints it
   /// in a debug build.
   static void add(String area, String message) {
-    final now = DateTime.now().toIso8601String();
-    final line = '${now.substring(11, 23)} [$area] $message';
+    final at = DateTime.now();
+    final line = '${at.toIso8601String().substring(11, 23)} [$area] $message';
     _lines.add(line);
-    if (_lines.length > _max) _lines.removeAt(0);
+    _times.add(at);
+    if (_lines.length > _max) {
+      _lines.removeAt(0);
+      _times.removeAt(0);
+    }
     if (kDebugMode) debugPrint(line);
   }
 
   /// Oldest first.
   static List<String> get recent => List.unmodifiable(_lines);
+
+  /// Oldest first, each with the moment it was added; only those after
+  /// [since] when given.
+  static List<(DateTime, String)> entries({DateTime? since}) => [
+    for (var i = 0; i < _lines.length; i++)
+      if (since == null || _times[i].isAfter(since)) (_times[i], _lines[i]),
+  ];
 }

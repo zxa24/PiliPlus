@@ -30,6 +30,12 @@ class CommentTranslator {
 
   static final _all = <String, CommentTranslator>{};
 
+  /// Those made so far, without making one (the command-line reader).
+  static Iterable<CommentTranslator> get live => _all.values;
+
+  /// [key]'s translator if one was made; unlike [of], never makes one.
+  static CommentTranslator? find(Object key) => _all['$key'];
+
   /// The translator of the list [reply] belongs to, if one was made.
   static CommentTranslator? forReply(ReplyInfo reply) =>
       _all[keyOf(reply.type.toInt(), reply.oid.toInt())];
