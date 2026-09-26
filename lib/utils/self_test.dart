@@ -831,13 +831,22 @@ abstract final class SelfTest {
         return result;
       });
     }
-    if (_arg(args, '--asr-start-probe') case final source?) {
+    if (_arg(args, '--asr-start-probe') case final given?) {
+      // @path: the URL read from a file. On a phone the arguments come
+      // through `am --esa`, which splits at every comma, and a stream URL
+      // has commas (`uparams=e,mid,…`); the start list takes + for the same
+      // reason
+      final source = given.startsWith('@')
+          ? File(given.substring(1)).readAsStringSync().trim()
+          : given;
       await scenario(
         'asrStartProbe',
         () => _asrStartProbe(
           source,
           at: [
-            for (final a in (_arg(args, '--at') ?? '0,120,300').split(','))
+            for (final a in (_arg(args, '--at') ?? '0,120,300').split(
+              RegExp('[,+]'),
+            ))
               double.parse(a),
           ],
           window: double.tryParse(_arg(args, '--window') ?? '') ?? 40,
