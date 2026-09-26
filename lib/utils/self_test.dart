@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:io';
 
+import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
+import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -14,6 +16,7 @@ import 'package:PiliPlus/grpc/bilibili/community/service/dm/v1.pb.dart'
     show SubtitleType;
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/init.dart';
+import 'package:PiliPlus/pages/scan/view.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
@@ -774,6 +777,41 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--asr-download') case final dir?) {
       await scenario('asrDownload', () => _asrDownload(dir));
+    }
+    if (args.contains('--dialog-probe')) {
+      // the app's own dialogs, shown in the real app: a widget test with a
+      // plain MaterialApp let one built on the wrong material library pass
+      await scenario('dialogProbe', () async {
+        final context = Get.context!;
+        showQrShare(
+          context,
+          url: 'https://www.bilibili.com/video/BV18yt46NEC5',
+        );
+        await Future.delayed(const Duration(seconds: 2));
+        Get.back<void>();
+        await Future.delayed(const Duration(milliseconds: 500));
+        FailureReport.show('测试弹窗', '自测显示失败弹窗');
+        await Future.delayed(const Duration(seconds: 2));
+        await SmartDialog.dismiss(tag: 'failure:测试弹窗');
+        await Future.delayed(const Duration(milliseconds: 500));
+        return {'pass': true};
+      });
+    }
+    if (args.contains('--scan-probe')) {
+      await scenario('scanProbe', () async {
+        ScanPage.debugProblem = null;
+        ScanPage.debugFrames = 0;
+        unawaited(scanQrCode());
+        await Future.delayed(const Duration(seconds: 8));
+        final result = {
+          'pass': true,
+          'problem': ScanPage.debugProblem,
+          'frames': ScanPage.debugFrames,
+        };
+        Get.back<void>();
+        await Future.delayed(const Duration(seconds: 1));
+        return result;
+      });
     }
     if (_arg(args, '--asr-start-probe') case final source?) {
       await scenario(

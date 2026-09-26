@@ -1,16 +1,21 @@
 import 'dart:async';
 
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/search.dart';
+import 'package:PiliPlus/models/common/setting_type.dart';
 import 'package:PiliPlus/models/search/suggest.dart';
 import 'package:PiliPlus/models_new/search/search_rcmd/data.dart';
 import 'package:PiliPlus/models_new/search/search_trending/data.dart';
+import 'package:PiliPlus/pages/scan/view.dart';
+import 'package:PiliPlus/pages/setting/common_setting.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/extension/get_ext.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -160,6 +165,74 @@ class SSearchController extends GetxController
     } else {
       Get.back();
     }
+  }
+
+  /// The scan button (research/qr-code-design-2026-09-25.md): what was read
+  /// opens a video when it is a link or a BV/av number, and goes into the
+  /// search box otherwise — not searched, so it can be looked at first.
+  Future<void> scan() async {
+    if (!await _explainScan()) return;
+    final text = (await scanQrCode())?.trim();
+    if (text == null || text.isEmpty) return;
+    final id =
+        IdUtils.bvRegexExact.hasMatch(text) ||
+            IdUtils.avRegexExact.hasMatch(text)
+        ? text
+        : null;
+    final url = id != null ? '${HttpString.baseUrl}/video/$id' : text;
+    if ((id != null || url.contains('://') || url.startsWith('www.')) &&
+        await PiliScheme.routePushFromUrl(url, selfHandle: true)) {
+      return;
+    }
+    controller
+      ..text = text
+      ..selection = TextSelection.collapsed(offset: text.length);
+    onChange(text);
+  }
+
+  /// The first use asks before the camera is: what it is for, and where to
+  /// turn the button off for good (user 2026-09-25).
+  Future<bool> _explainScan() async {
+    if (GStorage.setting.get(SettingBoxKey.scanExplained) == true) return true;
+    final context = Get.context;
+    if (context == null) return false;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('扫一扫'),
+        content: const Text(
+          '扫码需要使用摄像头，接下来可能会请求摄像头权限。\n\n'
+          '扫到的画面只在本机识别，不会上传。不需要扫码的话，可以在设置中关闭这个按钮。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Get
+                ..back(result: false)
+                ..to(
+                  () => const CommonSetting(
+                    settingType: SettingType.extraSetting,
+                  ),
+                );
+            },
+            child: const Text('去设置关闭'),
+          ),
+          TextButton(
+            onPressed: () => Get.back(result: false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Get.back(result: true),
+            child: const Text('继续'),
+          ),
+        ],
+      ),
+    );
+    if (go == true) {
+      await GStorage.setting.put(SettingBoxKey.scanExplained, true);
+      return true;
+    }
+    return false;
   }
 
   // 搜索

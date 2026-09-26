@@ -148,6 +148,11 @@ dependencies:
   permission_handler_apple: ^9.4.7
   permission_handler_platform_interface: ^4.3.0
   pretty_qr_code: ^3.3.0
+  # LibrePili: scanning a QR code with the camera, the same on every
+  # platform (research/qr-code-design-2026-09-25.md; Windows verified R0)
+  flutter_zxing: ^3.1.0
+  camera: ^0.12.1
+  camera_desktop: ^2.0.0
   protobuf: ^6.0.0
   re_highlight: ^0.0.3
   saver_gallery: ^5.0.2

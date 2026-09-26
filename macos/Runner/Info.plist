@@ -161,5 +161,7 @@
 		<string>_upnp._tcp</string>
 		<string>_http._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>扫描二维码打开视频</string>
 </dict>
 </plist>

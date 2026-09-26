@@ -15,6 +15,7 @@ import 'package:PiliPlus/utils/em.dart' show Em;
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -104,6 +105,12 @@ class _SearchPageState extends State<SearchPage> {
               )
             : const SizedBox.shrink(),
       ),
+      if (Pref.showScanButton)
+        IconButton(
+          tooltip: '扫一扫',
+          icon: const Icon(Icons.qr_code_scanner, size: 22),
+          onPressed: _searchController.scan,
+        ),
       IconButton(
         tooltip: '清空',
         icon: const Icon(Icons.clear, size: 22),

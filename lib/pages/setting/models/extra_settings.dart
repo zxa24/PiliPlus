@@ -370,6 +370,13 @@ List<SettingsModel> get extraSettings => [
     defaultVal: true,
   ),
   const SwitchModel(
+    title: '搜索框显示扫码按钮',
+    subtitle: '扫描二维码打开视频或填入搜索框，需要摄像头权限',
+    leading: Icon(Icons.qr_code_scanner),
+    setKey: SettingBoxKey.showScanButton,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '记录搜索历史',
     leading: Icon(Icons.history),
     setKey: SettingBoxKey.recordSearchHistory,

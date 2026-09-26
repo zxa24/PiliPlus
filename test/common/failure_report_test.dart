@@ -1,6 +1,6 @@
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/services/event_log.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_test/flutter_test.dart';
 

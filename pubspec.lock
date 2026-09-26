@@ -236,6 +236,54 @@ packages:
       url: "https://github.com/My-Responsitories/flutter_cached_network_image_ce.git"
     source: git
     version: "5.2.0"
+  camera:
+    dependency: "direct main"
+    description:
+      name: camera
+      sha256: "3f30ca0ff376f91534f23afa2a7aea06ebb6c889fd9e260642437b37e3d9f753"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.12.1"
+  camera_android_camerax:
+    dependency: transitive
+    description:
+      name: camera_android_camerax
+      sha256: a9d527411429f97976dc1f97b0dbe57560c9d3ae482e2f45b7d0a2a61c6bf8f9
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.5"
+  camera_avfoundation:
+    dependency: transitive
+    description:
+      name: camera_avfoundation
+      sha256: e409a731fad3fca10daa9567cf981720398659e6390f871a4e0f576058ff8940
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.10.3+1"
+  camera_desktop:
+    dependency: "direct main"
+    description:
+      name: camera_desktop
+      sha256: "280ce2b335f3a6d2bd4345c9906697d86de40065d52cd6090df28a8b52b32304"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.0"
+  camera_platform_interface:
+    dependency: transitive
+    description:
+      name: camera_platform_interface
+      sha256: "9365babc7488a9e93d0ed6dcccd917619fb12ea6f9e601519e1191d4890ee2fe"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.14.0"
+  camera_web:
+    dependency: transitive
+    description:
+      name: camera_web
+      sha256: "5aecf1ac4dd4a949c5a7820e590020acb2bc35425384ab87a030e1739bfe12e2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.5+6"
   canvas_danmaku:
     dependency: "direct main"
     description:
@@ -818,6 +866,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_zxing:
+    dependency: "direct main"
+    description:
+      name: flutter_zxing
+      sha256: ee2b97bf69b01385b91497501c060f4e3b53686709892e005de10f3ad30eee98
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.1.0"
   font_awesome_flutter:
     dependency: "direct main"
     description:

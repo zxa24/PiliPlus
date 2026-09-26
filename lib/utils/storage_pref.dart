@@ -615,6 +615,9 @@ abstract final class Pref {
   static bool get searchSuggestion =>
       _setting.get(SettingBoxKey.searchSuggestion, defaultValue: true);
 
+  static bool get showScanButton =>
+      _setting.get(SettingBoxKey.showScanButton, defaultValue: true);
+
   static bool get showDecorate =>
       _setting.get(SettingBoxKey.showDecorate, defaultValue: true);
 

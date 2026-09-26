@@ -253,6 +253,9 @@
     </application>
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- LibrePili: scanning a QR code in the search box; asked on first use -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

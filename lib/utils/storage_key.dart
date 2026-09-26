@@ -126,6 +126,10 @@ abstract final class SettingBoxKey {
       preInitPlayer = 'preInitPlayer',
       mainTabBarView = 'mainTabBarView',
       searchSuggestion = 'searchSuggestion',
+      // LibrePili: the scan button in the search box, and whether its
+      // first use has been explained
+      showScanButton = 'showScanButton',
+      scanExplained = 'scanExplained',
       showDecorate = 'showDynDecorate',
       showMedal = 'showMedal',
       enableLivePhoto = 'enableLivePhoto',
