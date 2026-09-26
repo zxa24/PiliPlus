@@ -864,6 +864,12 @@ abstract final class SelfTest {
         ),
       );
     }
+    if (_arg(args, '--asr-session') case final source?) {
+      await scenario(
+        'asrSession',
+        () => _asrSession(source, srtOut: _arg(args, '--asr-srt')),
+      );
+    }
     if (_arg(args, '--asr') case final source?) {
       await scenario(
         'asr',
@@ -4197,6 +4203,58 @@ abstract final class SelfTest {
       });
     }
     return {'pass': runs.every((r) => r['error'] == null), 'runs': runs};
+  }
+
+  /// Chunked transcription, V7
+  /// (research/chunked-transcription-design-2026-09-25.md): a transcription
+  /// as a page runs it — [AsrService.start], extraction and recognition
+  /// overlapping — and what its session ends up holding, written as SRT with
+  /// [srtOut]. `--asr` drives the recogniser alone and never sees the
+  /// session; a change to how the session keeps the text is checked with
+  /// this, a run before it against a run after, cue for cue.
+  static Future<Map<String, dynamic>> _asrSession(
+    String source, {
+    String? srtOut,
+  }) async {
+    final service = AsrService.to;
+    if (!service.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    final isFile = File(source).existsSync();
+    final clock = Stopwatch()..start();
+    var changes = 0;
+    final session = await service.start(
+      key: 'selftest-session',
+      source: source,
+      referer: isFile ? null : HttpString.baseUrl,
+      userAgent: isFile ? null : BrowserUa.pc,
+    );
+    // each change is one segment's cues arriving: the pace every listener
+    // (page gates, the translation track) is woken at
+    final sub = session.cues.listen((_) => changes++);
+    final deadline = DateTime.now().add(const Duration(minutes: 30));
+    while (session.state.value.isBusy && DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    await sub.cancel();
+    final cues = session.cues.toList();
+    final segments = session.segments.length;
+    final state = session.state.value;
+    await service.stop(only: session);
+    if (srtOut != null && cues.isNotEmpty) {
+      await File(srtOut).writeAsString(cues.toSrt());
+    }
+    return {
+      'pass': state.stage == AsrStage.done && cues.isNotEmpty,
+      'source': source,
+      'stage': state.stage.name,
+      'language': state.language,
+      'ms': clock.elapsedMilliseconds,
+      'cueCount': cues.length,
+      'segmentCount': segments,
+      'cueChanges': changes,
+      'lastCueEnd': cues.isEmpty ? null : cues.last.to,
+    };
   }
 
   /// Chunked transcription, V0
