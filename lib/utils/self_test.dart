@@ -115,6 +115,7 @@ import 'package:PiliPlus/services/translate/llama_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
+import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 
@@ -688,6 +689,16 @@ abstract final class SelfTest {
       await scenario(
         'translateLatency',
         () => _translateLatency(video, _arg(args, '--model'), seconds),
+      );
+    }
+    if (_arg(args, '--translate-file') case final file?) {
+      await scenario(
+        'translateFile',
+        () => _translateFile(
+          file,
+          _arg(args, '--translate-out'),
+          from: _arg(args, '--translate-from'),
+        ),
       );
     }
     if (_arg(args, '--gaveup-probe') case final bv?) {
@@ -2145,6 +2156,155 @@ abstract final class SelfTest {
     await track.stop();
     await asr.stop();
     return result;
+  }
+
+  /// LibrePili: the whole transcript and the whole translation of a local
+  /// media [file], through the same service and [TranslationTrack] the page
+  /// uses, written to [out] (JSON): the transcript as shown, the translated
+  /// track as last handed to the player, and each translation unit with its
+  /// source text and result.
+  ///
+  /// [_translateLatency] watches the first minute and a half as a viewer;
+  /// this asks for everything (as a save does) so a whole stretch can be
+  /// compared with a reference — burned-in subtitles, for one.
+  ///
+  /// A `.srt`/`.vtt` [file] is translated as a video's own captions, in the
+  /// language [from] (`--translate-from`): the same model with nothing to
+  /// recognise, which tells translation errors from recognition ones.
+  static Future<Map<String, dynamic>> _translateFile(
+    String file,
+    String? out, {
+    String? from,
+  }) async {
+    final translations = TranslationService.to;
+    if (!translations.modelReady || !AsrService.to.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    final clock = Stopwatch()..start();
+    String? failure;
+    String? lastVtt;
+    // the playhead stays at the start: every line past the lead comes from
+    // the full coverage asked for below
+    final track = TranslationTrack(
+      position: () => 0,
+      onPublish: (vtt, {required first}) => lastVtt = vtt,
+      onReady: () {},
+      onFailed: (message) => failure = message,
+    );
+    // a caption file (.srt/.vtt) takes the captions path instead: the same
+    // model given a transcript nobody had to recognise
+    if (RegExp(r'\.(srt|vtt)$', caseSensitive: false).hasMatch(file)) {
+      final cues = parseCaptionCues(await File(file).readAsString());
+      await track.startCaptions(cues, from: from);
+      final session = track.session.value;
+      if (session == null) return {'pass': false, 'reason': 'no session'};
+      final deadline = DateTime.now().add(const Duration(minutes: 60));
+      while (!session.translatedAll &&
+          failure == null &&
+          DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      await Future.delayed(const Duration(seconds: 2));
+      final report = <String, dynamic>{
+        'pass': failure == null && session.translatedAll,
+        'file': file,
+        'captions': cues.length,
+        'model': translations.model.id,
+        'ms': clock.elapsedMilliseconds,
+        'failure': failure,
+        'units': [
+          for (final u in session.units)
+            {
+              'from': u.from,
+              'to': u.to,
+              'text': u.text,
+              'result': session.results[u.key]?.text,
+            },
+        ],
+        'translated': [
+          for (final c in session.cues(markPending: false))
+            {'from': c.from, 'to': c.to, 'content': c.content},
+        ],
+      };
+      await track.stop();
+      if (out != null) {
+        await File(out).writeAsString(
+          const JsonEncoder.withIndent('  ').convert(report),
+        );
+      }
+      return {
+        for (final e in report.entries)
+          if (e.value is! List) e.key: e.value,
+        'units': (report['units'] as List).length,
+      };
+    }
+    final asr = await AsrService.to.start(
+      key: 'selftest-translate-file',
+      source: file,
+    );
+    final deadline = DateTime.now().add(const Duration(minutes: 60));
+    while (asr.state.value.language == null &&
+        asr.state.value.isBusy &&
+        DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    await track.start(asr);
+    final session = track.session.value;
+    if (session == null) {
+      await AsrService.to.stop(only: asr);
+      return {'pass': false, 'reason': 'no translation session'};
+    }
+    session.requestFullCoverage();
+    while (!session.translatedAll &&
+        failure == null &&
+        DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    session.endFullCoverage();
+    // the final publish comes with the last result; give it its turn
+    await Future.delayed(const Duration(seconds: 2));
+    final report = <String, dynamic>{
+      'pass': failure == null && session.translatedAll,
+      'file': file,
+      'language': asr.state.value.language,
+      'model': translations.model.id,
+      'ms': clock.elapsedMilliseconds,
+      'failure': failure,
+      'transcript': [
+        for (final c in asr.cues.toList().displayed)
+          {'from': c.from, 'to': c.to, 'content': c.content},
+      ],
+      'segments': [
+        for (final s in asr.segments)
+          {'start': s.start, 'duration': s.duration},
+      ],
+      'units': [
+        for (final u in session.units)
+          {
+            'from': u.from,
+            'to': u.to,
+            'text': u.text,
+            'result': session.results[u.key]?.text,
+          },
+      ],
+      'translated': [
+        for (final c in session.cues(markPending: false))
+          {'from': c.from, 'to': c.to, 'content': c.content},
+      ],
+      'vtt': lastVtt,
+    };
+    await track.stop();
+    await AsrService.to.stop(only: asr);
+    if (out != null) {
+      await File(out).writeAsString(
+        const JsonEncoder.withIndent('  ').convert(report),
+      );
+    }
+    return {
+      for (final e in report.entries)
+        if (e.value is! List && e.key != 'vtt') e.key: e.value,
+      'units': (report['units'] as List).length,
+    };
   }
 
   /// LibrePili: translation through the YouTube player page itself — the
@@ -5385,6 +5545,8 @@ abstract final class SelfTest {
           segmentDump.add({
             'start': start,
             'duration': duration,
+            // SenseVoice's own tag for this segment, before the vote
+            'lang': tagged,
             'text': tokens.join(),
             'tokens': tokens,
             'times': times,
