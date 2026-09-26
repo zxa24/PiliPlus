@@ -74,6 +74,7 @@ import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/settings_import.dart';
+import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart'
     show
@@ -866,6 +867,15 @@ abstract final class SelfTest {
           ],
           window: double.tryParse(_arg(args, '--window') ?? '') ?? 40,
           dir: _arg(args, '--dir') ?? path.join(tmpDirPath, 'asr_probe'),
+        ),
+      );
+    }
+    if (_arg(args, '--asr-export-probe') case final file?) {
+      await scenario(
+        'asrExportProbe',
+        () => _asrExportProbe(
+          file,
+          dir: _arg(args, '--export-dir') ?? path.join(tmpDirPath, 'export'),
         ),
       );
     }
@@ -4868,6 +4878,202 @@ abstract final class SelfTest {
 
   /// Opens a video file / folder with the local player, optionally starts
   /// playback, and reports position, duration and loaded danmaku.
+  /// Chunked transcription P4 on a real page (research/chunked-
+  /// transcription-design-2026-09-25.md, 13): a local [file] played with its
+  /// transcript under the battery rule, a seek that leaves a gap, the menu's
+  /// status read along the way, and 保存字幕 driven through the settings
+  /// sheet — cancelled once, then sent to the background and left to finish.
+  /// Saves go to [dir] instead of the save dialog.
+  static Future<Map<String, dynamic>> _asrExportProbe(
+    String file, {
+    required String dir,
+  }) async {
+    if (!AsrService.to.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    Directory(dir).createSync(recursive: true);
+    final written = <String, int>{};
+    final wrote = Completer<String>();
+    VideoDetailController.debugSaveTo = (name, bytes) async {
+      final out = path.join(dir, name);
+      await File(out).writeAsBytes(bytes);
+      written[out] = bytes.length;
+      if (!wrote.isCompleted) wrote.complete(out);
+    };
+    const heroTag = 'selftest_asr_export';
+    final clock = Stopwatch()..start();
+    final seen = <Map<String, Object?>>[];
+    final steps = <String, Object?>{};
+    try {
+      unawaited(LocalPlayer.open(file, heroTag: heroTag));
+      await Future.delayed(const Duration(seconds: 6));
+      final ctr = Get.find<VideoDetailController>(tag: heroTag)
+        ..autoPlay = true;
+      await ctr.playerInit(autoplay: true);
+      final player = ctr.plPlayerController;
+      await ctr.showTranscript();
+      AsrSession? session;
+      for (var i = 0; i < 100 && session == null; i++) {
+        session = ctr.asrSession.value;
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      if (session == null) return {'pass': false, 'reason': 'no session'};
+      // a desktop never pauses: the phone's battery rule, so that there is
+      // a lead to pause at and a gap for the save to fill
+      session
+        ..power = AsrPower.battery
+        ..debugPowerFixed = true;
+
+      void note(String at) {
+        final label = ctr.onDeviceStatus('asr');
+        if (seen.isEmpty || seen.last['label'] != label) {
+          seen.add({
+            'at': at,
+            'ms': clock.elapsedMilliseconds,
+            'playhead': player.position.value,
+            'label': label,
+            'stage': session!.state.value.stage.name,
+            'covered': [
+              for (final s in session.transcript.covered)
+                '${s.from.toStringAsFixed(1)}-${s.to.toStringAsFixed(1)}',
+            ],
+          });
+        }
+      }
+
+      /// The menu, opened the way a viewer opens it: the transcript's row.
+      Future<String?> menuLabel() async {
+        player.showControls.value = true;
+        await Future.delayed(const Duration(milliseconds: 700));
+        if (!await _tapTooltip('字幕')) return null;
+        final prefix = onDeviceLabel(null);
+        final element = _findElement(
+          (e) =>
+              e.widget is Text && _textOf(e.widget as Text).startsWith(prefix),
+        );
+        final text = element == null ? null : _textOf(element.widget as Text);
+        Get.back();
+        await Future.delayed(const Duration(milliseconds: 500));
+        return text;
+      }
+
+      // 1. running from 0 until paused ahead of the viewer
+      for (
+        var i = 0;
+        i < 120 && session.state.value.stage != AsrStage.standby;
+        i++
+      ) {
+        note('first run');
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      note('paused');
+      steps['menuWhilePaused'] = await menuLabel();
+      final duration = session.duration ?? player.duration.value.toDouble();
+      steps['duration'] = duration;
+
+      // 2. a seek well past what is known: a second stretch, a gap between
+      final seekTo = (duration * 0.85).floorToDouble();
+      await player.seekTo(Duration(seconds: seekTo.toInt()), isSeek: false);
+      final runs = session.runCount;
+      for (var i = 0; i < 120; i++) {
+        note('after seek');
+        if (session.runCount > runs &&
+            session.state.value.stage == AsrStage.standby) {
+          break;
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      note('after seek, settled');
+      steps['menuWithGap'] = await menuLabel();
+      steps['coveredBeforeSave'] = [
+        for (final s in session.transcript.covered) [s.from, s.to],
+      ];
+
+      /// 保存字幕 through the settings sheet, else straight to the
+      /// controller (the sheet is a lazy list: the row may not be built).
+      Future<String> startSave() async {
+        player.showControls.value = true;
+        await Future.delayed(const Duration(milliseconds: 700));
+        if (await _tapTooltip('更多设置') && await _tapText('保存字幕')) {
+          final prefix = onDeviceLabel(null);
+          if (await _tap(
+            (e) =>
+                e.widget is Text &&
+                _textOf(e.widget as Text).startsWith(prefix),
+          )) {
+            return 'ui';
+          }
+          Get.back();
+        }
+        final index = ctr.subtitles.indexWhere((s) => s.lan == 'asr');
+        ctr.saveOnDeviceSubtitle(index, SubtitleFormat.vtt, name: 'p4.vtt');
+        await Future.delayed(const Duration(milliseconds: 600));
+        return 'controller';
+      }
+
+      String? dialogTitle() => switch (_findElement(
+        (e) =>
+            e.widget is Text && _textOf(e.widget as Text).startsWith('正在补全字幕'),
+      )) {
+        final e? => _textOf(e.widget as Text),
+        null => null,
+      };
+
+      // 3. 取消: nothing saved, the lead rule back
+      steps['saveVia'] = await startSave();
+      steps['dialogAtCancel'] = dialogTitle();
+      steps['fullWhileDialog'] = session.fullCoverageRequested;
+      steps['cancelTapped'] = await _tapText('取消');
+      steps['fullAfterCancel'] = session.fullCoverageRequested;
+      steps['dialogAfterCancel'] = dialogTitle();
+      await Future.delayed(const Duration(seconds: 2));
+      steps['writtenAfterCancel'] = written.length;
+      note('after cancel');
+
+      // 4. again, 放到后台继续, and left to finish
+      steps['saveVia2'] = await startSave();
+      steps['dialogAtBackground'] = dialogTitle();
+      steps['backgroundTapped'] = await _tapText('放到后台继续');
+      steps['dialogAfterBackground'] = dialogTitle();
+      steps['fullInBackground'] = session.fullCoverageRequested;
+      final started = clock.elapsedMilliseconds;
+      String? out;
+      while (clock.elapsedMilliseconds - started < 180000 && out == null) {
+        note('background');
+        if (wrote.isCompleted) out = await wrote.future;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+      steps['savedAfterMs'] = out == null
+          ? null
+          : clock.elapsedMilliseconds - started;
+      steps['toastSeen'] = _seesText('字幕已补全并保存');
+      await Future.delayed(const Duration(seconds: 1));
+      note('saved');
+      steps['menuWhenWhole'] = await menuLabel();
+      steps['fullAfterSave'] = session.fullCoverageRequested;
+      final cues = out == null
+          ? 0
+          : RegExp('-->').allMatches(File(out).readAsStringSync()).length;
+      steps['savedFile'] = out;
+      steps['savedCues'] = cues;
+      steps['sessionCues'] = session.cues.length;
+      steps['runs'] = session.runCount;
+      final pass =
+          out != null &&
+          written.length == 1 &&
+          steps['writtenAfterCancel'] == 0 &&
+          steps['fullAfterCancel'] == false &&
+          steps['fullAfterSave'] == false &&
+          session.state.value.stage == AsrStage.done &&
+          cues > 0;
+      Get.back();
+      await Future.delayed(const Duration(seconds: 2));
+      return {'pass': pass, 'steps': steps, 'labels': seen};
+    } finally {
+      VideoDetailController.debugSaveTo = null;
+    }
+  }
+
   static Future<Map<String, dynamic>> _openLocal(
     String target,
     int hold, {
