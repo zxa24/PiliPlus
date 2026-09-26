@@ -2,6 +2,7 @@
 // (research/chunked-transcription-design-2026-09-25.md, 4.2 and 4.6). A
 // session today has one run from 0; these are synthetic inputs for what
 // starting runs elsewhere will produce.
+import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -306,4 +307,74 @@ void main() {
       await session.dispose();
     },
   );
+
+  test('a seam replacing translated text gets its own translations, never '
+      'the old ones (V6)', () async {
+    // a run from 200, translated as the viewer watched there
+    final store = run([200, 205, 210, 215], from: 200, name: 'old');
+    store.runs.single.finish();
+    now = 200;
+    final session = make(store)..start();
+    await pumpUntil(() => session.results.length == 4);
+
+    // a run from 150 runs into it and joins (design 4.3): its segments
+    // replace the old ones up to where both agree on a boundary — one of
+    // them starting in the very same millisecond as an old one, with other
+    // words, as a re-recognition of the same audio can
+    final early = store.startRun(150);
+    store.addSegment(early, 190, 3, [cue(190, 193, 'new 190.0')]);
+    final join = SeamJoin([
+      for (final s in store.segments)
+        if (s.run != early.id) (start: s.start, duration: s.duration),
+    ]);
+    expect(
+      join.offer((
+        start: 196,
+        duration: 3,
+        cues: [cue(196, 199, 'new 196.0')],
+      )),
+      isNull,
+    );
+    final commit = join.offer((
+      start: 200,
+      duration: 3,
+      cues: [cue(200, 203, 'new 200.0')],
+    ))!;
+    store.replace(
+      early,
+      commit.segments,
+      (s) => s.run != early.id && SeamJoin.replaces(commit, s.start),
+    );
+    early.finish();
+    expect(store.cues.map((c) => c.content), [
+      'new 190.0',
+      'new 196.0',
+      'new 200.0',
+      'old 205.0',
+      'old 210.0',
+      'old 215.0',
+    ]);
+
+    now = 185;
+    session.poke();
+    await pumpUntil(() {
+      session.units = session.transcript.units();
+      return session.units.every(session.results.settles);
+    });
+    // every unit's result is made from its own text: the one at 200 s kept
+    // its key but not the old translation
+    var checked = 0;
+    for (final unit in session.units) {
+      final result = session.results.of(unit)!;
+      expect(result.source, unit.text);
+      expect(result.text, '译:${unit.text}');
+      checked++;
+    }
+    expect(checked, session.units.length);
+    final at200 = session.units.singleWhere((u) => u.from == 200);
+    expect(at200.text, 'new 200.0');
+    final shown = session.cues(markPending: false).map((c) => c.content);
+    expect(shown, isNot(contains('译:old 200.0')));
+    await session.dispose();
+  });
 }

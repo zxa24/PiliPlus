@@ -12,11 +12,12 @@
 /// cut within one run and never across two (design 4.6), so text a later
 /// run puts in front of them does not change units already handed out.
 ///
-/// Today there is still one run per session, from 0, and so one stretch;
-/// everything here then reads exactly as the old append-only lists did.
+/// A session with one run from 0 has one stretch, and everything here then
+/// reads exactly as the old append-only lists did.
 library;
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:get/get.dart';
 
 /// A stretch of media time, in seconds.
@@ -38,10 +39,21 @@ class TranscriptRun {
   final segments = <({double start, double duration})>[];
   final cues = <AsrCue>[];
 
-  /// How far the run has recognised: the end of its last segment, or its
-  /// start before it has any.
+  /// How many of [cues] each of [segments] brought: which cues go when a
+  /// seam replaces a segment.
+  final _cueCounts = <int>[];
+
+  /// How far the run has recognised: the end of its last segment, or how
+  /// far its audio is known to hold no more speech, or its start before
+  /// either.
   double get end => _end;
   late double _end = start;
+
+  /// Where its text starts: its start, or the start of a segment it kept
+  /// from before it (the sentence under way where the viewer landed).
+  double get from => segments.isEmpty || segments.first.start > start
+      ? start
+      : segments.first.start;
 
   /// No more segments are coming from this run: its newest one is settled.
   bool get finished => _finished;
@@ -71,12 +83,13 @@ class TranscriptStore {
   /// extents, merged where they meet.
   List<TimeSpan> get covered {
     final out = <TimeSpan>[];
-    for (final run in _runs) {
-      if (out.isNotEmpty && run.start <= out.last.to) {
+    final runs = [..._runs]..sort((a, b) => a.from.compareTo(b.from));
+    for (final run in runs) {
+      if (out.isNotEmpty && run.from <= out.last.to) {
         final last = out.removeLast();
         out.add((from: last.from, to: run.end > last.to ? run.end : last.to));
       } else {
-        out.add((from: run.start, to: run.end));
+        out.add((from: run.from, to: run.end));
       }
     }
     return out;
@@ -111,6 +124,7 @@ class TranscriptStore {
     final segment = (start: start, duration: duration, run: run.id);
     run.segments.add((start: start, duration: duration));
     run.cues.addAll(segmentCues);
+    run._cueCounts.add(segmentCues.length);
     final end = start + duration;
     if (end > run._end) run._end = end;
     // a cue starts inside its segment; never let one lie past the known end
@@ -127,6 +141,70 @@ class TranscriptStore {
       cues.addAll(segmentCues);
     } else {
       cues.insertAll(at, segmentCues);
+    }
+  }
+
+  /// [run] has got to [to] with no more speech before it: its stretch
+  /// reaches there even where that is silence after its last segment.
+  void advance(TranscriptRun run, double to) {
+    if (to > run._end) run._end = to;
+  }
+
+  /// A seam (design 4.3): the segments [removes] picks — of any run, whole,
+  /// with their cues — are taken out, and [segments] go into [run] in their
+  /// place. One change to [cues] for all of it.
+  void replace(
+    TranscriptRun run,
+    List<SeamSegment> segments,
+    bool Function(TranscriptSegment segment) removes,
+  ) {
+    for (final other in _runs) {
+      var cueAt = 0;
+      for (var i = 0; i < other.segments.length;) {
+        final s = other.segments[i];
+        final count = other._cueCounts[i];
+        if (removes((start: s.start, duration: s.duration, run: other.id))) {
+          other.segments.removeAt(i);
+          other._cueCounts.removeAt(i);
+          other.cues.removeRange(cueAt, cueAt + count);
+        } else {
+          cueAt += count;
+          i++;
+        }
+      }
+    }
+    for (final segment in segments) {
+      run.segments.add((start: segment.start, duration: segment.duration));
+      run.cues.addAll(segment.cues);
+      run._cueCounts.add(segment.cues.length);
+      advance(run, segment.start + segment.duration);
+    }
+    _segments
+      ..clear()
+      ..addAll([
+        for (final other in _runs)
+          for (final s in other.segments)
+            (start: s.start, duration: s.duration, run: other.id),
+      ]);
+    mergeSortBy(_segments, (s) => s.start);
+    final all = [for (final other in _runs) ...other.cues];
+    mergeSortBy(all, (c) => c.from);
+    // one change, not two: assignAll clears and adds, each a change
+    cues.value = all;
+  }
+
+  /// A stable sort by [key]: equal keys keep their order.
+  static void mergeSortBy<T>(List<T> list, double Function(T) key) {
+    if (list.length < 2) return;
+    final sorted =
+        [
+          for (var i = 0; i < list.length; i++) (i, list[i]),
+        ]..sort((a, b) {
+          final by = key(a.$2).compareTo(key(b.$2));
+          return by != 0 ? by : a.$1.compareTo(b.$1);
+        });
+    for (var i = 0; i < list.length; i++) {
+      list[i] = sorted[i].$2;
     }
   }
 
