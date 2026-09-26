@@ -7,6 +7,7 @@ library;
 
 import 'package:PiliPlus/services/asr/line_planner.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 /// One recognised token and the time it starts at, both as reported by
 /// SenseVoice (60 ms granularity).
@@ -671,7 +672,7 @@ abstract final class AsrCueBuilder {
           AsrCue(
             from: previous.from,
             to: cue.to,
-            content: _tidy('${previous.content}${cue.content}'),
+            content: _tidy(_join(previous.content, cue.content)),
           ),
         );
       } else if (!bare) {
@@ -696,6 +697,28 @@ abstract final class AsrCueBuilder {
   );
 
   /// SenseVoice emits BPE pieces for non-CJK: `▁` marks a word start.
+  /// [before] and [after], two cues' text, as one line: with a space
+  /// between words of a script that spaces them. Both are trimmed already,
+  /// so gluing them made "dropped" + "it" read "droppedit" (15 of 1157
+  /// English words in the hard-subtitle comparison, each passed on to the
+  /// translator). Full-width scripts, and a mark that belongs to what comes
+  /// before (a full stop, a closing quote), still join directly — Chinese
+  /// and Japanese come out as before.
+  @visibleForTesting
+  static String joinCueText(String before, String after) =>
+      _join(before, after);
+
+  static String _join(String before, String after) {
+    final a = before.trimRight();
+    final b = after.trimLeft();
+    if (a.isEmpty || b.isEmpty) return '$a$b';
+    if (_isFullWidth(a.runes.last) || _isFullWidth(b.runes.first)) {
+      return '$a$b';
+    }
+    if (_opensWithMark(b)) return '$a$b';
+    return '$a $b';
+  }
+
   static String _tidy(String raw) =>
       raw.replaceAll('▁', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 }

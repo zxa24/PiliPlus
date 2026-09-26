@@ -850,4 +850,25 @@ void main() {
       expect(j(AsrCueBuilder.dropRecogniserJunk(ja)), '今日は。');
     });
   });
+
+  group('joining two cues', () {
+    // the hard-subtitle comparison: a short cue folded into the one before
+    // lost the space ("droppedit", "favorite1")
+    test('words of a spaced script keep a space', () {
+      expect(AsrCueBuilder.joinCueText('just literally dropped', 'it.'),
+          'just literally dropped it.');
+      expect(AsrCueBuilder.joinCueText("That's my favorite", '1.'),
+          "That's my favorite 1.");
+      expect(AsrCueBuilder.joinCueText('Done.', 'Next'), 'Done. Next');
+    });
+    test('a mark that belongs before joins directly', () {
+      expect(AsrCueBuilder.joinCueText('Hello', '.'), 'Hello.');
+      expect(AsrCueBuilder.joinCueText('Hello', ', world'), 'Hello, world');
+    });
+    test('full-width scripts join as before', () {
+      expect(AsrCueBuilder.joinCueText('这是', '一句话。'), '这是一句话。');
+      expect(AsrCueBuilder.joinCueText('そう言いま', 'した。'), 'そう言いました。');
+      expect(AsrCueBuilder.joinCueText('中文', 'OK'), '中文OK');
+    });
+  });
 }
