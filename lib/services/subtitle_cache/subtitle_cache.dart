@@ -287,7 +287,11 @@ class SubtitleCache {
   /// The layout of an entry. An entry of another is not read — it is
   /// deleted — so a change to what is kept, or to how cues are made from
   /// what the recogniser says, bumps this.
-  static const format = 1;
+  ///
+  /// 2: segments cut after 1 s of silence rather than 0.5 s, and decoded
+  /// with padding (SpeechPadding) — a transcript kept from before is cut
+  /// differently and recognised worse.
+  static const format = 2;
 
   final Directory dir;
   final int Function() _limitBytes;

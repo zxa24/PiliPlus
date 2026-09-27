@@ -22,6 +22,7 @@ import 'dart:isolate';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
+import 'package:PiliPlus/services/asr/speech_padding.dart';
 import 'package:budoux_dart/budoux.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
@@ -620,8 +621,12 @@ class _SherpaEngine implements AsrEngine {
         sileroVad: sherpa.SileroVadModelConfig(
           model: models.vadPath,
           threshold: 0.5,
-          minSilenceDuration: 0.5,
-          minSpeechDuration: 0.25,
+          // 1 s rather than 0.5: a pause for breath no longer cuts a
+          // sentence in two (research/noisy-speech-design-2026-09-26.md, 6;
+          // together with [_pad], see SpeechPadding)
+          minSilenceDuration: 1.0,
+          minSpeechDuration: _minSpeech,
+          windowSize: asrVadWindow,
           // a display cue is cut out of this by AsrCueBuilder
           maxSpeechDuration: 20,
         ),
@@ -659,6 +664,17 @@ class _SherpaEngine implements AsrEngine {
   /// once it reports no speech: its minimum speech length plus padding.
   static const _undecided = 1.0;
 
+  /// The VAD's minimum speech length, in seconds.
+  static const _minSpeech = 0.25;
+
+  /// How much audio is decoded either side of a segment, at most; see
+  /// SpeechPadding.
+  static const _pad = 0.4;
+
+  /// The audio of the run so far, for the padding around a segment: the
+  /// VAD hands over only the speech. As long as the VAD's own buffer.
+  final _history = _SampleHistory(60 * asrSampleRate);
+
   @override
   bool run(
     AsrRunRequest request, {
@@ -672,6 +688,11 @@ class _SherpaEngine implements AsrEngine {
     // segment offsets are counted from the last reset: from this run's
     // start, which is [offset] in the media
     vad.reset();
+    final history = _history..reset();
+    final padding = SpeechPadding(
+      pad: (_pad * asrSampleRate).round(),
+      lookBack: 2 * asrVadWindow + (_minSpeech * asrSampleRate).round(),
+    );
     final reader = PcmWindowReader(
       request.pcmPath,
       follow: request.follow,
@@ -685,57 +706,103 @@ class _SherpaEngine implements AsrEngine {
       var total = reader.durationSeconds;
       var lastProgress = 0.0;
       var settled = offset;
+      var speech = false;
 
-      void drain() {
-        // between segments too: a backlog of them is seconds of decoding
-        while (!vad.isEmpty() && !stopping()) {
-          final segment = vad.front();
-          final start = offset + segment.start / asrSampleRate;
-          final duration = segment.samples.length / asrSampleRate;
-          final stream = recognizer.createStream()
-            ..acceptWaveform(
-              samples: segment.samples,
-              sampleRate: asrSampleRate,
-            );
-          recognizer.decode(stream);
-          final result = recognizer.getResult(stream);
-          stream.free();
-          vad.pop();
+      /// [settled], but never past a segment the VAD has cut and not sent:
+      /// one still waiting for the padding after it.
+      double settledSoFar() {
+        final waiting = padding.firstWaiting;
+        if (waiting == null) return settled;
+        final held = offset + waiting / asrSampleRate;
+        return held < settled ? held : settled;
+      }
 
-          final tag = AsrCueBuilder.tagValue(result.lang);
-          final japanese = tag == 'ja' || AsrCueBuilder.hasKana(result.text);
-          final chinese = !japanese && (tag == 'zh' || tag == 'yue');
-          final tokens = _tokens(result);
-          final cues = AsrCueBuilder.fromSegment(
+      void decode(PaddedSpan span) {
+        // what the VAD cut is what is reported: every reader of segments
+        // (units, seams, what is known) sees them as before; only the audio
+        // decoded is wider
+        final start = offset + span.start / asrSampleRate;
+        final duration = (span.end - span.start) / asrSampleRate;
+        final from = offset + span.from / asrSampleRate;
+        final stream = recognizer.createStream()
+          ..acceptWaveform(
+            samples: history.range(span.from, span.to),
+            sampleRate: asrSampleRate,
+          );
+        recognizer.decode(stream);
+        final result = recognizer.getResult(stream);
+        stream.free();
+
+        final tag = AsrCueBuilder.tagValue(result.lang);
+        final japanese = tag == 'ja' || AsrCueBuilder.hasKana(result.text);
+        final chinese = !japanese && (tag == 'zh' || tag == 'yue');
+        final tokens = _tokens(result);
+        final cues = [
+          for (final cue in AsrCueBuilder.fromSegment(
             segmenter: japanese
                 ? _budoux?.parse
                 : (chinese ? _budouxZh?.parse : null),
             planLines: chinese,
-            offset: start,
-            duration: duration,
+            // token times count from the start of the audio decoded
+            offset: from,
+            duration: (span.to - span.from) / asrSampleRate,
             text: result.text,
             tokens: tokens,
-          );
-          // One message with its cues: translation settles units on
-          // segments, and a segment seen without its text — or text without
-          // its segment, which is then counted as the previous one's — gets
-          // a unit built and translated from the wrong words.
-          send({
-            'type': 'segment',
-            'start': start,
-            'duration': duration,
-            // the raw pieces, for the probe only: how the recogniser marks a
-            // word decides where a cue may end, and that cannot be guessed
-            // from the joined text
-            'tokens': [for (final t in tokens) t.text],
-            'times': [for (final t in tokens) t.time],
-            'cues': cues.toJson(),
-            // the language vote is the session's (see AsrLanguageVote);
-            // weighted by text, so a long stretch outvotes a stray word
-            'lang': result.lang.isEmpty ? '' : tag,
-            'weight': result.text.length + 1,
-          });
-          if (start + duration > settled) settled = start + duration;
+          ))
+            // A word begun in the padding before the segment starts its cue
+            // at the segment: a cue lies in the segment it came from, which
+            // is how translation tells whose it is.
+            if (cue.from < start)
+              AsrCue(
+                from: start,
+                to: cue.to > start ? cue.to : start + (cue.to - cue.from),
+                content: cue.content,
+              )
+            else
+              cue,
+        ];
+        // One message with its cues: translation settles units on
+        // segments, and a segment seen without its text — or text without
+        // its segment, which is then counted as the previous one's — gets
+        // a unit built and translated from the wrong words.
+        send({
+          'type': 'segment',
+          'start': start,
+          'duration': duration,
+          // the raw pieces, for the probe only: how the recogniser marks a
+          // word decides where a cue may end, and that cannot be guessed
+          // from the joined text
+          'tokens': [for (final t in tokens) t.text],
+          // relative to the segment as reported: a word in the padding
+          // before it comes out negative
+          'times': [for (final t in tokens) t.time - (start - from)],
+          'cues': cues.toJson(),
+          // the language vote is the session's (see AsrLanguageVote);
+          // weighted by text, so a long stretch outvotes a stray word
+          'lang': result.lang.isEmpty ? '' : tag,
+          'weight': result.text.length + 1,
+        });
+        if (start + duration > settled) settled = start + duration;
+      }
+
+      /// Takes what the VAD has cut, and decodes whatever is ready.
+      void drain({int? end}) {
+        while (!vad.isEmpty()) {
+          final segment = vad.front();
+          padding.add(segment.start, segment.start + segment.samples.length);
+          vad.pop();
+        }
+        final detected = vad.isDetected();
+        if (detected && !speech) padding.speechStarted(history.length);
+        speech = detected;
+        // between segments too: a backlog of them is seconds of decoding
+        for (final span in padding.ready(
+          read: history.length,
+          speech: speech,
+          total: end,
+        )) {
+          if (stopping()) return;
+          decode(span);
         }
       }
 
@@ -745,6 +812,7 @@ class _SherpaEngine implements AsrEngine {
           sleep(const Duration(milliseconds: 50));
         }
         if (stopping()) return false;
+        history.add(window);
         vad.acceptWaveform(window);
         drain();
         final done = reader.samplesRead / asrSampleRate;
@@ -759,7 +827,7 @@ class _SherpaEngine implements AsrEngine {
             'type': 'progress',
             'done': offset + done,
             'total': offset + total,
-            'settled': settled,
+            'settled': settledSoFar(),
           });
         }
       }
@@ -769,7 +837,8 @@ class _SherpaEngine implements AsrEngine {
       // only once the reader has really ended: in follow mode it returns
       // when the extractor's marker appears, not at the first empty read
       vad.flush();
-      drain();
+      drain(end: reader.samplesRead);
+      if (stopping()) return false;
       final played = offset + reader.samplesRead / asrSampleRate;
       send({
         'type': 'progress',
@@ -803,4 +872,37 @@ class _SherpaEngine implements AsrEngine {
 
   @override
   String toString() => '_SherpaEngine(${_models.modelPath})';
+}
+
+/// The last [capacity] samples a run has read, by their place in it.
+class _SampleHistory {
+  _SampleHistory(this.capacity) : _buffer = Float32List(capacity);
+
+  final int capacity;
+  final Float32List _buffer;
+
+  /// How many samples have been added since [reset].
+  int get length => _length;
+  var _length = 0;
+
+  void reset() => _length = 0;
+
+  void add(Float32List samples) {
+    for (var i = 0; i < samples.length; i++) {
+      _buffer[(_length + i) % capacity] = samples[i];
+    }
+    _length += samples.length;
+  }
+
+  /// Samples [from] (inclusive) to [to] (exclusive), as far as they are
+  /// still held.
+  Float32List range(int from, int to) {
+    final start = from < _length - capacity ? _length - capacity : from;
+    final end = to > _length ? _length : to;
+    final out = Float32List(end > start ? end - start : 0);
+    for (var i = 0; i < out.length; i++) {
+      out[i] = _buffer[(start + i) % capacity];
+    }
+    return out;
+  }
 }
