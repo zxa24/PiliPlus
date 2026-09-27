@@ -47,6 +47,77 @@ extension AsrCueDisplay on List<AsrCue> {
   }
 }
 
+/// A stretch of speech and the language it is in, for [AsrCueSpeech].
+typedef SpeechSpan = ({double start, double end, String language});
+
+/// The spans of a transcript's segments, sorted, each with the language to
+/// punctuate it by: its own where its tag can be trusted, else [fallback]
+/// (the session's). A tag on a few characters is wrong far too often —
+/// `The.` tagged Chinese — and would take the full stop off an English
+/// line; the same rule the translation follows for its units (design
+/// 2026-09-26, §11: six characters or fewer).
+List<SpeechSpan> speechSpansOf(
+  Iterable<({double start, double duration, String language, int weight})>
+  segments, {
+  String? fallback,
+}) {
+  final spans = [
+    for (final s in segments)
+      (
+        start: s.start,
+        end: s.start + s.duration,
+        language: s.language.isNotEmpty && s.weight > 7
+            ? s.language
+            : fallback ?? '',
+      ),
+  ]..sort((a, b) => a.start.compareTo(b.start));
+  return spans;
+}
+
+/// Punctuation by the language of each line's own speech (design
+/// 2026-09-26, 2A): a video that changes language keeps each language's
+/// rules, where one language for the whole transcript took the full stops
+/// off its English lines.
+extension AsrCueSpeech on List<AsrCue> {
+  /// Each cue as [punctuateForDisplay] shows it in the language of the span
+  /// of [spans] it starts in; [fallback] for a cue in none.
+  List<AsrCue> forDisplayBySpeech(List<SpeechSpan> spans, String? fallback) {
+    if (spans.isEmpty) return forDisplay(fallback);
+    String? languageAt(double t) {
+      // the last span starting at or before t (a cue starts where its
+      // segment's first word does, a little after the segment)
+      var lo = 0, hi = spans.length - 1, found = -1;
+      while (lo <= hi) {
+        final mid = (lo + hi) >> 1;
+        if (spans[mid].start <= t + 0.05) {
+          found = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      if (found < 0 || spans[found].end < t - 0.05) return fallback;
+      final language = spans[found].language;
+      return language.isEmpty ? fallback : language;
+    }
+
+    return [
+      for (final cue in this)
+        switch (languageAt(cue.from)) {
+          final language when _rulesFor(language) == null => cue,
+          final language => AsrCue(
+            from: cue.from,
+            to: cue.to,
+            content: cue.content
+                .split('\n')
+                .map((line) => punctuateForDisplay(line, language))
+                .join('\n'),
+          ),
+        },
+    ];
+  }
+}
+
 String Function(String)? _rulesFor(String? language) {
   final tag = language?.toLowerCase() ?? '';
   if (tag.isEmpty) return null;

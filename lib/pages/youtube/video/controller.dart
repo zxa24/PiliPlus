@@ -996,7 +996,7 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     );
     _showGeneratedTrack(
       SubtitleTrack(
-        'memory://${session.cues.forDisplay(session.state.value.language).toVtt()}',
+        'memory://${session.forDisplay(session.cues).toVtt()}',
         onDeviceLabel(null),
         'asr',
         uri: true,

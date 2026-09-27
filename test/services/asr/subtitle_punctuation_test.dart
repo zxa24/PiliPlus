@@ -78,4 +78,56 @@ void main() {
     expect(cues.single.from, 0);
     expect(cues.single.to, 1);
   });
+
+  group('by the language of each line\'s own speech', () {
+    // a Chinese video with an English stretch, and a stray English word
+    // the recogniser tagged Chinese
+    final spans = speechSpansOf([
+      (start: 0.0, duration: 4.0, language: 'zh', weight: 12),
+      (start: 5.0, duration: 3.0, language: 'en', weight: 30),
+      (start: 9.0, duration: 0.5, language: 'zh', weight: 5),
+      (start: 11.0, duration: 2.0, language: '', weight: 20),
+    ], fallback: 'en');
+    const cues = [
+      AsrCue(from: 0.1, to: 3.9, content: '然而，此刻。'),
+      AsrCue(from: 5.06, to: 7.9, content: 'Did you see Jane? I thought so.'),
+      AsrCue(from: 9.0, to: 9.5, content: 'The.'),
+      AsrCue(from: 11.2, to: 12.8, content: 'Hello, there.'),
+      // in no segment at all
+      AsrCue(from: 20, to: 21, content: 'Late, too.'),
+    ];
+
+    test('each line keeps its own language\'s rules', () {
+      final shown = cues.forDisplayBySpeech(spans, 'en');
+      expect([for (final c in shown) c.content], [
+        '然而 此刻',
+        // one language for the whole transcript took these full stops off
+        'Did you see Jane? I thought so.',
+        // six characters or fewer: the session's language, not the tag
+        'The.',
+        // untagged: the session's
+        'Hello, there.',
+        'Late, too.',
+      ]);
+    });
+
+    test('with the session in Chinese, the untrusted lines follow it', () {
+      final zh = speechSpansOf([
+        (start: 0.0, duration: 4.0, language: 'en', weight: 5),
+      ], fallback: 'zh');
+      expect(
+        [
+          const AsrCue(from: 0, to: 1, content: '好的，走吧。'),
+        ].forDisplayBySpeech(zh, 'zh').single.content,
+        '好的 走吧',
+      );
+    });
+
+    test('no segments: as the session\'s language says', () {
+      expect(
+        cues.take(1).toList().forDisplayBySpeech(const [], 'zh').single.content,
+        '然而 此刻',
+      );
+    });
+  });
 }

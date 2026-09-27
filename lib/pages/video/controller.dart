@@ -2463,7 +2463,7 @@ class VideoDetailController extends GetxController
     List<AsrCue>? cues;
     final session = asrSession.value;
     if (lan == 'asr' && session != null) {
-      cues = session.cues.forDisplay(session.state.value.language);
+      cues = session.forDisplay(session.cues);
     } else if (lan == 'asr-translated') {
       cues = translation.savedCues;
     }
@@ -2868,8 +2868,10 @@ class VideoDetailController extends GetxController
 
   /// The transcript as shown: with the punctuation its language shows in
   /// subtitles (see punctuateForDisplay).
-  String _transcriptVtt(List<AsrCue> cues) =>
-      cues.forDisplay(asrSession.value?.state.value.language).toVtt();
+  String _transcriptVtt(List<AsrCue> cues) {
+    final session = asrSession.value;
+    return (session == null ? cues : session.forDisplay(cues)).toVtt();
+  }
 
   /// Text has come for where the viewer is, and the track on screen has
   /// none there — the first cues of a run started for a jump: handed over

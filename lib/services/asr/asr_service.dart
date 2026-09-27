@@ -27,6 +27,7 @@ import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
+import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
@@ -229,6 +230,20 @@ class AsrSession {
 
   /// Every cue so far, in time order. Listened to for "there is new text".
   RxList<AsrCue> get cues => transcript.cues;
+
+  /// [shown] (this session's cues, or some of them) as a subtitle shows
+  /// them: each line punctuated by the language of its own speech, the
+  /// session's where a line's is not to be trusted (see
+  /// forDisplayBySpeech).
+  List<AsrCue> forDisplay(List<AsrCue> shown) {
+    final language = state.value.language;
+    return shown.forDisplayBySpeech(
+      speechSpansOf([
+        for (final run in transcript.runs) ...run.segments,
+      ], fallback: language),
+      language,
+    );
+  }
 
   /// Stretches the VAD called speech, in time order. Translation cuts its
   /// units along them; they are also the only way to tell a gap that is
