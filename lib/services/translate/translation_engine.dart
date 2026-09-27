@@ -8,6 +8,7 @@
 library;
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/translate/translation_languages.dart';
 
 abstract interface class TranslationEngine {
   /// One user turn, one reply. Greedy decoding: the same input must give
@@ -45,6 +46,45 @@ String translationPrompt(
     'Translate the following text into ${translationLanguageNames[target] ?? target}. '
         'Output only the translation, with no explanation:\n\n$text',
 };
+
+/// The prompt a unit is sent with the second time, when the first answer
+/// was not in the language asked for (see TextLanguage.checkTranslation).
+///
+/// The same shape as [translationPrompt] — one instruction, a blank line,
+/// the text — for both models, with the source language named when it is
+/// known ([from], as TextLanguage.detect tells it) and the language asked
+/// for insisted on. Names and brands may stay as they are, so the
+/// insistence does not turn them into guesses.
+///
+/// Measured on the 19 answers in recorded runs that the check flags
+/// (Japanese given back for Chinese, or a Japanese word left in;
+/// research/hardsub-compare-2026-09-26.md), Gemma 4 E2B through llama.cpp:
+/// asked again with the first prompt, 1 came back in Chinese, 7 with a word
+/// of Japanese, 11 still wrong; insisting without naming the source, 8 / 7
+/// / 4; this wording, 12 / 7 / 0.
+String strictTranslationPrompt(
+  String text, {
+  required String target,
+  String? from,
+}) {
+  if (target == 'zh') {
+    final source = from == null || from == 'zh'
+        ? null
+        : translationLanguageLabels[from];
+    return source == null
+        ? '将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释。'
+              '译文必须全部用中文书写，不要保留原文或日文假名，人名和品牌名除外：\n\n$text'
+        : '将以下$source翻译为中文，注意只需要输出翻译后的结果，不要额外解释。'
+              '译文必须全部用中文书写，不要保留$source原文'
+              '${from == 'ja' ? '或日文假名' : ''}，人名和品牌名除外：\n\n$text';
+  }
+  final name = translationLanguageNames[target] ?? target;
+  final source = from == 'zh' ? 'Chinese' : translationLanguageNames[from];
+  return 'Translate the following ${source == null ? '' : '$source '}text '
+      'into $name. Output only the translation, with no explanation. Write '
+      'all of it in $name: do not leave any of the original text '
+      'untranslated, except names and brands:\n\n$text';
+}
 
 /// The languages offered to translate into besides Chinese, named as they
 /// were when each passed on FLORES (research/translation-targets-

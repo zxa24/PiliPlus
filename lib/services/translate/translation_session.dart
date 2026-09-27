@@ -17,6 +17,8 @@ import 'dart:async';
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
+import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/translate/text_language.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_unit.dart';
@@ -541,12 +543,15 @@ class TranslationSession {
     _lastExtra = DateTime.now();
     if (extrasOnly) _set(const TranslationState(TranslationStage.translating));
     try {
-      final reply = await _engine!.complete(
-        translationPrompt(extra.text, target: extra.target),
-      );
-      if (!extra.done.isCompleted) {
-        extra.done.complete(cleanTranslation(reply, source: extra.text));
+      final checked = await _translateChecked(extra.text, extra.target);
+      if (checked.flaw case final flaw?) {
+        EventLog.add(
+          'translate',
+          'a text not in ${extra.target} after asking again '
+              '(${flaw.reason}): left untranslated',
+        );
       }
+      if (!extra.done.isCompleted) extra.done.complete(checked.text);
     } catch (e) {
       if (_closed || _parking != null || ownsPlayer?.call() == false) {
         giveBack?.call(extra);
@@ -556,6 +561,63 @@ class TranslationSession {
       if (!extra.done.isCompleted) extra.done.complete(null);
     }
     _lastExtra = DateTime.now();
+  }
+
+  /// How many units and texts were asked for a second time because the
+  /// first answer was not in the language asked for, and how many of them
+  /// were still not and were settled as failed. For the self-test.
+  int get languageRetries => _languageRetries;
+  var _languageRetries = 0;
+  int get languageFailures => _languageFailures;
+  var _languageFailures = 0;
+
+  /// [source] translated into [into]: the model's answer cleaned
+  /// ([cleanTranslation]) and then checked to be in [into]
+  /// ([TextLanguage.checkTranslation]) — after the cleanup, so an answer
+  /// that passes is kept exactly as before.
+  ///
+  /// One that is not in [into] is asked for once more, with
+  /// [strictTranslationPrompt], naming the source's language. The second
+  /// answer is kept if it passes; otherwise the first if it was only
+  /// [TranslationFlaw.usable] (a word of another language in it), else the
+  /// second if that one was. With
+  /// neither, the text is null — failed, shown in its own words — and
+  /// [flaw] says why. Null with no flaw is the cleanup's rejection, as
+  /// before, and is not asked again.
+  Future<({String? text, TranslationFlaw? flaw})> _translateChecked(
+    String source,
+    String into,
+  ) async {
+    final first = cleanTranslation(
+      await _engine!.complete(translationPrompt(source, target: into)),
+      source: source,
+    );
+    if (first == null) return (text: null, flaw: null);
+    final flaw = TextLanguage.checkTranslation(
+      first,
+      source: source,
+      target: into,
+    );
+    if (flaw == null) return (text: first, flaw: null);
+    _languageRetries++;
+    final second = cleanTranslation(
+      await _engine!.complete(
+        strictTranslationPrompt(
+          source,
+          target: into,
+          from: TextLanguage.detect(source),
+        ),
+      ),
+      source: source,
+    );
+    final again = second == null
+        ? null
+        : TextLanguage.checkTranslation(second, source: source, target: into);
+    if (second != null && again == null) return (text: second, flaw: null);
+    if (flaw.usable) return (text: first, flaw: null);
+    if (second != null && again!.usable) return (text: second, flaw: null);
+    _languageFailures++;
+    return (text: null, flaw: again ?? flaw);
   }
 
   Future<void> _run() async {
@@ -687,10 +749,15 @@ class TranslationSession {
         final unit = due;
         String? text;
         try {
-          final reply = await _engine!.complete(
-            translationPrompt(unit.text, target: target),
-          );
-          text = cleanTranslation(reply, source: unit.text);
+          final checked = await _translateChecked(unit.text, target);
+          text = checked.text;
+          if (checked.flaw case final flaw?) {
+            EventLog.add(
+              'translate',
+              'unit at ${unit.from.toStringAsFixed(1)} s not in $target after '
+                  'asking again (${flaw.reason}): shown untranslated',
+            );
+          }
           if (text != null && convert != null) {
             text = (_converter ??= await convert!())(text);
           }

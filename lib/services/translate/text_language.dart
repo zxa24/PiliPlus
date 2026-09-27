@@ -30,59 +30,24 @@ abstract final class TextLanguage {
     // not words of any language: emote codes ([doge] read as Latin), links,
     // @names and timestamps
     text = text.replaceAll(_notLanguage, ' ');
-    var han = 0, kana = 0, hangul = 0, cyrillic = 0, arabic = 0;
-    var thai = 0, devanagari = 0, latin = 0, greek = 0, hebrew = 0;
-    for (final r in text.runes) {
-      if (r >= 0x3040 && r <= 0x30FF || r >= 0x31F0 && r <= 0x31FF) {
-        kana++;
-      } else if (r >= 0x4E00 && r <= 0x9FFF || r >= 0x3400 && r <= 0x4DBF) {
-        han++;
-      } else if (r >= 0xAC00 && r <= 0xD7A3 || r >= 0x1100 && r <= 0x11FF) {
-        hangul++;
-      } else if (r >= 0x0400 && r <= 0x04FF) {
-        cyrillic++;
-      } else if (r >= 0x0600 && r <= 0x06FF) {
-        arabic++;
-      } else if (r >= 0x0E00 && r <= 0x0E7F) {
-        thai++;
-      } else if (r >= 0x0900 && r <= 0x097F) {
-        devanagari++;
-      } else if (r >= 0x0370 && r <= 0x03FF) {
-        greek++;
-      } else if (r >= 0x0590 && r <= 0x05FF) {
-        hebrew++;
-      } else if ((r >= 0x41 && r <= 0x5A) ||
-          (r >= 0x61 && r <= 0x7A) ||
-          (r >= 0xC0 && r <= 0x24F) ||
-          (r >= 0x1E00 && r <= 0x1EFF)) {
-        latin++;
-      }
-    }
-    final letters =
-        han +
-        kana +
-        hangul +
-        cyrillic +
-        arabic +
-        thai +
-        devanagari +
-        latin +
-        greek +
-        hebrew;
+    final count = _count(text);
+    final han = count[_Script.han]!;
+    final kana = count[_Script.kana]!;
+    final letters = count.values.fold(0, (a, b) => a + b);
     // three Han characters say as much as four letters: 哈哈 does not
     if (han * 4 + (letters - han) * 3 < _minLetters * 3) return null;
     // any kana at all: Japanese writes Han with kana, Chinese never does
     if (kana > 0 && kana + han >= letters / 2) return 'ja';
     final scripts = <String, int>{
       'zh': han,
-      'ko': hangul,
-      'cyrillic': cyrillic,
-      'ar': arabic,
-      'th': thai,
-      'hi': devanagari,
-      'el': greek,
-      'he': hebrew,
-      'latin': latin,
+      'ko': count[_Script.hangul]!,
+      'cyrillic': count[_Script.cyrillic]!,
+      'ar': count[_Script.arabic]!,
+      'th': count[_Script.thai]!,
+      'hi': count[_Script.devanagari]!,
+      'el': count[_Script.greek]!,
+      'he': count[_Script.hebrew]!,
+      'latin': count[_Script.latin]!,
     };
     final top = scripts.entries.reduce((a, b) => a.value >= b.value ? a : b);
     return switch (top.key) {
@@ -90,6 +55,146 @@ abstract final class TextLanguage {
       'latin' => _latin(text),
       final code => code,
     };
+  }
+
+  /// How many letters of each script [text] has.
+  static Map<_Script, int> _count(String text) {
+    final count = {for (final script in _Script.values) script: 0};
+    for (final r in text.runes) {
+      final script = switch (r) {
+        _ when r >= 0x3040 && r <= 0x30FF || r >= 0x31F0 && r <= 0x31FF =>
+          _Script.kana,
+        _ when r >= 0x4E00 && r <= 0x9FFF || r >= 0x3400 && r <= 0x4DBF =>
+          _Script.han,
+        _ when r >= 0xAC00 && r <= 0xD7A3 || r >= 0x1100 && r <= 0x11FF =>
+          _Script.hangul,
+        _ when r >= 0x0400 && r <= 0x04FF => _Script.cyrillic,
+        _ when r >= 0x0600 && r <= 0x06FF => _Script.arabic,
+        _ when r >= 0x0E00 && r <= 0x0E7F => _Script.thai,
+        _ when r >= 0x0900 && r <= 0x097F => _Script.devanagari,
+        _ when r >= 0x0370 && r <= 0x03FF => _Script.greek,
+        _ when r >= 0x0590 && r <= 0x05FF => _Script.hebrew,
+        _
+            when (r >= 0x41 && r <= 0x5A) ||
+                (r >= 0x61 && r <= 0x7A) ||
+                (r >= 0xC0 && r <= 0x24F) ||
+                (r >= 0x1E00 && r <= 0x1EFF) =>
+          _Script.latin,
+        _ => null,
+      };
+      if (script != null) count[script] = count[script]! + 1;
+    }
+    return count;
+  }
+
+  /// The scripts a translation into each language is written in. Latin is
+  /// left out of the non-Latin ones on purpose: names and brands are kept
+  /// in it by any language (`我简直太 impressed 了` aside).
+  static const _targetScripts = {
+    'zh': {_Script.han},
+    'ja': {_Script.kana, _Script.han},
+    'ko': {_Script.hangul},
+    'ru': {_Script.cyrillic},
+    'uk': {_Script.cyrillic},
+    'ar': {_Script.arabic},
+    'hi': {_Script.devanagari},
+    'th': {_Script.thai},
+  };
+
+  /// What is wrong with [translation] as a translation of [source] into
+  /// [target], by the scripts it is written in; null when nothing is.
+  ///
+  /// Checked after [cleanTranslation]: this is about the language a reply
+  /// came back in, not its shape. A small model asked for Chinese sometimes
+  /// answers in Japanese, or copies the source unchanged
+  /// (research/hardsub-compare-2026-09-26.md: 4 of 125 Japanese units came
+  /// back Japanese, 1 copied). What can be told:
+  ///
+  /// - into any language: an unchanged copy of a source in a language
+  ///   other than [target] (letters and digits compared, case ignored). A
+  ///   source already in [target], or too short to tell, may well be copied.
+  /// - into Chinese: kana. More kana than half the Han characters is
+  ///   Japanese ([TranslationFlaw.usable] false); fewer is a Japanese word
+  ///   or name left in a Chinese sentence (`这是三菱的ジェットストリーム笔`),
+  ///   worth asking again but better than the Japanese source if asking
+  ///   again does not help.
+  /// - into a language with a script of its own (Chinese, Japanese, Korean,
+  ///   Russian, Ukrainian, Arabic, Hindi, Thai): more letters of another
+  ///   non-Latin script than of its own, or Latin letters and none of its
+  ///   own. Latin words among its own are accepted, however many: names
+  ///   and brands are kept in Latin, and a word left in English
+  ///   (`我简直太 impressed 了`) cannot be told from them by script.
+  /// - into Japanese: a sentence of Han characters without any kana, from a
+  ///   Chinese source — Chinese given back.
+  /// - into a language written in Latin letters: more non-Latin letters
+  ///   than Latin ones (a Han, kana or hangul character counting as two).
+  ///   Which Latin language it is cannot be told reliably from a subtitle
+  ///   line (see [_latin]), so French given back for a Spanish request
+  ///   passes unless it is a copy.
+  static TranslationFlaw? checkTranslation(
+    String translation, {
+    required String source,
+    required String target,
+  }) {
+    final into = target.split('-').first.toLowerCase();
+    final from = detect(source);
+    final latinTarget = _words.containsKey(into) || into == 'ms';
+    final sourceInTarget =
+        from != null &&
+        (AsrService.isSameMajorLanguage(from, target) ||
+            // an unknown Latin language may be the one asked for
+            (from == 'latin' && latinTarget));
+    String bare(String text) => text.toLowerCase().replaceAll(
+      RegExp(r'[\p{P}\p{S}\s]', unicode: true),
+      '',
+    );
+    if (from != null && !sourceInTarget) {
+      final copy = bare(translation);
+      if (copy.isNotEmpty && copy == bare(source)) {
+        return const TranslationFlaw('a copy of the source');
+      }
+    }
+    final count = _count(translation.replaceAll(_notLanguage, ' '));
+    final latin = count[_Script.latin]!;
+    const cjk = {_Script.han, _Script.kana, _Script.hangul};
+    final own = _targetScripts[into == 'yue' ? 'zh' : into];
+    if (own != null) {
+      final kana = count[_Script.kana]!;
+      final han = count[_Script.han]!;
+      if (own.length == 1 && own.first == _Script.han && kana > 0) {
+        return TranslationFlaw(
+          'kana in Chinese',
+          usable: kana * 2 <= han,
+        );
+      }
+      var mine = 0, foreign = 0;
+      for (final MapEntry(key: script, value: n) in count.entries) {
+        if (own.contains(script)) {
+          mine += n;
+        } else if (script != _Script.latin) {
+          foreign += n;
+        }
+      }
+      if (foreign > mine) return const TranslationFlaw('another script');
+      // with any of its own script it may be a line of names, or a word
+      // left in English: neither is told from a sentence left untranslated
+      if (latin >= _minLetters && mine == 0) {
+        return const TranslationFlaw('only Latin letters');
+      }
+      if (into == 'ja' && kana == 0 && han >= 8 && from == 'zh') {
+        return const TranslationFlaw('Chinese, not Japanese');
+      }
+      return null;
+    }
+    if (latinTarget) {
+      var foreign = 0;
+      for (final MapEntry(key: script, value: n) in count.entries) {
+        if (script == _Script.latin) continue;
+        foreign += cjk.contains(script) ? n * 2 : n;
+      }
+      if (foreign > latin) return const TranslationFlaw('not Latin letters');
+    }
+    return null;
   }
 
   /// The commonest words of each language written in Latin letters: the
@@ -456,4 +561,34 @@ abstract final class TextLanguage {
 
   static bool _writtenInLatin(String code) =>
       _words.containsKey(code.split('-').first);
+}
+
+enum _Script {
+  han,
+  kana,
+  hangul,
+  cyrillic,
+  arabic,
+  thai,
+  devanagari,
+  greek,
+  hebrew,
+  latin,
+}
+
+/// Why a translation is not in the language asked for (see
+/// [TextLanguage.checkTranslation]).
+class TranslationFlaw {
+  const TranslationFlaw(this.reason, {this.usable = false});
+
+  /// A few words for the event log.
+  final String reason;
+
+  /// Still better shown than the source: mostly in the language asked for,
+  /// with a little of another. Asked again all the same, and kept if the
+  /// second answer is no better.
+  final bool usable;
+
+  @override
+  String toString() => usable ? '$reason (usable)' : reason;
 }

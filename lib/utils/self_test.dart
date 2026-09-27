@@ -2230,6 +2230,9 @@ abstract final class SelfTest {
         'model': translations.model.id,
         'ms': clock.elapsedMilliseconds,
         'failure': failure,
+        // answers not in the language asked for: asked again, and failed
+        'languageRetries': session.languageRetries,
+        'languageFailures': session.languageFailures,
         'units': [
           for (final u in session.units)
             {
@@ -2288,6 +2291,8 @@ abstract final class SelfTest {
       'model': translations.model.id,
       'ms': clock.elapsedMilliseconds,
       'failure': failure,
+      'languageRetries': session.languageRetries,
+      'languageFailures': session.languageFailures,
       'transcript': [
         for (final c in asr.cues.toList().displayed)
           {'from': c.from, 'to': c.to, 'content': c.content},
