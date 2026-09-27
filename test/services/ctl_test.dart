@@ -292,20 +292,6 @@ void main() {
       expect(ctlTranslationFields(active: false)['starting'], isFalse);
     });
 
-    test('the menu rows read as the user sees them', () {
-      final rows = ctlMenuJson(
-        codes: ['asr', 'zh', 'en'],
-        label: (c) => c == 'asr' ? '原文（端侧）' : '$c（端侧）',
-        status: (c) => c == 'zh' ? '准备中' : null,
-        picked: 'zh',
-      );
-      expect(rows, [
-        {'code': 'asr', 'label': '原文（端侧）', 'status': null, 'picked': false},
-        {'code': 'zh', 'label': 'zh（端侧）', 'status': '准备中', 'picked': true},
-        {'code': 'en', 'label': 'en（端侧）', 'status': null, 'picked': false},
-      ]);
-    });
-
     test('stream URLs come out as their host alone', () {
       expect(
         ctlHostOf(

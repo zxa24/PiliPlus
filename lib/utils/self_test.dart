@@ -2696,7 +2696,7 @@ abstract final class SelfTest {
           const Duration(seconds: 60),
           onTimeout: () => {'error': 'comments still translating after 60 s'},
         ),
-      'subtitleLabel': page.onDeviceStatus(language),
+      'subtitleLabel': page.menuStatus(language)?.text,
       'translationStarting':
           page.translation.isActive && page.translation.session.value == null,
       'mode': auto ? 'auto' : 'menu',
@@ -2824,7 +2824,7 @@ abstract final class SelfTest {
       'coveredSeconds': session?.coveredSeconds,
       'duration': session?.duration,
       'ms': clock.elapsedMilliseconds,
-      'labelOriginal': page.onDeviceStatus('asr'),
+      'labelOriginal': page.menuStatus('asr')?.text,
       'tracks': [for (final t in page.subtitles) t.lanDoc],
     };
     await page.stopAsr();
@@ -5935,7 +5935,7 @@ abstract final class SelfTest {
         ..debugPowerFixed = true;
 
       void note(String at) {
-        final label = ctr.onDeviceStatus('asr');
+        final label = ctr.menuStatus('asr')?.text;
         if (seen.isEmpty || seen.last['label'] != label) {
           seen.add({
             'at': at,

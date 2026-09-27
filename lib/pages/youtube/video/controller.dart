@@ -17,12 +17,12 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
-import 'package:PiliPlus/services/asr/asr_status.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
@@ -45,7 +45,7 @@ import 'package:media_kit/media_kit.dart' show SubtitleTrack;
 
 enum YtPageStage { loading, ready, failed }
 
-class YtVideoController extends GetxController {
+class YtVideoController extends GetxController implements SubtitleMenuHost {
   YtVideoController({required this.videoId, YouTubeVideoSource? source})
     : router = YtSourceRouter(source ?? YtDirectSource.create());
 
@@ -703,6 +703,7 @@ class YtVideoController extends GetxController {
   /// would download it a second time for nothing.
   String? get asrSource => _streams?.audioUrl;
 
+  @override
   bool get canTranscribe => asrSource?.isNotEmpty == true;
 
   Future<void> startAsr({bool auto = false}) async {
@@ -1024,12 +1025,14 @@ class YtVideoController extends GetxController {
   int? get captionToTranslate => captionToTranslateInto(null);
 
   /// See [VideoDetailController.captionToTranslateInto].
+  @override
   int? captionToTranslateInto(String? into) =>
       captionToTranslateFor(platformTracks, into ?? AsrService.appLanguage);
 
   /// See [VideoDetailController.platformTracks]. YouTube lists no machine
   /// translations: its translated captions are asked for per language, not
   /// offered as tracks.
+  @override
   List<PlatformTrack> get platformTracks => [
     for (final c in captions)
       (
@@ -1055,6 +1058,7 @@ class YtVideoController extends GetxController {
   );
 
   /// See [VideoDetailController.planFor].
+  @override
   OpenPlan planFor(String code, {SubtitleSourcePreference? via}) =>
       decideOnOpen(
         choice: SubtitleChoice.fromCode(code),
@@ -1212,48 +1216,78 @@ class YtVideoController extends GetxController {
   bool get hasTranscript => asrSession.value?.cues.isNotEmpty ?? false;
 
   /// See [VideoDetailController.hasTranslationInto].
+  @override
   bool hasTranslationInto(String into) =>
       (translation.into ?? AsrService.appLanguage) == into &&
       translation.currentVtt != null &&
       translation.session.value?.state.value.stage != TranslationStage.failed;
 
-  /// See [VideoDetailController.onDeviceStatus].
-  String? onDeviceStatus(String code) {
-    final asr = asrSession.value?.state.value;
-    String? asrStatus() => switch (asr?.stage) {
-      AsrStage.models => asr!.message ?? '准备模型',
-      AsrStage.extracting || AsrStage.transcribing => '生成中',
-      AsrStage.failed => '失败，点击重试',
-      _ => null,
-    };
+  // ------------------------------------------------ the subtitle menu
+
+  /// See [VideoDetailController._menuPick].
+  String? _menuPick;
+  var _menuPicked = false;
+
+  @override
+  String? get menuPicked =>
+      _menuPicked ? _menuPick : SubtitleChoice.codeOf(Pref.subtitleChoice);
+
+  @override
+  int? get shownPlatformTrack {
+    final index = captionIndex.value;
+    return index >= 0 && index < captions.length ? index : null;
+  }
+
+  @override
+  SubtitleSourcePreference? get menuActive {
+    if (shownPlatformTrack != null) return SubtitleSourcePreference.platform;
+    if (onDeviceShown != null) return SubtitleSourcePreference.device;
+    return null;
+  }
+
+  @override
+  List<String> get platformTrackNames => [
+    for (final c in captions) c.displayName,
+  ];
+
+  @override
+  List<String> get spoken => spokenOf(asrSession.value, platformTracks);
+
+  @override
+  bool get hasTranscription => asrSession.value != null;
+
+  /// See [VideoDetailController.menuStatus].
+  @override
+  SubtitleStatus? menuStatus(String code) {
+    final session = asrSession.value;
+    final transcript = transcriptStatus(
+      state: session?.state.value,
+      covered: session?.transcript.covered ?? const [],
+      duration: session?.duration,
+      playhead: plPlayerController.position.value.toDouble(),
+    );
+    final waiting = menuPicked == code && menuActive == null;
     if (code == 'asr') {
-      // how far the text is known (research/chunked-transcription-design-
-      // 2026-09-25.md, P4): 已生成到 12:30, 已暂停（已领先 4:00）…
-      final session = asrSession.value;
-      if (session != null && asr != null) {
-        final coverage = asrCoverageLabel(
-          stage: asr.stage,
-          message: asr.message,
-          covered: session.transcript.covered,
-          duration: session.duration,
-          playhead: plPlayerController.position.value.toDouble(),
-        );
-        if (coverage != null) return coverage;
+      if (session == null && waiting && !AsrService.to.modelsReady) {
+        return const SubtitleStatus('需要下载模型');
       }
-      return asrStatus();
+      return transcript;
     }
     final state = translation.session.value?.state.value;
     if (state != null && (translation.into ?? AsrService.appLanguage) == code) {
-      return switch (state.stage) {
-        TranslationStage.loading => state.message ?? '准备模型',
-        TranslationStage.translating || TranslationStage.waiting => '生成中',
-        TranslationStage.paused => '已暂停',
-        TranslationStage.failed => '失败，点击重试',
-        _ => null,
-      };
+      return translationStatus(
+        state: state,
+        transcript: _translatedCaption == null ? transcript : null,
+      );
     }
     if (_wantedOnDevice == code && _translationRequested) {
-      return asrStatus() ?? '准备中';
+      return transcript ?? const SubtitleStatus('准备中', busy: true);
+    }
+    if (waiting &&
+        !translation.isActive &&
+        TranslationService.supported &&
+        !TranslationService.to.modelReady) {
+      return const SubtitleStatus('需要下载模型');
     }
     return null;
   }
@@ -1295,12 +1329,6 @@ class YtVideoController extends GetxController {
     await startTranslation(mayTranscribe: mayTranscribe);
   }
 
-  /// See [VideoDetailController.stopOnDevice].
-  Future<void> stopOnDevice() async {
-    await stopTranslation();
-    await stopAsr();
-  }
-
   /// See [VideoDetailController._resumeOnDevice].
   void _resumeOnDevice() {
     final session = asrSession.value;
@@ -1308,7 +1336,10 @@ class YtVideoController extends GetxController {
   }
 
   /// See [VideoDetailController.chooseOff].
+  @override
   Future<void> chooseOff() async {
+    _menuPick = null;
+    _menuPicked = true;
     await GStorage.setting.put(
       SettingBoxKey.subtitleChoice,
       SubtitleChoice.off,
@@ -1318,18 +1349,21 @@ class YtVideoController extends GetxController {
   }
 
   /// See [VideoDetailController.chooseLanguage].
+  @override
   Future<void> chooseLanguage(
     String code,
     OpenPlan plan, {
     Future<bool> Function()? mayTranscribe,
   }) async {
+    _menuPick = code;
+    _menuPicked = true;
     await GStorage.setting.put(
       SettingBoxKey.subtitleChoice,
       SubtitleChoice.fromCode(code),
     );
     switch (plan.action) {
       case OpenAction.platform:
-        await choosePlatformTrack(plan.track!);
+        await _showPlatformTrack(plan.track!);
       case OpenAction.onDevice:
         if (code == 'asr') {
           await showTranscript();
@@ -1342,7 +1376,14 @@ class YtVideoController extends GetxController {
   }
 
   /// See [VideoDetailController.choosePlatformTrack].
+  @override
   Future<void> choosePlatformTrack(int index) async {
+    _menuPick = pickedTrack;
+    _menuPicked = true;
+    await _showPlatformTrack(index);
+  }
+
+  Future<void> _showPlatformTrack(int index) async {
     await setCaption(index);
     await _switchOffOnDevice();
   }

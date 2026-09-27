@@ -63,7 +63,6 @@ import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
-import 'package:PiliPlus/services/asr/asr_status.dart';
 import 'package:PiliPlus/services/asr/fill_export.dart';
 import 'package:PiliPlus/pages/video/widgets/fill_export_dialog.dart';
 import 'package:PiliPlus/utils/storage_utils.dart';
@@ -73,6 +72,7 @@ import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
@@ -112,7 +112,8 @@ import 'package:media_kit/media_kit.dart' hide Subtitle;
 import 'package:path/path.dart' as path;
 
 class VideoDetailController extends GetxController
-    with GetTickerProviderStateMixin, BlockMixin {
+    with GetTickerProviderStateMixin, BlockMixin
+    implements SubtitleMenuHost {
   /// 路由传参
   late final Map args;
   late String bvid;
@@ -1804,6 +1805,7 @@ class VideoDetailController extends GetxController
     return videoUrl;
   }
 
+  @override
   bool get canTranscribe => _asrSource?.isNotEmpty == true;
 
   /// The part as the subtitle cache knows it: its cid — a download keeps
@@ -2324,6 +2326,7 @@ class VideoDetailController extends GetxController
   /// default), if there is one to (see [captionToTranslateFor]). The
   /// device's own tracks come after the video's, so the index is one into
   /// [subtitles] too.
+  @override
   int? captionToTranslateInto(String? into) =>
       captionToTranslateFor(platformTracks, into ?? AsrService.appLanguage);
 
@@ -2550,45 +2553,82 @@ class VideoDetailController extends GetxController
       (asrSession.value?.state.value.isBusy ?? false) ||
       (translation.session.value?.isActive ?? false);
 
-  /// A word for the menu on where the on-device subtitle [code] — `asr`, or
-  /// a language — stands; null with nothing to say.
-  String? onDeviceStatus(String code) {
-    final asr = asrSession.value?.state.value;
-    String? asrStatus() => switch (asr?.stage) {
-      AsrStage.models => asr!.message ?? '准备模型',
-      AsrStage.extracting || AsrStage.transcribing => '生成中',
-      AsrStage.failed => '失败，点击重试',
-      _ => null,
-    };
+  // ------------------------------------------------ the subtitle menu
+
+  /// What the viewer picked in the subtitle menu for this part — null for
+  /// 关闭字幕, `asr`, a language, or [pickedTrack] — once they have; the
+  /// remembered switch until then.
+  String? _menuPick;
+  var _menuPicked = false;
+
+  @override
+  String? get menuPicked =>
+      _menuPicked ? _menuPick : SubtitleChoice.codeOf(Pref.subtitleChoice);
+
+  @override
+  int? get shownPlatformTrack {
+    final shown = vttSubtitlesIndex.value - 1;
+    return shown >= 0 &&
+            shown < subtitles.length &&
+            subtitles[shown].source != SubtitleSource.device
+        ? shown
+        : null;
+  }
+
+  @override
+  SubtitleSourcePreference? get menuActive {
+    if (shownPlatformTrack != null) return SubtitleSourcePreference.platform;
+    if (onDeviceShown != null) return SubtitleSourcePreference.device;
+    return null;
+  }
+
+  @override
+  List<String> get platformTrackNames => [
+    for (final s in subtitles)
+      if (s.source != SubtitleSource.device) s.displayName,
+  ];
+
+  @override
+  List<String> get spoken => spokenOf(asrSession.value, platformTracks);
+
+  @override
+  bool get hasTranscription => asrSession.value != null;
+
+  /// Where the on-device subtitle [code] — `asr`, or a language — stands,
+  /// for the menu; null with nothing to say.
+  @override
+  SubtitleStatus? menuStatus(String code) {
+    final session = asrSession.value;
+    final transcript = transcriptStatus(
+      state: session?.state.value,
+      covered: session?.transcript.covered ?? const [],
+      duration: session?.duration,
+      playhead: plPlayerController.position.value.toDouble(),
+    );
+    // picked, and nothing to show it with: the model it needs is missing
+    final waiting = menuPicked == code && menuActive == null;
     if (code == 'asr') {
-      // how far the text is known (research/chunked-transcription-design-
-      // 2026-09-25.md, P4): 已生成到 12:30, 已暂停（已领先 4:00）…
-      final session = asrSession.value;
-      if (session != null && asr != null) {
-        final coverage = asrCoverageLabel(
-          stage: asr.stage,
-          message: asr.message,
-          covered: session.transcript.covered,
-          duration: session.duration,
-          playhead: plPlayerController.position.value.toDouble(),
-        );
-        if (coverage != null) return coverage;
+      if (session == null && waiting && !AsrService.to.modelsReady) {
+        return const SubtitleStatus('需要下载模型');
       }
-      return asrStatus();
+      return transcript;
     }
     final state = translation.session.value?.state.value;
     if (state != null && (translation.into ?? AsrService.appLanguage) == code) {
-      return switch (state.stage) {
-        TranslationStage.loading => state.message ?? '准备模型',
-        TranslationStage.translating || TranslationStage.waiting => '生成中',
-        TranslationStage.paused => '已暂停',
-        TranslationStage.failed => '失败，点击重试',
-        _ => null,
-      };
+      return translationStatus(
+        state: state,
+        transcript: _translatingTranscript ? transcript : null,
+      );
     }
     // picked and waiting for the transcript it is to be made from
     if (_wantedOnDevice == code && _translationRequested) {
-      return asrStatus() ?? '准备中';
+      return transcript ?? const SubtitleStatus('准备中', busy: true);
+    }
+    if (waiting &&
+        !translation.isActive &&
+        TranslationService.supported &&
+        !TranslationService.to.modelReady) {
+      return const SubtitleStatus('需要下载模型');
     }
     return null;
   }
@@ -2597,6 +2637,7 @@ class VideoDetailController extends GetxController
   bool get hasTranscript => _deviceTrack('asr') != null;
 
   /// Whether a translation into [into] can be shown without starting one.
+  @override
   bool hasTranslationInto(String into) =>
       _deviceTrack('asr-translated') != null &&
       (translation.into ?? AsrService.appLanguage) == into &&
@@ -2648,12 +2689,6 @@ class VideoDetailController extends GetxController
     await startTranslation(mayTranscribe: mayTranscribe);
   }
 
-  /// The menu's 停止端侧生成: both, what they made stays in the menu.
-  Future<void> stopOnDevice() async {
-    await stopTranslation();
-    await stopAsr();
-  }
-
   /// A transcription switched off (see [_switchOffOnDevice]) carries on,
   /// the same session, from where the viewer is (design 2026-09-26, 4).
   void _resumeOnDevice() {
@@ -2663,7 +2698,10 @@ class VideoDetailController extends GetxController
 
   /// The subtitle menu's 关闭字幕: no subtitles, for this video and — the
   /// switch is remembered — every one after it (design 2026-09-26, 甲).
+  @override
   Future<void> chooseOff() async {
+    _menuPick = null;
+    _menuPicked = true;
     await GStorage.setting.put(
       SettingBoxKey.subtitleChoice,
       SubtitleChoice.off,
@@ -2680,18 +2718,21 @@ class VideoDetailController extends GetxController
   /// [plan] is what [planFor] said, the model prompts answered since:
   /// asked again now, a model not downloaded yet would send it elsewhere.
   /// [mayTranscribe] as for [startTranslation].
+  @override
   Future<void> chooseLanguage(
     String code,
     OpenPlan plan, {
     Future<bool> Function()? mayTranscribe,
   }) async {
+    _menuPick = code;
+    _menuPicked = true;
     await GStorage.setting.put(
       SettingBoxKey.subtitleChoice,
       SubtitleChoice.fromCode(code),
     );
     switch (plan.action) {
       case OpenAction.platform:
-        await choosePlatformTrack(plan.track!);
+        await _showPlatformTrack(plan.track!);
       case OpenAction.onDevice:
         if (code == 'asr') {
           await showTranscript();
@@ -2708,7 +2749,14 @@ class VideoDetailController extends GetxController
   /// for this video only, whatever the switch remembers. Whatever the
   /// device was making winds down (甲: a platform's subtitle means the
   /// device's is off).
+  @override
   Future<void> choosePlatformTrack(int index) async {
+    _menuPick = pickedTrack;
+    _menuPicked = true;
+    await _showPlatformTrack(index);
+  }
+
+  Future<void> _showPlatformTrack(int index) async {
     await setSubtitle(index + 1);
     await _switchOffOnDevice();
   }
@@ -2992,6 +3040,7 @@ class VideoDetailController extends GetxController
   /// The video's own tracks as the subtitle switch sees them: the indexes
   /// in [subtitles] line up with [platformTracks], the device's own come
   /// after them.
+  @override
   List<PlatformTrack> get platformTracks => [
     for (final s in subtitles)
       if (s.source != SubtitleSource.device)
@@ -3023,6 +3072,7 @@ class VideoDetailController extends GetxController
   /// What picking [code] (`asr` or a language) in the menu does, from the
   /// source the viewer tapped ([via]) or the default one. A model missing
   /// is no reason for another source here: the menu asks for it.
+  @override
   OpenPlan planFor(String code, {SubtitleSourcePreference? via}) =>
       decideOnOpen(
         choice: SubtitleChoice.fromCode(code),
@@ -3143,6 +3193,8 @@ class VideoDetailController extends GetxController
     // and so do the once-per-part automatic translation and loading gate,
     // and the viewer's pick of subtitle
     _openApplied = false;
+    _menuPick = null;
+    _menuPicked = false;
     _viewerChoseSubtitle = false;
     _wantedOnDevice = null;
     _requestedInto = null;

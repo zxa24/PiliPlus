@@ -30,40 +30,31 @@ void main() {
       playhead: playhead,
     );
 
-    test('one stretch: how far it reaches', () {
-      expect(
-        label(AsrStage.transcribing, [(from: 0, to: 750)]),
-        '已生成到 12:30',
-      );
-    });
-
-    test('gaps: how many stretches and how much in all', () {
+    test('running: 生成中, however much there is (kept short, 9)', () {
+      expect(label(AsrStage.transcribing, [(from: 0, to: 750)]), '生成中');
       expect(
         label(AsrStage.transcribing, [
           (from: 0, to: 300),
           (from: 600, to: 1000),
-          (from: 1200, to: 1810),
         ]),
-        // 300 + 400 + 610 s
-        '已生成 3 段，共 21:50',
-      );
-    });
-
-    test('a stretch just begun does not count as one', () {
-      expect(
-        label(AsrStage.transcribing, [
-          (from: 0, to: 300),
-          (from: 900, to: 900.4),
-        ]),
-        '已生成到 5:00',
+        '生成中',
       );
       expect(label(AsrStage.extracting, const []), '生成中');
     });
 
-    test('standby: paused, and how far ahead of the viewer', () {
+    test('standby ahead: how far the subtitles are ready, not 已暂停', () {
       expect(
-        label(AsrStage.standby, [(from: 0, to: 300)], playhead: 60),
-        '已暂停（已领先 4:00）',
+        label(AsrStage.standby, [(from: 0, to: 750)], playhead: 60),
+        '字幕已就绪至 12:30',
+      );
+      // the stretch the viewer is in, not the furthest one
+      expect(
+        label(
+          AsrStage.standby,
+          [(from: 0, to: 300), (from: 600, to: 900)],
+          playhead: 620,
+        ),
+        '字幕已就绪至 15:00',
       );
       // the viewer where nothing is known: nothing ahead to speak of
       expect(

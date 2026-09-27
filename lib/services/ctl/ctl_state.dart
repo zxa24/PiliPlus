@@ -98,23 +98,6 @@ Map<String, Object?>? ctlFillExportJson(FillExport? flow) => flow == null
         'over': flow.isOver,
       };
 
-/// The on-device part of the subtitle menu, each row as the user reads it
-/// (`原文（端侧） · 生成中`): [codes] is `asr` and the languages listed.
-List<Map<String, Object?>> ctlMenuJson({
-  required Iterable<String> codes,
-  required String Function(String code) label,
-  required String? Function(String code) status,
-  String? picked,
-}) => [
-  for (final code in codes)
-    {
-      'code': code,
-      'label': label(code),
-      'status': status(code),
-      'picked': code == picked,
-    },
-];
-
 /// Preferences shown by `/settings`: those that decide how videos play,
 /// how subtitles are made and translated, and how the network is used.
 /// Stored values only: a key that was never set is null (its default).

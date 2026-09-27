@@ -19,11 +19,9 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
-import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
-import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
@@ -1282,105 +1280,18 @@ class _YtVideoPageState extends State<YtVideoPage>
               return const SizedBox.shrink();
             }
             final index = controller.captionIndex.value;
-            // read so this rebuilds as the runs progress: the labels say
-            // where each stands
+            // read so the menu opens on what is current: the labels follow
+            // the runs by themselves while it is open
             controller.asrSession.value?.state.value;
-            final translating = controller.translation.session.value;
-            translating?.state.value;
-            final picked = controller.onDevicePicked;
-            final canTranslate =
-                TranslateEntry.available &&
-                (canTranscribe || controller.captionToTranslate != null);
-            final current = translating == null
-                ? picked
-                : controller.translation.into;
-            // picking an on-device subtitle shows it, and makes it first if
-            // there is none — asking what a first run asks
-            void showTranslation(String code) {
-              if (controller.hasTranslationInto(code)) {
-                controller.showTranslation(code);
-                return;
-              }
-              TranslateEntry.startFor(
-                context,
-                ({mayTranscribe}) => controller.showTranslation(
-                  code,
-                  mayTranscribe: mayTranscribe,
-                ),
-                needsTranscript:
-                    controller.asrSession.value == null &&
-                    controller.captionToTranslateInto(code) == null,
-              );
-            }
-
-            return _popup<int>(
+            controller.translation.session.value?.state.value;
+            // the same menu as the bilibili player's (OnDeviceMenu)
+            return PopupMenuButton<int>(
               tooltip: '字幕',
-              initialValue: OnDeviceMenu.valueOfPicked(picked) ?? index,
-              items: [
-                (value: -1, label: '关闭字幕', enabled: true),
-                for (final (i, track) in captions.indexed)
-                  (value: i, label: _label(track), enabled: true),
-                if (canTranscribe)
-                  (
-                    value: OnDeviceMenu.original,
-                    label: OnDeviceMenu.itemLabel(
-                      onDeviceLabel(null),
-                      controller.onDeviceStatus('asr'),
-                    ),
-                    enabled: true,
-                  ),
-                if (canTranslate) ...[
-                  for (final code in OnDeviceMenu.listed(current))
-                    (
-                      value: OnDeviceMenu.valueOf(code),
-                      label: OnDeviceMenu.itemLabel(
-                        onDeviceLabel(code),
-                        controller.onDeviceStatus(code),
-                      ),
-                      enabled: true,
-                    ),
-                  (value: OnDeviceMenu.other, label: '其他语言…', enabled: true),
-                ],
-                if (controller.onDeviceBusy)
-                  (value: OnDeviceMenu.stop, label: '停止端侧生成', enabled: true),
-              ],
-              live: {
-                if (canTranscribe)
-                  OnDeviceMenu.original: () => OnDeviceMenu.itemLabel(
-                    onDeviceLabel(null),
-                    controller.onDeviceStatus('asr'),
-                  ),
-                if (canTranslate)
-                  for (final code in OnDeviceMenu.listed(current))
-                    OnDeviceMenu.valueOf(code): () => OnDeviceMenu.itemLabel(
-                      onDeviceLabel(code),
-                      controller.onDeviceStatus(code),
-                    ),
-              },
-              onSelected: (value) async {
-                switch (value) {
-                  case OnDeviceMenu.original:
-                    if (controller.asrSession.value != null) {
-                      controller.showTranscript();
-                    } else {
-                      AsrEntry.startFor(context, controller.showTranscript);
-                    }
-                  case OnDeviceMenu.other:
-                    final code = await OnDeviceMenu.pickOther(context);
-                    if (code != null && context.mounted) showTranslation(code);
-                  case OnDeviceMenu.stop:
-                    controller.stopOnDevice();
-                  case >= 0 || -1:
-                    controller.setCaption(value);
-                  default:
-                    // a language
-                    for (final code in OnDeviceMenu.listed(current)) {
-                      if (OnDeviceMenu.valueOf(code) == value) {
-                        showTranslation(code);
-                      }
-                    }
-                }
-              },
+              requestFocus: false,
+              initialValue: OnDeviceMenu.initialValue(controller),
+              color: Colors.black.withValues(alpha: 0.8),
+              constraints: OnDeviceMenu.constraints,
+              itemBuilder: (context) => OnDeviceMenu.items(context, controller),
               child: SizedBox(
                 width: width,
                 height: 30,
@@ -1485,8 +1396,6 @@ class _YtVideoPageState extends State<YtVideoPage>
       style: const TextStyle(color: Colors.white, fontSize: 13),
     ),
   );
-
-  static String _label(YtCaptionTrack track) => track.displayName;
 
   @override
   void dispose() {

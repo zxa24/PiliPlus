@@ -23,12 +23,13 @@ import 'package:PiliPlus/services/ctl/ctl_server.dart';
 import 'package:PiliPlus/services/ctl/ctl_state.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
-import 'package:PiliPlus/services/translate/translation_languages.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 import 'package:path_provider/path_provider.dart';
@@ -285,12 +286,9 @@ abstract final class Ctl {
         ],
       },
       ..._onDevice(
-        canTranscribe: c.canTranscribe,
-        canTranslateCaptions: _try(() => c.captionToTranslate != null) ?? false,
-        picked: c.onDevicePicked,
+        host: c,
         shown: c.onDeviceShown,
         busy: c.onDeviceBusy,
-        status: c.onDeviceStatus,
         track: c.translation,
         pending: c.asrPending.value,
         transcription: ctlAsrJson(c.asrSession.value),
@@ -332,12 +330,9 @@ abstract final class Ctl {
         ],
       },
       ..._onDevice(
-        canTranscribe: c.canTranscribe,
-        canTranslateCaptions: _try(() => c.captionToTranslate != null) ?? false,
-        picked: c.onDevicePicked,
+        host: c,
         shown: c.onDeviceShown,
         busy: c.onDeviceBusy,
-        status: c.onDeviceStatus,
         track: c.translation,
         pending: c.asrPending.value,
         transcription: ctlAsrJson(c.asrSession.value),
@@ -346,48 +341,36 @@ abstract final class Ctl {
     };
   }
 
-  /// The on-device part both pages share, with the menu rows built the way
-  /// the pages build them (lib/plugin/pl_player/view/view.dart and
-  /// lib/pages/youtube/video/view.dart).
+  /// The on-device part both pages share, with the subtitle menu's rows
+  /// built as the menu builds them (OnDeviceMenu.rowsFor).
   static Map<String, Object?> _onDevice({
-    required bool canTranscribe,
-    required bool canTranslateCaptions,
-    required String? picked,
+    required SubtitleMenuHost host,
     required String? shown,
     required bool busy,
-    required String? Function(String code) status,
     required TranslationTrack track,
     required bool pending,
     required Map<String, Object?>? transcription,
   }) {
-    final canTranslate =
-        TranslateEntry.available && (canTranscribe || canTranslateCaptions);
-    final current = track.session.value == null ? picked : track.into;
     return {
       'onDevice': {
         'shown': shown,
-        'picked': picked,
+        'picked': host.menuPicked,
+        'active': host.menuActive?.name,
         'busy': busy,
-        'canTranscribe': canTranscribe,
-        'canTranslate': canTranslate,
+        'canTranscribe': host.canTranscribe,
+        'canTranslate': TranslateEntry.available,
         'appLanguage': AsrService.appLanguage,
+        // the switch as remembered, and where its subtitles come from
+        'remembered': Pref.subtitleChoice,
+        'defaultSource': Pref.subtitleSource.name,
         // what the subtitle menu reads, row by row
         'menu': [
-          for (final row in ctlMenuJson(
-            codes: [
-              if (canTranscribe) 'asr',
-              if (canTranslate) ...OnDeviceMenu.listed(current),
-            ],
-            label: (code) => onDeviceLabel(code == 'asr' ? null : code),
-            status: status,
-            picked: picked,
-          ))
+          for (final row in _try(() => OnDeviceMenu.rowsFor(host)) ?? const [])
             {
-              ...row,
-              'text': OnDeviceMenu.itemLabel(
-                row['label'] as String,
-                row['status'] as String?,
-              ),
+              ...row.toJson(),
+              'text': row.status == null
+                  ? row.label
+                  : '${row.label} · ${row.status!.text}',
             },
         ],
       },

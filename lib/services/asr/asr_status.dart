@@ -4,7 +4,10 @@
 ///
 /// A transcript used to grow from the start to the end, and 生成中 said all
 /// there was to say. Made from where the viewer is, it is stretches with
-/// gaps between, paused when far enough ahead; the menu now says which.
+/// gaps between, paused when far enough ahead. The menu keeps it short
+/// (research/subtitle-switch-design-2026-09-26.md, 9): 生成中 while it is,
+/// and — paused ahead, which read like a fault as 已暂停 — how far the
+/// subtitles are ready.
 library;
 
 import 'package:PiliPlus/services/asr/asr_schedule.dart';
@@ -24,13 +27,12 @@ String formatMediaTime(double seconds) {
 /// where the stage says nothing about coverage (models, failure, idle).
 ///
 /// - the whole media known: 已全部生成
-/// - paused ahead of the viewer: 已暂停（已领先 4:00）, or the reason it
-///   was stopped for (the app went to the background, a run failed)
+/// - paused ahead of the viewer: 字幕已就绪至 12:30 (where the stretch the
+///   viewer is in ends), or the reason it was stopped for (the app went
+///   to the background, a run failed)
 /// - switched off and wound down (see [AsrSession.windDown]):
 ///   已关闭（已生成到 12:30）, or 已关闭（已生成 3 段，共 25:10）
-/// - one stretch: 已生成到 12:30
-/// - several, with gaps between: 已生成 3 段，共 25:10
-/// - nothing yet: 生成中
+/// - running: 生成中
 String? asrCoverageLabel({
   required AsrStage stage,
   String? message,
@@ -54,10 +56,10 @@ String? asrCoverageLabel({
       return made == null ? message! : '$message（$made）';
     }
     if (message != null) return message;
-    final ahead = coveredEndOf(covered, playhead) - playhead;
-    return ahead >= 1 ? '已暂停（已领先 ${formatMediaTime(ahead)}）' : '已暂停';
+    final end = coveredEndOf(covered, playhead);
+    return end - playhead >= 1 ? '字幕已就绪至 ${formatMediaTime(end)}' : '已暂停';
   }
-  return _madeSoFar(covered) ?? '生成中';
+  return '生成中';
 }
 
 /// 已生成到 12:30, or 已生成 3 段，共 25:10; null for nothing yet.
