@@ -802,6 +802,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           (PlatformUtils.isMobile ? Pref.playerVolume : volume.value * 100)
               .toString(),
       'stream-lavf-o': 'reconnect=1,reconnect_max_retries=${Pref.retryCount}',
+      // a self-test plays muted unless asked for sound (see selfTestSound)
+      if (isSelfTestProfile && !selfTestSound) 'mute': 'yes',
     };
     final autosync = Pref.autosync;
     if (autosync != '0') {

@@ -16,6 +16,11 @@ late String downloadPath;
 /// never reads or deletes the user's own data.
 bool isSelfTestProfile = false;
 
+/// A self-test plays muted unless run with `--sound`: runs started by a
+/// script or an agent otherwise play over whatever the user is listening
+/// to (user 2026-09-27).
+bool selfTestSound = false;
+
 /// The folder name of that profile. `--profile NAME` makes it
 /// `selftest-NAME`, so a run that must start from nothing (the CI smoke)
 /// can have a profile of its own to delete first, without wiping the one

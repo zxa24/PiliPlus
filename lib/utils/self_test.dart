@@ -5042,7 +5042,11 @@ abstract final class SelfTest {
       'audio-bitrate',
     ];
     final player = await Player.create(
-      configuration: const PlayerConfiguration(logLevel: MPVLogLevel.error),
+      configuration: PlayerConfiguration(
+        logLevel: MPVLogLevel.error,
+        // muted unless the run asked for sound (see selfTestSound)
+        options: {if (!selfTestSound) 'mute': 'yes'},
+      ),
     );
     final native = player;
     final samples = <Map<String, dynamic>>[];

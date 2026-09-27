@@ -45,6 +45,7 @@ import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
@@ -390,6 +391,8 @@ class AudioController extends GetxController
               ? (desktopVolume.value * 100).toString()
               : Pref.playerVolume.toString(),
           'volume-max': kMaxVolume.toString(),
+          // a self-test plays muted unless asked for sound
+          if (isSelfTestProfile && !selfTestSound) 'mute': 'yes',
           ...Pref.initBuffer(),
         },
       ),
