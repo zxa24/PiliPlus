@@ -1,6 +1,10 @@
-/// LibrePili: what the user sees the first time they ask for transcription.
+/// LibrePili: what the user is asked before transcription can first run:
+/// whether to download the recogniser.
 ///
-/// The models are a 240 MB download, so nothing is fetched until this asks.
+/// The models are a 240 MB download, so nothing is fetched until this asks
+/// (and on mobile data it says what that costs). Whether transcription runs
+/// at all is the subtitle menu's switch, remembered for every video — there
+/// is no second question about doing it by itself (design 2026-09-26, 甲).
 /// The same sheet offers importing files the user fetched themselves, checked
 /// against the same hashes — for a flaky connection, or for a device that is
 /// simply offline.
@@ -8,14 +12,11 @@ library;
 
 import 'dart:io';
 
-import 'package:PiliPlus/models/common/asr_mode.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
-import 'package:PiliPlus/utils/cache_manager.dart';
-import 'package:PiliPlus/utils/storage.dart';
-import 'package:PiliPlus/utils/storage_key.dart';
-import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/services/asr/model_download_copy.dart';
+import 'package:PiliPlus/utils/connectivity_utils.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -39,48 +40,15 @@ abstract final class AsrEntry {
       final proceed = await _askForModels(context, service);
       if (proceed != true || !context.mounted) return;
     }
-    if (!Pref.asrAsked) {
-      await _askForMode(context);
-    }
     await start();
-  }
-
-  /// One-time question: should future videos without subtitles do this by
-  /// themselves?
-  static Future<void> _askForMode(BuildContext context) async {
-    final mode = await showDialog<AsrMode>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('以后自动转录吗？'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-            child: Text(
-              '转录在本机进行，不上传音频；耗电，联网播放时会额外下载一份音频流。',
-              style: TextStyle(
-                fontSize: 13,
-                color: ColorScheme.of(context).outline,
-              ),
-            ),
-          ),
-          for (final option in AsrMode.values)
-            SimpleDialogOption(
-              onPressed: () => Get.back(result: option),
-              child: Text(option.label),
-            ),
-        ],
-      ),
-    );
-    GStorage.setting
-      ..put(SettingBoxKey.asrAsked, true)
-      ..put(SettingBoxKey.asrMode, (mode ?? AsrMode.manual).index);
   }
 
   static Future<bool?> _askForModels(
     BuildContext context,
     AsrService service,
-  ) {
-    final size = CacheManager.formatSize(service.downloadSize);
+  ) async {
+    final mobileData = await ConnectivityUtils.isMobileData;
+    if (!context.mounted) return null;
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -89,7 +57,12 @@ abstract final class AsrEntry {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('共 $size，只需下载一次，存在应用数据目录，可随时删除。'),
+            Text(
+              modelDownloadNote(
+                bytes: service.downloadSize,
+                mobileData: mobileData,
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
               '${AsrModelCatalog.required.length} 个模型文件，带 SHA-256 校验；'

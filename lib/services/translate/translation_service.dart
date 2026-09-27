@@ -15,7 +15,7 @@ import 'dart:collection' show Queue;
 import 'dart:ffi' show IntPtr, sizeOf;
 import 'dart:io';
 
-import 'package:PiliPlus/models/common/translate_mode.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
@@ -131,11 +131,11 @@ class TranslationService extends GetxService {
   }
 
   /// Whether the user chose automatic translation and it can run now.
-  bool get shouldAutoTranslate =>
-      supported &&
-      Pref.translateAsked &&
-      Pref.translateMode == TranslateMode.auto &&
-      modelReady;
+  bool get shouldAutoTranslate {
+    if (!supported || !modelReady) return false;
+    final code = SubtitleChoice.codeOf(Pref.subtitleChoice);
+    return code != null && code != 'asr';
+  }
 
   /// Whether [spoken] should be translated without being asked.
   bool shouldAutoStart(String? spoken) => shouldAutoTranslate && needed(spoken);

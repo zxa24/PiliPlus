@@ -87,6 +87,8 @@ abstract final class SettingBoxKey {
       dlSaveCover = 'dlSaveCover',
       dlCommentCount = 'dlCommentCount',
       dlReplyCount = 'dlReplyCount',
+      // LibrePili: the settings the subtitle switch replaced, read once to
+      // work out what it starts as (see Pref.subtitleChoice)
       asrMode = 'asrMode',
       // LibrePili: the region and language asked of YouTube
       ytRegion = 'ytRegion',
@@ -99,6 +101,9 @@ abstract final class SettingBoxKey {
       translateModel = 'translateModel',
       translateDual = 'translateDual',
       translatePinnedLanguages = 'translatePinnedLanguages',
+      // LibrePili: the subtitle switch, and where its subtitles come from
+      subtitleChoice = 'subtitleChoice',
+      subtitleSource = 'subtitleSource',
       // LibrePili: how much disk the subtitle cache may take, in MB
       subtitleCacheLimit = 'subtitleCacheLimit',
       av1Hardware = 'av1Hardware',

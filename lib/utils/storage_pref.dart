@@ -4,8 +4,9 @@ import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recogniz
     show deviceTouchSlop;
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/http/constants.dart';
-import 'package:PiliPlus/models/common/asr_mode.dart';
-import 'package:PiliPlus/models/common/translate_mode.dart';
+import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/models/common/yt_locale.dart';
 import 'package:PiliPlus/services/youtube/yt_identity.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
@@ -440,32 +441,36 @@ abstract final class Pref {
   static int get dlReplyCount =>
       _setting.get(SettingBoxKey.dlReplyCount, defaultValue: 10);
 
-  // LibrePili: on-device transcription. Off by default in the sense that
-  // nothing runs until the user answers the one-time prompt ([asrAsked]).
-  static AsrMode get asrMode => _enumAt(
-    AsrMode.values,
-    _setting.get(SettingBoxKey.asrMode),
-    AsrMode.manual,
-  );
-
-  static bool get asrAsked =>
-      _setting.get(SettingBoxKey.asrAsked, defaultValue: false);
-
   /// Empty lets SenseVoice detect the language, which is what it is good at.
   static String get asrLanguage =>
       _setting.get(SettingBoxKey.asrLanguage, defaultValue: '');
 
-  // LibrePili: on-device translation of a transcript or of a video's own
-  // captions. As with transcription, nothing runs until the one-time prompt
-  // ([translateAsked]) is answered.
-  static TranslateMode get translateMode => _enumAt(
-    TranslateMode.values,
-    _setting.get(SettingBoxKey.translateMode),
-    TranslateMode.manual,
-  );
+  /// LibrePili: the one subtitle switch, remembered for every video (see
+  /// [SubtitleChoice]; research/subtitle-switch-design-2026-09-26.md, 甲).
+  ///
+  /// Never set before this existed: worked out from the settings it
+  /// replaced (see [migrateSubtitleChoice]) — also for settings imported
+  /// from an older version — until the menu picks something.
+  static String get subtitleChoice {
+    final stored = _setting.get(SettingBoxKey.subtitleChoice);
+    if (stored is String && stored.isNotEmpty) return stored;
+    return migrateSubtitleChoice(
+      asrMode: _setting.get(SettingBoxKey.asrMode),
+      asrAsked: _setting.get(SettingBoxKey.asrAsked),
+      translateMode: _setting.get(SettingBoxKey.translateMode),
+      translateAsked: _setting.get(SettingBoxKey.translateAsked),
+      appLanguage: AsrService.appLanguage,
+    );
+  }
 
-  static bool get translateAsked =>
-      _setting.get(SettingBoxKey.translateAsked, defaultValue: false);
+  /// LibrePili: where a subtitle comes from when the platform and the
+  /// device could both supply it (默认来源).
+  static SubtitleSourcePreference get subtitleSource =>
+      _enumByName(
+        SubtitleSourcePreference.values,
+        _setting.get(SettingBoxKey.subtitleSource),
+      ) ??
+      SubtitleSourcePreference.platform;
 
   /// Id of the chosen model; see TranslationModelCatalog.
   static String? get translateModel =>

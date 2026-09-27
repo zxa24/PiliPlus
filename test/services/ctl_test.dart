@@ -175,7 +175,7 @@ void main() {
 
   group('settings whitelist', () {
     final stored = <String, Object?>{
-      SettingBoxKey.asrMode: 1,
+      SettingBoxKey.subtitleChoice: 'zh',
       SettingBoxKey.translateModel: 'hy-mt',
       SettingBoxKey.translatePinnedLanguages: ['en', 'ja'],
       SettingBoxKey.autoPlayEnable: true,
@@ -195,7 +195,7 @@ void main() {
     test('only whitelisted keys, and values reduced to plain ones', () {
       final out = ctlSettingsJson(stored.read);
       expect(out.keys, unorderedEquals(ctlSettingKeys));
-      expect(out[SettingBoxKey.asrMode], 1);
+      expect(out[SettingBoxKey.subtitleChoice], 'zh');
       expect(out[SettingBoxKey.translatePinnedLanguages], ['en', 'ja']);
       expect(out[SettingBoxKey.CDNService], 'cdn.example.com');
       expect(out[SettingBoxKey.ytRegion], '(500 chars)');
@@ -228,10 +228,10 @@ void main() {
           'appKey',
           'authHeader',
           'loginMode',
-          SettingBoxKey.asrMode,
+          SettingBoxKey.subtitleChoice,
         ],
       );
-      expect(out.keys, [SettingBoxKey.asrMode]);
+      expect(out.keys, [SettingBoxKey.subtitleChoice]);
     });
 
     test('no whitelisted key trips the secret filter by accident', () {

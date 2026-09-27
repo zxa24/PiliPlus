@@ -1,6 +1,5 @@
-import 'package:PiliPlus/models/common/asr_mode.dart';
 import 'package:PiliPlus/models/common/subtitle_cache_limit.dart';
-import 'package:PiliPlus/models/common/translate_mode.dart';
+import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/pages/local_models.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
@@ -15,20 +14,21 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// LibrePili: on-device transcription and translation — when each runs, and
-/// the models they run with.
+/// LibrePili: on-device transcription and translation — where subtitles
+/// come from, and the models they are made with.
 List<SettingsModel> get asrSettings => [
-  PopupModel<AsrMode>(
-    title: '自动转录',
-    leading: const Icon(Icons.record_voice_over_outlined),
-    value: () => Pref.asrMode,
-    items: AsrMode.values,
-    // a choice made here is the answer the first-use prompt would ask for
+  // whether subtitles are made at all is the subtitle menu's switch,
+  // remembered for every video (design 2026-09-26, 甲); this is only where
+  // they come from when the video's platform has them too — for a pick of
+  // the language's name in the menu, and for the videos after it (a
+  // platform's machine translation counts as the platform's)
+  PopupModel<SubtitleSourcePreference>(
+    title: '默认来源',
+    leading: const Icon(Icons.source_outlined),
+    value: () => Pref.subtitleSource,
+    items: SubtitleSourcePreference.values,
     onSelected: (value, setState) => GStorage.setting
-        .putAll({
-          SettingBoxKey.asrMode: value.index,
-          SettingBoxKey.asrAsked: true,
-        })
+        .put(SettingBoxKey.subtitleSource, value.name)
         .whenComplete(setState),
   ),
   NormalModel(
@@ -47,19 +47,6 @@ List<SettingsModel> get asrSettings => [
   ),
   // nothing to offer where it cannot run (see [TranslationService.supported])
   if (TranslationService.supported) ...[
-    PopupModel<TranslateMode>(
-      title: '自动翻译',
-      leading: const Icon(Icons.translate),
-      value: () => Pref.translateMode,
-      items: TranslateMode.values,
-      // a choice made here is the answer the first-use prompt would ask for
-      onSelected: (value, setState) => GStorage.setting
-          .putAll({
-            SettingBoxKey.translateMode: value.index,
-            SettingBoxKey.translateAsked: true,
-          })
-          .whenComplete(setState),
-    ),
     const SwitchModel(
       title: '双语字幕',
       subtitle: '译文下方同时显示原文',

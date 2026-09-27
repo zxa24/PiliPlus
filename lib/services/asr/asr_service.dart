@@ -21,7 +21,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:PiliPlus/models/common/asr_mode.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
@@ -32,6 +31,7 @@ import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -1440,10 +1440,11 @@ class AsrService extends GetxService {
       .where((model) => !store.isInstalled(model))
       .fold(0, (sum, model) => sum + model.totalSize);
 
-  /// Whether a video with no subtitles should be transcribed without asking.
+  /// Whether a video with no subtitles should be transcribed without asking:
+  /// the subtitle switch is on (see Pref.subtitleChoice).
   bool shouldAutoStart({required bool hasSubtitles}) {
-    if (hasSubtitles || !Pref.asrAsked) return false;
-    return Pref.asrMode != AsrMode.manual && modelsReady;
+    if (hasSubtitles) return false;
+    return Pref.subtitleChoice != SubtitleChoice.off && modelsReady;
   }
 
   /// Starts (or restarts) transcription for [key].

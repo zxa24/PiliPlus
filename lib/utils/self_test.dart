@@ -73,8 +73,7 @@ import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
-import 'package:PiliPlus/models/common/asr_mode.dart';
-import 'package:PiliPlus/models/common/translate_mode.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
@@ -2474,8 +2473,7 @@ abstract final class SelfTest {
     await GStorage.setting.putAll({
       SettingBoxKey.ctlServer: true,
       // nothing starts by itself: the transcript is asked for below
-      SettingBoxKey.asrAsked: true,
-      SettingBoxKey.asrMode: AsrMode.manual.index,
+      SettingBoxKey.subtitleChoice: SubtitleChoice.off,
     });
     await Ctl.apply(true);
     final served = Ctl.servedFile;
@@ -2748,10 +2746,9 @@ abstract final class SelfTest {
       return {'pass': false, 'reason': 'models missing'};
     }
     await GStorage.setting.putAll({
-      SettingBoxKey.asrAsked: true,
-      SettingBoxKey.asrMode: AsrMode.foreign.index,
-      SettingBoxKey.translateAsked: true,
-      SettingBoxKey.translateMode: TranslateMode.manual.index,
+      // the speech as it is, remembered: what used to be automatic
+      // transcription alone (design 2026-09-26, 1B)
+      SettingBoxKey.subtitleChoice: SubtitleChoice.original,
       // a fresh profile does not play by itself, and a page that does not
       // play never resolves what it would transcribe
       SettingBoxKey.autoPlayEnable: true,
@@ -2839,13 +2836,10 @@ abstract final class SelfTest {
   /// profile's own settings (the profile has its own storage; the user's
   /// are not touched). Always set, both ways: the profile keeps them, and a
   /// menu run after an automatic one was found starting by itself.
-  static Future<void> _setAutoTranslation(bool on) => GStorage.setting.putAll({
-    SettingBoxKey.asrAsked: true,
-    SettingBoxKey.asrMode: (on ? AsrMode.foreign : AsrMode.manual).index,
-    SettingBoxKey.translateAsked: true,
-    SettingBoxKey.translateMode:
-        (on ? TranslateMode.auto : TranslateMode.manual).index,
-  });
+  static Future<void> _setAutoTranslation(bool on) => GStorage.setting.put(
+    SettingBoxKey.subtitleChoice,
+    on ? AsrService.appLanguage : SubtitleChoice.off,
+  );
 
   /// The text of the VTT cue showing at [seconds], if any.
   static String? _vttLineAt(String vtt, double seconds) {

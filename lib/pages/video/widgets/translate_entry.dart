@@ -1,23 +1,26 @@
 /// LibrePili: the subtitle-menu entry for translating a video's own captions
-/// or a transcript, and what it asks the first time.
+/// or a transcript, and what it asks before the first: whether to download
+/// the model.
 ///
-/// The model is a 1–3 GB download, so nothing is fetched until this asks.
+/// The model is a 1–3 GB download, so nothing is fetched until this asks
+/// (and on mobile data it says what that costs). Whether translation runs
+/// at all is the subtitle menu's switch, remembered for every video — there
+/// is no second question about doing it by itself (design 2026-09-26, 甲).
 /// The download itself runs inside the translation, with its progress in
 /// the menu, rather than behind a dialog the user would have to wait out.
 library;
 
 import 'dart:io';
 
-import 'package:PiliPlus/models/common/translate_mode.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
+import 'package:PiliPlus/services/asr/model_download_copy.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
-import 'package:PiliPlus/utils/cache_manager.dart';
+import 'package:PiliPlus/utils/connectivity_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
-import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -47,10 +50,6 @@ abstract final class TranslateEntry {
       final proceed = await _askForModel(context, service);
       if (proceed != true || !context.mounted) return;
     }
-    if (!Pref.translateAsked) {
-      await _askForMode(context);
-      if (!context.mounted) return;
-    }
     if (needsTranscript && !AsrService.to.modelsReady) {
       // asked just now, by the transcription's own questions
       return AsrEntry.startFor(
@@ -68,35 +67,6 @@ abstract final class TranslateEntry {
     );
   }
 
-  static Future<void> _askForMode(BuildContext context) async {
-    final mode = await showDialog<TranslateMode>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('以后自动翻译吗？'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-            child: Text(
-              '翻译在本机进行，不上传任何内容；只翻译不是界面语言的字幕和语音，耗电。',
-              style: TextStyle(
-                fontSize: 13,
-                color: ColorScheme.of(context).outline,
-              ),
-            ),
-          ),
-          for (final option in TranslateMode.values)
-            SimpleDialogOption(
-              onPressed: () => Get.back(result: option),
-              child: Text(option.label),
-            ),
-        ],
-      ),
-    );
-    GStorage.setting
-      ..put(SettingBoxKey.translateAsked, true)
-      ..put(SettingBoxKey.translateMode, (mode ?? TranslateMode.manual).index);
-  }
-
   /// Asks before the model is downloaded, if it is not there: for what
   /// translates without a subtitle menu (the comments). Whether to go on.
   static Future<bool> ensureModel(BuildContext context) async {
@@ -108,9 +78,10 @@ abstract final class TranslateEntry {
   static Future<bool?> _askForModel(
     BuildContext context,
     TranslationService service,
-  ) {
+  ) async {
     final model = service.model;
-    final size = CacheManager.formatSize(service.downloadSize);
+    final mobileData = await ConnectivityUtils.isMobileData;
+    if (!context.mounted) return null;
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -119,7 +90,13 @@ abstract final class TranslateEntry {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${model.label}，共 $size，只需下载一次，存在应用数据目录，可随时删除。'),
+            Text(
+              modelDownloadNote(
+                what: model.label,
+                bytes: service.downloadSize,
+                mobileData: mobileData,
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
               '下载在后台进行，进度显示在字幕菜单里；带 SHA-256 校验，'
