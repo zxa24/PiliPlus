@@ -15,7 +15,6 @@ import 'dart:collection' show Queue;
 import 'dart:ffi' show IntPtr, sizeOf;
 import 'dart:io';
 
-import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
@@ -130,15 +129,9 @@ class TranslationService extends GetxService {
     return UnitRoute.model;
   }
 
-  /// Whether the user chose automatic translation and it can run now.
-  bool get shouldAutoTranslate {
-    if (!supported || !modelReady) return false;
-    final code = SubtitleChoice.codeOf(Pref.subtitleChoice);
-    return code != null && code != 'asr';
-  }
-
-  /// Whether [spoken] should be translated without being asked.
-  bool shouldAutoStart(String? spoken) => shouldAutoTranslate && needed(spoken);
+  /// Whether a translation can start without anything to download first:
+  /// what a video opening by itself may do (see decideOnOpen).
+  bool get readyToStart => supported && modelReady;
 
   /// Starts translating [asr], replacing whatever was running.
   ///

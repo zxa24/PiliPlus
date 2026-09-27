@@ -31,7 +31,6 @@ import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
-import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -44,6 +43,11 @@ import 'package:path/path.dart' as path;
 
 /// The standby message of a session wound down (see [AsrSession.windDown]).
 const asrWoundDownMessage = '已关闭';
+
+/// The failure of a session another page's transcription took the place of
+/// (see [AsrService.start]): its page starts again, from the subtitle
+/// cache, once it is back (design 2026-09-26, 8B).
+const asrDisplacedMessage = '已被另一个视频的转录取代';
 
 enum AsrStage {
   idle,
@@ -279,6 +283,11 @@ class AsrSession {
   /// never goes back to idle once it has run; and one wound down (see
   /// [windDown]) has not ended — [resumeOn] carries it on, text and all.
   bool get hasEnded => state.value.stage == AsrStage.failed;
+
+  /// It ended because another page's transcription took its place (see
+  /// [asrDisplacedMessage]).
+  bool get wasDisplaced =>
+      hasEnded && state.value.message == asrDisplacedMessage;
 
   /// Pauses and resumes so far, for the probes.
   var pauses = 0;
@@ -1440,13 +1449,6 @@ class AsrService extends GetxService {
       .where((model) => !store.isInstalled(model))
       .fold(0, (sum, model) => sum + model.totalSize);
 
-  /// Whether a video with no subtitles should be transcribed without asking:
-  /// the subtitle switch is on (see Pref.subtitleChoice).
-  bool shouldAutoStart({required bool hasSubtitles}) {
-    if (hasSubtitles) return false;
-    return Pref.subtitleChoice != SubtitleChoice.off && modelsReady;
-  }
-
   /// Starts (or restarts) transcription for [key].
   ///
   /// [source] is what libmpv should decode — the audio stream URL for an
@@ -1477,7 +1479,7 @@ class AsrService extends GetxService {
   }) async {
     // one job at a time: a job another page still has is failed, not merely
     // closed, so that page hears it is gone (see [stop])
-    await stop(reason: '已被另一个视频的转录取代');
+    await stop(reason: asrDisplacedMessage);
     final session = AsrSession._(
       key,
       seekable: seekable,

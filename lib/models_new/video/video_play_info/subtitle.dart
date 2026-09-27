@@ -7,6 +7,11 @@ class Subtitle implements Comparable<Subtitle> {
   String? subtitleUrlV2;
   bool isAi = false;
 
+  /// LibrePili: the platform's machine translation of another track
+  /// (`ai_type` 1, 英语（自动翻译）), not its transcript of the speech: a
+  /// subtitle in its language, but never what is said as it is said.
+  bool isTranslated = false;
+
   /// Who made this track. Defaults from [isAi]; the on-device recogniser
   /// passes [SubtitleSource.device] when it adds its own.
   SubtitleSource source = SubtitleSource.author;
@@ -16,12 +21,14 @@ class Subtitle implements Comparable<Subtitle> {
     this.lanDoc,
     this.subtitleUrl,
     this.isAi = false,
+    this.isTranslated = false,
     this.source = SubtitleSource.author,
   });
 
   Subtitle.fromJson(Map<String, dynamic> json) {
     lan = json["lan"];
     isAi = json["type"] == 1;
+    isTranslated = isAi && json["ai_type"] == 1;
     // the source note used to be baked into the name as '（AI）'; it is a
     // property of the track now, and rendered the same way on both platforms
     lanDoc = '${json["lan_doc"]}';

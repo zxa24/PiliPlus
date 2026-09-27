@@ -10,6 +10,7 @@ library;
 import 'dart:async';
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
+import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
@@ -21,6 +22,7 @@ import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
@@ -31,6 +33,9 @@ import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart'
@@ -650,9 +655,9 @@ class YtVideoController extends GetxController {
   /// Bumped by [stopTranslation], so a start waiting on a fetch can tell.
   var _translationStops = 0;
 
-  /// See [VideoDetailController._autoTranslateOff]; here a stream refresh is
+  /// See [VideoDetailController._openApplied]; here a stream refresh is
   /// what comes back through [_maybeAutoTranscribe].
-  var _autoTranslateOff = false;
+  var _openApplied = false;
 
   /// How many automatic checks this page has had: the first is the page
   /// opening, and only it may open the loading gate (see
@@ -976,22 +981,12 @@ class YtVideoController extends GetxController {
   void _maybeTranslate(AsrSession session, {required bool auto}) {
     if (translation.isActive || isClosed) return;
     if (!Get.isRegistered<TranslationService>()) return;
-    final service = TranslationService.to;
-    final language = session.state.value.language;
-    // asked from the menu, which has already offered the download: the
-    // session fetches the model itself, into the language picked there,
-    // if a line turns out to need it
-    final requested = _translationRequested;
-    final wanted =
-        requested || (!_autoTranslateOff && service.shouldAutoStart(language));
-    if (!wanted) return;
-    _autoTranslateOff = true;
+    // see VideoDetailController: the switch or the menu asked for it
+    if (!_translationRequested) return;
     // a transcript's translation, not a caption track's
     _translatedCaption = null;
     if (auto && asrPending.value) _gateOnTranslation = true;
-    _startUnawaited(
-      translation.start(session, into: requested ? _requestedInto : null),
-    );
+    _startUnawaited(translation.start(session, into: _requestedInto));
   }
 
   /// See [VideoDetailController._startUnawaited].
@@ -1029,26 +1024,71 @@ class YtVideoController extends GetxController {
   int? get captionToTranslate => captionToTranslateInto(null);
 
   /// See [VideoDetailController.captionToTranslateInto].
-  int? captionToTranslateInto(String? into) => pickCaptionToTranslateInto(
-    [
-      for (final c in captions)
-        (language: c.languageCode, generated: c.isAutomatic),
-    ],
-    into: into ?? AsrService.appLanguage,
+  int? captionToTranslateInto(String? into) =>
+      captionToTranslateFor(platformTracks, into ?? AsrService.appLanguage);
+
+  /// See [VideoDetailController.platformTracks]. YouTube lists no machine
+  /// translations: its translated captions are asked for per language, not
+  /// offered as tracks.
+  List<PlatformTrack> get platformTracks => [
+    for (final c in captions)
+      (
+        language: c.languageCode,
+        kind: c.isAutomatic
+            ? PlatformTrackKind.generated
+            : PlatformTrackKind.author,
+      ),
+  ];
+
+  bool get _translateReady =>
+      Get.isRegistered<TranslationService>() &&
+      TranslationService.to.readyToStart;
+
+  /// See [VideoDetailController._openPlan].
+  OpenPlan _openPlan() => decideOnOpen(
+    choice: Pref.subtitleChoice,
+    tracks: platformTracks,
+    source: Pref.subtitleSource,
+    canTranscribe: canTranscribe,
+    asrReady: Get.isRegistered<AsrService>() && AsrService.to.modelsReady,
+    translateReady: _translateReady,
   );
 
-  /// See [VideoDetailController._maybeAutoTranslateCaptions].
-  void _maybeAutoTranslateCaptions() {
-    if (translation.isActive || _autoTranslateOff || isClosed) return;
-    if (!Get.isRegistered<TranslationService>()) return;
-    if (!TranslationService.to.shouldAutoTranslate) return;
-    final index = captionToTranslate;
-    if (index == null) return;
-    _autoTranslateOff = true;
-    _openAsrGate();
-    // past the opening no gate opens, and nothing is to wait for this
-    if (asrPending.value) _gateOnTranslation = true;
-    _startUnawaited(_translateCaptions(index));
+  /// See [VideoDetailController.planFor].
+  OpenPlan planFor(String code, {SubtitleSourcePreference? via}) =>
+      decideOnOpen(
+        choice: SubtitleChoice.fromCode(code),
+        tracks: platformTracks,
+        source: via ?? Pref.subtitleSource,
+        canTranscribe: canTranscribe,
+        asrReady: true,
+        translateReady: TranslationService.supported,
+      );
+
+  /// See [VideoDetailController._startOnDevice].
+  Future<void> _startOnDevice(String code, {required bool auto}) async {
+    _wantedOnDevice = code;
+    if (code == 'asr') {
+      await startAsr(auto: auto);
+      return;
+    }
+    final into = _requestedInto = code == AsrService.appLanguage ? null : code;
+    if (captionToTranslateInto(code) case final index?) {
+      if (auto) {
+        _openAsrGate();
+        // past the opening no gate opens, and nothing is to wait for this
+        if (asrPending.value) _gateOnTranslation = true;
+      }
+      _startUnawaited(() async {
+        if (await _translateCaptions(index, into: into)) return;
+        if (isClosed || !canTranscribe || !AsrService.to.modelsReady) return;
+        await startAsr(auto: auto);
+        _translationRequested = true;
+      }());
+      return;
+    }
+    await startAsr(auto: auto);
+    _translationRequested = true;
   }
 
   Future<bool> _translateCaptions(int index, {String? into}) async {
@@ -1118,8 +1158,6 @@ class YtVideoController extends GetxController {
   Future<void> stopTranslation() async {
     _translationStops++;
     _translationRequested = false;
-    // nor does automatic translation start it again
-    _autoTranslateOff = true;
     await translation.stop();
     _showUntranslated();
     _translatedCaption = null;
@@ -1222,6 +1260,7 @@ class YtVideoController extends GetxController {
 
   /// See [VideoDetailController.showTranscript].
   Future<void> showTranscript() async {
+    _resumeOnDevice();
     _viewerChose = true;
     _wantedOnDevice = 'asr';
     final session = asrSession.value;
@@ -1239,6 +1278,7 @@ class YtVideoController extends GetxController {
     String into, {
     Future<bool> Function()? mayTranscribe,
   }) async {
+    _resumeOnDevice();
     _viewerChose = true;
     _wantedOnDevice = into;
     if (hasTranslationInto(into)) {
@@ -1261,19 +1301,81 @@ class YtVideoController extends GetxController {
     await stopAsr();
   }
 
-  /// Starts by itself when the video offers no captions and the user asked
-  /// for that. A video with captions is left alone: YouTube's own are better
-  /// than ours and cost nothing.
+  /// See [VideoDetailController._resumeOnDevice].
+  void _resumeOnDevice() {
+    final session = asrSession.value;
+    if (session != null && session.isSwitchedOff) session.resumeOn();
+  }
+
+  /// See [VideoDetailController.chooseOff].
+  Future<void> chooseOff() async {
+    await GStorage.setting.put(
+      SettingBoxKey.subtitleChoice,
+      SubtitleChoice.off,
+    );
+    await setCaption(-1);
+    await _switchOffOnDevice();
+  }
+
+  /// See [VideoDetailController.chooseLanguage].
+  Future<void> chooseLanguage(
+    String code,
+    OpenPlan plan, {
+    Future<bool> Function()? mayTranscribe,
+  }) async {
+    await GStorage.setting.put(
+      SettingBoxKey.subtitleChoice,
+      SubtitleChoice.fromCode(code),
+    );
+    switch (plan.action) {
+      case OpenAction.platform:
+        await choosePlatformTrack(plan.track!);
+      case OpenAction.onDevice:
+        if (code == 'asr') {
+          await showTranscript();
+        } else {
+          await showTranslation(code, mayTranscribe: mayTranscribe);
+        }
+      case OpenAction.none:
+        SmartDialog.showToast('这个视频无法生成该字幕');
+    }
+  }
+
+  /// See [VideoDetailController.choosePlatformTrack].
+  Future<void> choosePlatformTrack(int index) async {
+    await setCaption(index);
+    await _switchOffOnDevice();
+  }
+
+  /// See [VideoDetailController._switchOffOnDevice].
+  Future<void> _switchOffOnDevice() async {
+    _closeAsrGate();
+    _translationRequested = false;
+    _translationStops++;
+    asrSession.value?.windDown();
+    if (translation.isActive) {
+      _translatedCaption = null;
+      await translation.stop(finish: true);
+    }
+  }
+
+  /// Does what the subtitle switch asks of this video (see
+  /// [VideoDetailController._maybeAutoTranscribe]), once: a stream refresh
+  /// comes back here with the viewer's own picks since then to keep.
   void _maybeAutoTranscribe() {
     _autoChecks++;
-    // captions in a language the user does not read are translated instead
-    _maybeAutoTranslateCaptions();
-    if (!Get.isRegistered<AsrService>()) return;
-    if (asrSession.value != null || !canTranscribe) return;
-    if (!AsrService.to.shouldAutoStart(hasSubtitles: captions.isNotEmpty)) {
-      return;
+    if (_openApplied || isClosed || !Get.isRegistered<AsrService>()) return;
+    _openApplied = true;
+    final plan = _openPlan();
+    switch (plan.action) {
+      case OpenAction.platform:
+        // new here: this page used to show none of YouTube's own by itself
+        if (!_viewerChose) _showCaption(plan.track!);
+      case OpenAction.onDevice:
+        _startOnDevice(plan.code!, auto: true);
+      case OpenAction.none:
+        break;
     }
-    startAsr(auto: true);
   }
 
   /// Re-resolves the streams: a direct URL lasts about six hours and is bound

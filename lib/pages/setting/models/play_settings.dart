@@ -2,7 +2,6 @@ import 'dart:io' show Platform;
 
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
 import 'package:PiliPlus/models/common/super_chat_type.dart';
-import 'package:PiliPlus/models/common/video/subtitle_pref_type.dart';
 import 'package:PiliPlus/pages/main/controller.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/pages/fullscreen_sc_size.dart';
@@ -139,12 +138,9 @@ List<SettingsModel> get playSettings => [
     defaultValue: 90,
     isFilter: false,
   ),
-  NormalModel(
-    title: '自动启用字幕',
-    leading: const Icon(Icons.closed_caption_outlined),
-    getSubtitle: () => '当前选择偏好：${Pref.subtitlePreferenceV2.desc}',
-    onTap: _showSubtitleDialog,
-  ),
+  // LibrePili: which subtitle a video opens with is the subtitle menu's
+  // switch, remembered for every video (design 2026-09-26, 甲) — 自动启用
+  // 字幕 would be a second say in the same thing
   if (PlatformUtils.isDesktop)
     SwitchModel(
       title: '最小化时暂停/还原时播放',
@@ -297,27 +293,6 @@ List<SettingsModel> get playSettings => [
     defaultVal: false,
   ),
 ];
-
-Future<void> _showSubtitleDialog(
-  BuildContext context,
-  VoidCallback setState,
-) async {
-  final res = await showDialog<SubtitlePrefType>(
-    context: context,
-    builder: (context) => SelectDialog<SubtitlePrefType>(
-      title: '字幕选择偏好',
-      value: Pref.subtitlePreferenceV2,
-      values: SubtitlePrefType.values.map((e) => (e, e.desc)).toList(),
-    ),
-  );
-  if (res != null) {
-    await GStorage.setting.put(
-      SettingBoxKey.subtitlePreferenceV2,
-      res.index,
-    );
-    setState();
-  }
-}
 
 Future<void> _showFullScreenModeDialog(
   BuildContext context,

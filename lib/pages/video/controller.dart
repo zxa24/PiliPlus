@@ -7,6 +7,7 @@ import 'dart:ui';
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/models/common/subtitle_source.dart';
+import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/segment_progress_bar.dart';
@@ -71,6 +72,7 @@ import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
@@ -89,6 +91,7 @@ import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -102,7 +105,6 @@ import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
     show ExtendedNestedScrollViewState;
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
-import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:get/get.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:material_ui/material_ui.dart';
@@ -1751,10 +1753,11 @@ class VideoDetailController extends GetxController
   /// The translation running is of the transcript, not of captions.
   var _translatingTranscript = false;
 
-  /// Automatic translation has run for this part, or the user stopped one:
-  /// only the menu starts another. A quality switch or CDN failover comes
-  /// back through [_maybeAutoTranscribe], and must not undo a stop.
-  var _autoTranslateOff = false;
+  /// The subtitle switch has had its say for this part (see
+  /// [_applyOpenPlan]): once. A quality switch, a CDN failover or coming
+  /// back to the page comes back through [_maybeAutoTranscribe], and must
+  /// not undo what the viewer did since.
+  var _openApplied = false;
 
   /// Playback of this part has started. Only the page opening may hold the
   /// page behind the loading gate; an automatic check from a later pass — a
@@ -1940,19 +1943,27 @@ class VideoDetailController extends GetxController
   /// The page is being held until the subtitle list is known.
   var _holdingForSubtitles = false;
 
-  /// Holds a new part's page, when automatic translation could apply, until
-  /// its subtitle list is known. The list is asked for only after the player
-  /// is up, and an answer arriving once playback had shown could no longer
-  /// hold the page for a translation of the captions it names — the
-  /// playhead counts whole seconds, so a first second of playback went by
-  /// unnoticed. Decided before the player is shown instead: whatever holds
-  /// the page takes this over when the list comes, and otherwise it is let
-  /// go at once (see [_releaseSubtitleHold]).
+  /// Holds a new part's page, when the subtitle switch may have something
+  /// made on the device for it, until its subtitle list is known. The list
+  /// is asked for only after the player is up, and an answer arriving once
+  /// playback had shown could no longer hold the page for what it decides
+  /// — the playhead counts whole seconds, so a first second of playback
+  /// went by unnoticed. Decided before the player is shown instead:
+  /// whatever holds the page takes this over when the list comes, and
+  /// otherwise it is let go at once (see [_releaseSubtitleHold]).
   void _holdForSubtitles() {
-    if (_autoTranslateOff || !Get.isRegistered<TranslationService>()) return;
-    if (!TranslationService.to.shouldAutoTranslate) return;
+    if (_openApplied || !_mayMakeOnOpen) return;
     _openAsrGate();
     _holdingForSubtitles = asrPending.value;
+  }
+
+  /// Whether the switch could have this part's subtitle made on the device
+  /// without asking anything: it is on, and a model it could need is here.
+  bool get _mayMakeOnOpen {
+    final code = SubtitleChoice.codeOf(Pref.subtitleChoice);
+    if (code == null) return false;
+    if (code != 'asr' && _translateReady) return true;
+    return Get.isRegistered<AsrService>() && AsrService.to.modelsReady;
   }
 
   /// The subtitle list is known, or will not be: the hold for it ends,
@@ -1964,32 +1975,91 @@ class VideoDetailController extends GetxController
     if (!_gateOnTranslation) _closeAsrGate();
   }
 
-  /// Starts transcription by itself when the user has said it should and the
-  /// video has nothing of its own. Never asks anything here: an automatic run
-  /// that popped a dialog would be worse than no automatic run.
+  /// Does what the subtitle switch asks of this part, once its subtitle
+  /// list and its source are both known. Never asks anything here: an
+  /// automatic run that popped a dialog would be worse than no automatic
+  /// run.
   ///
   /// [opening] is the check made as the part is first loaded.
   void _maybeAutoTranscribe({bool opening = false}) {
     try {
-      _autoTranscribe(opening: opening);
+      if (!opening) _pastOpening = true;
+      _applyOpenPlan();
     } finally {
       _releaseSubtitleHold();
     }
   }
 
-  void _autoTranscribe({required bool opening}) {
-    if (!opening) _pastOpening = true;
-    // a video with captions in a language the user does not read has them
-    // translated instead; transcription is for videos with none
-    _maybeAutoTranslateCaptions();
-    if (!Get.isRegistered<AsrService>()) return;
-    // the source is resolved by queryVideoUrl, the subtitles by
-    // _queryPlayInfo: whichever finishes last is the one that starts this
-    if (asrSession.value != null || !canTranscribe) return;
-    if (!AsrService.to.shouldAutoStart(hasSubtitles: subtitles.isNotEmpty)) {
+  /// See [_maybeAutoTranscribe]. The platform's track, when that is the
+  /// plan, was picked as the list arrived (see [_setSubtitle]); what is
+  /// left is starting what the device makes.
+  ///
+  /// Checked again on every later pass, it only picks up a transcription
+  /// another page's took the place of while this one was covered: that
+  /// starts again once this page is back, from the subtitle cache (8B).
+  void _applyOpenPlan() {
+    if (isClosed || !Get.isRegistered<AsrService>()) return;
+    if (_openApplied) {
+      _restartDisplaced();
       return;
     }
-    startAsr(auto: true);
+    // the source is resolved by queryVideoUrl, the subtitles by
+    // _queryPlayInfo: whichever finishes last is the one that gets here
+    if (_asrSource == null) return;
+    _openApplied = true;
+    final plan = _openPlan();
+    if (plan.action == OpenAction.onDevice) {
+      _startOnDevice(plan.code!, auto: true);
+    }
+  }
+
+  /// Starts making the on-device subtitle [code] — `asr` for the
+  /// transcript, or a language — and marks it as the one to show. [auto]
+  /// holds the page in loading until it has lines, as a peer of the video
+  /// stream.
+  ///
+  /// A language: the video's own track in another language is translated
+  /// when there is one (design 2026-09-19), the transcript otherwise.
+  /// Either way lines already in the language are shown as they are.
+  Future<void> _startOnDevice(String code, {required bool auto}) async {
+    _wantedOnDevice = code;
+    if (code == 'asr') {
+      await startAsr(auto: auto);
+      return;
+    }
+    final into = _requestedInto = code == AsrService.appLanguage ? null : code;
+    if (captionToTranslateInto(code) case final index?) {
+      if (auto) {
+        _openAsrGate();
+        // past the opening no gate opens, and nothing is to wait for this
+        if (asrPending.value) _gateOnTranslation = true;
+      }
+      _startUnawaited(() async {
+        if (await _translateCaptions(index, into: into)) return;
+        // not fetched: transcribed instead, if that needs nothing asked
+        if (isClosed || !canTranscribe || !AsrService.to.modelsReady) return;
+        await startAsr(auto: auto);
+        _translationRequested = true;
+      }());
+      return;
+    }
+    await startAsr(auto: auto);
+    // after the start, which clears it along with the run before
+    _translationRequested = true;
+  }
+
+  /// A transcription another page took the place of (see [_applyOpenPlan])
+  /// starts again for the on-device subtitle still wanted here.
+  void _restartDisplaced() {
+    final session = asrSession.value;
+    final wanted = _wantedOnDevice;
+    if (session == null || !session.wasDisplaced || wanted == null) return;
+    if (!_ownsPlayer || !canTranscribe) return;
+    if (wanted == 'asr') {
+      startAsr();
+    } else {
+      showTranslation(wanted);
+    }
   }
 
   /// Holds the page in its loading state until transcription has produced
@@ -2185,10 +2255,9 @@ class VideoDetailController extends GetxController
     if (vttSubtitlesIndex.value == index + 1) _applyOwnSubtitle(0);
   }
 
-  /// Starts translating [session], if it should be: because they asked
-  /// from the menu — at once, whatever the speech's language — or
-  /// automatically when the user chose that, once the language is known to
-  /// be foreign.
+  /// Starts translating [session] when a language is what the subtitle
+  /// switch or the menu asked for ([_translationRequested]) — at once,
+  /// whatever the speech's language.
   ///
   /// Speech in the language asked for is no reason not to: each line is
   /// decided by its own language, and one already in it is shown as it is
@@ -2197,22 +2266,14 @@ class VideoDetailController extends GetxController
     // isActive, not session: a start in progress has no session yet
     if (translation.isActive || isClosed) return;
     if (!Get.isRegistered<TranslationService>()) return;
-    final service = TranslationService.to;
-    final language = session.state.value.language;
-    // asked from the menu, which has already offered the download: the
-    // session fetches the model itself, into the language picked there,
-    // if a line turns out to need it
-    final requested = _translationRequested;
-    final wanted =
-        requested || (!_autoTranslateOff && service.shouldAutoStart(language));
-    if (!wanted) return;
-    _autoTranslateOff = true;
+    // an automatic start was only planned with the model on the device;
+    // one from the menu has offered the download, and the session fetches
+    // the model itself if a line turns out to need it
+    if (!_translationRequested) return;
     _translatingTranscript = true;
     // an automatic run holds the page until the translation has a line
     if (auto && asrPending.value) _gateOnTranslation = true;
-    _startUnawaited(
-      translation.start(session, into: requested ? _requestedInto : null),
-    );
+    _startUnawaited(translation.start(session, into: _requestedInto));
   }
 
   /// A translation start nobody awaits. What it throws — a fetch, a model
@@ -2260,34 +2321,11 @@ class VideoDetailController extends GetxController
   int? get captionToTranslate => captionToTranslateInto(null);
 
   /// The video's own track to translate into [into] (the app's language by
-  /// default), if there is one to.
-  int? captionToTranslateInto(String? into) => pickCaptionToTranslateInto(
-    [
-      for (final s in subtitles)
-        (
-          // tracks made on the device are not the video's own
-          language: s.source == SubtitleSource.device ? '' : s.lan,
-          generated: s.isAi,
-        ),
-    ],
-    into: into ?? AsrService.appLanguage,
-  );
-
-  /// Translates the video's own foreign captions by itself when the user
-  /// chose automatic translation. Holds the page like an automatic
-  /// transcription does.
-  void _maybeAutoTranslateCaptions() {
-    if (translation.isActive || _autoTranslateOff || isClosed) return;
-    if (!Get.isRegistered<TranslationService>()) return;
-    if (!TranslationService.to.shouldAutoTranslate) return;
-    final index = captionToTranslate;
-    if (index == null) return;
-    _autoTranslateOff = true;
-    _openAsrGate();
-    // past the opening no gate opens, and nothing is to wait for this
-    if (asrPending.value) _gateOnTranslation = true;
-    _startUnawaited(_translateCaptions(index));
-  }
+  /// default), if there is one to (see [captionToTranslateFor]). The
+  /// device's own tracks come after the video's, so the index is one into
+  /// [subtitles] too.
+  int? captionToTranslateInto(String? into) =>
+      captionToTranslateFor(platformTracks, into ?? AsrService.appLanguage);
 
   /// Fetches track [index] if need be and translates it, into [into] (the
   /// app's language by default).
@@ -2472,8 +2510,6 @@ class VideoDetailController extends GetxController
     _cancelFillExport();
     _translationStops++;
     _translationRequested = false;
-    // nor does automatic translation start it again for this part
-    _autoTranslateOff = true;
     await translation.stop(finish: true);
   }
 
@@ -2569,6 +2605,7 @@ class VideoDetailController extends GetxController
   /// Shows the transcript, starting transcription if there is none to show
   /// (or the last one failed).
   Future<void> showTranscript() async {
+    _resumeOnDevice();
     final index = _deviceTrack('asr');
     if (index != null) {
       await setSubtitle(index + 1);
@@ -2591,10 +2628,15 @@ class VideoDetailController extends GetxController
     String into, {
     Future<bool> Function()? mayTranscribe,
   }) async {
-    if (hasTranslationInto(into)) {
+    _resumeOnDevice();
+    final kept = hasTranslationInto(into);
+    if (kept) {
       await setSubtitle(_deviceTrack('asr-translated')! + 1);
       _wantedOnDevice = into;
-      return;
+      // what was made before the switch went off is shown while the rest
+      // is made: the translation stopped then, and starts again here —
+      // what it had translated comes back from the subtitle cache
+      if (translation.isActive) return;
     }
     _viewerChoseSubtitle = true;
     _wantedOnDevice = into;
@@ -2610,6 +2652,81 @@ class VideoDetailController extends GetxController
   Future<void> stopOnDevice() async {
     await stopTranslation();
     await stopAsr();
+  }
+
+  /// A transcription switched off (see [_switchOffOnDevice]) carries on,
+  /// the same session, from where the viewer is (design 2026-09-26, 4).
+  void _resumeOnDevice() {
+    final session = asrSession.value;
+    if (session != null && session.isSwitchedOff) session.resumeOn();
+  }
+
+  /// The subtitle menu's 关闭字幕: no subtitles, for this video and — the
+  /// switch is remembered — every one after it (design 2026-09-26, 甲).
+  Future<void> chooseOff() async {
+    await GStorage.setting.put(
+      SettingBoxKey.subtitleChoice,
+      SubtitleChoice.off,
+    );
+    await setSubtitle(0);
+    await _switchOffOnDevice();
+  }
+
+  /// The menu's pick of a language — `asr` for the speech as it is — with
+  /// the source the viewer tapped, or the default one (see [planFor]).
+  /// The language is remembered for the videos after this one; the source
+  /// tapped holds for this video only (decision 2A).
+  ///
+  /// [plan] is what [planFor] said, the model prompts answered since:
+  /// asked again now, a model not downloaded yet would send it elsewhere.
+  /// [mayTranscribe] as for [startTranslation].
+  Future<void> chooseLanguage(
+    String code,
+    OpenPlan plan, {
+    Future<bool> Function()? mayTranscribe,
+  }) async {
+    await GStorage.setting.put(
+      SettingBoxKey.subtitleChoice,
+      SubtitleChoice.fromCode(code),
+    );
+    switch (plan.action) {
+      case OpenAction.platform:
+        await choosePlatformTrack(plan.track!);
+      case OpenAction.onDevice:
+        if (code == 'asr') {
+          await showTranscript();
+        } else {
+          await showTranslation(code, mayTranscribe: mayTranscribe);
+        }
+      case OpenAction.none:
+        // nothing can make it here: not even audio to transcribe
+        SmartDialog.showToast('这个视频无法生成该字幕');
+    }
+  }
+
+  /// One of the video's own tracks, by its index among [platformTracks]:
+  /// for this video only, whatever the switch remembers. Whatever the
+  /// device was making winds down (甲: a platform's subtitle means the
+  /// device's is off).
+  Future<void> choosePlatformTrack(int index) async {
+    await setSubtitle(index + 1);
+    await _switchOffOnDevice();
+  }
+
+  /// What the device was making for this video stops: the transcription
+  /// goes on to where it would have been far enough ahead and stops there,
+  /// keeping what it made (see [AsrSession.windDown]); the translation,
+  /// which holds a model of 1–3 GB, stops at once — what it translated
+  /// stays in the menu and in the subtitle cache.
+  Future<void> _switchOffOnDevice() async {
+    _holdingForSubtitles = false;
+    _closeAsrGate();
+    _translationRequested = false;
+    // a start still fetching captions to translate is stopped too
+    _translationStops++;
+    _translatingTranscript = false;
+    asrSession.value?.windDown();
+    if (translation.isActive) await translation.stop(finish: true);
   }
 
   void _publishTranslation(String vtt, {required bool first}) {
@@ -2719,8 +2836,9 @@ class VideoDetailController extends GetxController
     vttSubtitles[index] = (isData: true, id: vtt);
     // reselect so mpv picks up the longer text; only when this track is the
     // one being shown or the one picked from the menu, otherwise the user's
-    // choice would be overridden
-    if ((select && !_viewerChoseSubtitle) ||
+    // choice would be overridden — nor while a translation is what is
+    // wanted: the transcript it is made from is not what was picked
+    if ((select && !_viewerChoseSubtitle && _wantedOnDevice == null) ||
         _wantedOnDevice == 'asr' ||
         vttSubtitlesIndex.value == index + 1) {
       _applyOwnSubtitle(index + 1);
@@ -2839,6 +2957,7 @@ class VideoDetailController extends GetxController
                         '',
                       ),
                       isAi: i.type == .AI,
+                      isTranslated: i.type == .AI && i.aiType == .Translate,
                     ),
                   )
                   .toList()
@@ -2857,21 +2976,62 @@ class VideoDetailController extends GetxController
     }
   }
 
+  /// The video's own subtitles have arrived: the one the subtitle switch
+  /// asks for is shown (see [decideOnOpen]), or none — when it is off, or
+  /// when what it asks for is made on the device instead (see
+  /// [_applyOpenPlan]). The switch is the one say in this (design
+  /// 2026-09-26, 甲); the old 字幕选择偏好 no longer applies.
   Future<void> _setSubtitle(List<Subtitle> sub) async {
     subtitles.value = sub;
-    final idx = switch (Pref.subtitlePreferenceV2) {
-      .off => 0,
-      .on => 1,
-      .withoutAi => sub.first.lan.startsWith('ai') ? 0 : 1,
-      .auto =>
-        !sub.first.lan.startsWith('ai') ||
-                (PlatformUtils.isMobile &&
-                    (await FlutterVolumeController.getVolume() ?? 0.0) <= 0.0)
-            ? 1
-            : 0,
-    };
-    await _applyOwnSubtitle(idx);
+    final plan = _openPlan();
+    await _applyOwnSubtitle(
+      plan.action == OpenAction.platform ? plan.track! + 1 : 0,
+    );
   }
+
+  /// The video's own tracks as the subtitle switch sees them: the indexes
+  /// in [subtitles] line up with [platformTracks], the device's own come
+  /// after them.
+  List<PlatformTrack> get platformTracks => [
+    for (final s in subtitles)
+      if (s.source != SubtitleSource.device)
+        (
+          language: s.lan,
+          kind: s.isTranslated
+              ? PlatformTrackKind.translated
+              : s.isAi
+              ? PlatformTrackKind.generated
+              : PlatformTrackKind.author,
+        ),
+  ];
+
+  bool get _translateReady =>
+      Get.isRegistered<TranslationService>() &&
+      TranslationService.to.readyToStart;
+
+  /// What the remembered switch makes of this part, with nothing to
+  /// download (see [decideOnOpen]).
+  OpenPlan _openPlan() => decideOnOpen(
+    choice: Pref.subtitleChoice,
+    tracks: platformTracks,
+    source: Pref.subtitleSource,
+    canTranscribe: canTranscribe,
+    asrReady: Get.isRegistered<AsrService>() && AsrService.to.modelsReady,
+    translateReady: _translateReady,
+  );
+
+  /// What picking [code] (`asr` or a language) in the menu does, from the
+  /// source the viewer tapped ([via]) or the default one. A model missing
+  /// is no reason for another source here: the menu asks for it.
+  OpenPlan planFor(String code, {SubtitleSourcePreference? via}) =>
+      decideOnOpen(
+        choice: SubtitleChoice.fromCode(code),
+        tracks: platformTracks,
+        source: via ?? Pref.subtitleSource,
+        canTranscribe: canTranscribe,
+        asrReady: true,
+        translateReady: TranslationService.supported,
+      );
 
   void updateMediaListHistory(int aid) {
     if (args['sortField'] != null) {
@@ -2982,7 +3142,7 @@ class VideoDetailController extends GetxController
     stopAsr(leaving: true);
     // and so do the once-per-part automatic translation and loading gate,
     // and the viewer's pick of subtitle
-    _autoTranslateOff = false;
+    _openApplied = false;
     _viewerChoseSubtitle = false;
     _wantedOnDevice = null;
     _requestedInto = null;

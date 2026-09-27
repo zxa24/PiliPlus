@@ -154,7 +154,6 @@ const ctlSettingKeys = [
   SettingBoxKey.retryDelay,
   SettingBoxKey.badCertificateCallback,
   // subtitles
-  SettingBoxKey.subtitlePreferenceV2,
   SettingBoxKey.subtitleFontScale,
   SettingBoxKey.subtitleFontScaleFS,
   SettingBoxKey.dlSaveSubtitle,
