@@ -20,6 +20,7 @@ import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
+import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
@@ -254,10 +255,11 @@ class _YtVideoPageState extends State<YtVideoPage>
         // subtitles are being generated is not ready until they start
         if (controller.asrPending.value) {
           // the same face as any other loading: waiting for subtitles is not
-          // a different kind of wait to the user
-          return const ColoredBox(
-            color: Colors.black,
-            child: Center(child: CircularProgressIndicator()),
+          // a different kind of wait to the user — with a way past it once it
+          // has gone on a while (3A)
+          return SubtitleGate(
+            skippable: controller.asrGateSkippable.value,
+            onSkip: controller.skipSubtitleGate,
           );
         }
         if (player.videoController == null) {

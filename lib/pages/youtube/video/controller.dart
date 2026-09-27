@@ -23,6 +23,7 @@ import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
+import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
@@ -778,6 +779,7 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     // past the opening, playback has started (see [_autoChecks])
     if (_autoChecks > 1 || _released || _playbackUnderway) return;
     _asrGate?.cancel();
+    if (!asrPending.value) _startGateSkipTimer();
     asrPending.value = true;
     _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
     _holdPlayback();
@@ -786,6 +788,7 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
   void _closeAsrGate() {
     _asrGate?.cancel();
     _asrGate = null;
+    _stopGateSkipTimer();
     // nothing waits for the translation once the gate is down
     _gateOnTranslation = false;
     if (asrPending.value) {
@@ -794,6 +797,40 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
       _released = true;
       _resumeHeldPlayback();
     }
+  }
+
+  /// See [VideoDetailController.asrGateSkippable]. The loading gate has been up for [subtitleGateSkipAfter]: the page
+  /// offers 先播放视频 (see [skipSubtitleGate]).
+  final asrGateSkippable = false.obs;
+  Timer? _gateSkipTimer;
+
+  /// When the gate went up, and when it offered to be skipped: for the
+  /// self-test's loading probe.
+  DateTime? gateOpenedAt;
+  DateTime? gateSkippableAt;
+
+  /// 先播放视频: the viewer would rather watch now. Playback goes on
+  /// without the subtitles, which keep being made and come in when ready.
+  void skipSubtitleGate() {
+    if (!asrPending.value) return;
+    _closeAsrGate();
+  }
+
+  void _startGateSkipTimer() {
+    _gateSkipTimer?.cancel();
+    gateOpenedAt = DateTime.now();
+    gateSkippableAt = null;
+    _gateSkipTimer = Timer(subtitleGateSkipAfter, () {
+      if (!asrPending.value) return;
+      gateSkippableAt = DateTime.now();
+      asrGateSkippable.value = true;
+    });
+  }
+
+  void _stopGateSkipTimer() {
+    _gateSkipTimer?.cancel();
+    _gateSkipTimer = null;
+    asrGateSkippable.value = false;
   }
 
   /// See [VideoDetailController._playOnRelease]. Here the gate opens once the

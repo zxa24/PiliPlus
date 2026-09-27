@@ -47,6 +47,7 @@ import 'package:PiliPlus/pages/video/view_point/view.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/pages/video/widgets/intro_layout.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
+import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/fullscreen_mode.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
@@ -1477,6 +1478,19 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         ),
 
         plPlayer(width: width, height: height),
+
+        // LibrePili: the player is hidden while it waits for the subtitles
+        // the switch makes on the device; this was a silent black box (3A)
+        Obx(
+          () => videoDetailController.asrPending.value
+              ? Positioned.fill(
+                  child: SubtitleGate(
+                    skippable: videoDetailController.asrGateSkippable.value,
+                    onSkip: videoDetailController.skipSubtitleGate,
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
 
         Obx(() {
           if (!videoDetailController.autoPlay) {
