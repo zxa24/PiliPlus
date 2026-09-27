@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:io';
+import 'dart:ui' as ui show ImageByteFormat;
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
@@ -53,6 +54,7 @@ import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
 import 'package:PiliPlus/models/common/setting_type.dart';
@@ -103,6 +105,7 @@ import 'package:flutter/services.dart'
         LogicalKeyboardKey,
         PhysicalKeyboardKey,
         ServicesBinding;
+import 'package:flutter/rendering.dart' show OffsetLayer;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart'
     show SmartDialog;
@@ -712,6 +715,27 @@ abstract final class SelfTest {
         ),
       );
     }
+    if (_arg(args, '--remembered-probe') case final file?) {
+      _shots = _arg(args, '--shots');
+      await scenario(
+        'rememberedProbe',
+        () => _rememberedProbe(
+          file,
+          offHold: int.tryParse(_arg(args, '--hold-off') ?? '') ?? 20,
+          hold: int.tryParse(_arg(args, '--hold') ?? '') ?? 60,
+        ),
+      );
+    }
+    if (_arg(args, '--switch-probe') case final file?) {
+      await scenario(
+        'switchProbe',
+        () => _switchProbe(
+          file,
+          offAt: int.tryParse(_arg(args, '--off-at') ?? '') ?? 20,
+          hold: int.tryParse(_arg(args, '--hold') ?? '') ?? 150,
+        ),
+      );
+    }
     if (_arg(args, '--ctl-probe') case final file?) {
       await scenario(
         'ctlProbe',
@@ -723,6 +747,7 @@ abstract final class SelfTest {
       );
     }
     if (_arg(args, '--translate-page') case final video?) {
+      _shots = _arg(args, '--shots');
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 45;
       final bv = IdUtils.bvRegex.firstMatch(video)?.group(0);
       // a file opens in the same page, in its local mode
@@ -2367,12 +2392,20 @@ abstract final class SelfTest {
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
-    await _setAutoTranslation(auto);
+    await _setSwitch(auto ? language : SubtitleChoice.off);
     final videoId = tryParseYouTubeVideoId(input) ?? input;
     final started = DateTime.now();
     unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
     await Future.delayed(const Duration(seconds: 2));
     final controller = Get.find<YtVideoController>(tag: videoId);
+    final watch = _GateWatch(
+      controller.asrPending,
+      controller.asrGateSkippable,
+      started,
+      shot: 'yt_gate_$videoId',
+      pageOpenedAt: () => controller.gateOpenedAt,
+      pageSkippableAt: () => controller.gateSkippableAt,
+    );
     int? gateOpenedMs;
     int? gateClosedMs;
     final gate = ever(controller.asrPending, (pending) {
@@ -2394,7 +2427,10 @@ abstract final class SelfTest {
       for (final c in controller.captions)
         '${c.languageCode}${c.isAutomatic ? '(auto)' : ''}',
     ];
-    if (!auto) await controller.showTranslation(language);
+    // the menu's path: picking the language (its name, the default source)
+    if (!auto) {
+      await controller.chooseLanguage(language, controller.planFor(language));
+    }
     int? firstTranslatedMs;
     final shown = <String>[];
     for (var i = 0; i < holdSeconds; i++) {
@@ -2412,6 +2448,7 @@ abstract final class SelfTest {
       if (shown.isEmpty || shown.last != '$title') shown.add('$title');
     }
     gate.dispose();
+    watch.dispose();
     final session = controller.translation.session.value;
     final translated = session?.results.values
         .map((r) => r.text)
@@ -2438,6 +2475,8 @@ abstract final class SelfTest {
           : 'transcript',
       'gateOpenedMs': gateOpenedMs,
       'gateClosedMs': gateClosedMs,
+      'gate': watch.toJson(),
+      'menu': [for (final r in OnDeviceMenu.rowsFor(controller)) r.toJson()],
       'asrLanguage': controller.asrSession.value?.state.value.language,
       'translationStage': session?.state.value.stage.name,
       'msToTranslatedTrack': firstTranslatedMs,
@@ -2601,7 +2640,7 @@ abstract final class SelfTest {
     if (!TranslationService.to.modelReady || !AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
-    await _setAutoTranslation(auto);
+    await _setSwitch(auto ? language : SubtitleChoice.off);
     final opened = DateTime.now();
     int ms() => DateTime.now().difference(opened).inMilliseconds;
     // a local file: the page's local mode, where the video's own subtitles
@@ -2633,6 +2672,14 @@ abstract final class SelfTest {
       return {'pass': false, 'reason': 'the page never opened'};
     }
     final page = controller;
+    final watch = _GateWatch(
+      page.asrPending,
+      page.asrGateSkippable,
+      opened,
+      shot: 'bili_gate',
+      pageOpenedAt: () => page.gateOpenedAt,
+      pageSkippableAt: () => page.gateSkippableAt,
+    );
     // how long the page holds itself in loading for the subtitles
     int? gateOpenedMs;
     int? gateClosedMs;
@@ -2655,8 +2702,9 @@ abstract final class SelfTest {
       comments = _commentsProbe(page);
       await Future.delayed(const Duration(seconds: 2));
     }
-    // the menu's path: picking the language shows it, making it first
-    if (!auto) await page.showTranslation(language);
+    // the menu's path: picking the language (its name, the default source)
+    // shows it, making it first
+    if (!auto) await page.chooseLanguage(language, page.planFor(language));
 
     int? translatedTrackMs;
     int? selectedMs;
@@ -2674,6 +2722,7 @@ abstract final class SelfTest {
       }
     }
     gate.dispose();
+    watch.dispose();
     final session = page.translation.session.value;
     // by the model, and shown as they are — already in the language asked
     // for (design 2026-09-26, 2A)
@@ -2709,6 +2758,8 @@ abstract final class SelfTest {
       'translationStage': session?.state.value.stage.name,
       'gateOpenedMs': gateOpenedMs,
       'gateClosedMs': gateClosedMs,
+      'gate': watch.toJson(),
+      'menu': [for (final r in OnDeviceMenu.rowsFor(page)) r.toJson()],
       'msToTranslatedTrack': translatedTrackMs,
       'msToSelected': selectedMs,
       'tracks': [for (final s in page.subtitles) s.lanDoc],
@@ -2832,14 +2883,330 @@ abstract final class SelfTest {
     return result;
   }
 
-  /// Automatic transcription and translation on or off, in the self-test
-  /// profile's own settings (the profile has its own storage; the user's
-  /// are not touched). Always set, both ways: the profile keeps them, and a
-  /// menu run after an automatic one was found starting by itself.
-  static Future<void> _setAutoTranslation(bool on) => GStorage.setting.put(
-    SettingBoxKey.subtitleChoice,
-    on ? AsrService.appLanguage : SubtitleChoice.off,
-  );
+  /// The remembered subtitle switch, in the self-test profile's own
+  /// settings (the profile has its own storage; the user's are not
+  /// touched). Always set: the profile keeps it, and a menu run after an
+  /// automatic one was found starting by itself.
+  static Future<void> _setSwitch(String choice) =>
+      GStorage.setting.put(SettingBoxKey.subtitleChoice, choice);
+
+  /// Where `--shots` puts screenshots of the app, if anywhere.
+  static String? _shots;
+
+  /// The app's window as it is drawn now, as a PNG at [name] under
+  /// [_shots]. From the root layer, so the window may be at the bottom of
+  /// the z-order (see SelfTestWindow); what a platform texture shows (the
+  /// video) may come out black. The path written, or null.
+  static Future<String?> _shot(String name) async {
+    final dir = _shots;
+    if (dir == null) return null;
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      final view = WidgetsBinding.instance.renderViews.first;
+      final layer = view.debugLayer! as OffsetLayer;
+      final image = await layer.toImage(Offset.zero & view.size);
+      final png = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      final file = File(path.join(dir, '$name.png'));
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(png!.buffer.asUint8List());
+      return file.path;
+    } catch (e) {
+      return 'failed: $e';
+    }
+  }
+
+  /// `--remembered-probe FILE [--hold-off N] [--hold M] [--shots DIR]`: the
+  /// remembered switch across videos (design 2026-09-26, phases 4/5). FILE
+  /// opens in the page's local mode, which has no platform subtitles:
+  /// 1. the switch remembered at the app's language: the video starts
+  ///    making its subtitles with no menu action, behind the loading gate;
+  /// 2. 关闭字幕 from the menu's path: remembered off, the transcription
+  ///    winds down;
+  /// 3. the next video (FILE again, on a new page) starts nothing in N s;
+  /// 4. the language picked again from the menu's path: the transcription
+  ///    never goes idle, and speech in the language needs no model — every
+  ///    translated unit passes through.
+  static Future<Map<String, dynamic>> _rememberedProbe(
+    String file, {
+    required int offHold,
+    required int hold,
+  }) async {
+    if (!AsrService.to.modelsReady || !TranslationService.to.modelReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    final language = AsrService.appLanguage;
+    await GStorage.setting.putAll({
+      SettingBoxKey.subtitleChoice: language,
+      // a fresh profile does not play by itself, and a page that does not
+      // play never resolves what it would transcribe
+      SettingBoxKey.autoPlayEnable: true,
+    });
+
+    Future<VideoDetailController?> open(String tag) async {
+      unawaited(LocalPlayer.open(file, heroTag: tag));
+      for (var i = 0; i < 20; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        try {
+          return Get.find<VideoDetailController>(tag: tag);
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    // 1. remembered: starts by itself
+    final opened = DateTime.now();
+    int ms() => DateTime.now().difference(opened).inMilliseconds;
+    final first = await open('selftest_remembered_1');
+    if (first == null) return {'pass': false, 'reason': 'no page'};
+    final watch = _GateWatch(
+      first.asrPending,
+      first.asrGateSkippable,
+      opened,
+      shot: 'remembered_gate',
+      pageOpenedAt: () => first.gateOpenedAt,
+      pageSkippableAt: () => first.gateSkippableAt,
+    );
+    int? sessionMs, translationMs, selectedMs;
+    for (var i = 0; i < 120 && selectedMs == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (first.asrSession.value != null) sessionMs ??= ms();
+      if (first.translation.isActive) translationMs ??= ms();
+      if (first.onDeviceShown == language) selectedMs ??= ms();
+    }
+    watch.dispose();
+    final step1 = {
+      'pass': sessionMs != null && selectedMs != null,
+      'msToSession': sessionMs,
+      'msToTranslation': translationMs,
+      'msToShown': selectedMs,
+      'gate': watch.toJson(),
+      'menuPicked': first.menuPicked,
+      'menu': [for (final r in OnDeviceMenu.rowsFor(first)) r.toJson()],
+    };
+
+    // 2. 关闭字幕: remembered, and what the device made winds down
+    final firstSession = first.asrSession.value;
+    await first.chooseOff();
+    await Future.delayed(const Duration(seconds: 3));
+    final step2 = {
+      'pass':
+          Pref.subtitleChoice == SubtitleChoice.off &&
+          first.vttSubtitlesIndex.value == 0 &&
+          !first.translation.isActive &&
+          (firstSession == null ||
+              firstSession.isSwitchedOff ||
+              firstSession.state.value.stage == AsrStage.done),
+      'remembered': Pref.subtitleChoice,
+      'selected': first.vttSubtitlesIndex.value,
+      'asrStage': firstSession?.state.value.stage.name,
+      'switchedOff': firstSession?.isSwitchedOff,
+      'translationActive': first.translation.isActive,
+      'label': first.menuStatus('asr')?.text,
+    };
+    Get.back();
+    await Future.delayed(const Duration(seconds: 2));
+
+    // 3. the next video, with the switch off: nothing starts
+    final second = await open('selftest_remembered_2');
+    if (second == null) {
+      return {'pass': false, 'reason': 'no second page', 'step1': step1};
+    }
+    var started = false;
+    for (var i = 0; i < offHold * 4; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (second.asrSession.value != null || second.translation.isActive) {
+        started = true;
+      }
+    }
+    final step3 = {
+      'pass': !started && second.vttSubtitlesIndex.value <= 0,
+      'startedSomething': started,
+      'pendingGate': second.asrPending.value,
+      'selected': second.vttSubtitlesIndex.value,
+      'menuPicked': second.menuPicked,
+    };
+
+    // 4. the language again, from the menu's path
+    final stages = <String>[];
+    final repicked = DateTime.now();
+    await second.chooseLanguage(language, second.planFor(language));
+    AsrSession? session;
+    int? shownMs;
+    final clock = Stopwatch()..start();
+    while (clock.elapsed < Duration(seconds: hold)) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      session = second.asrSession.value ?? session;
+      final name = session?.state.value.stage.name ?? 'none';
+      if (stages.isEmpty || stages.last != name) stages.add(name);
+      if (second.onDeviceShown == language) {
+        shownMs ??= DateTime.now().difference(repicked).inMilliseconds;
+      }
+      if (session?.state.value.stage == AsrStage.done && shownMs != null) {
+        // what is left to translate settles on the next ticks
+        await Future.delayed(const Duration(seconds: 2));
+        break;
+      }
+    }
+    final results = second.translation.session.value?.results.values ?? [];
+    final passed = results.where((r) => r.passed).length;
+    final step4 = {
+      'pass':
+          session != null &&
+          !stages.contains(AsrStage.idle.name) &&
+          shownMs != null &&
+          results.isNotEmpty &&
+          passed == results.length &&
+          (second.translation.session.value?.modelLoads ?? 0) == 0,
+      'asrStages': stages,
+      'msToShown': shownMs,
+      'units': results.length,
+      'passedUnits': passed,
+      'modelLoads': second.translation.session.value?.modelLoads,
+      'runs': session?.runCount,
+      'cues': session?.cues.length,
+      'label': second.menuStatus(language)?.text,
+      'remembered': Pref.subtitleChoice,
+    };
+    await second.stopAsr();
+    Get.back();
+    return {
+      'pass':
+          step1['pass'] == true &&
+          step2['pass'] == true &&
+          step3['pass'] == true &&
+          step4['pass'] == true,
+      'file': file,
+      'language': language,
+      'step1RememberedStartsByItself': step1,
+      'step2OffFromMenu': step2,
+      'step3NextVideoStartsNothing': step3,
+      'step4RepickedFromMenu': step4,
+    };
+  }
+
+  /// `--switch-probe FILE [--off-at N] [--hold M]`: the switch turned off
+  /// and on mid-video on the page (design 2026-09-26, 4). With 原文
+  /// remembered, FILE (long enough to outlast the wind-down window) starts
+  /// transcribing by itself; at N s 关闭字幕 from the menu's path winds it
+  /// down — it goes on to a mark past the playhead, stops there at standby
+  /// with 已关闭 — and 原文 picked again resumes the same session.
+  static Future<Map<String, dynamic>> _switchProbe(
+    String file, {
+    required int offAt,
+    required int hold,
+  }) async {
+    if (!AsrService.to.modelsReady) {
+      return {'pass': false, 'reason': 'models missing'};
+    }
+    await GStorage.setting.putAll({
+      SettingBoxKey.subtitleChoice: SubtitleChoice.original,
+      SettingBoxKey.autoPlayEnable: true,
+    });
+    const tag = 'selftest_switch';
+    unawaited(LocalPlayer.open(file, heroTag: tag));
+    VideoDetailController? page;
+    for (var i = 0; i < 20 && page == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        page = Get.find<VideoDetailController>(tag: tag);
+      } catch (_) {}
+    }
+    if (page == null) return {'pass': false, 'reason': 'no page'};
+    final clock = Stopwatch()..start();
+    String now() => (clock.elapsedMilliseconds / 1000).toStringAsFixed(1);
+    final timeline = <String>[];
+    String? last;
+    void note() {
+      final s = page!.asrSession.value;
+      final line =
+          '${s?.state.value.stage.name ?? 'none'}'
+          '${s?.isSwitchedOff ?? false ? ' off' : ''}'
+          '${s?.isWoundDown ?? false ? ' wound' : ''}'
+          ' | ${page.menuStatus('asr')?.text}';
+      if (line != last) timeline.add('${now()} s: $line');
+      last = line;
+    }
+
+    while (clock.elapsed < Duration(seconds: offAt)) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      note();
+    }
+    final session = page.asrSession.value;
+    if (session == null) {
+      return {'pass': false, 'reason': 'nothing started', 'timeline': timeline};
+    }
+    final playheadAtOff = page.plPlayerController.position.value;
+    final coveredAtOff = session.coveredSeconds;
+    await page.chooseOff();
+    final mark = session.windDownUntil;
+    timeline.add('${now()} s: 关闭字幕, mark ${mark?.toStringAsFixed(1)}');
+    while (clock.elapsed < Duration(seconds: offAt + hold) &&
+        !session.isWoundDown &&
+        session.state.value.stage != AsrStage.done) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      note();
+    }
+    final coveredEndAtWound = session.transcript.coveredEnd(
+      playheadAtOff.toDouble(),
+    );
+    final woundStage = session.state.value.stage;
+    final woundLabel = page.menuStatus('asr')?.text;
+    final runsAtWound = session.runCount;
+    // a while switched off: nothing new runs
+    await Future.delayed(const Duration(seconds: 5));
+    note();
+    final runsAfterIdle = session.runCount;
+    final coveredWhileOff = session.coveredSeconds;
+
+    // 原文 again
+    await page.chooseLanguage('asr', page.planFor('asr'));
+    timeline.add('${now()} s: 原文 picked again');
+    final resumedAt = clock.elapsed;
+    var leftStandby = false;
+    while (clock.elapsed - resumedAt < const Duration(seconds: 30)) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      note();
+      final stage = session.state.value.stage;
+      if (stage == AsrStage.transcribing ||
+          stage == AsrStage.extracting ||
+          stage == AsrStage.done) {
+        leftStandby = true;
+        if (session.coveredSeconds > coveredWhileOff + 5 ||
+            stage == AsrStage.done) {
+          break;
+        }
+      }
+    }
+    final result = {
+      'pass':
+          session.isWoundDown == false &&
+          woundStage == AsrStage.standby &&
+          (woundLabel?.startsWith(asrWoundDownMessage) ?? false) &&
+          runsAfterIdle == runsAtWound &&
+          identical(page.asrSession.value, session) &&
+          !session.isSwitchedOff &&
+          leftStandby &&
+          session.coveredSeconds > coveredWhileOff,
+      'file': file,
+      'playheadAtOff': playheadAtOff,
+      'coveredAtOff': coveredAtOff,
+      'windDownMark': mark,
+      'coveredEndAtWoundDown': coveredEndAtWound,
+      'stageWoundDown': woundStage.name,
+      'labelWoundDown': woundLabel,
+      'runsWhileOff': runsAfterIdle - runsAtWound,
+      'sameSessionAfterOn': identical(page.asrSession.value, session),
+      'leftStandbyAfterOn': leftStandby,
+      'coveredWhileOff': coveredWhileOff,
+      'coveredAtEnd': session.coveredSeconds,
+      'stageAtEnd': session.state.value.stage.name,
+      'timeline': timeline,
+    };
+    await page.stopAsr();
+    Get.back();
+    return result;
+  }
 
   /// The text of the VTT cue showing at [seconds], if any.
   static String? _vttLineAt(String vtt, double seconds) {
@@ -6423,4 +6790,70 @@ abstract final class SelfTest {
     }
     return result;
   }
+}
+
+/// The loading gate of a page as a probe sees it: when it went up, when it
+/// offered 先播放视频, and when it came down, in ms from [start] — with a
+/// screenshot of the app when the skip appears (see SelfTest._shot).
+class _GateWatch {
+  _GateWatch(
+    RxBool pending,
+    RxBool skippable,
+    this.start, {
+    required String shot,
+    this.pageOpenedAt,
+    this.pageSkippableAt,
+  }) {
+    if (pending.value) openedMs = _ms();
+    if (skippable.value) skippableMs = _ms();
+    _workers = [
+      ever<bool>(pending, (up) {
+        if (up) {
+          openedMs ??= _ms();
+        } else if (openedMs != null) {
+          closedMs ??= _ms();
+        }
+      }),
+      ever<bool>(skippable, (can) {
+        if (!can || skippableMs != null) return;
+        skippableMs = _ms();
+        SelfTest._shot(shot).then((path) => shotPath = path);
+      }),
+    ];
+  }
+
+  final DateTime start;
+
+  /// The page's own record of when its gate went up and offered the skip:
+  /// exact, where the watch may attach after the gate is already up.
+  final DateTime? Function()? pageOpenedAt;
+  final DateTime? Function()? pageSkippableAt;
+  late final List<Worker> _workers;
+  int? openedMs;
+  int? skippableMs;
+  int? closedMs;
+  String? shotPath;
+
+  int _ms() => DateTime.now().difference(start).inMilliseconds;
+
+  void dispose() {
+    for (final w in _workers) {
+      w.dispose();
+    }
+  }
+
+  Map<String, Object?> toJson() => {
+    'openedMs': openedMs,
+    'skippableMs': skippableMs,
+    'closedMs': closedMs,
+    // the wait before 先播放视频 was offered: 5 s by design
+    'skipAfterMs': skippableMs == null || openedMs == null
+        ? null
+        : skippableMs! - openedMs!,
+    'pageSkipAfterMs': switch ((pageOpenedAt?.call(), pageSkippableAt?.call())) {
+      (final DateTime a, final DateTime b) => b.difference(a).inMilliseconds,
+      _ => null,
+    },
+    'shot': shotPath,
+  };
 }
