@@ -47,6 +47,10 @@ typedef RunSegment = ({
   int weight,
 });
 
+/// A run as the subtitle cache keeps it: where it started, how far it got
+/// ([TranscriptRun.end]), and its segments with the cues each brought.
+typedef RestoredRun = ({double start, double end, List<SeamSegment> segments});
+
 /// One run's share of the transcript: its segments and cues, in the order
 /// the recogniser produced them, which is time order within a run.
 class TranscriptRun {
@@ -63,6 +67,10 @@ class TranscriptRun {
   /// How many of [cues] each of [segments] brought: which cues go when a
   /// seam replaces a segment.
   final _cueCounts = <int>[];
+
+  /// [_cueCounts] as it stands: which of [cues] each segment brought, for
+  /// the subtitle cache to keep them together.
+  List<int> get cueCounts => List.unmodifiable(_cueCounts);
 
   /// How far the run has recognised: the end of its last segment, or how
   /// far its audio is known to hold no more speech, or its start before
@@ -240,6 +248,37 @@ class TranscriptStore {
     mergeSortBy(all, (c) => c.from);
     // one change, not two: assignAll clears and adds, each a change
     cues.value = all;
+  }
+
+  /// Puts back runs kept by the subtitle cache (research/subtitle-switch-
+  /// design-2026-09-26.md, 9B), into a store nothing has been added to yet.
+  /// Each comes back finished — no run of this session is making it — with
+  /// its extent, its segments and the cues each brought, so the stretches
+  /// known and the cues read as they did when it was kept. One change to
+  /// [cues] for all of it.
+  void restore(List<RestoredRun> runs) {
+    assert(_runs.isEmpty, 'restore into an empty store');
+    if (runs.isEmpty) return;
+    for (final saved in [...runs]..sort((a, b) => a.start.compareTo(b.start))) {
+      final run = startRun(saved.start);
+      for (final segment in saved.segments) {
+        run.segments.add((
+          start: segment.start,
+          duration: segment.duration,
+          language: segment.language,
+          weight: segment.weight,
+        ));
+        run.cues.addAll(segment.cues);
+        run._cueCounts.add(segment.cues.length);
+        advance(run, segment.start + segment.duration);
+        for (final cue in segment.cues) {
+          advance(run, cue.from);
+        }
+      }
+      advance(run, saved.end);
+      run.finish();
+    }
+    replace(_runs.first, const [], (_) => false);
   }
 
   /// A stable sort by [key]: equal keys keep their order.

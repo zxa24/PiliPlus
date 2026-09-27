@@ -14,7 +14,9 @@ import 'package:PiliPlus/pages/home/view.dart';
 import 'package:PiliPlus/pages/main/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
@@ -191,6 +193,17 @@ class _MainAppState extends PopScopeState<MainApp>
   }
 
   Future<void> _onClose() async {
+    // LibrePili: what transcription and translation made so far, on disk
+    // before the process ends (the subtitle cache)
+    if (Get.isRegistered<TranslationService>()) {
+      TranslationService.to.keepCache();
+    }
+    if (Get.isRegistered<AsrService>()) {
+      await AsrService.to.keepCache().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {},
+      );
+    }
     await GStorage.compact();
     await GStorage.close();
     await trayManager.destroy();

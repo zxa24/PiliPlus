@@ -20,6 +20,7 @@ import 'package:PiliPlus/services/asr/asr_status.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
@@ -725,6 +726,7 @@ class YtVideoController extends GetxController {
         final now = asrSource;
         return now == null || now.isEmpty ? null : now;
       },
+      cache: SubtitleCacheKey.youtube(videoId),
     );
     // see [VideoDetailController.startAsr]
     if (isClosed) {

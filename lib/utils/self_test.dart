@@ -66,6 +66,8 @@ import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
+import 'package:PiliPlus/services/translate/translation_session.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -1078,6 +1080,7 @@ abstract final class SelfTest {
           ),
           offAt: double.tryParse(_arg(args, '--asr-off-at') ?? ''),
           onAt: double.tryParse(_arg(args, '--asr-on-at') ?? ''),
+          stopAt: double.tryParse(_arg(args, '--asr-stop-at') ?? ''),
         ),
       );
     }
@@ -2262,6 +2265,7 @@ abstract final class SelfTest {
     final asr = await AsrService.to.start(
       key: 'selftest-translate-file',
       source: file,
+      cache: SubtitleCacheKey.local(file),
     );
     final deadline = DateTime.now().add(const Duration(minutes: 60));
     while (asr.state.value.language == null &&
@@ -2289,6 +2293,19 @@ abstract final class SelfTest {
       'file': file,
       'language': asr.state.value.language,
       'model': translations.model.id,
+      // what the subtitle cache gave (design 2026-09-26, 9B): the seconds
+      // of transcript and the translations kept from before, and the
+      // recogniser runs and model loads it took after
+      'cachedSeconds': asr.cachedSeconds,
+      'recogniserRuns': asr.runCount,
+      'modelLoads': session.modelLoads,
+      'unitsModel': session.units
+          .where(
+            (u) =>
+                TranslationService.routeFor(u.language, translations.target) ==
+                UnitRoute.model,
+          )
+          .length,
       'ms': clock.elapsedMilliseconds,
       'failure': failure,
       'languageRetries': session.languageRetries,
@@ -2318,6 +2335,8 @@ abstract final class SelfTest {
     };
     await track.stop();
     await AsrService.to.stop(only: asr);
+    // what the cache got, on disk before the process ends
+    await AsrService.to.cache.flush();
     if (out != null) {
       await File(out).writeAsString(
         const JsonEncoder.withIndent('  ').convert(report),
@@ -5215,6 +5234,13 @@ abstract final class SelfTest {
   /// was to stop and where it did, every stage seen while off, the runs
   /// started meanwhile, and whether any segment made before the switch-off
   /// was gone at the end. Without [onAt] it ends 10 s after winding down.
+  ///
+  /// A local file is kept in the subtitle cache (design 2026-09-26, 9B):
+  /// run again on the same profile, what was kept is shown at once and only
+  /// the rest is transcribed. Reported under `cache`: the seconds the entry
+  /// covered at the start, and the recogniser runs it took after. [stopAt]
+  /// (`--asr-stop-at`) stops the session once what it covers from 0 reaches
+  /// that far, for a partial entry.
   static Future<Map<String, dynamic>> _asrSession(
     String source, {
     String? srtOut,
@@ -5222,6 +5248,7 @@ abstract final class SelfTest {
     double? playheadSpeed,
     double? offAt,
     double? onAt,
+    double? stopAt,
   }) async {
     final service = AsrService.to;
     if (!service.modelsReady) {
@@ -5241,14 +5268,25 @@ abstract final class SelfTest {
       userAgent: isFile ? null : BrowserUa.pc,
       power: power,
       playhead: playheadSpeed == null ? null : playheadNow,
+      cache: isFile ? SubtitleCacheKey.local(source) : null,
     );
     // each change is one segment's cues arriving: the pace every listener
     // (page gates, the translation track) is woken at
     final sub = session.cues.listen((_) => changes++);
+    // when the first cue was there: at once, from a cache entry
+    int? firstCueMs;
+    final firstCue = session.cues.listen((cues) {
+      if (cues.isNotEmpty) firstCueMs ??= clock.elapsedMilliseconds;
+    });
     final deadline = DateTime.now().add(const Duration(minutes: 30));
+    var stopped = false;
     while (session.state.value.isBusy && DateTime.now().isBefore(deadline)) {
       await Future.delayed(const Duration(milliseconds: 200));
       if (offAt != null && playheadNow() >= offAt) break;
+      if (stopAt != null && session.transcript.coveredEnd(0) >= stopAt) {
+        stopped = true;
+        break;
+      }
     }
     // the switch, when asked for
     Map<String, Object?>? switched;
@@ -5258,7 +5296,8 @@ abstract final class SelfTest {
     var on = false;
     // standby is alive too: paused ahead of a playhead still coming, or
     // switched off
-    while ((session.state.value.isBusy ||
+    while (!stopped &&
+        (session.state.value.isBusy ||
             session.state.value.stage == AsrStage.standby) &&
         DateTime.now().isBefore(deadline)) {
       final p = playheadSpeed == null ? 0.0 : playheadNow();
@@ -5323,12 +5362,17 @@ abstract final class SelfTest {
         ];
     }
     await sub.cancel();
+    await firstCue.cancel();
     final cues = session.cues.toList();
     final segments = session.segments.length;
     final state = session.state.value;
     final runs = session.runCount;
     final pace = session.pace;
+    final coveredAtEnd = session.coveredSeconds;
     await service.stop(only: session);
+    // the entry written as the session ended, before the report says so
+    final entry = session.cache;
+    if (entry != null) await entry.save();
     if (srtOut != null && cues.isNotEmpty) {
       await File(srtOut).writeAsString(cues.toSrt());
     }
@@ -5342,8 +5386,16 @@ abstract final class SelfTest {
       'restartCost': pace.restartCost,
       'restartSamples': pace.costSamples,
       'seams': session.debugSeams,
-      'pass': state.stage == AsrStage.done && cues.isNotEmpty,
+      'pass': (stopped || state.stage == AsrStage.done) && cues.isNotEmpty,
       'switch': ?switched,
+      'cache': {
+        'kept': entry != null,
+        'cachedSecondsAtStart': session.cachedSeconds,
+        'coveredSecondsAtEnd': coveredAtEnd,
+        'firstCueMs': firstCueMs,
+        'stoppedAt': stopped ? session.transcript.coveredEnd(0) : null,
+        'dir': service.cache.dir.path,
+      },
       'source': source,
       'stage': state.stage.name,
       'language': state.language,

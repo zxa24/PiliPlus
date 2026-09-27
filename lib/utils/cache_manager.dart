@@ -1,5 +1,6 @@
 import 'dart:io' show Directory, File;
 
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -42,8 +43,12 @@ abstract final class CacheManager {
         if (path.equals(child.path, manager.cacheDir)) {
           total += manager.getTotalLength();
         } else {
+          // the subtitle cache is not cleared with the rest (it has its own
+          // 清除字幕缓存, and is minutes of work per video to make again),
+          // so it is not counted with it either
+          final subtitles = SubtitleCache.instance.dir.path;
           await for (final i in child.list(recursive: true)) {
-            if (i is File) {
+            if (i is File && !path.isWithin(subtitles, i.path)) {
               total += await i.length();
             }
           }

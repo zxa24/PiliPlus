@@ -13,6 +13,7 @@ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/logger.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
@@ -403,6 +404,9 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // and the picked-document side-file mirrors
                         await LoggerUtils.clearLogs();
                         await LocalPlayer.clearMirrors();
+                        // what was transcribed and translated: it says what
+                        // was watched
+                        await SubtitleCache.instance.clear();
                         SmartDialog.showToast('重置成功（重启生效）');
                       },
                       child: const Text(

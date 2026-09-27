@@ -31,6 +31,7 @@ import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -168,6 +169,7 @@ class AsrSession {
     double? Function()? playhead,
     double? Function()? duration,
     this.refreshSource,
+    this.cacheKey,
   }) : _playheadOf = playhead,
        _durationOf = duration;
 
@@ -190,6 +192,31 @@ class AsrSession {
 
   /// See [AsrSourceRefresh].
   final AsrSourceRefresh? refreshSource;
+
+  /// The part this transcribes, for the subtitle cache (research/subtitle-
+  /// switch-design-2026-09-26.md, 9B); null keeps nothing.
+  final SubtitleCacheKey? cacheKey;
+
+  /// Its entry, once read: what was kept of this part before is put in the
+  /// transcript before anything runs, and what is made is kept in it as it
+  /// goes. The translation of this transcript keeps its own half there.
+  SubtitleCacheEntry? get cache => _cache;
+  SubtitleCacheEntry? _cache;
+
+  /// Done once the cache has been read (or there is none to read): a
+  /// translation started meanwhile waits for it, to start with what was
+  /// translated before.
+  Future<void> get cacheRead =>
+      cacheKey == null ? Future.value() : _cacheRead.future;
+  final _cacheRead = Completer<void>();
+
+  /// Seconds of media the entry covered when the session started, for the
+  /// probes.
+  var cachedSeconds = 0.0;
+
+  /// What the transcript was when last kept, and when that was.
+  String? _cacheSignature;
+  var _cacheSavedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   final state = const AsrState.idle().obs;
 
@@ -332,6 +359,9 @@ class AsrSession {
     _download?.cancel();
     final run = _run;
     if (run != null) _endRun(run);
+    // a page left, or another video's job took over: kept for when it is
+    // back (8B)
+    _saveCache();
     final transcriber = _transcriber;
     _transcriber = null;
     transcriber?.close();
@@ -348,6 +378,8 @@ class AsrSession {
     if (run != null) _endRun(run);
     _closeRecogniser();
     _download?.cancel();
+    // the app may not come back from the background
+    _saveCache();
     if (state.value.stage != AsrStage.done &&
         state.value.stage != AsrStage.failed &&
         state.value.stage != AsrStage.idle) {
@@ -452,6 +484,7 @@ class AsrSession {
     }
     _woundDown = true;
     _setWoundDown();
+    _saveCache();
     if (kDebugMode) debugPrint('asr: wound down');
     return true;
   }
@@ -482,6 +515,82 @@ class AsrSession {
   }
 
   // ---------------------------------------------------------------------
+  // the subtitle cache
+
+  /// Puts what [entry] kept into the transcript, before anything runs: the
+  /// stretches it covers are known, the scheduler fills only the gaps, and
+  /// a part covered whole is done without the recogniser. The language is
+  /// voted again from its segments, in time order, as they came.
+  void _restoreCache(SubtitleCacheEntry entry) {
+    _cache = entry;
+    if (entry.runs.isEmpty || transcript.runs.isNotEmpty) return;
+    transcript.restore(entry.runs);
+    _mediaEnd ??= entry.mediaEnd;
+    cachedSeconds = coveredSeconds;
+    _cacheSignature = _cacheSignatureNow();
+    for (final s
+        in transcript.runs.expand((r) => r.segments).toList()
+          ..sort((a, b) => a.start.compareTo(b.start))) {
+      _vote.add(s.language, s.weight);
+    }
+    final language = _vote.winner;
+    if (language != null) {
+      _set(
+        AsrState(
+          stage: state.value.stage,
+          progress: state.value.progress,
+          message: state.value.message,
+          language: language,
+        ),
+      );
+    }
+    if (kDebugMode) {
+      debugPrint('asr: ${cachedSeconds.toStringAsFixed(1)}s from the cache');
+    }
+  }
+
+  /// Where the last segment known from the media's start ends: a run from
+  /// 0 has nothing to add before it. Null when nothing is known from there.
+  double? _keptFromStart() {
+    final covered = transcript.covered;
+    if (covered.isEmpty || covered.first.from > 0.5) return null;
+    final span = covered.first;
+    double? end;
+    for (final s in transcript.segments) {
+      if (s.start >= span.to) break;
+      final e = s.start + s.duration;
+      if (end == null || e > end) end = e;
+    }
+    return end;
+  }
+
+  String _cacheSignatureNow() =>
+      '${transcript.segments.length}/${cues.length}/$coveredSeconds/$_mediaEnd';
+
+  /// Keeps the transcript every so often while it grows: an app killed in
+  /// the background loses only the last few seconds of it.
+  void _maybeSaveCache() {
+    if (_cache == null) return;
+    if (DateTime.now().difference(_cacheSavedAt) <
+        const Duration(seconds: 10)) {
+      return;
+    }
+    _saveCache();
+  }
+
+  /// Keeps the transcript in the cache now, if it changed since last kept.
+  void _saveCache() {
+    final entry = _cache;
+    if (entry == null) return;
+    final signature = _cacheSignatureNow();
+    _cacheSavedAt = DateTime.now();
+    if (signature == _cacheSignature) return;
+    _cacheSignature = signature;
+    entry.captureTranscript(transcript, mediaEnd: _mediaEnd);
+    unawaited(entry.save());
+  }
+
+  // ---------------------------------------------------------------------
   // runs
 
   /// Starts the session proper, once the models are there.
@@ -496,7 +605,10 @@ class AsrSession {
     _userAgent = userAgent;
     _models = models;
     unawaited(_watchPower());
-    _set(const AsrState(stage: AsrStage.extracting));
+    // (the language the cache's text was voted, if it gave one, stays)
+    _set(
+      AsrState(stage: AsrStage.extracting, language: state.value.language),
+    );
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) => _tick());
     _tick();
   }
@@ -557,6 +669,7 @@ class AsrSession {
 
   void _tick() {
     if (_closed || _suspended || _starting || _models == null) return;
+    _maybeSaveCache();
     _readPlayhead();
     final winding = _windingDown;
     // a save waiting for the whole transcript lifts a wind-down, even one
@@ -647,6 +760,11 @@ class AsrSession {
   /// One run from 0 to the end, as before: only pausing and resuming.
   void _tickUnseekable(AsrStep step, _Run? run) {
     if (run == null) {
+      // covered whole by what the cache kept: nothing to run
+      if (step is AsrComplete) {
+        _complete();
+        return;
+      }
       if (_serials == 0) unawaited(_startRun(0, adjacent: false));
       if (_serials > 0 && _mediaEnd != null) _complete();
       return;
@@ -669,6 +787,7 @@ class AsrSession {
   void _complete() {
     final run = _run;
     if (run != null) _endRun(run);
+    _saveCache();
     // done: the recogniser has nothing left to do, and its models go
     _closeRecogniser();
     _ticker?.cancel();
@@ -806,6 +925,13 @@ class AsrSession {
         pcmPath: pcmPath,
       );
       _run = run;
+      if (!seekable && extractFrom == 0) {
+        // the one run such a source has starts from 0 whatever the cache
+        // kept from there: what it recognises is dropped until past the
+        // last segment kept, as after a join (see [_commitJoin])
+        final kept = _keptFromStart();
+        if (kept != null) run.skipUntil = kept;
+      }
       debugSeams.add({
         'kind': 'start',
         'run': serial,
@@ -915,6 +1041,7 @@ class AsrSession {
           AsrState(
             stage: AsrStage.extracting,
             message: '提取音频 ${_extracted.toStringAsFixed(0)}s',
+            language: state.value.language,
           ),
         );
       }
@@ -1331,6 +1458,10 @@ class AsrService extends GetxService {
   /// keeps it to that one run whatever the viewer does (a source that
   /// cannot be started from a position). [refresh] is asked for the source
   /// at every later run (see [AsrSourceRefresh]).
+  ///
+  /// [cache] names the part for the subtitle cache: what was kept of it is
+  /// shown at once and only the gaps are transcribed, and what is made is
+  /// kept. Without it nothing is read or kept.
   Future<AsrSession> start({
     required String key,
     required String source,
@@ -1341,6 +1472,7 @@ class AsrService extends GetxService {
     double? Function()? duration,
     AsrSourceRefresh? refresh,
     AsrPower? power,
+    SubtitleCacheKey? cache,
   }) async {
     // one job at a time: a job another page still has is failed, not merely
     // closed, so that page hears it is gone (see [stop])
@@ -1351,6 +1483,7 @@ class AsrService extends GetxService {
       playhead: playhead,
       duration: duration,
       refreshSource: refresh,
+      cacheKey: cache,
     );
     if (power != null) {
       session
@@ -1401,18 +1534,74 @@ class AsrService extends GetxService {
   @visibleForTesting
   void debugAdopt(AsrSession session) => _current = session;
 
+  /// The subtitle cache sessions read and keep to; the app's unless a test
+  /// gives another.
+  SubtitleCache get cache => debugCache ?? SubtitleCache.instance;
+
+  @visibleForTesting
+  SubtitleCache? debugCache;
+
+  /// The app is closing: the current transcript is kept as it is now, and
+  /// every write of the cache waited for.
+  Future<void> keepCache() async {
+    _current?._saveCache();
+    await cache.flush();
+  }
+
+  /// What transcribes, as the subtitle cache tells one recogniser's text
+  /// from another's: the models, and the language if one is forced.
+  static String get recogniserId => subtitleRecogniserId(
+    model: AsrModelCatalog.senseVoice.id,
+    vad: AsrModelCatalog.vad.id,
+    language: Pref.asrLanguage,
+  );
+
+  /// What the cache kept of [session]'s part, put in its transcript before
+  /// anything else happens. A cache that cannot be read is no cache.
+  Future<void> _readCache(AsrSession session, String recogniser) async {
+    final key = session.cacheKey;
+    if (key == null) return;
+    try {
+      final entry = await cache.open(key, recogniser);
+      if (session._closed) return;
+      session._restoreCache(entry);
+    } catch (e, stack) {
+      Utils.reportError('subtitle cache: $e', stack);
+    } finally {
+      session._cacheRead.complete();
+    }
+  }
+
   Future<void> _run(
     AsrSession session,
     String source,
     String? referer,
     String? userAgent,
   ) async {
+    // read now: a change of language in settings mid-start must not keep
+    // one recogniser's text under another's name
+    final recogniser = recogniserId;
+    if (session.cacheKey != null) {
+      // busy at once, before the cache is awaited: a caller waiting for the
+      // job to stop being busy must not find it idle in between
+      session._set(
+        AsrState(
+          stage: store.isReady ? AsrStage.extracting : AsrStage.models,
+        ),
+      );
+      await _readCache(session, recogniser);
+    }
     try {
       if (!store.isReady) {
         final token = AsrCancelToken();
         session
           .._download = token
-          .._set(const AsrState(stage: AsrStage.models));
+          .._set(
+            AsrState(
+              stage: AsrStage.models,
+              language: session.state.value.language,
+            ),
+          );
         await store.ensureAll(
           token: token,
           onProgress: (p) => session._set(
@@ -1420,6 +1609,7 @@ class AsrService extends GetxService {
               stage: AsrStage.models,
               progress: p.total == 0 ? null : p.received / p.total,
               message: p.verifying ? '校验 ${p.label}' : '下载 ${p.label}',
+              language: session.state.value.language,
             ),
           ),
         );
@@ -1428,7 +1618,12 @@ class AsrService extends GetxService {
       if (session._closed) return;
       // at once, before anything is awaited: a caller waiting for the job
       // to stop being busy must not find it idle in between
-      session._set(const AsrState(stage: AsrStage.extracting));
+      session._set(
+        AsrState(
+          stage: AsrStage.extracting,
+          language: session.state.value.language,
+        ),
+      );
       await session._begin(
         source: source,
         referer: referer,

@@ -16,6 +16,7 @@ import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -137,6 +138,9 @@ void main(List<String> args) async {
     CacheManager.ensureInitialized(),
     ?FontUtils.init(),
   ]);
+  // LibrePili: the subtitle cache back within its limit (a limit lowered,
+  // entries left by a run that ended mid-write); nothing waits on it
+  unawaited(SubtitleCache.instance.evict());
   Get
     ..lazyPut(AccountService.new)
     ..lazyPut(DownloadService.new)

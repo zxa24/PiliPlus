@@ -482,6 +482,14 @@ abstract final class Pref {
     return value is List ? value.whereType<String>().toList() : const [];
   }
 
+  /// LibrePili: how much disk the on-device subtitle cache may take, in
+  /// MB (research/subtitle-switch-design-2026-09-26.md, 9B: 0.5 GB unless
+  /// changed); the least recently used entries go past it.
+  static int get subtitleCacheLimitMb {
+    final stored = _setting.get(SettingBoxKey.subtitleCacheLimit);
+    return stored is int && stored > 0 ? stored : 512;
+  }
+
   /// LibrePili: which platform the app is showing (see [PlatformMode]).
   static PlatformMode get platformMode => _enumAt(
     PlatformMode.values,

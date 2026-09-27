@@ -26,6 +26,8 @@ import 'package:PiliPlus/services/translate/llama_engine.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
+import 'package:PiliPlus/services/subtitle_cache/translation_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart';
@@ -151,6 +153,10 @@ class TranslationService extends GetxService {
   /// Started whatever the speech's language: each unit is decided by its
   /// own (see [routeFor]), and one already in [into] is shown as it is
   /// without the model being loaded for it.
+  ///
+  /// A transcript kept in the subtitle cache ([AsrSession.cache]) keeps its
+  /// translations there too: what was translated of the same text into the
+  /// same language by the same model is taken, not made again.
   Future<TranslationSession> start({
     required AsrSession asr,
     required double Function() position,
@@ -166,6 +172,10 @@ class TranslationService extends GetxService {
     ownsPlayer,
     into ?? target,
     perUnit: true,
+    cache: () async {
+      await asr.cacheRead;
+      return asr.cache;
+    },
   );
 
   /// Starts translating a video's own captions, all known up front.
@@ -194,6 +204,7 @@ class TranslationService extends GetxService {
     String into, {
     String? from,
     bool perUnit = false,
+    Future<SubtitleCacheEntry?> Function()? cache,
   }) {
     final stops = _stops;
     _pending++;
@@ -206,6 +217,7 @@ class TranslationService extends GetxService {
         from,
         stops,
         perUnit: perUnit,
+        cache: cache,
       ),
     );
     _starting = started.then((_) {}, onError: (_) {});
@@ -220,8 +232,12 @@ class TranslationService extends GetxService {
     String? from,
     int stops, {
     required bool perUnit,
+    Future<SubtitleCacheEntry?> Function()? cache,
   }) async {
     try {
+      // the transcript's entry, once read: a start right after the
+      // transcription's would otherwise miss it
+      final entry = await cache?.call();
       // the one this replaces belongs to a page this one's covers: it waits
       // for that page to be back rather than being stopped. A page starting
       // again stops its own first (see TranslationTrack).
@@ -236,6 +252,7 @@ class TranslationService extends GetxService {
         from: from,
         perUnit: perUnit,
         stopped: stops != _stops,
+        cache: entry,
       );
     } finally {
       _pending--;
@@ -391,6 +408,7 @@ class TranslationService extends GetxService {
     String? from,
     bool perUnit = false,
     required bool stopped,
+    SubtitleCacheEntry? cache,
   }) {
     final traditional = into == traditionalChinese;
     final session = TranslationSession(
@@ -409,6 +427,14 @@ class TranslationService extends GetxService {
       ownsPlayer: ownsPlayer,
     )..claim = _claim;
     _wireExtras(session);
+    if (cache != null && !stopped) {
+      // before it starts: what the cache has is settled from the first look
+      _cacheLinks[session] = TranslationCacheLink(
+        session,
+        cache,
+        key: subtitleTranslationKey(into, modelId),
+      );
+    }
     if (stopped) {
       // stopped before it began: nothing is loaded, and its page hears why
       // as it would have had it been running
@@ -507,7 +533,29 @@ class TranslationService extends GetxService {
     await _dispose(session);
   }
 
+  /// Each translation's tie to the subtitle cache, while it lives.
+  final _cacheLinks = <TranslationSession, TranslationCacheLink>{};
+
+  /// What the subtitle cache keeps translations under as their model: the
+  /// chosen one's id, or the file the self-test loads instead.
+  String get modelId {
+    final file = _debugModelPath;
+    return file == null ? model.id : 'file:${path.basename(file)}';
+  }
+
+  String? _debugModelPath;
+
+  /// The app is closing: every translation's results are kept now, not
+  /// after the pause a change otherwise waits (see [TranslationCacheLink]).
+  void keepCache() {
+    for (final link in _cacheLinks.values) {
+      link.save();
+    }
+  }
+
   Future<void> _dispose(TranslationSession session) {
+    // what it made is kept before it goes
+    _cacheLinks.remove(session)?.close();
     final disposed = session.dispose();
     final before = _disposing;
     _disposing = Future.wait([before, disposed]).then((_) {}, onError: (_) {});
@@ -517,10 +565,13 @@ class TranslationService extends GetxService {
   /// For the self-test (`--translate-model`): translations load [path]
   /// instead of the installed model — a phone test build has none of its
   /// own. Nothing else calls it.
-  void useModelFile(String path) => debugEngine = (report) {
-    report('加载模型');
-    return LlamaTranslationEngine.load(path);
-  };
+  void useModelFile(String path) {
+    _debugModelPath = path;
+    debugEngine = (report) {
+      report('加载模型');
+      return LlamaTranslationEngine.load(path);
+    };
+  }
 
   /// Stands in for loading the model, in tests.
   @visibleForTesting

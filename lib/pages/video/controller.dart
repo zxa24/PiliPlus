@@ -70,6 +70,7 @@ import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
@@ -1802,6 +1803,16 @@ class VideoDetailController extends GetxController
 
   bool get canTranscribe => _asrSource?.isNotEmpty == true;
 
+  /// The part as the subtitle cache knows it: its cid — a download keeps
+  /// the cid of what it was downloaded from, and shares its entry — or, for
+  /// a local file with no record, the file.
+  SubtitleCacheKey get _asrCacheKey => !isFileSource || cid.value > 0
+      ? SubtitleCacheKey.bilibili(cid.value)
+      : SubtitleCacheKey.local(
+          entry.mergedPath ?? entry.playUri ?? '',
+          size: entry.totalBytes,
+        );
+
   Future<void> startAsr({bool auto = false}) async {
     var source = _asrSource;
     if (source == null || source.isEmpty) {
@@ -1863,6 +1874,7 @@ class VideoDetailController extends GetxController
             ? null
             : now;
       },
+      cache: _asrCacheKey,
     );
     // closed meanwhile: onClose found no session to stop, and nothing else
     // would ever stop this one

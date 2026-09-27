@@ -1,8 +1,10 @@
 import 'package:PiliPlus/models/common/asr_mode.dart';
+import 'package:PiliPlus/models/common/subtitle_cache_limit.dart';
 import 'package:PiliPlus/models/common/translate_mode.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/pages/local_models.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
@@ -127,6 +129,54 @@ List<SettingsModel> get asrSettings => [
       },
     ),
   ],
+  // what transcription and translation made, kept per video (design
+  // 2026-09-26, 9B): bounded, and cleared on its own
+  PopupModel<SubtitleCacheLimit>(
+    title: '字幕缓存上限',
+    leading: const Icon(Icons.sd_storage_outlined),
+    value: () => SubtitleCacheLimit.of(Pref.subtitleCacheLimitMb),
+    items: SubtitleCacheLimit.values,
+    onSelected: (value, setState) async {
+      await GStorage.setting.put(SettingBoxKey.subtitleCacheLimit, value.mb);
+      // a lower limit applies now, not at the next write
+      await SubtitleCache.instance.evict();
+      setState();
+    },
+  ),
+  NormalModel(
+    title: '清除字幕缓存',
+    leading: const Icon(Icons.delete_sweep_outlined),
+    getSubtitle: () {
+      final used = SubtitleCache.instance.usage;
+      return used == null
+          ? '本机生成的字幕与译文'
+          : '本机生成的字幕与译文，已占用 ${CacheManager.formatSize(used)}';
+    },
+    onTap: (context, setState) async {
+      final used = await SubtitleCache.instance.measure();
+      if (!context.mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('清除字幕缓存？'),
+          content: Text(
+            '已占用 ${CacheManager.formatSize(used)}。'
+            '清除后，再看这些视频时字幕需要重新生成。',
+          ),
+          actions: [
+            TextButton(onPressed: Get.back, child: const Text('取消')),
+            TextButton(
+              onPressed: () => Get.back(result: true),
+              child: const Text('清除'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await SubtitleCache.instance.clear();
+      setState();
+    },
+  ),
 ];
 
 /// Which languages the subtitle menu lists by name, besides the app's; the

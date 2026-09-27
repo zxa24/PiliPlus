@@ -99,6 +99,8 @@ abstract final class SettingBoxKey {
       translateModel = 'translateModel',
       translateDual = 'translateDual',
       translatePinnedLanguages = 'translatePinnedLanguages',
+      // LibrePili: how much disk the subtitle cache may take, in MB
+      subtitleCacheLimit = 'subtitleCacheLimit',
       av1Hardware = 'av1Hardware',
       av1Software = 'av1Software',
       platformMode = 'platformMode',
