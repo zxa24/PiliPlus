@@ -1840,7 +1840,6 @@ class VideoDetailController extends GetxController
       source: source,
       referer: isFileSource ? null : HttpString.baseUrl,
       userAgent: isFileSource ? null : BrowserUa.pc,
-      auto: auto,
       // Runs from where the viewer is (research/chunked-transcription-
       // design-2026-09-25.md) need a source that can be started from a
       // position: not a document read once through its descriptor, nor the
@@ -1914,9 +1913,11 @@ class VideoDetailController extends GetxController
           _closeAsrGate();
           // stopped before its track comes off, or it would put it back
           _stopTranscriptTranslation(always: true);
-          // the service gave up on its own — an automatic run that turned out
-          // to be in the user's own language. Take the half-finished track
-          // back off the menu; a *manual* stop keeps what was recognised.
+          // the job ended before it ran (its model download was cancelled):
+          // nothing of it belongs in the menu. The service no longer gives
+          // up on the app's own language, and a session switched off is
+          // standby, never idle (see AsrSession.windDown); a *manual* stop
+          // keeps what was recognised.
           _removeAsrTrack();
         case _:
           break;
@@ -2330,9 +2331,8 @@ class VideoDetailController extends GetxController
     }
     _translationRequested = true;
     final session = asrSession.value;
-    // one that has ended (an automatic run that gave up on the app's own
-    // language, too) makes no more text: waiting on it left the menu at
-    // 准备中 for good
+    // one that has ended (failed) makes no more text: waiting on it left
+    // the menu at 准备中 for good
     if (session == null || session.hasEnded) {
       // captions that could not be fetched land here too, and the menu has
       // not asked about the recogniser's download for them
@@ -2566,8 +2566,7 @@ class VideoDetailController extends GetxController
     _wantedOnDevice = 'asr';
     final session = asrSession.value;
     // one that has ended with nothing shown starts again (a failed one in
-    // any case): an automatic run that gave up on the app's language left
-    // this entry doing nothing
+    // any case), rather than leaving this entry doing nothing
     if ((index == null && (session == null || session.hasEnded)) ||
         session?.state.value.stage == AsrStage.failed) {
       await startAsr();

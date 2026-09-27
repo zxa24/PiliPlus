@@ -2,9 +2,11 @@
 /// subtitle track.
 ///
 /// The pipeline is extract → detect → transcribe, and every step can be
-/// abandoned: the user can leave the page, the models may be missing, and a
-/// video whose speech turns out to be in the app's own language is dropped
-/// rather than transcribed (see [AsrMode.foreign]).
+/// abandoned: the user can leave the page, or the models may be missing.
+/// Whatever language the speech turns out to be in, it is transcribed: only
+/// the subtitle switch decides whether it is (design 2026-09-26, 3) — and
+/// switched off mid-video, the session winds down rather than stopping (see
+/// [AsrSession.windDown]).
 ///
 /// A job is no longer one pass from the first second to the last
 /// (research/chunked-transcription-design-2026-09-25.md). It is a session
@@ -38,6 +40,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
+
+/// The standby message of a session wound down (see [AsrSession.windDown]).
+const asrWoundDownMessage = '已关闭';
 
 enum AsrStage {
   idle,
@@ -224,7 +229,6 @@ class AsrSession {
   String _source = '';
   String? _referer;
   String? _userAgent;
-  bool _auto = false;
   AsrModels? _models;
 
   _Run? _run;
@@ -240,15 +244,14 @@ class AsrSession {
   /// none).
   int get runCount => _serials;
 
-  /// It will make no more text: it failed, or it ran and then stopped —
-  /// among others by giving up on speech in the app's language, which also
-  /// forgets the language it found. A page asked by the user for this
-  /// transcript, or a translation of it, starts a new one instead of
+  /// It will make no more text: it failed. A page asked by the user for
+  /// this transcript, or a translation of it, starts a new one instead of
   /// waiting on this.
-  bool get hasEnded {
-    final stage = state.value.stage;
-    return stage == AsrStage.failed || (stage == AsrStage.idle && runCount > 0);
-  }
+  ///
+  /// A session no longer gives up by itself (design 2026-09-26, 3), so it
+  /// never goes back to idle once it has run; and one wound down (see
+  /// [windDown]) has not ended — [resumeOn] carries it on, text and all.
+  bool get hasEnded => state.value.stage == AsrStage.failed;
 
   /// Pauses and resumes so far, for the probes.
   var pauses = 0;
@@ -279,8 +282,12 @@ class AsrSession {
   /// Seconds of audio decoded so far, for the "提取音频 Ns" label.
   double _extracted = 0;
 
-  /// Whether this session has decided the media is its language already.
-  var _gaveUp = false;
+  /// Switched off (see [windDown]): where transcription goes on to before
+  /// it stops, in media seconds; null while switched on.
+  double? _windDownUntil;
+
+  /// ...and it has got there: no run, no recogniser, standby.
+  var _woundDown = false;
 
   bool get isRunning => state.value.isBusy;
 
@@ -359,10 +366,111 @@ class AsrSession {
   void resume() {
     if (_closed || !_suspended) return;
     _suspended = false;
+    // wound down before the guard stopped it: still off, and says so
+    if (_woundDown && _windingDown) _setWoundDown();
     if (_models != null) _tick();
   }
 
   bool get isSuspended => _suspended;
+
+  /// The subtitle switch turned off mid-video (design 2026-09-26, 4): the
+  /// session goes on transcribing until what it covers reaches
+  /// [asrWindDownWindow] past where the viewer is now, then its run ends
+  /// and the recogniser is let go of, as [suspend] does — the text so far
+  /// stays, and the session sits at [AsrStage.standby] with
+  /// [asrWoundDownMessage]. Never idle: idle is what a page takes for a
+  /// transcription that is gone (the bilibili page takes its track off,
+  /// YouTube stops translating, a save waiting on it gives up).
+  ///
+  /// Until [resumeOn], nothing new is started — no run where the viewer
+  /// jumps to, no resuming a paused one. A save waiting for the whole
+  /// transcript ([requestFullCoverage]) comes first: while it waits the
+  /// session fills gaps as if switched on, and winds down again after.
+  void windDown() {
+    if (_closed || _windDownUntil != null) return;
+    final stage = state.value.stage;
+    if (stage == AsrStage.done || stage == AsrStage.failed) return;
+    _readPlayhead();
+    _windDownUntil =
+        _playhead +
+        asrWindDownWindow(
+          speed: pace.speed,
+          restartCost: pace.restartCost,
+          power: power,
+        );
+    if (kDebugMode) debugPrint('asr: winding down to $_windDownUntil');
+    if (_models != null) _tick();
+  }
+
+  /// The subtitle switch back on after [windDown]: the same session carries
+  /// on from where the viewer is, keeping what it has.
+  void resumeOn() {
+    if (_closed || _windDownUntil == null) return;
+    _windDownUntil = null;
+    _woundDown = false;
+    if (_models != null) _tick();
+  }
+
+  /// Whether the switch is off: winding down, or wound down.
+  bool get isSwitchedOff => _windDownUntil != null;
+
+  /// Whether a wind-down has got where it was going and stopped.
+  bool get isWoundDown => _woundDown;
+
+  /// Where a wind-down stops, for the probes.
+  double? get windDownUntil => _windDownUntil;
+
+  /// Winding down and no save waiting: [_tick] asks [_windDownStep].
+  bool get _windingDown => _windDownUntil != null && _fullCoverage == 0;
+
+  /// One tick while winding down: carry on to the mark, then stop there.
+  /// Returns whether it has stopped (and the tick has nothing more to do).
+  bool _windDownStep() {
+    if (_woundDown) return true;
+    if (_starting) return false;
+    final run = _run;
+    // a join under way finishes first (see [_tick])
+    if (run != null && run.join != null) return false;
+    final view = run == null
+        ? null
+        : (
+            start: run.store.from,
+            frontier: run.frontier > run.store.end
+                ? run.frontier
+                : run.store.end,
+            paused: run.paused,
+          );
+    if (!asrWindDownReached(run: view, until: _windDownUntil!)) return false;
+    if (run != null && !seekable) {
+      // the one run such a source has is kept, paused: a new one would
+      // start from 0 again, if the source can be read twice at all (an
+      // Android document is read once through its descriptor)
+      _pause(run);
+    } else {
+      if (run != null) _endRun(run);
+      _closeRecogniser();
+    }
+    _woundDown = true;
+    _setWoundDown();
+    if (kDebugMode) debugPrint('asr: wound down');
+    return true;
+  }
+
+  void _setWoundDown() {
+    final stage = state.value.stage;
+    if (stage == AsrStage.done || stage == AsrStage.failed) return;
+    final media = duration;
+    _set(
+      AsrState(
+        stage: AsrStage.standby,
+        message: asrWoundDownMessage,
+        language: state.value.language,
+        progress: media == null || media <= 0
+            ? state.value.progress
+            : (coveredSeconds / media).clamp(0.0, 1.0),
+      ),
+    );
+  }
 
   void _closeRecogniser() {
     final transcriber = _transcriber;
@@ -381,13 +489,11 @@ class AsrSession {
     required String source,
     String? referer,
     String? userAgent,
-    required bool auto,
     required AsrModels models,
   }) async {
     _source = source;
     _referer = referer;
     _userAgent = userAgent;
-    _auto = auto;
     _models = models;
     unawaited(_watchPower());
     _set(const AsrState(stage: AsrStage.extracting));
@@ -450,10 +556,12 @@ class AsrSession {
   }
 
   void _tick() {
-    if (_closed || _suspended || _starting || _models == null || _gaveUp) {
-      return;
-    }
+    if (_closed || _suspended || _starting || _models == null) return;
     _readPlayhead();
+    final winding = _windingDown;
+    // a save waiting for the whole transcript lifts a wind-down, even one
+    // that has stopped: the recogniser opens again for the next run
+    if (!winding) _woundDown = false;
     final run = _run;
     final media = duration;
     final covered = transcript.covered;
@@ -473,6 +581,33 @@ class AsrSession {
       lead: leadWindow,
       pace: pace,
     );
+    if (winding) {
+      // switched off: only the run going on carries on, to the mark; the
+      // media covered whole is done all the same
+      if (step is AsrComplete && (run == null || run.join == null)) {
+        _complete();
+        return;
+      }
+      // the run joined text already known short of the mark: one more at
+      // that text's end, as the lead rule asks — but nothing where the
+      // viewer jumps to, and no gap filled
+      if (!_woundDown &&
+          run == null &&
+          step is AsrStartAt &&
+          step.adjacent &&
+          !step.backfill &&
+          step.at < _windDownUntil! - 1) {
+        final backoff = _backoffUntil;
+        if (backoff == null || !DateTime.now().isBefore(backoff)) {
+          unawaited(_startRun(step.at, adjacent: true));
+          return;
+        }
+      }
+      if (_windDownStep()) return;
+      if (step is AsrPause && run != null && run.join == null) _pause(run);
+      _updateState();
+      return;
+    }
     if (!seekable) {
       _tickUnseekable(step, run);
       return;
@@ -547,6 +682,7 @@ class AsrSession {
   }
 
   void _updateState() {
+    if (_woundDown) return;
     final stage = state.value.stage;
     if (stage == AsrStage.done ||
         stage == AsrStage.failed ||
@@ -975,20 +1111,8 @@ class AsrSession {
         language: winner,
       ),
     );
-    // an automatic run only exists to help with speech the user cannot
-    // follow; if it turns out to be their own language, stop rather than
-    // spend the battery
-    if (_auto &&
-        Pref.asrMode == AsrMode.foreign &&
-        AsrService._isAppLanguage(winner)) {
-      if (kDebugMode) debugPrint('asr: $winner is the app language, stopping');
-      _gaveUp = true;
-      final run = _run;
-      if (run != null) _endRun(run);
-      _closeRecogniser();
-      _ticker?.cancel();
-      _set(const AsrState.idle());
-    }
+    // only a label now: whatever the language, transcription goes on
+    // (design 2026-09-26, 3), and each line keeps its own for translation
   }
 
   void _onProgress(_Run run, AsrProgressUpdate event) {
@@ -1212,7 +1336,6 @@ class AsrService extends GetxService {
     required String source,
     String? referer,
     String? userAgent,
-    bool auto = false,
     bool seekable = true,
     double? Function()? playhead,
     double? Function()? duration,
@@ -1235,7 +1358,7 @@ class AsrService extends GetxService {
         ..debugPowerFixed = true;
     }
     _current = session;
-    unawaited(_run(session, source, referer, userAgent, auto));
+    unawaited(_run(session, source, referer, userAgent));
     return session;
   }
 
@@ -1283,7 +1406,6 @@ class AsrService extends GetxService {
     String source,
     String? referer,
     String? userAgent,
-    bool auto,
   ) async {
     try {
       if (!store.isReady) {
@@ -1311,7 +1433,6 @@ class AsrService extends GetxService {
         source: source,
         referer: referer,
         userAgent: userAgent,
-        auto: auto,
         models: (
           japaneseSegmenter: await loadJapaneseSegmenter(),
           chineseSegmenter: await loadChineseSegmenter(),
@@ -1345,21 +1466,16 @@ class AsrService extends GetxService {
     }
   }
 
-  /// Compares at the "major language" level: `zh` covers zh-Hans, zh-Hant and
-  /// yue, which is as fine as SenseVoice's own language ID is useful.
-  ///
-  /// The comparison is against the language the *app* is in, not the device's
-  /// — the point is whether the user can follow the speech, and the app is
-  /// what they chose to read. That is `Get.locale`, which GetMaterialApp
-  /// sets from the locale main.dart gives it — fixed to Chinese, the one
-  /// language the interface is written in. Before it is set, Chinese too:
-  /// the device's locale is not what the app displays, and a Chinese-UI user
-  /// on an English phone would have Chinese captions translated to English.
-  static bool _isAppLanguage(String spoken) =>
-      isSameMajorLanguage(spoken, appLanguage);
-
   /// The language the app is in, as a major language code (`zh`, `en`, …).
   /// Also what translation translates into.
+  ///
+  /// The language the *app* is in, not the device's — the point is whether
+  /// the user can follow the speech, and the app is what they chose to
+  /// read. That is `Get.locale`, which GetMaterialApp sets from the locale
+  /// main.dart gives it — fixed to Chinese, the one language the interface
+  /// is written in. Before it is set, Chinese too: the device's locale is
+  /// not what the app displays, and a Chinese-UI user on an English phone
+  /// would have Chinese captions translated to English.
   static String get appLanguage => Get.locale?.languageCode ?? 'zh';
 
   /// True when [spoken] and [appLanguage] are the same language at the level

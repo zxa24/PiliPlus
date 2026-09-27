@@ -115,6 +115,39 @@ AsrLeadWindow asrLeadWindow({
   return (low: low, high: low + math.max(120, 3 * cs), pauses: true);
 }
 
+/// How far past the playhead a session switched off mid-video goes on
+/// transcribing before it stops (design 2026-09-26, 4 and 7A), in seconds.
+///
+/// "To the end of the lead window": its high mark, where one has an end.
+/// Where it has none — [AsrPower.unlimited], or `s < 1.1` — the battery
+/// rule's high mark instead, `max(150, c·s + 30) + max(120, 3·c·s)`: about
+/// six minutes at the measured `s ≈ 27`, `c ≈ 2.5`. Switched off, nothing
+/// is worth transcribing to the end of the video for.
+double asrWindDownWindow({
+  required double speed,
+  required double restartCost,
+  required AsrPower power,
+}) {
+  final lead = asrLeadWindow(
+    speed: speed,
+    restartCost: restartCost,
+    power: power,
+  );
+  if (lead.high.isFinite) return lead.high;
+  final cs = restartCost * speed;
+  final low = math.max(asrTranslationLead + 30, cs + 30);
+  return low + math.max(120, 3 * cs);
+}
+
+/// Whether a session winding down (see [asrWindDownWindow]) has gone far
+/// enough and stops: it has no run left, its run has reached [until] or
+/// starts past it, or its run was paused by the lead rule (under
+/// [AsrPower.saver], whose window ends sooner than the one it was given).
+bool asrWindDownReached({required AsrRunView? run, required double until}) {
+  if (run == null) return true;
+  return run.paused || run.frontier >= until - _eps || run.start >= until;
+}
+
 /// What the scheduler needs to know about the run in progress.
 typedef AsrRunView = ({
   /// Where the run's own text starts.

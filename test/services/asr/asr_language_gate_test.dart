@@ -1,9 +1,9 @@
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The gate behind "外语视频自动转录": a run that starts by itself exists to
-/// help with speech the viewer cannot follow, so it stops as soon as the
-/// speech turns out to be in the language the app is already in.
+/// "The same language" at the level a viewer cares about. It no longer
+/// stops a transcription (design 2026-09-26, 3); it is what the probes use
+/// to compare the speech with the app's language.
 void main() {
   group('same language', () {
     const same = [

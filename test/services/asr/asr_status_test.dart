@@ -81,6 +81,38 @@ void main() {
       );
     });
 
+    test('switched off and wound down: 已关闭, and what it made', () {
+      expect(
+        label(
+          AsrStage.standby,
+          [(from: 0, to: 414)],
+          message: asrWoundDownMessage,
+        ),
+        '已关闭（已生成到 6:54）',
+      );
+      expect(
+        label(
+          AsrStage.standby,
+          [(from: 0, to: 300), (from: 600, to: 900)],
+          message: asrWoundDownMessage,
+        ),
+        '已关闭（已生成 2 段，共 10:00）',
+      );
+      expect(
+        label(AsrStage.standby, const [], message: asrWoundDownMessage),
+        '已关闭',
+      );
+      // whole before it was switched off: that is what matters
+      expect(
+        label(
+          AsrStage.standby,
+          [(from: 0, to: 1800)],
+          message: asrWoundDownMessage,
+        ),
+        '已全部生成',
+      );
+    });
+
     test('all of it: 已全部生成', () {
       expect(label(AsrStage.done, [(from: 0, to: 1799.5)]), '已全部生成');
       // covered before the session has said so
@@ -107,6 +139,65 @@ void main() {
       {'from': 3661.0, 'to': 3662.5, 'content': 'two\nlines'},
     ];
     expect(SubtitleUtils.vtt2Json(SubtitleUtils.json2Vtt(list)), list);
+  });
+
+  group('the switch on the session (design 2026-09-26, 3 and 4)', () {
+    test('only a failure has ended it', () {
+      final session = AsrSession.debugFor('t');
+      expect(session.hasEnded, isFalse);
+      for (final stage in [
+        AsrStage.transcribing,
+        AsrStage.standby,
+        AsrStage.done,
+      ]) {
+        session.debugSet(AsrState(stage: stage));
+        expect(session.hasEnded, isFalse, reason: stage.name);
+      }
+      session.debugSet(
+        const AsrState(stage: AsrStage.standby, message: asrWoundDownMessage),
+      );
+      expect(session.hasEnded, isFalse);
+      session.debugSet(const AsrState(stage: AsrStage.failed));
+      expect(session.hasEnded, isTrue);
+    });
+
+    test('off: a mark the wind-down window past the playhead; on lifts it', () {
+      final session = AsrSession.debugFor('t')
+        ..power = AsrPower.battery
+        ..debugPowerFixed = true
+        ..debugSet(const AsrState(stage: AsrStage.transcribing));
+      expect(session.isSwitchedOff, isFalse);
+      session.windDown();
+      expect(session.isSwitchedOff, isTrue);
+      // no playhead: 0, plus the window at the guessed pace (s 10, c 2)
+      expect(
+        session.windDownUntil,
+        asrWindDownWindow(
+          speed: session.pace.speed,
+          restartCost: session.pace.restartCost,
+          power: AsrPower.battery,
+        ),
+      );
+      // a second switch-off keeps the first mark
+      final mark = session.windDownUntil;
+      session
+        ..power = AsrPower.unlimited
+        ..windDown();
+      expect(session.windDownUntil, mark);
+      session.resumeOn();
+      expect(session.isSwitchedOff, isFalse);
+      expect(session.isWoundDown, isFalse);
+      expect(session.windDownUntil, isNull);
+    });
+
+    test('a finished or failed session has nothing to wind down', () {
+      for (final stage in [AsrStage.done, AsrStage.failed]) {
+        final session = AsrSession.debugFor('t')
+          ..debugSet(AsrState(stage: stage))
+          ..windDown();
+        expect(session.isSwitchedOff, isFalse, reason: stage.name);
+      }
+    });
   });
 
   group('full coverage on the session', () {

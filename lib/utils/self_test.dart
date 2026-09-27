@@ -702,10 +702,13 @@ abstract final class SelfTest {
         ),
       );
     }
-    if (_arg(args, '--gaveup-probe') case final bv?) {
+    if (_arg(args, '--keepgoing-probe') case final video?) {
       await scenario(
-        'gaveUpProbe',
-        () => _gaveUpProbe(bv, original: args.contains('--pick-original')),
+        'keepGoingProbe',
+        () => _keepGoingProbe(
+          video,
+          seconds: int.tryParse(_arg(args, '--hold') ?? '') ?? 90,
+        ),
       );
     }
     if (_arg(args, '--ctl-probe') case final file?) {
@@ -1073,6 +1076,8 @@ abstract final class SelfTest {
           playheadSpeed: double.tryParse(
             _arg(args, '--asr-playhead-speed') ?? '',
           ),
+          offAt: double.tryParse(_arg(args, '--asr-off-at') ?? ''),
+          onAt: double.tryParse(_arg(args, '--asr-on-at') ?? ''),
         ),
       );
     }
@@ -2705,22 +2710,15 @@ abstract final class SelfTest {
     return result;
   }
 
-  /// Automatic transcription and translation on or off, in the self-test
-  /// profile's own settings (the profile has its own storage; the user's
-  /// are not touched). Always set, both ways: the profile keeps them, and a
-  /// menu run after an automatic one was found starting by itself.
-  /// `--gaveup-probe BV…`: automatic transcription (foreign speech only) on
-  /// a video in the app's own language gives up and stops; the translation
-  /// into that language is then picked from the menu. What both rows of the
-  /// menu say afterwards, and whether anything is still waiting.
-  ///
-  /// The translation picked is then a track of its own, selected, whose
-  /// lines are the speech as it is: already in that language, each is
-  /// passed through without the model (design 2026-09-26, 2A). With
-  /// `--pick-original`, the transcript is picked and shown instead.
-  static Future<Map<String, dynamic>> _gaveUpProbe(
-    String bv, {
-    bool original = false,
+  /// `--keepgoing-probe <file|BV…>`: automatic transcription (the
+  /// "foreign videos" mode, which used to give up) on speech in the app's
+  /// own language does not stop (design 2026-09-26, 3): the session never
+  /// goes idle, and its transcript keeps growing after the language is
+  /// known — where it used to end the run there and forget the language.
+  /// Watched until the session is done, or for [seconds].
+  static Future<Map<String, dynamic>> _keepGoingProbe(
+    String video, {
+    int seconds = 90,
   }) async {
     if (!AsrService.to.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
@@ -2730,14 +2728,19 @@ abstract final class SelfTest {
       SettingBoxKey.asrMode: AsrMode.foreign.index,
       SettingBoxKey.translateAsked: true,
       SettingBoxKey.translateMode: TranslateMode.manual.index,
+      // a fresh profile does not play by itself, and a page that does not
+      // play never resolves what it would transcribe
+      SettingBoxKey.autoPlayEnable: true,
     });
     // a file: the page's local mode, with no platform subtitles in the way
-    const localTag = 'selftest_gaveup_local';
-    final local = File(bv).existsSync();
+    const localTag = 'selftest_keepgoing_local';
+    final local = File(video).existsSync();
     if (local) {
-      unawaited(LocalPlayer.open(bv, heroTag: localTag));
+      unawaited(LocalPlayer.open(video, heroTag: localTag));
     } else {
-      await PiliScheme.routePushFromUrl('https://www.bilibili.com/video/$bv');
+      await PiliScheme.routePushFromUrl(
+        'https://www.bilibili.com/video/$video',
+      );
     }
     VideoDetailController? page;
     for (var i = 0; i < 20 && page == null; i++) {
@@ -2751,93 +2754,67 @@ abstract final class SelfTest {
       } catch (_) {}
     }
     if (page == null) return {'pass': false, 'reason': 'no page'};
+    final clock = Stopwatch()..start();
     final stages = <String>[];
     String? language;
-    var gaveUp = false;
-    for (var i = 0; i < 120 && !gaveUp; i++) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      final session = page.asrSession.value;
+    int? cuesAtLanguage;
+    int? msToLanguage;
+    AsrSession? session;
+    while (clock.elapsed < Duration(seconds: seconds)) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      session = page.asrSession.value ?? session;
       final state = session?.state.value;
-      language = state?.language ?? language;
       final name = state?.stage.name ?? 'none';
       if (stages.isEmpty || stages.last != name) stages.add(name);
-      gaveUp =
-          session != null &&
-          state?.stage == AsrStage.idle &&
-          session.runCount > 0;
+      if (language == null && state?.language != null) {
+        language = state!.language;
+        cuesAtLanguage = session!.cues.length;
+        msToLanguage = clock.elapsedMilliseconds;
+      }
+      if (state?.stage == AsrStage.done ||
+          state?.stage == AsrStage.failed ||
+          (state?.stage == AsrStage.idle && (session?.runCount ?? 0) > 0)) {
+        break;
+      }
     }
-    // `--pick-original`: 原文（端侧） is picked instead
-    final picked = original ? 'asr' : AsrService.appLanguage;
-    if (original) {
-      await page.showTranscript();
-    } else {
-      await page.showTranslation(picked);
-    }
-    await Future.delayed(const Duration(seconds: 20));
-    final translationLabel = page.onDeviceStatus(picked);
-    final hasOriginal = page.subtitles.any(
-      (t) => t.lanDoc == onDeviceLabel(null),
-    );
-    final translatedIndex = page.subtitles.indexWhere(
-      (t) =>
-          t.source == SubtitleSource.device &&
-          t.lan == 'asr-translated' &&
-          t.lanDoc == onDeviceLabel(picked),
-    );
-    final session = page.translation.session.value;
-    final results = session?.results.values.toList() ?? const [];
-    final passed = results.where((r) => r.passed).length;
-    final byModel = results.where((r) => !r.passed && r.text != null).length;
-    final shown = page.vttSubtitlesIndex.value > 0
-        ? page.vttSubtitles[page.vttSubtitlesIndex.value - 1]
-        : null;
+    final state = session?.state.value;
+    final cues = session?.cues.length ?? 0;
     final result = {
-      // the pick led somewhere: text is being made again and shown, rather
-      // than a label waiting on a transcription that has stopped — the
-      // transcript when that was picked; else the translation's own track,
-      // selected, its lines the speech passed through as it is
+      // started by itself, never idle once running, the language found is
+      // the app's own, and text kept coming after it was found
       'pass':
-          translationLabel != '准备中' &&
-          page.asrSession.value?.hasEnded == false &&
-          (original
-              ? hasOriginal
-              : translatedIndex >= 0 &&
-                    page.vttSubtitlesIndex.value == translatedIndex + 1 &&
-                    passed > 0 &&
-                    byModel == 0),
-      'bv': bv,
+          session != null &&
+          session.runCount > 0 &&
+          !stages.contains(AsrStage.idle.name) &&
+          !session.hasEnded &&
+          language != null &&
+          AsrService.isSameMajorLanguage(language, AsrService.appLanguage) &&
+          cuesAtLanguage != null &&
+          cues > cuesAtLanguage,
+      'video': video,
       'asrStages': stages,
       'detectedLanguage': language,
-      'gaveUp': gaveUp,
-      'picked': picked,
+      'msToLanguage': msToLanguage,
+      'cuesAtLanguage': cuesAtLanguage,
+      'cuesAtEnd': cues,
+      'stageAtEnd': state?.stage.name,
+      'languageAtEnd': state?.language,
+      'runs': session?.runCount,
+      'coveredSeconds': session?.coveredSeconds,
+      'duration': session?.duration,
+      'ms': clock.elapsedMilliseconds,
       'labelOriginal': page.onDeviceStatus('asr'),
-      'labelTranslation': translationLabel,
-      'asrStageAfter': page.asrSession.value?.state.value.stage.name,
-      'asrLanguageAfter': page.asrSession.value?.state.value.language,
-      'subtitleIndex': page.vttSubtitlesIndex.value,
       'tracks': [for (final t in page.subtitles) t.lanDoc],
-      'translatedTrack': translatedIndex >= 0,
-      'passedUnits': passed,
-      'translatedUnits': byModel,
-      'modelLoaded': (session?.modelLoads ?? 0) > 0,
-      'position': page.plPlayerController.position.value,
-      // lines of the shown track still marked as waiting for a translation
-      'waitingLines': switch (shown) {
-        (isData: true, :final id) =>
-          translationPendingMark.allMatches(id).length,
-        _ => null,
-      },
-      'shownVtt': switch (shown) {
-        (isData: true, :final id) =>
-          id.length > 400 ? id.substring(0, 400) : id,
-        _ => null,
-      },
     };
     await page.stopAsr();
     Get.back();
     return result;
   }
 
+  /// Automatic transcription and translation on or off, in the self-test
+  /// profile's own settings (the profile has its own storage; the user's
+  /// are not touched). Always set, both ways: the profile keeps them, and a
+  /// menu run after an automatic one was found starting by itself.
   static Future<void> _setAutoTranslation(bool on) => GStorage.setting.putAll({
     SettingBoxKey.asrAsked: true,
     SettingBoxKey.asrMode: (on ? AsrMode.foreign : AsrMode.manual).index,
@@ -5202,6 +5179,16 @@ abstract final class SelfTest {
   /// [srtOut]. `--asr` drives the recogniser alone and never sees the
   /// session; a change to how the session keeps the text is checked with
   /// this, a run before it against a run after, cue for cue.
+  /// Every segment (by its time) and cue (by its start and text) of
+  /// [session], for `--asr-off-at`: what was made before the switch-off
+  /// must all be there at the end.
+  static List<String> _switchKeys(AsrSession session) => [
+    for (final s in session.segments)
+      'segment ${s.start.toStringAsFixed(2)}+${s.duration.toStringAsFixed(2)}',
+    for (final c in session.cues)
+      'cue ${c.from.toStringAsFixed(2)} ${c.content}',
+  ];
+
   static AsrPower? _power(String? name) =>
       AsrPower.values.where((p) => p.name == name).firstOrNull;
 
@@ -5215,18 +5202,32 @@ abstract final class SelfTest {
   /// moves a pretend playhead from 0 at that many times real time, as a
   /// viewer watching straight through would (only faster). Without it the
   /// playhead stays at 0, as it did before there was one.
+  ///
+  /// [offAt] and [onAt] (media seconds of that playhead; `--asr-off-at`,
+  /// `--asr-on-at`) turn the subtitle switch off and on again there
+  /// (design 2026-09-26, 4): [AsrSession.windDown], then
+  /// [AsrSession.resumeOn]. Reported under `switch`: where the wind-down
+  /// was to stop and where it did, every stage seen while off, the runs
+  /// started meanwhile, and whether any segment made before the switch-off
+  /// was gone at the end. Without [onAt] it ends 10 s after winding down.
   static Future<Map<String, dynamic>> _asrSession(
     String source, {
     String? srtOut,
     AsrPower? power,
     double? playheadSpeed,
+    double? offAt,
+    double? onAt,
   }) async {
     final service = AsrService.to;
     if (!service.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
     }
+    if ((offAt != null || onAt != null) && playheadSpeed == null) {
+      return {'pass': false, 'reason': '--asr-off-at needs a playhead speed'};
+    }
     final isFile = File(source).existsSync();
     final clock = Stopwatch()..start();
+    double playheadNow() => clock.elapsedMilliseconds / 1000 * playheadSpeed!;
     var changes = 0;
     final session = await service.start(
       key: 'selftest-session',
@@ -5234,9 +5235,7 @@ abstract final class SelfTest {
       referer: _isBiliUrl(source) ? HttpString.baseUrl : null,
       userAgent: isFile ? null : BrowserUa.pc,
       power: power,
-      playhead: playheadSpeed == null
-          ? null
-          : () => clock.elapsedMilliseconds / 1000 * playheadSpeed,
+      playhead: playheadSpeed == null ? null : playheadNow,
     );
     // each change is one segment's cues arriving: the pace every listener
     // (page gates, the translation track) is woken at
@@ -5244,12 +5243,79 @@ abstract final class SelfTest {
     final deadline = DateTime.now().add(const Duration(minutes: 30));
     while (session.state.value.isBusy && DateTime.now().isBefore(deadline)) {
       await Future.delayed(const Duration(milliseconds: 200));
+      if (offAt != null && playheadNow() >= offAt) break;
     }
-    // standby is alive too: paused ahead of a playhead still coming
+    // the switch, when asked for
+    Map<String, Object?>? switched;
+    List<String>? before;
+    final stagesOff = <String>[];
+    DateTime? woundAt;
+    var on = false;
+    // standby is alive too: paused ahead of a playhead still coming, or
+    // switched off
     while ((session.state.value.isBusy ||
             session.state.value.stage == AsrStage.standby) &&
         DateTime.now().isBefore(deadline)) {
+      final p = playheadSpeed == null ? 0.0 : playheadNow();
+      if (offAt != null && switched == null && p >= offAt) {
+        before = _switchKeys(session);
+        session.windDown();
+        switched = {
+          'offAt': p,
+          'windDownUntil': session.windDownUntil,
+          'window': (session.windDownUntil ?? p) - p,
+          'speedAtOff': session.pace.speed,
+          'restartCostAtOff': session.pace.restartCost,
+          'coveredEndAtOff': coveredEndOf(session.transcript.covered, p),
+          'runsAtOff': session.runCount,
+          'segmentsAtOff': before.length,
+        };
+      }
+      if (switched != null && !on) {
+        final stage = session.state.value.stage.name;
+        if (stagesOff.isEmpty || stagesOff.last != stage) stagesOff.add(stage);
+        if (woundAt == null && session.isWoundDown) {
+          woundAt = DateTime.now();
+          switched
+            ..['woundDownAtPlayhead'] = p
+            ..['coveredEndAtWoundDown'] = coveredEndOf(
+              session.transcript.covered,
+              offAt!,
+            )
+            ..['runsAtWoundDown'] = session.runCount
+            ..['messageAtWoundDown'] = session.state.value.message;
+        }
+        if (onAt != null && p >= onAt) {
+          on = true;
+          switched
+            ..['onAt'] = p
+            ..['runsAtOn'] = session.runCount
+            ..['stageAtOn'] = stage
+            ..['coveredEndAtOn'] = coveredEndOf(
+              session.transcript.covered,
+              offAt!,
+            );
+          session.resumeOn();
+        }
+        if (onAt == null &&
+            woundAt != null &&
+            DateTime.now().difference(woundAt) > const Duration(seconds: 10)) {
+          switched
+            ..['runsAtEnd'] = session.runCount
+            ..['stageAtEnd'] = stage;
+          break;
+        }
+      }
       await Future.delayed(const Duration(milliseconds: 200));
+    }
+    if (switched != null) {
+      final after = _switchKeys(session).toSet();
+      switched
+        ..['stagesWhileOff'] = stagesOff
+        ..['missingAfter'] = [
+          for (final k in before!)
+            if (!after.contains(k)) k,
+        ];
     }
     await sub.cancel();
     final cues = session.cues.toList();
@@ -5272,6 +5338,7 @@ abstract final class SelfTest {
       'restartSamples': pace.costSamples,
       'seams': session.debugSeams,
       'pass': state.stage == AsrStage.done && cues.isNotEmpty,
+      'switch': ?switched,
       'source': source,
       'stage': state.stage.name,
       'language': state.language,

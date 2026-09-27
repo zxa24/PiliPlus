@@ -292,6 +292,133 @@ void main() {
     });
   });
 
+  group('wind-down window (design 2026-09-26, 4 and 7A)', () {
+    test('battery: the end of the lead window', () {
+      for (final (speed, cost) in const [
+        (15.0, 2.0),
+        (27.0, 2.5),
+        (25.0, 8.0),
+      ]) {
+        final lead = asrLeadWindow(
+          speed: speed,
+          restartCost: cost,
+          power: AsrPower.battery,
+        );
+        expect(
+          asrWindDownWindow(
+            speed: speed,
+            restartCost: cost,
+            power: AsrPower.battery,
+          ),
+          lead.high,
+        );
+      }
+      // the measured values: c·s = 67.5, max(150, 97.5) + max(120, 202.5)
+      expect(
+        asrWindDownWindow(
+          speed: 27,
+          restartCost: 2.5,
+          power: AsrPower.battery,
+        ),
+        352.5,
+      );
+    });
+
+    test('saver: its own, shorter window', () {
+      expect(
+        asrWindDownWindow(speed: 15, restartCost: 2, power: AsrPower.saver),
+        asrLeadWindow(
+          speed: 15,
+          restartCost: 2,
+          power: AsrPower.saver,
+        ).high,
+      );
+    });
+
+    test('a desktop or charger: finite, the battery rule', () {
+      for (final (speed, cost) in const [
+        (15.0, 2.0),
+        (27.0, 2.5),
+        (25.0, 8.0),
+      ]) {
+        final window = asrWindDownWindow(
+          speed: speed,
+          restartCost: cost,
+          power: AsrPower.unlimited,
+        );
+        expect(window.isFinite, isTrue);
+        expect(
+          window,
+          asrLeadWindow(
+            speed: speed,
+            restartCost: cost,
+            power: AsrPower.battery,
+          ).high,
+        );
+      }
+      expect(
+        asrWindDownWindow(
+          speed: 27,
+          restartCost: 2.5,
+          power: AsrPower.unlimited,
+        ),
+        352.5,
+      );
+    });
+
+    test('barely faster than playback: finite, whatever the power', () {
+      for (final power in AsrPower.values) {
+        final window = asrWindDownWindow(
+          speed: 1.05,
+          restartCost: 2,
+          power: power,
+        );
+        expect(window.isFinite, isTrue, reason: power.name);
+      }
+      // c·s = 2.1: the floors, 150 + 120
+      expect(
+        asrWindDownWindow(
+          speed: 1.05,
+          restartCost: 2,
+          power: AsrPower.unlimited,
+        ),
+        270,
+      );
+    });
+
+    test('reached: no run, at the mark, past it, or paused', () {
+      expect(asrWindDownReached(run: null, until: 400), isTrue);
+      expect(
+        asrWindDownReached(
+          run: (start: 0, frontier: 300, paused: false),
+          until: 400,
+        ),
+        isFalse,
+      );
+      expect(
+        asrWindDownReached(
+          run: (start: 0, frontier: 399.9, paused: false),
+          until: 400,
+        ),
+        isTrue,
+      );
+      expect(
+        asrWindDownReached(
+          run: (start: 450, frontier: 460, paused: false),
+          until: 400,
+        ),
+        isTrue,
+      );
+      expect(
+        asrWindDownReached(
+          run: (start: 0, frontier: 300, paused: true),
+          until: 400,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   test('gaps and the nearest one', () {
     const covered = [(from: 0.0, to: 100.0), (from: 500.0, to: 600.0)];
     expect(gapsIn(covered, 1000), [

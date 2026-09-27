@@ -26,6 +26,8 @@ String formatMediaTime(double seconds) {
 /// - the whole media known: 已全部生成
 /// - paused ahead of the viewer: 已暂停（已领先 4:00）, or the reason it
 ///   was stopped for (the app went to the background, a run failed)
+/// - switched off and wound down (see [AsrSession.windDown]):
+///   已关闭（已生成到 12:30）, or 已关闭（已生成 3 段，共 25:10）
 /// - one stretch: 已生成到 12:30
 /// - several, with gaps between: 已生成 3 段，共 25:10
 /// - nothing yet: 生成中
@@ -46,16 +48,26 @@ String? asrCoverageLabel({
     return '已全部生成';
   }
   if (stage == AsrStage.standby) {
+    // switched off, and stopped where it was going: what it made stays
+    if (message == asrWoundDownMessage) {
+      final made = _madeSoFar(covered);
+      return made == null ? message! : '$message（$made）';
+    }
     if (message != null) return message;
     final ahead = coveredEndOf(covered, playhead) - playhead;
     return ahead >= 1 ? '已暂停（已领先 ${formatMediaTime(ahead)}）' : '已暂停';
   }
+  return _madeSoFar(covered) ?? '生成中';
+}
+
+/// 已生成到 12:30, or 已生成 3 段，共 25:10; null for nothing yet.
+String? _madeSoFar(List<TimeSpan> covered) {
   // a stretch under a second is a run that has only just started
   final stretches = [
     for (final span in covered)
       if (span.to - span.from >= 1) span,
   ];
-  if (stretches.isEmpty) return '生成中';
+  if (stretches.isEmpty) return null;
   if (stretches.length == 1) {
     return '已生成到 ${formatMediaTime(stretches.single.to)}';
   }

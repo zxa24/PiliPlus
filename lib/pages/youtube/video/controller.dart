@@ -714,7 +714,6 @@ class YtVideoController extends GetxController {
     final session = await AsrService.to.start(
       key: 'yt:$videoId',
       source: source,
-      auto: auto,
       // see [VideoDetailController.startAsr]; itag 140/251 are indexed and
       // start from a position
       playhead: () =>
@@ -1224,7 +1223,7 @@ class YtVideoController extends GetxController {
     _viewerChose = true;
     _wantedOnDevice = 'asr';
     final session = asrSession.value;
-    // an ended one (failed, or given up on the app's language) starts again
+    // an ended (failed) one starts again
     if (session == null || session.hasEnded) {
       await startAsr();
       return;

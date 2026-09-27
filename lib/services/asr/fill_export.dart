@@ -178,14 +178,15 @@ class TranscriptFillTarget implements FillTarget {
   String? get failure {
     if (alive?.call() == false) return '转录已停止';
     final state = session.state.value;
-    return switch (state.stage) {
-      AsrStage.failed => state.message ?? '转录失败',
-      // gave up (the speech is in the app's language) or was stopped
-      AsrStage.idle when session.runCount > 0 => '转录已停止',
-      _ => null,
-    };
+    // Only a failure ends it. A session no longer gives up on speech in
+    // the app's language, and one switched off (wound down, standby) is
+    // not an end: the hold below lifts the wind-down until the text is
+    // whole (see [AsrSession.windDown]). A session the page let go of is
+    // [alive]'s to report.
+    return state.stage == AsrStage.failed ? state.message ?? '转录失败' : null;
   }
 
+  /// Also over a wind-down: the save comes first.
   @override
   void hold() => session.requestFullCoverage();
 
