@@ -5806,6 +5806,7 @@ abstract final class SelfTest {
           :final times,
           language: final tagged,
           :final weight,
+          :final hidden,
         ):
           // the vote a session keeps (see AsrLanguageVote)
           if (vote.add(tagged, weight) case final lang?) {
@@ -5821,6 +5822,9 @@ abstract final class SelfTest {
             'duration': duration,
             // SenseVoice's own tag for this segment, before the vote
             'lang': tagged,
+            // not shown, and why (AsrSegmentFilter); its 'lang' is then
+            // empty, withheld from the vote like its text from the screen
+            'hidden': ?hidden?.name,
             'text': tokens.join(),
             'tokens': tokens,
             'times': times,

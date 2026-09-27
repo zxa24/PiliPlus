@@ -22,6 +22,7 @@ import 'dart:isolate';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
+import 'package:PiliPlus/services/asr/segment_filter.dart';
 import 'package:PiliPlus/services/asr/speech_padding.dart';
 import 'package:budoux_dart/budoux.dart';
 import 'package:ffi/ffi.dart';
@@ -75,6 +76,7 @@ class AsrSegmentEvent extends AsrEvent {
     this.run = 0,
     this.language = '',
     this.weight = 0,
+    this.hidden,
   });
 
   /// In media time: the run's offset is included.
@@ -102,6 +104,11 @@ class AsrSegmentEvent extends AsrEvent {
   /// how much it counts in the vote (see [AsrLanguageVote]).
   final String language;
   final int weight;
+
+  /// Why it is not shown ([AsrOddity]), or null. A hidden segment comes
+  /// with no cues, no language and no weight; its [tokens] still say what
+  /// was recognised.
+  final AsrOddity? hidden;
 }
 
 /// A run is over: it reached the end of the audio ([eof]), or was stopped.
@@ -504,6 +511,7 @@ class AsrTranscriber {
             run: run,
             language: message['lang'] as String? ?? '',
             weight: message['weight'] as int? ?? 0,
+            hidden: AsrOddity.values.asNameMap()[message['hidden']],
           ),
         );
       case {'type': 'runEnd'}:
@@ -707,14 +715,45 @@ class _SherpaEngine implements AsrEngine {
       var lastProgress = 0.0;
       var settled = offset;
       var speech = false;
+      // which segments are too odd to show; one per run, so a run started
+      // further on compares only with its own segments
+      final filter = AsrSegmentFilter<Map<String, Object?>>();
 
       /// [settled], but never past a segment the VAD has cut and not sent:
-      /// one still waiting for the padding after it.
+      /// one still waiting for the padding after it, or held back by
+      /// [filter] until what follows it is known.
       double settledSoFar() {
+        var out = settled;
         final waiting = padding.firstWaiting;
-        if (waiting == null) return settled;
-        final held = offset + waiting / asrSampleRate;
-        return held < settled ? held : settled;
+        if (waiting != null) {
+          final held = offset + waiting / asrSampleRate;
+          if (held < out) out = held;
+        }
+        final held = filter.firstHeld;
+        if (held != null && held < out) out = held;
+        return out;
+      }
+
+      void emit(AsrFiltered<Map<String, Object?>> decided) {
+        final segment = decided.item;
+        final hidden = decided.hidden;
+        if (hidden == null) {
+          send(segment);
+        } else {
+          // Sent all the same, with no text: the stretch is known and is
+          // not recognised again, and there is nothing to show or to
+          // translate. Nor any language to vote with.
+          send({
+            ...segment,
+            'cues': const <Object?>[],
+            'lang': '',
+            'weight': 0,
+            'hidden': hidden.name,
+          });
+        }
+        final end =
+            (segment['start']! as double) + (segment['duration']! as double);
+        if (end > settled) settled = end;
       }
 
       void decode(PaddedSpan span) {
@@ -765,7 +804,8 @@ class _SherpaEngine implements AsrEngine {
         // segments, and a segment seen without its text — or text without
         // its segment, which is then counted as the previous one's — gets
         // a unit built and translated from the wrong words.
-        send({
+        final language = result.lang.isEmpty ? '' : tag;
+        final segment = <String, Object?>{
           'type': 'segment',
           'start': start,
           'duration': duration,
@@ -779,10 +819,17 @@ class _SherpaEngine implements AsrEngine {
           'cues': cues.toJson(),
           // the language vote is the session's (see AsrLanguageVote);
           // weighted by text, so a long stretch outvotes a stray word
-          'lang': result.lang.isEmpty ? '' : tag,
+          'lang': language,
           'weight': result.text.length + 1,
-        });
-        if (start + duration > settled) settled = start + duration;
+        };
+        filter
+            .add(
+              segment,
+              start: start,
+              text: AsrCueBuilder.stripTags(result.text),
+              language: language,
+            )
+            .forEach(emit);
       }
 
       /// Takes what the VAD has cut, and decodes whatever is ready.
@@ -839,6 +886,7 @@ class _SherpaEngine implements AsrEngine {
       vad.flush();
       drain(end: reader.samplesRead);
       if (stopping()) return false;
+      filter.finish().forEach(emit);
       final played = offset + reader.samplesRead / asrSampleRate;
       send({
         'type': 'progress',

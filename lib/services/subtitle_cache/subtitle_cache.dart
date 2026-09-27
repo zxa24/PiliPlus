@@ -291,7 +291,10 @@ class SubtitleCache {
   /// 2: segments cut after 1 s of silence rather than 0.5 s, and decoded
   /// with padding (SpeechPadding) — a transcript kept from before is cut
   /// differently and recognised worse.
-  static const format = 2;
+  ///
+  /// 3: isolated odd segments are kept with no text (AsrSegmentFilter); a
+  /// transcript kept from before still shows them.
+  static const format = 3;
 
   final Directory dir;
   final int Function() _limitBytes;
