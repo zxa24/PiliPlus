@@ -3180,7 +3180,7 @@ abstract final class SelfTest {
     }
     final result = {
       'pass':
-          session.isWoundDown == false &&
+          !session.isWoundDown &&
           woundStage == AsrStage.standby &&
           (woundLabel?.startsWith(asrWoundDownMessage) ?? false) &&
           runsAfterIdle == runsAtWound &&
