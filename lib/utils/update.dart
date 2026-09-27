@@ -34,7 +34,19 @@ abstract final class Update {
         }
         return;
       }
-      final data = res.data[0];
+      // LibrePili: the app's releases only — the repository also keeps
+      // non-app releases (the speech models' mirror, tag asr-models), which
+      // are not a new version of anything
+      final releases = (res.data as List).whereType<Map>().where(
+        (r) =>
+            r['draft'] != true &&
+            RegExp(r'^v?\d+\.\d+').hasMatch('${r['tag_name']}'),
+      );
+      if (releases.isEmpty) {
+        if (!isAuto) SmartDialog.showToast('已是最新版本');
+        return;
+      }
+      final data = releases.first;
       final int latest =
           DateTime.parse(data['created_at']).millisecondsSinceEpoch ~/ 1000;
       if (BuildConfig.buildTime >= latest) {
@@ -66,10 +78,10 @@ abstract final class Update {
                       Text('${data['body']}'),
                       TextButton(
                         onPressed: () => PageUtils.launchURL(
-                          '${Constants.sourceCodeUrl}/commits/librepili',
+                          '${data['html_url'] ?? '${Constants.sourceCodeUrl}/releases'}',
                         ),
                         child: Text(
-                          "点此查看完整更新(即commit)内容",
+                          "点此查看这个版本的发布页",
                           style: TextStyle(color: colorScheme.primary),
                         ),
                       ),
