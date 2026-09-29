@@ -156,7 +156,7 @@ YtFormat? selectYtAudioFormat(
   if (pref.allowDubbedAudio && pref.preferredAudioLanguage != null) {
     final lang = pref.preferredAudioLanguage!.toLowerCase();
     final dubbed = playable
-        .where((f) => _audioLanguageOf(f)?.toLowerCase() == lang)
+        .where((f) => ytAudioLanguageOf(f)?.toLowerCase() == lang)
         .toList(growable: false);
     if (dubbed.isNotEmpty) pool = dubbed;
   }
@@ -176,7 +176,8 @@ YtFormat? selectYtAudioFormat(
 }
 
 /// `de-DE.10` → `de-DE`; null when the format carries no audio track id.
-String? _audioLanguageOf(YtFormat f) {
+/// The language part of [f]'s `audioTrack.id` (`en-US.4` → `en-US`).
+String? ytAudioLanguageOf(YtFormat f) {
   final id = f.audioTrackId;
   if (id == null) return null;
   final dot = id.lastIndexOf('.');

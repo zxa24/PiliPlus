@@ -33,6 +33,7 @@ import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
+import 'package:PiliPlus/services/youtube/yt_tracks.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -1141,16 +1142,19 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
   /// See [VideoDetailController.platformTracks]. YouTube lists no machine
   /// translations: its translated captions are asked for per language, not
   /// offered as tracks.
+  ///
+  /// With dubbed audio, only the automatic track in the original audio's
+  /// language is the speech; the others are the dubs' (see yt_tracks.dart).
   @override
-  List<PlatformTrack> get platformTracks => [
-    for (final c in captions)
-      (
-        language: c.languageCode,
-        kind: c.isAutomatic
-            ? PlatformTrackKind.generated
-            : PlatformTrackKind.author,
-      ),
-  ];
+  List<PlatformTrack> get platformTracks {
+    final original = ytOriginalAudioLanguage(
+      detail.value?.formats ?? const [],
+    );
+    return [
+      for (final c in captions)
+        (language: c.languageCode, kind: ytTrackKind(c, original)),
+    ];
+  }
 
   bool get _translateReady =>
       Get.isRegistered<TranslationService>() &&
