@@ -29,6 +29,7 @@ import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
+import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
@@ -71,7 +72,55 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     // comments loaded while translation is on are translated too
     // (user 2026-09-25, 1A)
     ever(comments, (_) => translateLoadedComments());
+    _historyWorkers = [
+      ever<int>(plPlayerController.position, (sec) {
+        if (!_ownsPlayer) return;
+        _historySec = sec;
+        final saved = _historySavedSec;
+        if (saved == null || (sec - saved).abs() >= 10) _saveHistory();
+      }),
+      ever<PlayerStatus>(plPlayerController.playerStatus, (status) {
+        if (!_ownsPlayer || status.isPlaying) return;
+        _saveHistory(completed: status.isCompleted);
+      }),
+    ];
     unawaited(load());
+  }
+
+  // ------------------------------------------------ local watch history
+
+  List<Worker> _historyWorkers = const [];
+
+  /// The position (s) last seen while this page had the player, and the one
+  /// last saved to the local history.
+  int? _historySec;
+  int? _historySavedSec;
+
+  /// Saves where this video is to the local watch history, the same list the
+  /// bilibili videos go to: every 10 s of playback, on a pause or the end,
+  /// and on leaving.
+  void _saveHistory({bool completed = false}) {
+    final info = detail.value;
+    final sec = _historySec;
+    if (info == null || sec == null || sec <= 0) return;
+    _historySavedSec = sec;
+    final duration = info.duration.inMilliseconds;
+    unawaited(
+      LocalHistory.record(
+        LocalHistoryVisit(
+          key: LocalHistory.ytKey(videoId),
+          platform: LocalHistoryPlatform.yt,
+          ytId: videoId,
+          title: info.title,
+          cover: info.thumbnails.lastOrNull?.url,
+          author: info.author,
+          channelId: info.channelId,
+          partId: LocalHistory.ytPart,
+        ),
+        progress: completed && duration > 0 ? duration : sec * 1000,
+        duration: duration,
+      ),
+    );
   }
 
   Future<void> load() async {
@@ -96,7 +145,15 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
       return;
     }
     _streams = streams.value;
-    await _open(streams.value!);
+    // where this device's history left it (YouTube has no other)
+    final resume = LocalHistory.resumePoint(
+      LocalHistory.ytKey(videoId),
+      LocalHistory.ytPart,
+    );
+    await _open(
+      streams.value!,
+      seekTo: resume == null ? null : Duration(milliseconds: resume),
+    );
     unawaited(_loadRelated());
   }
 
@@ -1492,6 +1549,10 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
 
   @override
   void onClose() {
+    _saveHistory();
+    for (final w in _historyWorkers) {
+      w.dispose();
+    }
     CommentTranslator.release('yt:$videoId');
     _stopWatchingPlayback();
     // the gate coming down on the way out must not start the player again

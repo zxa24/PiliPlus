@@ -188,7 +188,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   void positionListener(Duration position) {
     videoDetailController
       ..playedTime = position
-      ..onLocalPosition(position);
+      ..onLocalPosition(position)
+      ..saveLocalHistory();
   }
 
   @override
@@ -204,6 +205,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       if (videoDetailController.isFileSource) {
         videoDetailController.cacheLocalProgress();
       }
+      // the process may not come back from the background
+      videoDetailController.saveLocalHistory(force: true);
       introController.cancelTimer();
       ctr.showDanmaku = false;
     }
@@ -221,6 +224,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   // 播放器状态监听
   Future<void> playerListener(PlayerStatus status) async {
     final isPlaying = status.isPlaying;
+    if (!isPlaying) {
+      videoDetailController.saveLocalHistory(
+        force: true,
+        completed: status.isCompleted,
+      );
+    }
     try {
       if (videoDetailController.scrollCtr.hasClients) {
         if (isPlaying) {
@@ -361,7 +370,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     if (!videoDetailController.plPlayerController.isCloseAll) {
       videoPlayerServiceHandler?.onVideoDetailDispose(heroTag);
       if (plPlayerController != null) {
-        videoDetailController.makeHeartBeat();
+        videoDetailController
+          ..makeHeartBeat()
+          ..saveLocalHistory(force: true);
         plPlayerController!.dispose();
       } else {
         PlPlayerController.updatePlayCount();
@@ -393,7 +404,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       ..playerStatus = plPlayerController?.playerStatus.value
       ..brightness = plPlayerController?.brightness.value;
     if (plPlayerController != null) {
-      videoDetailController.makeHeartBeat();
+      videoDetailController
+        ..makeHeartBeat()
+        ..saveLocalHistory(force: true);
       plPlayerController!
         ..removeStatusLister(playerListener)
         ..removePositionListener(positionListener)

@@ -79,6 +79,7 @@ import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
@@ -400,6 +401,152 @@ class VideoDetailController extends GetxController
     }
   }
 
+  // ------------------------------------------------ local watch history
+
+  /// The position (s) the local watch history was last saved at, this part.
+  int? _historySavedSec;
+
+  /// The part watched last in this video, as the local history had it when
+  /// the page opened: the 上次看到第NP prompt's fallback when bilibili has no
+  /// history of it (incognito). Read before this visit records anything.
+  int? _localLastCid;
+
+  /// What the local history records of the part being shown: null for a
+  /// plain local file, which has no id to list or open again by.
+  LocalHistoryVisit? get _historyVisit {
+    final cid = this.cid.value;
+    if (cid == 0) return null;
+    if (isFileSource) {
+      final e = entry;
+      final ep = e.ep;
+      final season = int.tryParse(e.seasonId ?? '');
+      if (ep != null && season != null) {
+        final isPugv = ep.from == 'pugv';
+        return LocalHistoryVisit(
+          key: isPugv
+              ? LocalHistory.pugvKey(season)
+              : LocalHistory.pgcKey(season),
+          platform: LocalHistoryPlatform.bili,
+          type: isPugv ? 'pugv' : 'pgc',
+          aid: e.avid,
+          bvid: e.bvid,
+          seasonId: season,
+          title: e.title,
+          cover: e.cover.startsWith('http') ? e.cover : null,
+          author: e.ownerName,
+          mid: e.ownerId,
+          partId: '$cid',
+          cid: cid,
+          epId: ep.episodeId,
+          partTitle: ep.showTitle ?? '${ep.index} ${ep.indexTitle}'.trim(),
+        );
+      }
+      if (e.avid == 0) return null;
+      final page = e.pageData;
+      return LocalHistoryVisit(
+        key: LocalHistory.ugcKey(e.avid),
+        platform: LocalHistoryPlatform.bili,
+        type: 'ugc',
+        aid: e.avid,
+        bvid: e.bvid,
+        title: e.title,
+        cover: e.cover.startsWith('http') ? e.cover : null,
+        author: e.ownerName,
+        mid: e.ownerId,
+        partId: '$cid',
+        cid: cid,
+        page: page?.page,
+        partTitle: page?.part,
+      );
+    }
+    if (isUgc) {
+      VideoDetailData? v;
+      try {
+        v = Get.find<UgcIntroController>(tag: heroTag).videoDetail.value;
+      } catch (_) {}
+      // after a switch to another video of a collection, the intro still
+      // shows the previous one until it has loaded: none of its details
+      if (v?.aid != aid) v = null;
+      final pages = v?.pages;
+      final part = pages?.firstWhereOrNull((e) => e.cid == cid);
+      return LocalHistoryVisit(
+        key: LocalHistory.ugcKey(aid),
+        platform: LocalHistoryPlatform.bili,
+        type: 'ugc',
+        aid: aid,
+        bvid: bvid,
+        title: v?.title,
+        cover: v?.pic,
+        author: v?.owner?.name,
+        mid: v?.owner?.mid,
+        partId: '$cid',
+        cid: cid,
+        page: part?.page,
+        partTitle: (pages?.length ?? 0) > 1 ? part?.part : null,
+      );
+    }
+    PgcInfoModel? item;
+    try {
+      item = Get.find<PgcIntroController>(tag: heroTag).pgcItem;
+    } catch (_) {}
+    final season = seasonId ?? item?.seasonId;
+    if (season == null) return null;
+    final epId = this.epId;
+    final ep = item?.episodes?.firstWhereOrNull(
+      (e) => (e.epId ?? e.id) == epId,
+    );
+    final isPugv = videoType == VideoType.pugv;
+    return LocalHistoryVisit(
+      key: isPugv ? LocalHistory.pugvKey(season) : LocalHistory.pgcKey(season),
+      platform: LocalHistoryPlatform.bili,
+      type: isPugv ? 'pugv' : 'pgc',
+      aid: aid,
+      bvid: bvid,
+      seasonId: season,
+      title: item?.seasonTitle ?? item?.title,
+      cover: item?.cover,
+      author: item?.upInfo?.uname,
+      mid: item?.upInfo?.mid,
+      partId: '$cid',
+      cid: cid,
+      epId: epId,
+      partTitle: ep == null
+          ? null
+          : ep.showTitle ??
+                [ep.title, ep.longTitle].whereType<String>().join(' '),
+    );
+  }
+
+  /// Saves where this part is to the local watch history: every 10 s of
+  /// playback (from the position listener), and at once ([force]) on a
+  /// pause, the end, a part change and leaving the page. [completed]:
+  /// played to the end.
+  ///
+  /// Independent of the bilibili heartbeat: recorded in incognito and for
+  /// downloads too, and never sent anywhere.
+  void saveLocalHistory({bool force = false, bool completed = false}) {
+    final played = playedTime;
+    final sec = played?.inSeconds;
+    // nothing played yet (or a new part not yet at its resume point)
+    if (played == null || sec == null || sec <= 0) return;
+    final saved = _historySavedSec;
+    if (!force && saved != null && (sec - saved).abs() < 10) return;
+    final visit = _historyVisit;
+    if (visit == null) return;
+    _historySavedSec = sec;
+    int duration = 0;
+    try {
+      duration = data.timeLength ?? 0;
+    } catch (_) {}
+    unawaited(
+      LocalHistory.record(
+        visit,
+        progress: completed && duration > 0 ? duration : played.inMilliseconds,
+        duration: duration,
+      ),
+    );
+  }
+
   /// Side-file cache folder of the Android document this page was opened
   /// with: [entry] can later be replaced by a playlist item that has none,
   /// so the folder to release is kept here.
@@ -472,6 +619,11 @@ class VideoDetailController extends GetxController
     heroTag = args['heroTag'];
     cover = RxString(args['cover'] ?? '');
     isVertical = RxBool(args['isVertical'] ?? false);
+    if (videoType == VideoType.ugc && aid != 0) {
+      _localLastCid = LocalHistory.get(
+        LocalHistory.ugcKey(aid),
+      )?.lastPart?.cid;
+    }
 
     sourceType = args['sourceType'] ?? SourceType.normal;
     isFileSource = sourceType == SourceType.file;
@@ -1460,8 +1612,18 @@ class VideoDetailController extends GetxController
         final progress = args.remove('progress');
         if (progress != null) {
           defaultST = Duration(milliseconds: progress);
-        } else {
+        } else if (data.lastPlayTime > 0) {
+          // the account's own resume point (login mode) comes first
           defaultST = Duration(milliseconds: data.lastPlayTime);
+        } else {
+          // none from bilibili (incognito, or never watched on the
+          // account): where this device's history left this part
+          final key = _historyVisit?.key;
+          defaultST = Duration(
+            milliseconds: key == null
+                ? 0
+                : LocalHistory.resumePoint(key, '${cid.value}') ?? 0,
+          );
         }
       }
 
@@ -2997,7 +3159,9 @@ class VideoDetailController extends GetxController
 
       if (isUgc && continuePlayingPart) {
         continuePlayingPart = false;
-        final lastCid = response.lastPlayCid;
+        var lastCid = response.lastPlayCid;
+        // bilibili knows nothing of it (incognito): this device might
+        if (lastCid == null || lastCid == 0) lastCid = _localLastCid;
         if (lastCid != null && lastCid != 0 && lastCid != cid.value) {
           try {
             final pages = introCtr.videoDetail.value.pages;
@@ -3204,6 +3368,9 @@ class VideoDetailController extends GetxController
     if (isFileSource) {
       cacheLocalProgress();
     }
+    // the part being left, before its position is forgotten below
+    saveLocalHistory(force: true);
+    _historySavedSec = null;
 
     _lastLocalSaveSec = 0;
     playedTime = null;
