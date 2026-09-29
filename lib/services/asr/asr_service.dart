@@ -24,6 +24,7 @@ import 'dart:io';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
+import 'package:PiliPlus/services/asr/english_gate.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
@@ -44,6 +45,10 @@ import 'package:path/path.dart' as path;
 
 /// The standby message of a session wound down (see [AsrSession.windDown]).
 const asrWoundDownMessage = '已关闭';
+
+/// How far ahead of the viewer, in seconds, a run has to be for it to be
+/// held while the English model loads (see AsrSession._applyEnglish).
+const asrEnglishHoldLead = 10.0;
 
 /// The failure of a session another page's transcription took the place of
 /// (see [AsrService.start]): its page starts again, from the subtitle
@@ -140,6 +145,10 @@ class _Run {
   var reachedEnd = false;
   var paused = false;
   var ended = false;
+
+  /// Paused while the English model loads (see AsrSession._applyEnglish):
+  /// only the viewer coming close resumes it before that is over.
+  var heldForEnglish = false;
 
   /// How far it is decided (see [AsrProgressUpdate.settled]).
   late double frontier = extractFrom;
@@ -265,6 +274,36 @@ class AsrSession {
   /// The session-wide language vote (design 4.1).
   final _vote = AsrLanguageVote();
 
+  /// When the speech is English enough for the English model (see
+  /// [AsrEnglishGate]), fed with SenseVoice's segments as they come.
+  final _englishGate = AsrEnglishGate();
+
+  /// The gate said English (or the language is forced to it): every
+  /// recogniser opened from here on is the English model, and the one open
+  /// switches to it once it has loaded in the background. Kept for the
+  /// session: the English model tags nothing to change it back with.
+  var _englishWanted = false;
+
+  /// The English model loading beside the open recogniser (see
+  /// [AsrTranscriber.loadEnglish]); memory the model guard counts.
+  Future<void>? _englishLoading;
+
+  /// The recogniser that has the English model, or has been handed it.
+  AsrTranscriber? _englishIn;
+
+  /// It failed to load: SenseVoice goes on for the rest of the session.
+  var _englishFailed = false;
+
+  /// For the probes: where the first segment the English model recognised
+  /// starts, how long its background load took, and where the gate said
+  /// English (the end of the segment that tipped it).
+  double? englishFrom;
+  int? englishLoadMs;
+  double? englishDecidedAt;
+
+  /// Whether the gate has said English.
+  bool get englishWanted => _englishWanted;
+
   AsrTranscriber? _transcriber;
   Future<AsrTranscriber>? _opening;
   StreamSubscription<AsrEvent>? _events;
@@ -346,7 +385,11 @@ class AsrSession {
   /// memory the model guard should take back when the app is away.
   bool get holdsModels =>
       !_closed &&
-      (_transcriber != null || _opening != null || _run != null || isRunning);
+      (_transcriber != null ||
+          _opening != null ||
+          _englishLoading != null ||
+          _run != null ||
+          isRunning);
 
   /// A VTT the existing subtitle path can take as `memory://` data.
   String get vtt => cues.toVtt();
@@ -556,7 +599,14 @@ class AsrSession {
         in transcript.runs.expand((r) => r.segments).toList()
           ..sort((a, b) => a.start.compareTo(b.start))) {
       _vote.add(s.language, s.weight);
+      // the gate too: a part known English opens the English model for the
+      // gaps at once, rather than after 20 s more of SenseVoice
+      if (_englishGate.add(s.language, s.duration)) {
+        englishDecidedAt = s.start + s.duration;
+      }
     }
+    if (entry.englishModel != null) englishFrom = entry.englishFrom;
+    _considerEnglish();
     final language = _vote.winner;
     if (language != null) {
       _set(
@@ -628,6 +678,9 @@ class AsrSession {
     _referer = referer;
     _userAgent = userAgent;
     _models = models;
+    // forced to English, or known English from the cache
+    if (models.englishFirst) _englishWanted = true;
+    _applyEnglish();
     unawaited(_watchPower());
     // (the language the cache's text was voted, if it gave one, stays)
     _set(
@@ -873,6 +926,10 @@ class AsrSession {
 
   void _resume(_Run run) {
     if (!run.paused || run.ended) return;
+    if (run.heldForEnglish) {
+      if (run.frontier - _playhead >= asrEnglishHoldLead) return;
+      run.heldForEnglish = false;
+    }
     run
       ..paused = false
       ..progressAt = null
@@ -889,16 +946,139 @@ class AsrSession {
     final open = _transcriber;
     if (open != null) return Future.value(open);
     return _opening ??= () async {
-      final transcriber = await AsrTranscriber.open(_models!);
+      var models = _models!;
+      var transcriber = await AsrTranscriber.open(models);
+      if (models.englishFirst) {
+        try {
+          await transcriber.ready;
+        } catch (e) {
+          // the English model would not load: SenseVoice, for the rest of
+          // the session, rather than no subtitles
+          Utils.reportError('asr: English model: $e');
+          transcriber.close();
+          _englishFailed = true;
+          _models = models = asrModelsWithEnglish(models, null, first: false);
+          transcriber = await AsrTranscriber.open(models);
+        }
+      }
       if (_closed || _suspended) {
         transcriber.close();
         throw const AsrCancelled();
       }
       _transcriber = transcriber;
       _opening = null;
+      _englishIn = models.englishFirst ? transcriber : null;
       _events = transcriber.events.listen(_onEvent);
+      _applyEnglish();
       return transcriber;
     }();
+  }
+
+  /// The gate may have said English: see [_applyEnglish].
+  void _considerEnglish() {
+    if (_englishWanted || _closed || !_englishGate.english) return;
+    _englishWanted = true;
+    if (kDebugMode) debugPrint('asr: English from here on');
+    _applyEnglish();
+  }
+
+  /// Makes the recogniser the English model where it is wanted and there:
+  /// the next one opened loads it itself, and the one open is handed it
+  /// once it has loaded in the background — SenseVoice going on with its
+  /// lines meanwhile.
+  void _applyEnglish() {
+    final models = _models;
+    if (!_englishWanted ||
+        _englishFailed ||
+        _closed ||
+        models == null ||
+        models.english == null) {
+      return;
+    }
+    if (!models.englishFirst) {
+      _models = asrModelsWithEnglish(models, models.english, first: true);
+    }
+    final transcriber = _transcriber;
+    if (transcriber == null ||
+        identical(_englishIn, transcriber) ||
+        _englishLoading != null ||
+        _suspended) {
+      return;
+    }
+    _englishLoading = _loadEnglish(transcriber).whenComplete(() {
+      _englishLoading = null;
+      final held = _run;
+      if (held != null && held.heldForEnglish) {
+        held.heldForEnglish = false;
+        if (held.paused) _resume(held);
+      }
+      // a new recogniser opened while this one loaded opens English
+      // itself; one opened before the model was there is handed it now
+      _applyEnglish();
+      if (_models != null && !_closed) _tick();
+    });
+    _holdForEnglish();
+  }
+
+  /// Holds the run while the English model loads, once it has text far
+  /// enough ahead of the viewer: SenseVoice decodes 20-30 times faster than
+  /// playback, and in the 3-5 s the load takes it would recognise minutes
+  /// more that the English model then never sees (measured: V1 on a
+  /// desktop, decided at 25.6 s, switched at 183 s). Nothing waits on it —
+  /// the lines ahead are there already — and it is let go as soon as the
+  /// viewer comes close (see [_resume]). Not before there is text ahead: a
+  /// first segment still held back is what the viewer is waiting for.
+  /// Asked again with each progress while the model loads.
+  void _holdForEnglish() {
+    final run = _run;
+    if (_englishLoading == null ||
+        run == null ||
+        run.paused ||
+        run.ended ||
+        run.heldForEnglish ||
+        run.frontier - _playhead < asrEnglishHoldLead) {
+      return;
+    }
+    _pause(run);
+    run.heldForEnglish = true;
+  }
+
+  Future<void> _loadEnglish(AsrTranscriber transcriber) async {
+    final models = _models!;
+    final clock = Stopwatch()..start();
+    final int address;
+    try {
+      address = await AsrTranscriber.loadEnglish(models);
+    } catch (e, stack) {
+      Utils.reportError('asr: English model: $e', stack);
+      _englishFailed = true;
+      _models = asrModelsWithEnglish(models, null, first: false);
+      return;
+    }
+    englishLoadMs = clock.elapsedMilliseconds;
+    if (_closed ||
+        _suspended ||
+        !identical(_transcriber, transcriber) ||
+        !transcriber.handOver(address)) {
+      // nobody to hand it to: the recogniser that replaces this one, if
+      // any, loads it itself
+      await AsrTranscriber.freeEnglish(address, models);
+      return;
+    }
+    _englishIn = transcriber;
+    if (kDebugMode) {
+      debugPrint('asr: English model handed over after ${englishLoadMs}ms');
+    }
+  }
+
+  /// The English model was downloaded while this session ran: where the
+  /// gate says English, the rest is recognised with it.
+  void englishModelInstalled(AsrEnglishModel english) {
+    final models = _models;
+    if (_closed || models == null || models.english != null) return;
+    _englishFailed = false;
+    _models = asrModelsWithEnglish(models, english, first: false);
+    _applyEnglish();
   }
 
   /// Starts a run for [at]: from [asrPreRoll] before it, or — [adjacent],
@@ -1197,6 +1377,14 @@ class AsrSession {
       case AsrCuesEvent():
         // the same cues come with their segment, next
         break;
+      case AsrTagEvent(:final language, :final start, :final duration):
+        // the gate, on the tag as soon as it is known (see AsrTagEvent);
+        // from a run still wanted only — a stopped run's tail says nothing
+        // the session keeps
+        if (_runOf(event.run) != null && _englishGate.add(language, duration)) {
+          englishDecidedAt = start + duration;
+          _considerEnglish();
+        }
       case AsrSegmentEvent():
         _countVote(event);
         final run = _runOf(event.run);
@@ -1252,6 +1440,13 @@ class AsrSession {
   }
 
   void _countVote(AsrSegmentEvent event) {
+    if (event.english) {
+      if (englishFrom == null) {
+        englishFrom = event.start;
+        _cache?.englishModel = AsrModelCatalog.parakeet.id;
+        _cache?.englishFrom = event.start;
+      }
+    }
     final winner = _vote.add(event.language, event.weight);
     if (winner == null) return;
     _set(
@@ -1279,6 +1474,7 @@ class AsrSession {
       ..progressAt = run.paused ? null : now
       ..progressDone = event.done;
     if (event.settled > run.frontier) run.frontier = event.settled;
+    _holdForEnglish();
     if (run.skipUntil != null) return;
     final joinFrom = run.joinFrom ?? _nextKnown(run);
     final reach = joinFrom == null
@@ -1453,12 +1649,85 @@ Future<String?> loadChineseSegmenter() async {
 class AsrService extends GetxService {
   static AsrService get to => Get.find<AsrService>();
 
-  final store = AsrModelStore();
+  final store = AsrModelStore(
+    // the NVIDIA agreement, written beside the English model as it asks
+    licenceText: (licence) async {
+      try {
+        return await rootBundle.loadString(licence.asset);
+      } catch (_) {
+        return null;
+      }
+    },
+  );
 
   AsrSession? _current;
 
   /// True when both models are on disk and a job can start without a download.
   bool get modelsReady => store.isReady;
+
+  /// The English model's files, where sessions may switch to it: switched
+  /// on (设置 → 英语使用专用模型) and downloaded. Never downloaded by
+  /// opening a video (design 2026-09-26, 14⑤): the subtitle menu and the
+  /// models page offer it.
+  AsrEnglishModel? get englishModel {
+    if (!Pref.asrEnglishModel || !store.isEnglishReady) return null;
+    final model = AsrModelCatalog.parakeet;
+    String file(int i) => store.fileOf(model, model.files[i]).path;
+    return (
+      encoder: file(0),
+      decoder: file(1),
+      joiner: file(2),
+      tokens: file(3),
+    );
+  }
+
+  /// Whether the subtitle menu offers the English model for [session]: its
+  /// speech is English, the English model is switched on, and it is not
+  /// here. The session goes on with SenseVoice meanwhile.
+  bool offersEnglishModel(AsrSession? session) =>
+      session != null &&
+      session.englishWanted &&
+      Pref.asrEnglishModel &&
+      !store.isEnglishReady;
+
+  /// [offersEnglishModel] for the job going.
+  bool get offersEnglishModelNow => offersEnglishModel(_current);
+
+  /// The English model's download, while one is going.
+  final englishDownload = Rxn<AsrProgress>();
+  AsrCancelToken? _englishToken;
+
+  /// Why the last download of the English model failed, if it did.
+  final englishDownloadError = RxnString();
+
+  bool get englishDownloading => _englishToken != null;
+
+  /// Downloads the English model — the user asked, from the menu or the
+  /// models page — and hands it to the session going, which switches to it
+  /// if its speech is English.
+  Future<void> downloadEnglishModel() async {
+    if (_englishToken != null || store.isEnglishReady) return;
+    final token = _englishToken = AsrCancelToken();
+    englishDownloadError.value = null;
+    try {
+      await store.ensure(
+        AsrModelCatalog.parakeet,
+        token: token,
+        onProgress: (p) => englishDownload.value = p,
+      );
+      final english = englishModel;
+      if (english != null) _current?.englishModelInstalled(english);
+    } on AsrCancelled {
+      // the user pressed cancel
+    } catch (e) {
+      englishDownloadError.value = '$e';
+    } finally {
+      _englishToken = null;
+      englishDownload.value = null;
+    }
+  }
+
+  void cancelEnglishDownload() => _englishToken?.cancel();
 
   int get downloadSize => AsrModelCatalog.required
       .where((model) => !store.isInstalled(model))
@@ -1642,6 +1911,11 @@ class AsrService extends GetxService {
           language: session.state.value.language,
         ),
       );
+      final english = asrEnglishChoice(
+        enabled: Pref.asrEnglishModel,
+        installed: store.isEnglishReady,
+        forced: Pref.asrLanguage,
+      );
       await session._begin(
         source: source,
         referer: referer,
@@ -1667,6 +1941,8 @@ class AsrService extends GetxService {
               .path,
           threads: Pref.asrThreads,
           language: Pref.asrLanguage,
+          english: english.use ? englishModel : null,
+          englishFirst: english.first,
         ),
       );
     } on AsrCancelled {

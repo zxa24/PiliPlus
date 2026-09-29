@@ -228,6 +228,39 @@ void main() {
       expect(restored.cues.toSrt(), store.cues.toSrt());
     });
 
+    test('says whether, and where, the English model took over', () {
+      final entry = SubtitleCacheEntry(SubtitleCacheKey.bilibili(9), recogniser)
+        ..captureTranscript(sampleStore());
+      // all SenseVoice: nothing written for it
+      expect(entry.toJson().containsKey('englishModel'), isFalse);
+      var back = SubtitleCacheEntry.fromJson(
+        jsonDecode(jsonEncode(entry.toJson())),
+      )!;
+      expect(back.englishModel, isNull);
+      expect(back.englishFrom, isNull);
+      entry
+        ..englishModel = 'parakeet-unified-en-0.6b-int8'
+        ..englishFrom = 40;
+      back = SubtitleCacheEntry.fromJson(
+        jsonDecode(jsonEncode(entry.toJson())),
+      )!;
+      expect(back.englishModel, 'parakeet-unified-en-0.6b-int8');
+      expect(back.englishFrom, 40);
+      // the key is the recogniser every session starts with, either way
+      expect(back.recogniser, recogniser);
+      expect(back.name, entry.name);
+    });
+
+    test('an entry of format 6 (before the English model) is not read', () {
+      final entry = SubtitleCacheEntry(SubtitleCacheKey.bilibili(9), recogniser)
+        ..captureTranscript(sampleStore());
+      expect(SubtitleCache.format, 7);
+      expect(
+        SubtitleCacheEntry.fromJson({...entry.toJson(), 'format': 6}),
+        isNull,
+      );
+    });
+
     test('restoring changes the cue list once', () async {
       final entry = SubtitleCacheEntry(SubtitleCacheKey.bilibili(9), recogniser)
         ..captureTranscript(sampleStore());

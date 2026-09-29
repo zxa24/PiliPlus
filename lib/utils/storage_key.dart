@@ -96,6 +96,8 @@ abstract final class SettingBoxKey {
       asrAsked = 'asrAsked',
       asrLanguage = 'asrLanguage',
       asrThreads = 'asrThreads',
+      // LibrePili: English speech recognised by the English model
+      asrEnglishModel = 'asrEnglishModel',
       translateMode = 'translateMode',
       translateAsked = 'translateAsked',
       translateModel = 'translateModel',

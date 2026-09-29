@@ -145,6 +145,7 @@ const ctlSettingKeys = [
   SettingBoxKey.subtitleSource,
   SettingBoxKey.asrLanguage,
   SettingBoxKey.asrThreads,
+  SettingBoxKey.asrEnglishModel,
   SettingBoxKey.translateModel,
   SettingBoxKey.translateDual,
   SettingBoxKey.translatePinnedLanguages,

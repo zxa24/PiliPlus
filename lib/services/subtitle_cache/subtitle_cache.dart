@@ -104,6 +104,15 @@ class SubtitleCacheEntry {
   /// Where the media's audio ends, when a run found it.
   double? mediaEnd;
 
+  /// The English model, where the session switched to it
+  /// (AsrModelCatalog.parakeet's id), and where in the media its first
+  /// segment starts: the recogniser named by the key made what comes
+  /// before, in that run and in the runs before it. Null: all SenseVoice.
+  /// Which model made a line is not kept line by line; this is the key's
+  /// other half (see [SubtitleCache.format], 6).
+  String? englishModel;
+  double? englishFrom;
+
   /// Translations by [subtitleTranslationKey].
   final translations = <String, TranslationResults>{};
 
@@ -179,6 +188,8 @@ class SubtitleCacheEntry {
     'key': key.id,
     'recogniser': recogniser,
     'mediaEnd': mediaEnd,
+    if (englishModel != null) 'englishModel': englishModel,
+    if (englishFrom != null) 'englishFrom': englishFrom,
     'runs': [
       for (final run in runs)
         {
@@ -222,6 +233,8 @@ class SubtitleCacheEntry {
               json['recogniser']! as String,
             )
             ..mediaEnd = (json['mediaEnd'] as num?)?.toDouble()
+            ..englishModel = json['englishModel'] as String?
+            ..englishFrom = (json['englishFrom'] as num?)?.toDouble()
             ..runs = [
               for (final run in json['runs']! as List)
                 (
@@ -304,7 +317,14 @@ class SubtitleCache {
   ///
   /// 6: no segment is longer than 20 s (SegmentCap) — a transcript kept
   /// from before has segments of up to ~47 s in continuous speech.
-  static const format = 6;
+  /// 7: once a session's speech is English, its later lines come from the
+  /// English model (Parakeet) — an entry holds two recognisers' lines and
+  /// says so ([SubtitleCacheEntry.englishModel]). The key stays the
+  /// recogniser every session starts with: the English model changes only
+  /// what comes after the switch, and naming it in the key would make every
+  /// part transcribed before it was downloaded, English or not, count as
+  /// never transcribed.
+  static const format = 7;
 
   final Directory dir;
   final int Function() _limitBytes;

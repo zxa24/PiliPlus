@@ -1143,6 +1143,11 @@ abstract final class SelfTest {
           offAt: double.tryParse(_arg(args, '--asr-off-at') ?? ''),
           onAt: double.tryParse(_arg(args, '--asr-on-at') ?? ''),
           stopAt: double.tryParse(_arg(args, '--asr-stop-at') ?? ''),
+          english: switch (_arg(args, '--asr-english')) {
+            '1' => true,
+            '0' => false,
+            _ => null,
+          },
         ),
       );
     }
@@ -5914,10 +5919,16 @@ abstract final class SelfTest {
     double? offAt,
     double? onAt,
     double? stopAt,
+    bool? english,
   }) async {
     final service = AsrService.to;
     if (!service.modelsReady) {
       return {'pass': false, 'reason': 'models missing'};
+    }
+    // `--asr-english 0|1`: the English model switched off or on, as the
+    // setting does (it is on unless switched off)
+    if (english != null) {
+      await GStorage.setting.put(SettingBoxKey.asrEnglishModel, english);
     }
     if ((offAt != null || onAt != null) && playheadSpeed == null) {
       return {'pass': false, 'reason': '--asr-off-at needs a playhead speed'};
@@ -6030,6 +6041,7 @@ abstract final class SelfTest {
     await firstCue.cancel();
     final cues = session.cues.toList();
     final segments = session.segments.length;
+    final segmentList = session.segments;
     final state = session.state.value;
     final runs = session.runCount;
     final pace = session.pace;
@@ -6069,6 +6081,27 @@ abstract final class SelfTest {
       'segmentCount': segments,
       'cueChanges': changes,
       'lastCueEnd': cues.isEmpty ? null : cues.last.to,
+      // the English model (AsrEnglishGate): whether it was there, where the
+      // gate said English, how long its background load took, and where
+      // its first segment starts — every one after it in a run from 0 is
+      // its own
+      'english': {
+        'setting': Pref.asrEnglishModel,
+        'installed': service.store.isEnglishReady,
+        'wanted': session.englishWanted,
+        'decidedAt': session.englishDecidedAt,
+        'loadMs': session.englishLoadMs,
+        'from': session.englishFrom,
+      },
+      'segments': [
+        for (final s in segmentList)
+          {
+            'start': s.start,
+            'duration': s.duration,
+            'lang': s.language,
+            'run': s.run,
+          },
+      ],
     };
   }
 
@@ -6492,7 +6525,7 @@ abstract final class SelfTest {
           });
         case AsrErrorEvent(message: final message):
           error = message;
-        case AsrProgressUpdate() || AsrRunEndEvent():
+        case AsrProgressUpdate() || AsrRunEndEvent() || AsrTagEvent():
           break;
       }
     }

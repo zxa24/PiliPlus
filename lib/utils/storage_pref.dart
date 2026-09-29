@@ -502,6 +502,12 @@ abstract final class Pref {
     PlatformMode.bilibili,
   );
 
+  /// LibrePili: once a session's speech is settled as English, recognise
+  /// the rest with the English model (AsrModelCatalog.parakeet), where it
+  /// has been downloaded. On unless switched off.
+  static bool get asrEnglishModel =>
+      _setting.get(SettingBoxKey.asrEnglishModel, defaultValue: true);
+
   /// Decoding threads. Half the cores keeps the UI responsive on the phones
   /// this was measured on, and never fewer than two.
   static int get asrThreads {
