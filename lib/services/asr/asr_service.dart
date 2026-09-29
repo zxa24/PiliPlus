@@ -338,6 +338,14 @@ class AsrSession {
       'stage': state.value.stage.name,
       'message': state.value.message,
       'playhead': _playhead,
+      'lead': {
+        'low': leadWindow.low,
+        'high': leadWindow.high.isFinite ? leadWindow.high : null,
+        'speed': pace.speed,
+        'restartCost': pace.restartCost,
+        'power': power.name,
+      },
+      'viewerWaitingSince': _viewerWaitingSince?.toIso8601String(),
       'suspended': _suspended,
       'closed': _closed,
       'woundDown': _woundDown,
@@ -577,7 +585,7 @@ class AsrSession {
       // the one run such a source has is kept, paused: a new one would
       // start from 0 again, if the source can be read twice at all (an
       // Android document is read once through its descriptor)
-      _pause(run);
+      _pause(run, 'switched off, reached the wind-down mark');
     } else {
       if (run != null) _endRun(run);
       _closeRecogniser();
@@ -761,6 +769,45 @@ class AsrSession {
     if (_fullCoverage == 0 && _models != null) _tick();
   }
 
+  /// Since when the viewer has been where there is no text yet, waiting
+  /// for the transcript: the stall a viewer sees, logged as it starts and
+  /// ends.
+  DateTime? _viewerWaitingSince;
+
+  void _watchViewer() {
+    if (_playheadOf == null) return;
+    final media = duration;
+    final stage = state.value.stage;
+    final waiting =
+        !_woundDown &&
+        !_windingDown &&
+        stage != AsrStage.done &&
+        stage != AsrStage.failed &&
+        (media == null || _playhead < media - 1) &&
+        coveredEndOf(transcript.covered, _playhead) - _playhead < 0.5;
+    final since = _viewerWaitingSince;
+    if (waiting && since == null) {
+      _viewerWaitingSince = DateTime.now();
+      final run = _run;
+      final what = run == null
+          ? (_starting ? 'a run starting' : 'no run')
+          : '${run.paused ? 'paused ' : ''}run ${run.serial}: ${_where(run)}';
+      EventLog.add(
+        'asr',
+        'viewer waiting for the transcript at '
+            '${_playhead.toStringAsFixed(1)} s ($what)',
+      );
+    } else if (!waiting && since != null) {
+      _viewerWaitingSince = null;
+      final ms = DateTime.now().difference(since).inMilliseconds;
+      EventLog.add(
+        'asr',
+        'viewer wait over after ${(ms / 1000).toStringAsFixed(1)} s '
+            'at ${_playhead.toStringAsFixed(1)} s',
+      );
+    }
+  }
+
   void _readPlayhead() {
     final now = DateTime.now();
     final p = _playheadOf?.call();
@@ -781,6 +828,7 @@ class AsrSession {
     if (_closed || _suspended || _starting || _models == null) return;
     _maybeSaveCache();
     _readPlayhead();
+    _watchViewer();
     final winding = _windingDown;
     // a save waiting for the whole transcript lifts a wind-down, even one
     // that has stopped: the recogniser opens again for the next run
@@ -827,7 +875,9 @@ class AsrSession {
         }
       }
       if (_windDownStep()) return;
-      if (step is AsrPause && run != null && run.join == null) _pause(run);
+      if (step is AsrPause && run != null && run.join == null) {
+        _pause(run, 'switched off: far enough ahead');
+      }
       _updateState();
       return;
     }
@@ -842,9 +892,9 @@ class AsrSession {
       case AsrComplete():
         if (!joining) _complete();
       case AsrPause():
-        if (run != null && !joining) _pause(run);
+        if (run != null && !joining) _pause(run, 'far enough ahead');
       case AsrResume():
-        if (run != null) _resume(run);
+        if (run != null) _resume(run, 'the viewer is coming close');
       case AsrStartAt(:final at, :final adjacent):
         final backoff = _backoffUntil;
         if (backoff != null && DateTime.now().isBefore(backoff)) return;
@@ -881,14 +931,14 @@ class AsrSession {
     }
     switch (step) {
       case AsrPause():
-        _pause(run);
+        _pause(run, 'far enough ahead');
       case AsrResume():
-        _resume(run);
+        _resume(run, 'the viewer is coming close');
       case _:
         // a jump elsewhere: this run is all there is; resume it if the
         // viewer is now ahead of what it knows
         if (run.paused && _playhead > run.frontier - leadWindow.low) {
-          _resume(run);
+          _resume(run, 'the viewer jumped close');
         }
     }
     _updateState();
@@ -944,8 +994,20 @@ class AsrSession {
     }
   }
 
-  void _pause(_Run run) {
+  /// Where the run is against the viewer and the lead window, for the
+  /// event log's pause and resume lines.
+  String _where(_Run run) {
+    final lead = leadWindow;
+    final high = lead.high.isFinite ? lead.high.toStringAsFixed(0) : '∞';
+    return 'frontier ${run.frontier.toStringAsFixed(1)}, '
+        'playhead ${_playhead.toStringAsFixed(1)}, '
+        'lead ${lead.low.toStringAsFixed(0)}-$high, '
+        'speed ${pace.speed.toStringAsFixed(1)}x, ${power.name}';
+  }
+
+  void _pause(_Run run, String why) {
     if (run.paused || run.ended) return;
+    EventLog.add('asr', 'run ${run.serial} paused ($why): ${_where(run)}');
     run.paused = true;
     pauses++;
     _transcriber?.pause(true);
@@ -957,12 +1019,13 @@ class AsrSession {
     }
   }
 
-  void _resume(_Run run) {
+  void _resume(_Run run, String why) {
     if (!run.paused || run.ended) return;
     if (run.heldForEnglish) {
       if (run.frontier - _playhead >= asrEnglishHoldLead) return;
       run.heldForEnglish = false;
     }
+    EventLog.add('asr', 'run ${run.serial} resumed ($why): ${_where(run)}');
     run
       ..paused = false
       ..progressAt = null
@@ -1043,7 +1106,7 @@ class AsrSession {
       final held = _run;
       if (held != null && held.heldForEnglish) {
         held.heldForEnglish = false;
-        if (held.paused) _resume(held);
+        if (held.paused) _resume(held, 'English model ready');
       }
       // a new recogniser opened while this one loaded opens English
       // itself; one opened before the model was there is handed it now
@@ -1072,9 +1135,8 @@ class AsrSession {
         run.frontier - _playhead < asrEnglishHoldLead) {
       return;
     }
-    _pause(run);
+    _pause(run, 'English model loading');
     run.heldForEnglish = true;
-    EventLog.add('asr', 'run held for English at ${run.frontier}');
   }
 
   Future<void> _loadEnglish(AsrTranscriber transcriber) async {
@@ -1158,6 +1220,15 @@ class AsrSession {
         }
       }
       final serial = ++_serials;
+      final why = first
+          ? 'first'
+          : adjacent
+          ? 'after known text'
+          : 'the viewer jumped to ${at.toStringAsFixed(1)} s';
+      EventLog.add(
+        'asr',
+        'run $serial from ${extractFrom.toStringAsFixed(1)} s ($why)',
+      );
       final pcmPath = path.join(
         tmpDirPath,
         'asr',
@@ -1320,6 +1391,7 @@ class AsrSession {
   }
 
   void _runFailed(_Run run, Object error) {
+    EventLog.add('asr', 'run ${run.serial} failed: $error');
     _endRun(run);
     Utils.reportError('asr: $error');
     if (transcript.segments.isEmpty && transcript.cues.isEmpty) {
@@ -1704,6 +1776,9 @@ class AsrService extends GetxService {
   );
 
   AsrSession? _current;
+
+  /// The session running, for the self test's progress file.
+  AsrSession? get debugCurrent => _current;
 
   /// True when both models are on disk and a job can start without a download.
   bool get modelsReady => store.isReady;

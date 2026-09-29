@@ -103,6 +103,30 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   final RxBool isSeeking = false.obs;
 
   final RxInt position = RxInt(0);
+
+  /// Since when playback has been buffering: each stall goes to the event
+  /// log as it starts and ends, where it was and for how long.
+  DateTime? _bufferingSince;
+
+  void _logBuffering(bool buffering) {
+    final since = _bufferingSince;
+    if (buffering && since == null) {
+      _bufferingSince = DateTime.now();
+      EventLog.add(
+        'player',
+        'buffering at ${position.value} s (buffered to ${buffered.value} s'
+            '${_replacing ? ', replacing streams' : ''})',
+      );
+    } else if (!buffering && since != null) {
+      _bufferingSince = null;
+      final ms = DateTime.now().difference(since).inMilliseconds;
+      EventLog.add(
+        'player',
+        'buffering over after ${(ms / 1000).toStringAsFixed(1)} s '
+            'at ${position.value} s',
+      );
+    }
+  }
   final RxInt seekPosition = RxInt(0);
   int get progress => isSeeking.value ? seekPosition.value : position.value;
 
@@ -1101,6 +1125,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         buffered.value = buffer.inSeconds;
       }),
       stream.buffering.listen((bool buffering) {
+        _logBuffering(buffering);
         // a replacement in place holds the last frame rather than showing
         // the loading spinner over it (see [_replaceCutStreams])
         isBuffering.value = buffering && !_replacing;

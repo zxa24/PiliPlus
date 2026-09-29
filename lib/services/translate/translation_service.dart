@@ -573,7 +573,7 @@ class TranslationService extends GetxService {
   @visibleForTesting
   bool debugIsParked(TranslationSession session) => _parked.contains(session);
 
-  @visibleForTesting
+  /// The session running: for tests, and the self test's progress file.
   TranslationSession? get debugCurrent => _current;
 
   @visibleForTesting

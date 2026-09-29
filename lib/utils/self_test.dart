@@ -612,6 +612,23 @@ abstract final class SelfTest {
               'ms': sw.elapsedMilliseconds,
               'at': DateTime.now().toIso8601String(),
               'status': _progress?.call(),
+              'player': switch (PlPlayerController.instance) {
+                final player? => {
+                  'position': player.position.value,
+                  'buffered': player.buffered.value,
+                  'buffering': player.isBuffering.value,
+                  'status': player.playerStatus.value.name,
+                },
+                null => null,
+              },
+              'asr': Get.isRegistered<AsrService>() &&
+                      !Get.isPrepared<AsrService>()
+                  ? AsrService.to.debugCurrent?.debugStatus
+                  : null,
+              'translation': Get.isRegistered<TranslationService>() &&
+                      !Get.isPrepared<TranslationService>()
+                  ? TranslationService.to.debugCurrent?.debugStatus
+                  : null,
               'eventLog': EventLog.recent.reversed.take(40).toList(),
             }),
           );
@@ -2786,8 +2803,27 @@ abstract final class SelfTest {
 
     int? translatedTrackMs;
     int? selectedMs;
+    // every 5 s, how far ahead of the viewer the transcript and its
+    // translation are: whether the two keep up with playback
+    final timeline = <Map<String, Object?>>[];
     for (var i = 0; i < holdSeconds; i++) {
       await Future.delayed(const Duration(seconds: 1));
+      if (i % 5 == 4) {
+        final asr = page.asrSession.value;
+        final tr = page.translation.session.value;
+        final at = page.plPlayerController.position.value.toDouble();
+        timeline.add({
+          'ms': ms(),
+          'playhead': at,
+          'buffering': page.plPlayerController.isBuffering.value,
+          'asrStage': asr?.state.value.stage.name,
+          'asrTo': asr?.transcript.coveredEnd(at),
+          'asrSpeed': asr?.pace.speed,
+          'translationStage': tr?.state.value.stage.name,
+          'translatedTo': tr?.settledFrom(at),
+          'translatedUnits': tr?.results.values.where((r) => !r.passed).length,
+        });
+      }
       final index = page.subtitles.indexWhere(
         (s) =>
             s.source == SubtitleSource.device &&
@@ -2827,6 +2863,7 @@ abstract final class SelfTest {
       'translationStarting':
           page.translation.isActive && page.translation.session.value == null,
       'mode': auto ? 'auto' : 'menu',
+      'timeline': timeline,
       'local': local,
       'videoOwnSubtitles': ownSubtitles,
       // the video's own subtitles when foreign ones exist, else a transcript

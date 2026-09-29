@@ -2234,9 +2234,15 @@ class VideoDetailController extends GetxController
     _asrGate?.cancel();
     // counted from when it first went up: taken over by another start, the
     // wait is the same wait
-    if (!asrPending.value) _startGateSkipTimer();
+    if (!asrPending.value) {
+      _startGateSkipTimer();
+      EventLog.add('gate', 'loading gate up: waiting for the subtitles');
+    }
     asrPending.value = true;
-    _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
+    _asrGate = Timer(const Duration(seconds: 30), () {
+      EventLog.add('gate', 'loading gate reached its 30 s cap');
+      _closeAsrGate();
+    });
     _holdPlayback();
   }
 
@@ -2245,8 +2251,16 @@ class VideoDetailController extends GetxController
     _asrGate = null;
     _stopGateSkipTimer();
     // nothing waits for the translation once the gate is down
+    final onTranslation = _gateOnTranslation;
     _gateOnTranslation = false;
     if (asrPending.value) {
+      final opened = gateOpenedAt;
+      EventLog.add(
+        'gate',
+        'loading gate down'
+            '${opened == null ? '' : ' after ${(DateTime.now().difference(opened).inMilliseconds / 1000).toStringAsFixed(1)} s'}'
+            '${onTranslation ? ' (was waiting for the translation too)' : ''}',
+      );
       asrPending.value = false;
       // the player has been released: the gate had its one chance
       _pastOpening = true;
@@ -2268,6 +2282,7 @@ class VideoDetailController extends GetxController
   /// without the subtitles, which keep being made and come in when ready.
   void skipSubtitleGate() {
     if (!asrPending.value) return;
+    EventLog.add('gate', 'viewer chose 先播放视频');
     _holdingForSubtitles = false;
     _closeAsrGate();
   }

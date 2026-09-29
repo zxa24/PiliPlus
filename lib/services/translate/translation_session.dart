@@ -522,8 +522,73 @@ class TranslationSession {
       _set(TranslationState(TranslationStage.failed, message: reason));
 
   void _set(TranslationState value) {
-    if (!_closed) state.value = value;
+    if (_closed) return;
+    final was = state.value.stage;
+    // translating and waiting take turns with each unit once the lead is
+    // reached; the rest are the changes worth a line
+    if (value.stage != was &&
+        !({was, value.stage}.containsAll(const [
+          TranslationStage.translating,
+          TranslationStage.waiting,
+        ]))) {
+      EventLog.add(
+        'translate',
+        '${was.name} -> ${value.stage.name}'
+            '${value.message == null ? '' : ': ${value.message}'}'
+            ' at ${position().toStringAsFixed(1)} s',
+      );
+    }
+    state.value = value;
   }
+
+  /// Since when the viewer has been at a line whose translation is not
+  /// there yet: the stall a viewer sees, logged as it starts and ends.
+  DateTime? _viewerWaitingSince;
+
+  void _watchViewer() {
+    final now = position();
+    TranslationUnit? here;
+    for (final unit in units) {
+      if (unit.from > now) break;
+      if (unit.to >= now) {
+        here = unit;
+        break;
+      }
+    }
+    final waiting = here != null && !results.settles(here);
+    final since = _viewerWaitingSince;
+    if (waiting && since == null) {
+      _viewerWaitingSince = DateTime.now();
+      EventLog.add(
+        'translate',
+        'viewer waiting for the translation of the line at '
+            '${here.from.toStringAsFixed(1)} s (${state.value.stage.name}, '
+            'playhead ${now.toStringAsFixed(1)} s, '
+            'transcript known to ${coveredEndOf(transcript.covered(), now).toStringAsFixed(1)} s, '
+            'model ${_engine == null ? 'not loaded' : 'loaded'})',
+      );
+    } else if (!waiting && since != null) {
+      _viewerWaitingSince = null;
+      final ms = DateTime.now().difference(since).inMilliseconds;
+      EventLog.add(
+        'translate',
+        'viewer wait over after ${(ms / 1000).toStringAsFixed(1)} s '
+            'at ${now.toStringAsFixed(1)} s',
+      );
+    }
+  }
+
+  /// For the self test's progress file.
+  Map<String, Object?> get debugStatus => {
+    'stage': state.value.stage.name,
+    'message': state.value.message,
+    'position': position(),
+    'settledTo': settledFrom(position()),
+    'modelLoaded': _engine != null,
+    'modelLoads': _modelLoads,
+    'units': units.length,
+    'viewerWaitingSince': _viewerWaitingSince?.toIso8601String(),
+  };
 
   /// Until something changes (see [poke]), or a second has passed.
   Future<void> _nap() {
@@ -643,6 +708,7 @@ class TranslationSession {
           }
         }
         _refreshUnits();
+        _watchViewer();
         final due = next();
         // nothing of the transcript due: short texts go in the gap. The
         // transcript has the player's clock to keep; they do not.
@@ -725,6 +791,7 @@ class TranslationSession {
           if (_parking != null || ownsPlayer?.call() == false) continue;
           _set(const TranslationState(TranslationStage.loading));
           _modelLoads++;
+          final loadClock = Stopwatch()..start();
           try {
             _engine = await engine(
               (message) => _set(
@@ -739,6 +806,11 @@ class TranslationSession {
             rethrow;
           }
           if (_closed) return;
+          EventLog.add(
+            'translate',
+            'model loaded in ${loadClock.elapsedMilliseconds} ms '
+                '(load $_modelLoads)',
+          );
           if (_parking != null) continue;
         }
         if (due == null) {
@@ -766,7 +838,7 @@ class TranslationSession {
           if (_closed) return;
           // cancelled to let go of the model: the unit is translated later
           if (_parking != null || ownsPlayer?.call() == false) continue;
-          if (kDebugMode) debugPrint('translate: unit ${unit.from} failed: $e');
+          EventLog.add('translate', 'unit at ${unit.from} s failed: $e');
           if (++_failures >= _giveUpAfter) {
             _set(TranslationState(TranslationStage.failed, message: '$e'));
             return;

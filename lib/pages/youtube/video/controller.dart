@@ -29,6 +29,7 @@ import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
@@ -835,9 +836,15 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     // past the opening, playback has started (see [_autoChecks])
     if (_autoChecks > 1 || _released || _playbackUnderway) return;
     _asrGate?.cancel();
-    if (!asrPending.value) _startGateSkipTimer();
+    if (!asrPending.value) {
+      _startGateSkipTimer();
+      EventLog.add('gate', 'loading gate up: waiting for the subtitles');
+    }
     asrPending.value = true;
-    _asrGate = Timer(const Duration(seconds: 30), _closeAsrGate);
+    _asrGate = Timer(const Duration(seconds: 30), () {
+      EventLog.add('gate', 'loading gate reached its 30 s cap');
+      _closeAsrGate();
+    });
     _holdPlayback();
   }
 
@@ -846,8 +853,16 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     _asrGate = null;
     _stopGateSkipTimer();
     // nothing waits for the translation once the gate is down
+    final onTranslation = _gateOnTranslation;
     _gateOnTranslation = false;
     if (asrPending.value) {
+      final opened = gateOpenedAt;
+      EventLog.add(
+        'gate',
+        'loading gate down'
+            '${opened == null ? '' : ' after ${(DateTime.now().difference(opened).inMilliseconds / 1000).toStringAsFixed(1)} s'}'
+            '${onTranslation ? ' (was waiting for the translation too)' : ''}',
+      );
       asrPending.value = false;
       // the player has been released: the gate had its one chance
       _released = true;
@@ -869,6 +884,7 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
   /// without the subtitles, which keep being made and come in when ready.
   void skipSubtitleGate() {
     if (!asrPending.value) return;
+    EventLog.add('gate', 'viewer chose 先播放视频');
     _closeAsrGate();
   }
 

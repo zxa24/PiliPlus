@@ -308,10 +308,11 @@ void main() {
   });
 }
 
-/// The lines under 'translate' in the event log since [EventLogTesting.clear].
+/// The language check's lines in the event log since [EventLogTesting.clear]
+/// (the session's stage changes and model loads are logged there too).
 List<String> translateLines() => [
   for (final line in EventLog.recent.skip(EventLogTesting.mark))
-    if (line.contains('[translate]')) line,
+    if (line.contains('[translate]') && line.contains('asking again')) line,
 ];
 
 abstract final class EventLogTesting {
