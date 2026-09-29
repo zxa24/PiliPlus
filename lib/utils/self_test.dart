@@ -5646,6 +5646,14 @@ abstract final class SelfTest {
     for (var i = 0; i < holdSeconds && controller.stage.value != .ready; i++) {
       await Future.delayed(const Duration(seconds: 1));
     }
+    // the video's language as the menu has it before any transcript: from
+    // the platform's tracks alone (a dubbed video's first automatic track
+    // was taken for it, 2026-09-29)
+    final spokenAtReady = controller.spoken;
+    final kinds = <String, int>{};
+    for (final t in controller.platformTracks) {
+      kinds[t.kind.name] = (kinds[t.kind.name] ?? 0) + 1;
+    }
     final player = controller.plPlayerController;
     // autoplay is a user setting; the probe presses play itself so a paused
     // preference cannot be mistaken for a stream that will not run
@@ -5693,6 +5701,8 @@ abstract final class SelfTest {
       'advanced': advanced,
       'buffer': player.videoPlayerController?.state.buffer.inMilliseconds,
       'captionTracks': controller.captions.length,
+      'spokenAtReady': spokenAtReady,
+      'trackKinds': kinds,
       'captionShown': captionOk,
       'via': controller.streams?.sourceId,
       // the streams themselves, for probes run against them (--dump-urls)
