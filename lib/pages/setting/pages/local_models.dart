@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:file_picker/file_picker.dart';
@@ -130,7 +131,7 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
 
   Future<void> _copyUrls() async {
     final urls = [
-      for (final model in AsrModelCatalog.required)
+      for (final model in AsrModelCatalog.all)
         for (final file in model.files) file.sources.first.url,
     ];
     await Utils.copyText(
@@ -150,9 +151,7 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
       backgroundColor: widget.showAppBar
           ? null
           : theme.colorScheme.surfaceContainerLow,
-      appBar: widget.showAppBar
-          ? AppBar(title: const Text('本地模型'))
-          : null,
+      appBar: widget.showAppBar ? AppBar(title: const Text('本地模型')) : null,
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -177,44 +176,8 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
                 : '未就绪，还需下载 ${CacheManager.formatSize(missing)}',
             models: AsrModelCatalog.required,
           ),
-          if (_progress case final progress?) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    progress.verifying
-                        ? progress.label
-                        : '${progress.label}  '
-                              '${CacheManager.formatSize(progress.received)}'
-                              ' / ${CacheManager.formatSize(progress.total)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  LinearProgressIndicator(
-                    value: progress.total == 0
-                        ? null
-                        : progress.received / progress.total,
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (_error case final error?)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Text(
-                error,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            ),
+          if (_progress case final progress?) _progressBar(theme, progress),
+          if (_error case final error?) _errorText(theme, error),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Wrap(
@@ -244,10 +207,111 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          _english(theme),
         ],
       ),
     );
   }
+
+  /// The optional English model: its own download, its licence, and what
+  /// it is for.
+  Widget _english(ThemeData theme) {
+    final service = AsrService.to;
+    final model = AsrModelCatalog.parakeet;
+    return Obx(() {
+      final progress = service.englishDownload.value;
+      final error = service.englishDownloadError.value;
+      final downloading = service.englishDownloading;
+      final installed = _store.isEnglishReady;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _group(
+            theme,
+            title: '英语识别（可选）',
+            subtitle: installed
+                ? '已就绪：英语为主的视频改用它识别，更准确'
+                : '下载后，英语为主的视频改用它识别，更准确；'
+                      '识别时计算约为默认模型的 2–3 倍，多占约 0.8 GB 内存',
+            models: [model],
+          ),
+          if (progress != null) _progressBar(theme, progress),
+          if (error != null) _errorText(theme, error),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (downloading)
+                  FilledButton.tonal(
+                    onPressed: service.cancelEnglishDownload,
+                    child: const Text('取消下载'),
+                  )
+                else if (!installed)
+                  FilledButton(
+                    onPressed: () async {
+                      if (await AsrEntry.confirmEnglishModel(context) &&
+                          mounted) {
+                        await service.downloadEnglishModel();
+                        if (mounted) setState(() {});
+                      }
+                    },
+                    child: Text(
+                      '下载（${CacheManager.formatSize(model.totalSize)}）',
+                    ),
+                  ),
+                TextButton(
+                  onPressed: () => AsrEntry.showLicence(context, model),
+                  child: const Text('许可协议'),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              model.licence!.notice,
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+            ),
+          ),
+        ],
+      );
+    });
+  }
+
+  Widget _progressBar(ThemeData theme, AsrProgress progress) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          progress.verifying
+              ? progress.label
+              : '${progress.label}  '
+                    '${CacheManager.formatSize(progress.received)}'
+                    ' / ${CacheManager.formatSize(progress.total)}',
+          style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+        ),
+        const SizedBox(height: 6),
+        LinearProgressIndicator(
+          value: progress.total == 0
+              ? null
+              : progress.received / progress.total,
+        ),
+      ],
+    ),
+  );
+
+  Widget _errorText(ThemeData theme, String error) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+    child: Text(
+      error,
+      style: TextStyle(fontSize: 13, color: theme.colorScheme.error),
+    ),
+  );
 
   Widget _group(
     ThemeData theme, {
@@ -276,7 +340,9 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
                 ? IconButton(
                     tooltip: '删除',
                     icon: const Icon(Icons.delete_outline),
-                    onPressed: _busy ? null : () => _remove(model),
+                    onPressed: _busy || AsrService.to.englishDownloading
+                        ? null
+                        : () => _remove(model),
                   )
                 : Text(
                     '未下载',

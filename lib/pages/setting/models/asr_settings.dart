@@ -45,6 +45,16 @@ List<SettingsModel> get asrSettings => [
     onTap: (context, setState) =>
         Get.to(() => const LocalModelsPage())?.whenComplete(setState),
   ),
+  // the English model is a download of its own (识别模型); this only says
+  // whether a session whose speech is English switches to it — read when a
+  // transcription starts
+  const SwitchModel(
+    title: '英语使用专用模型',
+    subtitle: '英语为主的视频在确认语种后改用 Parakeet 识别，更准确；需另行下载',
+    leading: Icon(Icons.record_voice_over_outlined),
+    setKey: SettingBoxKey.asrEnglishModel,
+    defaultVal: true,
+  ),
   // nothing to offer where it cannot run (see [TranslationService.supported])
   if (TranslationService.supported) ...[
     const SwitchModel(

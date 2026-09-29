@@ -15,9 +15,11 @@ import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/pages/setting/common_setting.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -28,6 +30,7 @@ abstract final class OnDeviceMenu {
   static const other = -98;
   static const more = -97;
   static const note = -96;
+  static const englishModel = -95;
 
   static const _languageBase = -1000;
 
@@ -99,6 +102,27 @@ abstract final class OnDeviceMenu {
             onSource: (source) => pick(context, host, row.code, via: source),
           ),
         ),
+      // the speech is English and the English model is not here: offered,
+      // never fetched by itself (design 2026-09-26, 14⑤)
+      // (a service never created has no session to offer it for)
+      if (Get.isRegistered<AsrService>() &&
+          !Get.isPrepared<AsrService>() &&
+          AsrService.to.offersEnglishModelNow)
+        PopupMenuItem<int>(
+          value: englishModel,
+          height: 36,
+          onTap: () => downloadEnglishModel(context),
+          child: Obx(() {
+            final progress = AsrService.to.englishDownload.value;
+            return _RowText(
+              label: progress == null
+                  ? '下载英语识别模型（更准确）'
+                  : '英语识别模型下载中 '
+                        '${progress.total == 0 ? 0 : progress.received * 100 ~/ progress.total}%',
+              checked: false,
+            );
+          }),
+        ),
       if (TranslateEntry.available)
         PopupMenuItem<int>(
           value: other,
@@ -152,6 +176,21 @@ abstract final class OnDeviceMenu {
           host.chooseLanguage(code, plan, mayTranscribe: mayTranscribe),
       needsTranscript:
           !host.hasTranscription && host.captionToTranslateInto(code) == null,
+    );
+  }
+
+  /// Asks, then downloads the English model in the background; the session
+  /// going switches to it once it is here.
+  static Future<void> downloadEnglishModel(BuildContext context) async {
+    final service = AsrService.to;
+    if (service.englishDownloading) return;
+    if (!await AsrEntry.confirmEnglishModel(context)) return;
+    await service.downloadEnglishModel();
+    final error = service.englishDownloadError.value;
+    SmartDialog.showToast(
+      error == null
+          ? (service.store.isEnglishReady ? '英语识别模型已就绪' : '已取消')
+          : '英语识别模型下载失败：$error',
     );
   }
 
