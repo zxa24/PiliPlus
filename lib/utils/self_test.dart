@@ -1004,7 +1004,10 @@ abstract final class SelfTest {
       await scenario('probePlayback', () => _probePlayback(url, seconds));
     }
     if (_arg(args, '--asr-download') case final dir?) {
-      await scenario('asrDownload', () => _asrDownload(dir));
+      await scenario(
+        'asrDownload',
+        () => _asrDownload(dir, english: args.contains('--with-english')),
+      );
     }
     if (args.contains('--comment-translate-probe')) {
       await scenario('commentTranslateProbe', _commentTranslateProbe);
@@ -5791,7 +5794,10 @@ abstract final class SelfTest {
   /// URLs, into a throwaway directory — the one part of the pipeline whose
   /// failure modes (a dead mirror, a renamed release asset, a tarball whose
   /// member paths moved) only show up against the live internet.
-  static Future<Map<String, dynamic>> _asrDownload(String dir) async {
+  static Future<Map<String, dynamic>> _asrDownload(
+    String dir, {
+    bool english = false,
+  }) async {
     // An empty --asr-download resolves Directory('') to the working
     // directory, and 240 MB of models landed in the repo. A blank argument
     // means "wherever the app keeps them", which under --selftest is the
@@ -5810,14 +5816,37 @@ abstract final class SelfTest {
         }
       },
     );
+    // `--with-english`: the optional English model too (Parakeet, from the
+    // project's mirror), with the licence files it is installed with
+    if (english) {
+      await store.ensure(
+        AsrModelCatalog.parakeet,
+        onProgress: (p) {
+          if (p.label != lastLabel) {
+            lastLabel = p.label;
+            steps.add(p.label);
+          }
+        },
+      );
+    }
     final ms = DateTime.now().difference(started).inMilliseconds;
+    final models = [
+      ...AsrModelCatalog.required,
+      if (english) AsrModelCatalog.parakeet,
+    ];
     return {
-      'pass': store.isReady,
+      'pass':
+          store.isReady &&
+          (!english || store.isInstalled(AsrModelCatalog.parakeet)),
       'ms': ms,
       'bytes': store.installedBytes(),
       'steps': steps,
+      if (english)
+        'englishNotice': File(
+          path.join(store.dirOf(AsrModelCatalog.parakeet).path, 'NOTICE.txt'),
+        ).existsSync(),
       'files': [
-        for (final model in AsrModelCatalog.required)
+        for (final model in models)
           for (final file in model.files)
             {
               'name': file.name,
