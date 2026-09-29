@@ -144,7 +144,8 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final ready = _store.isReady;
-    final used = _store.installedBytes();
+    // the required models only: the optional English one has its own group
+    final used = _store.installedBytes(only: AsrModelCatalog.required);
     final missing = AsrService.to.downloadSize;
 
     return Scaffold(

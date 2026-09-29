@@ -60,6 +60,8 @@ import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
+import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
+import 'package:PiliPlus/pages/setting/pages/local_models.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/models/common/platform_mode.dart';
 import 'package:PiliPlus/models/common/setting_type.dart';
@@ -946,6 +948,10 @@ abstract final class SelfTest {
     }
     if (args.contains('--import-settings')) {
       await scenario('importSettings', _importSettings);
+    }
+    if (_arg(args, '--models-page') case final dir?) {
+      _shots = dir;
+      await scenario('modelsPage', _modelsPage);
     }
     if (on('--settings-reachable')) {
       await scenario('settingsReachable', _settingsReachable);
@@ -2940,6 +2946,32 @@ abstract final class SelfTest {
   /// [_shots]. From the root layer, so the window may be at the bottom of
   /// the z-order (see SelfTestWindow); what a platform texture shows (the
   /// video) may come out black. The path written, or null.
+  /// `--models-page DIR`: the models page (with the optional English model)
+  /// and the licence it comes under, as screenshots in DIR.
+  static Future<Map<String, dynamic>> _modelsPage() async {
+    unawaited(Get.to(() => const LocalModelsPage()));
+    await Future.delayed(const Duration(seconds: 2));
+    final page = await _shot('models_page');
+    final english = _seesText('英语识别（可选）');
+    final notice = _seesText(AsrModelCatalog.parakeet.licence!.notice);
+    final context = Get.context;
+    String? licence;
+    if (context != null && context.mounted) {
+      unawaited(AsrEntry.showLicence(context, AsrModelCatalog.parakeet));
+      await Future.delayed(const Duration(seconds: 1));
+      licence = await _shot('models_licence');
+      Get.back();
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
+    Get.back();
+    return {
+      'pass': english && notice,
+      'englishGroup': english,
+      'notice': notice,
+      'shots': [page, licence],
+    };
+  }
+
   static Future<String?> _shot(String name) async {
     final dir = _shots;
     if (dir == null) return null;

@@ -134,8 +134,19 @@ class AsrModelStore {
   ];
 
   /// What the user would free by deleting everything, including half-finished
-  /// downloads.
-  int installedBytes() {
+  /// downloads. With [only], what those models' directories take.
+  int installedBytes({List<AsrModel>? only}) {
+    if (only != null) {
+      return only.fold(0, (sum, model) {
+        final dir = dirOf(model);
+        if (!dir.existsSync()) return sum;
+        return sum +
+            dir
+                .listSync(recursive: true)
+                .whereType<File>()
+                .fold(0, (s, f) => s + f.lengthSync());
+      });
+    }
     if (!root.existsSync()) return 0;
     return root
         .listSync(recursive: true)
@@ -423,8 +434,9 @@ class AsrModelStore {
     token?._register(abort);
     try {
       final request = await client.getUrl(Uri.parse(url));
-      if (have > 0)
+      if (have > 0) {
         request.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
+      }
       final response = await request.close();
 
       var append = false;
