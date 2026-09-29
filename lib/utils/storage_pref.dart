@@ -487,6 +487,13 @@ abstract final class Pref {
     return value is List ? value.whereType<String>().toList() : const [];
   }
 
+  /// LibrePili: the last performance test on the models page (本地模型 →
+  /// 性能测试), as ModelBenchResult JSON; null until one has run.
+  static String? get modelBench {
+    final stored = _setting.get(SettingBoxKey.modelBench);
+    return stored is String ? stored : null;
+  }
+
   /// LibrePili: how much disk the on-device subtitle cache may take, in
   /// MB (research/subtitle-switch-design-2026-09-26.md, 9B: 0.5 GB unless
   /// changed); the least recently used entries go past it.

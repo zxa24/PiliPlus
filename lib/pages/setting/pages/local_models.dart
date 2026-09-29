@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/pages/setting/widgets/model_bench_card.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -211,6 +212,9 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
           const SizedBox(height: 16),
           const Divider(height: 1),
           _english(theme),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const ModelBenchCard(),
         ],
       ),
     );

@@ -73,6 +73,8 @@ import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/services/model_bench/bench_advice.dart';
+import 'package:PiliPlus/services/model_bench/model_bench.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -830,6 +832,15 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--translate-probe') case final gguf?) {
       await scenario('translateProbe', () => _translateProbe(gguf));
+    }
+    if (args.contains('--bench-models')) {
+      await scenario(
+        'benchModels',
+        () => _benchModels(
+          asrModels: _arg(args, '--asr-models'),
+          translationFile: _arg(args, '--translate-model'),
+        ),
+      );
     }
     if (_arg(args, '--caption-compare') case final video?) {
       await scenario('captionCompare', () => _captionCompare(video));
@@ -1862,6 +1873,47 @@ abstract final class SelfTest {
       'memoryLoaded': loaded,
       'memoryAfterDispose': translated,
       'outputs': outputs,
+    };
+  }
+
+  /// The models page's performance test (本地模型 → 性能测试), run the same
+  /// way with no UI: the installed models — or those under [asrModels] and
+  /// the GGUF [translationFile], for a phone test build with none of its own
+  /// — timed alone and together, the advice the page would show, and the
+  /// progress it reported. The result is not stored as the page's.
+  static Future<Map<String, dynamic>> _benchModels({
+    String? asrModels,
+    String? translationFile,
+  }) async {
+    ModelBenchProgress? last;
+    final labels = <String>[];
+    final bench = ModelBench(
+      asrStore: asrModels == null
+          ? null
+          : AsrModelStore(root: Directory(asrModels)),
+      translationFile: translationFile,
+      // unattended: a screen that turns off must not end it
+      stopInBackground: false,
+      onProgress: (p) {
+        last = p;
+        if (labels.isEmpty || labels.last != p.label) labels.add(p.label);
+      },
+    );
+    _progress = () => {'fraction': last?.fraction, 'label': last?.label};
+    final result = await bench.run();
+    return {
+      // measured something and finished: an install with no models passes
+      // as a test of that path, with the advice saying so
+      'pass': result.complete,
+      'result': result.toJson(),
+      'advice': [
+        for (final a in benchAdvice(result))
+          {'level': a.level.name, 'text': a.text},
+      ],
+      'details': [
+        for (final (label, value) in benchDetails(result)) '$label：$value',
+      ],
+      'steps': labels,
     };
   }
 
