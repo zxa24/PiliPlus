@@ -107,7 +107,7 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     final duration = info.duration.inMilliseconds;
     unawaited(
       LocalHistory.record(
-        LocalHistoryVisit(
+        LocalWatchVisit(
           key: LocalHistory.ytKey(videoId),
           platform: LocalHistoryPlatform.yt,
           ytId: videoId,

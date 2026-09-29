@@ -53,11 +53,9 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
     (
       icon: CustomIcons.history,
       title: '观看记录',
-      onTap: () {
-        if (isLogin) {
-          Get.toNamed('/history');
-        }
-      },
+      // the local history needs no account (the account tab shows only
+      // when one is in use)
+      onTap: () => Get.toNamed('/history'),
     ),
     (
       icon: CustomIcons.subscriptions_outlined,

@@ -413,7 +413,7 @@ class VideoDetailController extends GetxController
 
   /// What the local history records of the part being shown: null for a
   /// plain local file, which has no id to list or open again by.
-  LocalHistoryVisit? get _historyVisit {
+  LocalWatchVisit? get _historyVisit {
     final cid = this.cid.value;
     if (cid == 0) return null;
     if (isFileSource) {
@@ -422,7 +422,7 @@ class VideoDetailController extends GetxController
       final season = int.tryParse(e.seasonId ?? '');
       if (ep != null && season != null) {
         final isPugv = ep.from == 'pugv';
-        return LocalHistoryVisit(
+        return LocalWatchVisit(
           key: isPugv
               ? LocalHistory.pugvKey(season)
               : LocalHistory.pgcKey(season),
@@ -443,7 +443,7 @@ class VideoDetailController extends GetxController
       }
       if (e.avid == 0) return null;
       final page = e.pageData;
-      return LocalHistoryVisit(
+      return LocalWatchVisit(
         key: LocalHistory.ugcKey(e.avid),
         platform: LocalHistoryPlatform.bili,
         type: 'ugc',
@@ -469,7 +469,7 @@ class VideoDetailController extends GetxController
       if (v?.aid != aid) v = null;
       final pages = v?.pages;
       final part = pages?.firstWhereOrNull((e) => e.cid == cid);
-      return LocalHistoryVisit(
+      return LocalWatchVisit(
         key: LocalHistory.ugcKey(aid),
         platform: LocalHistoryPlatform.bili,
         type: 'ugc',
@@ -496,7 +496,7 @@ class VideoDetailController extends GetxController
       (e) => (e.epId ?? e.id) == epId,
     );
     final isPugv = videoType == VideoType.pugv;
-    return LocalHistoryVisit(
+    return LocalWatchVisit(
       key: isPugv ? LocalHistory.pugvKey(season) : LocalHistory.pgcKey(season),
       platform: LocalHistoryPlatform.bili,
       type: isPugv ? 'pugv' : 'pgc',

@@ -19,9 +19,13 @@ import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
 class HistoryPage extends StatefulWidget {
-  const HistoryPage({super.key, this.type});
+  const HistoryPage({super.key, this.type, this.switcher});
 
   final String? type;
+
+  /// The 本机 / B 站账号 tabs of the page this one is shown in (see
+  /// WatchHistoryPage), put under the app bar.
+  final PreferredSizeWidget? switcher;
 
   @override
   State<HistoryPage> createState() => _HistoryPageState();
@@ -159,6 +163,7 @@ class _HistoryPageState extends State<HistoryPage>
 
   AppBar get _buildAppBar => AppBar(
     title: const Text('观看记录'),
+    bottom: widget.switcher,
     actions: [
       IconButton(
         tooltip: '搜索',

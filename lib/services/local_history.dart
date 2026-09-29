@@ -103,15 +103,15 @@ abstract final class LocalHistory {
   /// Hive shows a put to [Box.get] at once (before it is on disk), so saves
   /// close together — a pause, then the next part — each build on the last.
   static Future<void> record(
-    LocalHistoryVisit visit, {
+    LocalWatchVisit visit, {
     required int progress,
     int duration = 0,
   }) async {
     if (paused) return;
     final now = _stamp();
     final old = _box.get(visit.key);
-    final oldEntry = old is Map ? LocalHistoryEntry.fromJson(old) : null;
-    final part = LocalHistoryPart(
+    final oldEntry = old is Map ? LocalWatchEntry.fromJson(old) : null;
+    final part = LocalWatchPart(
       id: visit.partId,
       cid: visit.cid ?? oldEntry?.parts[visit.partId]?.cid,
       epId: visit.epId ?? oldEntry?.parts[visit.partId]?.epId,
@@ -131,7 +131,7 @@ abstract final class LocalHistory {
         parts.remove(p.id);
       }
     }
-    final entry = LocalHistoryEntry(
+    final entry = LocalWatchEntry(
       key: visit.key,
       platform: visit.platform,
       type: visit.type ?? oldEntry?.type,
@@ -181,15 +181,15 @@ abstract final class LocalHistory {
 
   static int get length => _box.length;
 
-  static LocalHistoryEntry? get(String key) {
+  static LocalWatchEntry? get(String key) {
     final raw = _box.get(key);
-    return raw is Map ? LocalHistoryEntry.fromJson(raw) : null;
+    return raw is Map ? LocalWatchEntry.fromJson(raw) : null;
   }
 
   /// Most recently watched first.
-  static List<LocalHistoryEntry> entries() => [
+  static List<LocalWatchEntry> entries() => [
     for (final v in _box.values)
-      if (v is Map) LocalHistoryEntry.fromJson(v),
+      if (v is Map) LocalWatchEntry.fromJson(v),
   ]..sort((a, b) => b.time.compareTo(a.time));
 
   /// Where to resume part [partId] of [key], in ms: null when it was never
@@ -209,7 +209,7 @@ abstract final class LocalHistory {
     if (data == null) return;
     try {
       for (final v in (data as Map).values) {
-        LocalHistoryEntry.fromJson(v as Map);
+        LocalWatchEntry.fromJson(v as Map);
       }
     } catch (e) {
       throw FormatException('本机观看记录数据无效: $e');
@@ -235,8 +235,8 @@ abstract final class LocalHistory {
 }
 
 /// What a player knows about the video it is showing, for [LocalHistory].
-class LocalHistoryVisit {
-  const LocalHistoryVisit({
+class LocalWatchVisit {
+  const LocalWatchVisit({
     required this.key,
     required this.platform,
     required this.partId,
@@ -290,8 +290,8 @@ enum LocalHistoryPlatform {
   final String label;
 }
 
-class LocalHistoryPart {
-  const LocalHistoryPart({
+class LocalWatchPart {
+  const LocalWatchPart({
     required this.id,
     this.cid,
     this.epId,
@@ -320,7 +320,7 @@ class LocalHistoryPart {
   /// Watched to (within a second of) the end.
   bool get finished => duration > 0 && progress >= duration - 1000;
 
-  factory LocalHistoryPart.fromJson(String id, Map json) => LocalHistoryPart(
+  factory LocalWatchPart.fromJson(String id, Map json) => LocalWatchPart(
     id: id,
     cid: json['cid'] as int?,
     epId: json['ep'] as int?,
@@ -342,8 +342,8 @@ class LocalHistoryPart {
   };
 }
 
-class LocalHistoryEntry {
-  const LocalHistoryEntry({
+class LocalWatchEntry {
+  const LocalWatchEntry({
     required this.key,
     required this.platform,
     this.type,
@@ -379,16 +379,16 @@ class LocalHistoryEntry {
 
   /// The part watched last: the one the list shows and opens.
   final String last;
-  final Map<String, LocalHistoryPart> parts;
+  final Map<String, LocalWatchPart> parts;
 
-  LocalHistoryPart? get lastPart => parts[last];
+  LocalWatchPart? get lastPart => parts[last];
 
-  factory LocalHistoryEntry.fromJson(Map json) {
-    final parts = <String, LocalHistoryPart>{
+  factory LocalWatchEntry.fromJson(Map json) {
+    final parts = <String, LocalWatchPart>{
       for (final MapEntry(:key, :value) in (json['parts'] as Map).entries)
-        '$key': LocalHistoryPart.fromJson('$key', value as Map),
+        '$key': LocalWatchPart.fromJson('$key', value as Map),
     };
-    return LocalHistoryEntry(
+    return LocalWatchEntry(
       key: json['key'] as String,
       platform: LocalHistoryPlatform.values.byName(json['platform'] as String),
       type: json['type'] as String?,

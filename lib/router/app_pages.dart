@@ -24,7 +24,7 @@ import 'package:PiliPlus/pages/follow/view.dart';
 import 'package:PiliPlus/pages/follow_search/view.dart';
 import 'package:PiliPlus/pages/follow_type/follow_same/view.dart';
 import 'package:PiliPlus/pages/follow_type/followed/view.dart';
-import 'package:PiliPlus/pages/history/view.dart';
+import 'package:PiliPlus/pages/history/watch_history.dart';
 import 'package:PiliPlus/pages/history_search/view.dart';
 import 'package:PiliPlus/pages/home/view.dart';
 import 'package:PiliPlus/pages/hot/view.dart';
@@ -102,7 +102,7 @@ class Routes {
     // 稍后再看
     GetPage(name: '/later', page: () => const LaterPage()),
     // 历史记录
-    GetPage(name: '/history', page: () => const HistoryPage()),
+    GetPage(name: '/history', page: () => const WatchHistoryPage()),
     // 搜索页面
     GetPage(name: '/search', page: () => const SearchPage()),
     // 搜索结果

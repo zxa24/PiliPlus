@@ -8,13 +8,13 @@ import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 
-LocalHistoryVisit _ugc(
+LocalWatchVisit _ugc(
   int aid, {
   int cid = 1,
   int page = 1,
   String? title,
   String? partTitle,
-}) => LocalHistoryVisit(
+}) => LocalWatchVisit(
   key: LocalHistory.ugcKey(aid),
   platform: LocalHistoryPlatform.bili,
   type: 'ugc',
@@ -30,7 +30,7 @@ LocalHistoryVisit _ugc(
   partTitle: partTitle,
 );
 
-LocalHistoryVisit _yt(String id) => LocalHistoryVisit(
+LocalWatchVisit _yt(String id) => LocalWatchVisit(
   key: LocalHistory.ytKey(id),
   platform: LocalHistoryPlatform.yt,
   ytId: id,
@@ -103,7 +103,7 @@ void main() {
     () async {
       await LocalHistory.record(_ugc(2), progress: 3000, duration: 9000);
       await LocalHistory.record(
-        const LocalHistoryVisit(
+        const LocalWatchVisit(
           key: 'av2',
           platform: LocalHistoryPlatform.bili,
           partId: '1',
