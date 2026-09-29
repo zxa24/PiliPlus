@@ -77,10 +77,14 @@ typedef AsrProgress = ({
 });
 
 class AsrModelStore {
-  AsrModelStore({Directory? root}) : _rootOverride = root;
+  AsrModelStore({Directory? root, this.licenceText}) : _rootOverride = root;
 
   /// Tests point this at a scratch directory; in the app it is null.
   final Directory? _rootOverride;
+
+  /// Reads a licence's full text (the app's asset bundle); null writes
+  /// only the notice beside the model.
+  final Future<String?> Function(AsrModelLicence licence)? licenceText;
 
   static const _userAgent = 'LibrePili';
 
@@ -103,8 +107,7 @@ class AsrModelStore {
   Directory get root =>
       _rootOverride ?? Directory(path.join(appSupportDirPath, 'asr'));
 
-  Directory dirOf(AsrModel model) =>
-      Directory(path.join(root.path, model.id));
+  Directory dirOf(AsrModel model) => Directory(path.join(root.path, model.id));
 
   File fileOf(AsrModel model, AsrModelFile file) =>
       File(path.join(dirOf(model).path, file.name));
@@ -122,8 +125,13 @@ class AsrModelStore {
 
   bool get isReady => AsrModelCatalog.required.every(isInstalled);
 
-  List<AsrModel> get missing =>
-      [for (final m in AsrModelCatalog.required) if (!isInstalled(m)) m];
+  /// The English model is here (see [AsrModelCatalog.parakeet]).
+  bool get isEnglishReady => isInstalled(AsrModelCatalog.parakeet);
+
+  List<AsrModel> get missing => [
+    for (final m in AsrModelCatalog.required)
+      if (!isInstalled(m)) m,
+  ];
 
   /// What the user would free by deleting everything, including half-finished
   /// downloads.
@@ -231,6 +239,28 @@ class AsrModelStore {
         done += got.size;
       }
     }
+    await _passOnLicence(model);
+  }
+
+  /// Where a model comes under terms that travel with every copy (see
+  /// [AsrModelLicence]), they are put beside it: the notice, and the
+  /// agreement when [licenceText] can read it.
+  Future<void> _passOnLicence(AsrModel model) async {
+    final licence = model.licence;
+    if (licence == null) return;
+    try {
+      await File(
+        path.join(dirOf(model).path, 'NOTICE.txt'),
+      ).writeAsString('${licence.notice}\n${licence.url}\n');
+      final text = await licenceText?.call(licence);
+      if (text != null) {
+        await File(
+          path.join(dirOf(model).path, 'LICENSE.txt'),
+        ).writeAsString(text);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('asr: licence files not written: $e');
+    }
   }
 
   bool _fileInstalled(AsrModel model, AsrModelFile file) {
@@ -242,9 +272,11 @@ class AsrModelStore {
   /// download: a wrong file is rejected rather than half-working later.
   Future<AsrModelFile> importFile(
     File source, {
-    List<AsrModel> models = AsrModelCatalog.required,
+    List<AsrModel>? models,
   }) async {
-    for (final model in models) {
+    // the optional models too: tokens.txt is a name two of them share, and
+    // the size and hash tell which one a file is
+    for (final model in models ?? AsrModelCatalog.all) {
       for (final file in model.files) {
         if (path.basename(source.path) != file.name) continue;
         if (await source.length() != file.size) continue;
@@ -252,6 +284,7 @@ class AsrModelStore {
         if (hash != file.sha256) continue;
         await dirOf(model).create(recursive: true);
         await source.copy(fileOf(model, file).path);
+        if (isInstalled(model)) await _passOnLicence(model);
         return file;
       }
     }
@@ -390,7 +423,8 @@ class AsrModelStore {
     token?._register(abort);
     try {
       final request = await client.getUrl(Uri.parse(url));
-      if (have > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
+      if (have > 0)
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
       final response = await request.close();
 
       var append = false;

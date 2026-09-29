@@ -66,12 +66,36 @@ class AsrModelFile {
   int transferSize(AsrSource source) => source.archiveSize ?? size;
 }
 
+/// Terms a model comes under that the app has to pass on: the licence text
+/// itself and a notice that goes with every copy.
+class AsrModelLicence {
+  const AsrModelLicence({
+    required this.name,
+    required this.url,
+    required this.asset,
+    required this.notice,
+  });
+
+  /// As the licence calls itself.
+  final String name;
+
+  /// Where the licence is published.
+  final String url;
+
+  /// The full text, shipped with the app (pubspec assets).
+  final String asset;
+
+  /// The attribution the licence requires, word for word.
+  final String notice;
+}
+
 class AsrModel {
   const AsrModel({
     required this.id,
     required this.label,
     required this.files,
     required this.languages,
+    this.licence,
   });
 
   /// Directory name under `<support>/asr/`, and the key stored in prefs.
@@ -81,6 +105,10 @@ class AsrModel {
 
   /// BCP-47-ish tags the model recognises; empty for language-agnostic pieces.
   final List<String> languages;
+
+  /// Terms to pass on with it, where there are any beyond a permissive
+  /// licence's (see [AsrModelLicence]).
+  final AsrModelLicence? licence;
 
   int get totalSize => files.fold(0, (sum, file) => sum + file.size);
 }
@@ -164,9 +192,85 @@ abstract final class AsrModelCatalog {
   /// small one first, so a failure shows up before 240 MB of traffic).
   static const required = <AsrModel>[vad, senseVoice];
 
+  static const _parakeetDir =
+      'sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming';
+
+  /// The upstream tarball the Parakeet files come in (500 MB).
+  static const _parakeetArchive = 501350460;
+
+  static AsrModelFile _parakeetFile(String name, int size, String sha256) =>
+      AsrModelFile(
+        name: name,
+        size: size,
+        sha256: sha256,
+        sources: [
+          AsrSource(url: '$_mirror/$_parakeetDir.$name'),
+          AsrSource(
+            url: '$_upstream/$_parakeetDir.tar.bz2',
+            archive: AsrArchive.tarBz2,
+            entry: '$_parakeetDir/$name',
+            archiveSize: _parakeetArchive,
+          ),
+        ],
+      );
+
+  /// NVIDIA's licence for Parakeet: redistribution is allowed if every copy
+  /// comes with the agreement and this notice (section 3.1).
+  static const nvidiaOpenModelLicence = AsrModelLicence(
+    name: 'NVIDIA Open Model License',
+    url:
+        'https://www.nvidia.com/en-us/agreements/enterprise-software/'
+        'nvidia-open-model-license/',
+    asset: 'assets/licenses/nvidia-open-model-license.txt',
+    notice:
+        'Licensed by NVIDIA Corporation under the NVIDIA Open Model License',
+  );
+
+  /// English only, optional: once a session's speech is settled as English,
+  /// its later segments are recognised with this instead of SenseVoice.
+  /// On a Pixel 4 XL it runs at RTF 0.07–0.11 (SenseVoice 0.03) and takes
+  /// 1.2 GB (0.4); on the app's segments it is clearly more accurate on
+  /// English street vlogs (research/noisy-speech-design-2026-09-26.md,
+  /// 11–12). An RNN-T, sherpa-onnx `nemo_transducer`.
+  static final parakeet = AsrModel(
+    id: 'parakeet-unified-en-0.6b-int8',
+    label: 'Parakeet（英语）',
+    languages: const ['en'],
+    licence: nvidiaOpenModelLicence,
+    files: [
+      _parakeetFile(
+        'encoder.int8.onnx',
+        654040552,
+        '6716910b7a0833997fec7a410494c995d70124001a0e9b66d6370d6aced577e0',
+      ),
+      _parakeetFile(
+        'decoder.int8.onnx',
+        7257753,
+        'a5e223392c90e75f8144cdb5eb95af7625db389e39edef2bd1a9c872b3298fe6',
+      ),
+      _parakeetFile(
+        'joiner.int8.onnx',
+        1735860,
+        '869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a',
+      ),
+      _parakeetFile(
+        'tokens.txt',
+        8952,
+        'dc0b4584ab2e4ddbf888425c076c61b736e7356a015250db7d307e6f1a8188ff',
+      ),
+    ],
+  );
+
+  /// Models transcription can do without; each is downloaded only when the
+  /// user asks for it.
+  static final optional = <AsrModel>[parakeet];
+
+  /// [required] and [optional].
+  static List<AsrModel> get all => [...required, ...optional];
+
   static int get totalSize =>
       required.fold(0, (sum, model) => sum + model.totalSize);
 
   static AsrModel? byId(String id) =>
-      required.where((model) => model.id == id).firstOrNull;
+      all.where((model) => model.id == id).firstOrNull;
 }

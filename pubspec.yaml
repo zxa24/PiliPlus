@@ -306,6 +306,9 @@ flutter:
     - assets/opencc/TWVariantsPhrases.txt
     - assets/opencc/TWVariants.txt
     - assets/opencc/CJK_Compatibility_Ideographs.txt
+    # the agreement the optional English recogniser (Parakeet) comes under,
+    # passed on with it as its licence requires
+    - assets/licenses/nvidia-open-model-license.txt
 
   fonts:
     - family: digital_id_num

@@ -32,8 +32,7 @@ class _Host {
     return host;
   }
 
-  String url(String name) =>
-      'http://127.0.0.1:${server.port}/$name';
+  String url(String name) => 'http://127.0.0.1:${server.port}/$name';
 
   Future<void> _handle(HttpRequest request) async {
     requests++;
@@ -139,30 +138,32 @@ void main() {
     expect(host.requests, before);
   });
 
-  test('rejects a file whose hash does not match and installs nothing',
-      () async {
-    host.bodies['model.onnx'] = modelBody;
-    final model = AsrModel(
-      id: 'test-model',
-      label: 'Test',
-      languages: const [],
-      files: [
-        AsrModelFile(
-          name: 'model.onnx',
-          size: modelBody.length,
-          sha256: 'f' * 64,
-          sources: [AsrSource(url: host.url('model.onnx'))],
-        ),
-      ],
-    );
-    await expectLater(
-      store().ensure(model),
-      throwsA(isA<AsrModelException>()),
-    );
-    final target = store().fileOf(model, model.files.first);
-    expect(target.existsSync(), isFalse);
-    expect(File('${target.path}.part').existsSync(), isFalse);
-  });
+  test(
+    'rejects a file whose hash does not match and installs nothing',
+    () async {
+      host.bodies['model.onnx'] = modelBody;
+      final model = AsrModel(
+        id: 'test-model',
+        label: 'Test',
+        languages: const [],
+        files: [
+          AsrModelFile(
+            name: 'model.onnx',
+            size: modelBody.length,
+            sha256: 'f' * 64,
+            sources: [AsrSource(url: host.url('model.onnx'))],
+          ),
+        ],
+      );
+      await expectLater(
+        store().ensure(model),
+        throwsA(isA<AsrModelException>()),
+      );
+      final target = store().fileOf(model, model.files.first);
+      expect(target.existsSync(), isFalse);
+      expect(File('${target.path}.part').existsSync(), isFalse);
+    },
+  );
 
   test('resumes from a partial download instead of restarting', () async {
     host.bodies['model.onnx'] = modelBody;
@@ -213,49 +214,51 @@ void main() {
     );
   });
 
-  test('extracts every wanted file from one tarball, downloaded once',
-      () async {
-    final tar = TarEncoder().encodeBytes(
-      Archive()
-        ..add(ArchiveFile.bytes('bundle/model.onnx', modelBody))
-        ..add(ArchiveFile.bytes('bundle/tokens.txt', tokensBody))
-        ..add(ArchiveFile.bytes('bundle/README', utf8.encode('ignored'))),
-    );
-    final packed = BZip2Encoder().encodeBytes(tar);
-    host.bodies['bundle.tar.bz2'] = packed;
+  test(
+    'extracts every wanted file from one tarball, downloaded once',
+    () async {
+      final tar = TarEncoder().encodeBytes(
+        Archive()
+          ..add(ArchiveFile.bytes('bundle/model.onnx', modelBody))
+          ..add(ArchiveFile.bytes('bundle/tokens.txt', tokensBody))
+          ..add(ArchiveFile.bytes('bundle/README', utf8.encode('ignored'))),
+      );
+      final packed = BZip2Encoder().encodeBytes(tar);
+      host.bodies['bundle.tar.bz2'] = packed;
 
-    AsrSource archiveSource(String entry) => AsrSource(
-      url: host.url('bundle.tar.bz2'),
-      archive: AsrArchive.tarBz2,
-      entry: entry,
-      archiveSize: packed.length,
-    );
-    final model = AsrModel(
-      id: 'test-model',
-      label: 'Test',
-      languages: const [],
-      files: [
-        _file('model.onnx', modelBody, [archiveSource('bundle/model.onnx')]),
-        _file('tokens.txt', tokensBody, [archiveSource('bundle/tokens.txt')]),
-      ],
-    );
+      AsrSource archiveSource(String entry) => AsrSource(
+        url: host.url('bundle.tar.bz2'),
+        archive: AsrArchive.tarBz2,
+        entry: entry,
+        archiveSize: packed.length,
+      );
+      final model = AsrModel(
+        id: 'test-model',
+        label: 'Test',
+        languages: const [],
+        files: [
+          _file('model.onnx', modelBody, [archiveSource('bundle/model.onnx')]),
+          _file('tokens.txt', tokensBody, [archiveSource('bundle/tokens.txt')]),
+        ],
+      );
 
-    await store().ensure(model);
-    expect(
-      store().fileOf(model, model.files[0]).readAsBytesSync(),
-      modelBody,
-    );
-    expect(
-      store().fileOf(model, model.files[1]).readAsBytesSync(),
-      tokensBody,
-    );
-    // one download for both files, and the 163 MB-shaped temp is gone
-    expect(host.requests, 1);
-    expect(
-      Directory(path.join(store().dirOf(model).path, '.tmp')).existsSync(),
-      isFalse,
-    );
-  });
+      await store().ensure(model);
+      expect(
+        store().fileOf(model, model.files[0]).readAsBytesSync(),
+        modelBody,
+      );
+      expect(
+        store().fileOf(model, model.files[1]).readAsBytesSync(),
+        tokensBody,
+      );
+      // one download for both files, and the 163 MB-shaped temp is gone
+      expect(host.requests, 1);
+      expect(
+        Directory(path.join(store().dirOf(model).path, '.tmp')).existsSync(),
+        isFalse,
+      );
+    },
+  );
 
   test('a truncated body is rejected on size before it is hashed', () async {
     host.bodies['model.onnx'] = modelBody.sublist(0, modelBody.length - 5);
@@ -319,11 +322,109 @@ void main() {
         throwsA(isA<AsrModelException>()),
       );
     });
+
+    test('a name two models share goes to the one whose hash it has', () async {
+      // tokens.txt is SenseVoice's and Parakeet's both
+      final first = AsrModel(
+        id: 'first',
+        label: 'First',
+        languages: const [],
+        files: [_file('tokens.txt', modelBody, const [])],
+      );
+      final second = AsrModel(
+        id: 'second',
+        label: 'Second',
+        languages: const [],
+        files: [_file('tokens.txt', tokensBody, const [])],
+      );
+      final tokens = File(path.join(root.path, 'tokens.txt'));
+      await tokens.writeAsBytes(tokensBody);
+      await store().importFile(tokens, models: [first, second]);
+      expect(store().isInstalled(second), isTrue);
+      expect(store().isInstalled(first), isFalse);
+    });
+  });
+
+  group('a model with a licence to pass on', () {
+    const licence = AsrModelLicence(
+      name: 'Test Licence',
+      url: 'https://example.org/licence',
+      asset: 'assets/none.txt',
+      notice: 'Licensed by Someone under the Test Licence',
+    );
+
+    AsrModel licensed() => AsrModel(
+      id: 'licensed',
+      label: 'Licensed',
+      languages: const ['en'],
+      licence: licence,
+      files: [
+        _file('model.onnx', modelBody, [
+          AsrSource(url: host.url('model.onnx')),
+        ]),
+      ],
+    );
+
+    test(
+      'gets the notice and the agreement beside it once installed',
+      () async {
+        host.bodies['model.onnx'] = modelBody;
+        final model = licensed();
+        final withText = AsrModelStore(
+          root: root,
+          licenceText: (l) async => 'the whole agreement of ${l.name}',
+        );
+        await withText.ensure(model);
+        final dir = withText.dirOf(model).path;
+        expect(
+          File(path.join(dir, 'NOTICE.txt')).readAsStringSync(),
+          startsWith(licence.notice),
+        );
+        expect(
+          File(path.join(dir, 'LICENSE.txt')).readAsStringSync(),
+          'the whole agreement of Test Licence',
+        );
+        // the files beside it are not model files: still installed, and
+        // counted in what deleting would free
+        expect(withText.isInstalled(model), isTrue);
+        expect(withText.installedBytes(), greaterThan(modelBody.length));
+      },
+    );
+
+    test('without the text, the notice alone', () async {
+      host.bodies['model.onnx'] = modelBody;
+      final model = licensed();
+      await store().ensure(model);
+      final dir = store().dirOf(model).path;
+      expect(File(path.join(dir, 'NOTICE.txt')).existsSync(), isTrue);
+      expect(File(path.join(dir, 'LICENSE.txt')).existsSync(), isFalse);
+    });
+
+    test('an import that completes the model writes them too', () async {
+      final model = licensed();
+      final source = File(path.join(root.path, 'model.onnx'));
+      await source.writeAsBytes(modelBody);
+      await store().importFile(source, models: [model]);
+      expect(
+        File(path.join(store().dirOf(model).path, 'NOTICE.txt')).existsSync(),
+        isTrue,
+      );
+    });
+
+    test('a model without one gets nothing beside it', () async {
+      host.bodies['model.onnx'] = modelBody;
+      final model = directModel();
+      await store().ensure(model);
+      expect(
+        File(path.join(store().dirOf(model).path, 'NOTICE.txt')).existsSync(),
+        isFalse,
+      );
+    });
   });
 
   group('catalogue', () {
     test('every pin is a full SHA-256 and every file has a source', () {
-      for (final model in AsrModelCatalog.required) {
+      for (final model in AsrModelCatalog.all) {
         expect(model.files, isNotEmpty, reason: model.id);
         for (final file in model.files) {
           expect(
@@ -344,9 +445,9 @@ void main() {
     });
 
     test('ids and filenames are unique', () {
-      final ids = AsrModelCatalog.required.map((m) => m.id).toSet();
-      expect(ids, hasLength(AsrModelCatalog.required.length));
-      for (final model in AsrModelCatalog.required) {
+      final ids = AsrModelCatalog.all.map((m) => m.id).toSet();
+      expect(ids, hasLength(AsrModelCatalog.all.length));
+      for (final model in AsrModelCatalog.all) {
         final names = model.files.map((f) => f.name).toSet();
         expect(names, hasLength(model.files.length), reason: model.id);
       }
@@ -363,7 +464,58 @@ void main() {
 
     test('byId round-trips and is null for anything else', () {
       expect(AsrModelCatalog.byId('silero-vad'), AsrModelCatalog.vad);
+      expect(
+        AsrModelCatalog.byId('parakeet-unified-en-0.6b-int8'),
+        AsrModelCatalog.parakeet,
+      );
       expect(AsrModelCatalog.byId('nope'), isNull);
+    });
+
+    test('Parakeet is optional, English, the non-streaming int8 build', () {
+      final model = AsrModelCatalog.parakeet;
+      expect(AsrModelCatalog.required, isNot(contains(model)));
+      expect(AsrModelCatalog.optional, contains(model));
+      expect(model.languages, ['en']);
+      expect(model.files.map((f) => f.name), [
+        'encoder.int8.onnx',
+        'decoder.int8.onnx',
+        'joiner.int8.onnx',
+        'tokens.txt',
+      ]);
+      for (final file in model.files) {
+        // our mirror first, then the upstream tarball the pins were taken
+        // from — the streaming builds share the name but not the weights
+        expect(file.sources.first.url, contains('zxa24/PiliPlus'));
+        expect(file.sources.first.archive, AsrArchive.none);
+        final upstream = file.sources.last;
+        expect(upstream.url, contains('k2-fsa/sherpa-onnx'));
+        expect(upstream.url, endsWith('int8-non-streaming.tar.bz2'));
+        expect(upstream.archive, AsrArchive.tarBz2);
+        expect(
+          upstream.entry,
+          'sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming/'
+          '${file.name}',
+        );
+      }
+      // about 663 MB unpacked
+      expect(model.totalSize, 663043117);
+    });
+
+    test('Parakeet carries the NVIDIA licence and its notice', () {
+      final licence = AsrModelCatalog.parakeet.licence!;
+      expect(licence.name, 'NVIDIA Open Model License');
+      expect(
+        licence.notice,
+        'Licensed by NVIDIA Corporation under the NVIDIA Open Model License',
+      );
+      expect(licence.url, startsWith('https://www.nvidia.com/'));
+      final text = File(licence.asset).readAsStringSync();
+      expect(text, contains('NVIDIA Open Model License Agreement'));
+      expect(text, contains('3.1 If you distribute the Model'));
+      // the required models come under permissive terms with nothing to add
+      for (final model in AsrModelCatalog.required) {
+        expect(model.licence, isNull, reason: model.id);
+      }
     });
   });
 
@@ -375,34 +527,36 @@ void main() {
       AsrModelStore.debugIdleTimeout = const Duration(seconds: 30);
     });
 
-    test('times out instead of hanging, and falls back to the next source',
-        () async {
-      host.bodies['stall.onnx'] = modelBody;
-      host.bodies['good.onnx'] = modelBody;
-      host.stalling.add('stall.onnx');
-      final model = AsrModel(
-        id: 'test-model',
-        label: 'Test',
-        languages: const [],
-        files: [
-          _file('model.onnx', modelBody, [
-            AsrSource(url: host.url('stall.onnx')),
-            AsrSource(url: host.url('good.onnx')),
-          ]),
-        ],
-      );
+    test(
+      'times out instead of hanging, and falls back to the next source',
+      () async {
+        host.bodies['stall.onnx'] = modelBody;
+        host.bodies['good.onnx'] = modelBody;
+        host.stalling.add('stall.onnx');
+        final model = AsrModel(
+          id: 'test-model',
+          label: 'Test',
+          languages: const [],
+          files: [
+            _file('model.onnx', modelBody, [
+              AsrSource(url: host.url('stall.onnx')),
+              AsrSource(url: host.url('good.onnx')),
+            ]),
+          ],
+        );
 
-      await store()
-          .ensure(model)
-          .timeout(
-            const Duration(seconds: 10),
-            onTimeout: () => fail('the download hung instead of timing out'),
-          );
-      expect(
-        store().fileOf(model, model.files.first).readAsBytesSync(),
-        modelBody,
-      );
-    });
+        await store()
+            .ensure(model)
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => fail('the download hung instead of timing out'),
+            );
+        expect(
+          store().fileOf(model, model.files.first).readAsBytesSync(),
+          modelBody,
+        );
+      },
+    );
 
     test('a stall on every source fails rather than hanging', () async {
       host.bodies['stall.onnx'] = modelBody;

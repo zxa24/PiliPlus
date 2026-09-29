@@ -196,7 +196,7 @@ abstract final class Ctl {
           () => {
             'ready': AsrService.to.modelsReady,
             'models': {
-              for (final m in AsrModelCatalog.required)
+              for (final m in AsrModelCatalog.all)
                 m.id: AsrService.to.store.isInstalled(m),
             },
           },
