@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models/user/danmaku_rule_adapter.dart';
 import 'package:PiliPlus/models/user/info.dart';
+import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -60,6 +61,7 @@ abstract final class GStorage {
       Hive.openBox('video').then((res) => video = res),
       Accounts.init(),
       LocalLibrary.init(),
+      LocalHistory.init(),
       YtSubscriptions.init(),
       Hive.openBox<int>(
         'watchProgress',
@@ -132,6 +134,8 @@ abstract final class GStorage {
       video.name: video.toMap(),
       // local follows / favorites: the only copy without an account
       for (final box in LocalLibrary.boxes) box.name: box.toMap(),
+      // the watch history kept on this device: likewise its only copy
+      LocalHistory.boxName: LocalHistory.box.toMap(),
     });
   }
 
@@ -211,9 +215,9 @@ abstract final class GStorage {
     await file.delete();
   }
 
-  /// Replaces settings and the local library with [map]. Unless [snapshot]
-  /// is false, the current state is saved first (see [saveSnapshot]) and
-  /// the snapshot path is returned. This device's [credentialKeys] are kept
+  /// Replaces settings, the local library and the local watch history
+  /// with [map]. Unless [snapshot] is false, the current state is saved
+  /// first (see [saveSnapshot]) and the snapshot path is returned. This device's [credentialKeys] are kept
   /// unless [importCredentials] (the user agreed) and [map] has them.
   static Future<String?> importAllJsonSettings(
     Map<String, dynamic> map, {
@@ -233,6 +237,7 @@ abstract final class GStorage {
       throw const FormatException('不是有效的设置备份');
     }
     LocalLibrary.checkImport(map);
+    LocalHistory.checkImport(map);
     final snapshotPath = snapshot ? await saveSnapshot() : null;
     final credentials = {
       for (final key in credentialKeys)
@@ -260,6 +265,7 @@ abstract final class GStorage {
             ),
       if (videoMap is Map) video.clear().then((_) => video.putAll(videoMap)),
       LocalLibrary.importAll(map),
+      LocalHistory.importAll(map),
     ]);
     return snapshotPath;
   }
@@ -286,6 +292,7 @@ abstract final class GStorage {
       Accounts.account.compact(),
       watchProgress.compact(),
       for (final box in LocalLibrary.boxes) box.compact(),
+      LocalHistory.box.compact(),
       ?reply?.compact(),
     ]);
   }
@@ -300,6 +307,7 @@ abstract final class GStorage {
       Accounts.account.close(),
       watchProgress.close(),
       for (final box in LocalLibrary.boxes) box.close(),
+      LocalHistory.box.close(),
       ?reply?.close(),
     ]);
   }
@@ -314,6 +322,7 @@ abstract final class GStorage {
       Accounts.clear(),
       watchProgress.clear(),
       LocalLibrary.clear(),
+      LocalHistory.clear(),
       clearReply(),
       // "reset all data" must not leave the pre-import snapshots behind
       _clearSnapshots(),

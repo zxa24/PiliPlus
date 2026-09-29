@@ -278,7 +278,10 @@ abstract final class SettingBoxKey {
       reduceLuxColor = 'reduceLuxColor',
       liveCdnUrl = 'liveCdnUrl',
       saveReply = 'saveReply',
-      appFont = 'appFont';
+      appFont = 'appFont',
+      // LibrePili: the watch history kept on this device (LocalHistory)
+      localHistoryPaused = 'localHistoryPaused',
+      localHistoryMax = 'localHistoryMax';
 }
 
 abstract final class LocalCacheKey {
