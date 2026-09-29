@@ -24,6 +24,7 @@ library;
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:flutter/foundation.dart';
@@ -152,7 +153,11 @@ class OnDeviceModelGuard with WidgetsBindingObserver {
       mobile: PlatformUtils.isMobile,
     );
     if (reason == null) return;
-    if (kDebugMode) debugPrint('asr: stopping — ${reason.name}');
+    EventLog.add(
+      'asr',
+      'guard stops on-device work: ${reason.name}'
+          '${memoryPressure ? ' (memory pressure, $lifecycle)' : ''}',
+    );
     // the translation first: it holds the larger model, and it reads the
     // transcript, which is about to stop growing
     if (translation) {

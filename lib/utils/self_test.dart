@@ -297,6 +297,11 @@ abstract final class SelfTest {
   /// Inverse text normalisation for probe runs; see [AsrJob.itn].
   static bool _itn = true;
 
+  /// What a running scenario is waiting on, written every few seconds to
+  /// `<out>.progress` beside the report: a run on a phone that stopped
+  /// moving otherwise says nothing until its deadline, half an hour on.
+  static Map<String, Object?> Function()? _progress;
+
   static String? _arg(List<String> args, String name) {
     final i = args.indexOf(name);
     return i != -1 && i + 1 < args.length ? args[i + 1] : null;
@@ -599,11 +604,32 @@ abstract final class SelfTest {
       Future<Map<String, dynamic>> Function() body,
     ) async {
       final sw = Stopwatch()..start();
+      void writeProgress() {
+        try {
+          File('$out.progress').writeAsStringSync(
+            const JsonEncoder.withIndent('  ').convert({
+              'scenario': name,
+              'ms': sw.elapsedMilliseconds,
+              'at': DateTime.now().toIso8601String(),
+              'status': _progress?.call(),
+              'eventLog': EventLog.recent.reversed.take(40).toList(),
+            }),
+          );
+        } catch (_) {}
+      }
+
+      final progress = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => writeProgress(),
+      );
       Map<String, dynamic> result;
       try {
         result = await body();
       } catch (e, s) {
         result = {'pass': false, 'error': '$e', 'stack': '$s'};
+      } finally {
+        progress.cancel();
+        _progress = null;
       }
       // the framework owns these three keys; a scenario that writes them
       // loses its own value silently (a channel's name once came back as
@@ -6010,6 +6036,15 @@ abstract final class SelfTest {
     // each change is one segment's cues arriving: the pace every listener
     // (page gates, the translation track) is woken at
     final sub = session.cues.listen((_) => changes++);
+    _progress = () => {
+      ...session.debugStatus,
+      'runs': session.runCount,
+      'pauses': session.pauses,
+      'resumes': session.resumes,
+      'covered': session.coveredSeconds,
+      'englishLoadMs': session.englishLoadMs,
+      'englishFrom': session.englishFrom,
+    };
     // when the first cue was there: at once, from a cache entry
     int? firstCueMs;
     final firstCue = session.cues.listen((cues) {

@@ -32,6 +32,7 @@ import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -329,6 +330,36 @@ class AsrSession {
   /// none).
   int get runCount => _serials;
 
+  /// What the session is waiting on, for the self test's progress file: a
+  /// run on a phone that stopped moving says nothing until its deadline.
+  Map<String, Object?> get debugStatus {
+    final run = _run;
+    return {
+      'stage': state.value.stage.name,
+      'message': state.value.message,
+      'playhead': _playhead,
+      'suspended': _suspended,
+      'closed': _closed,
+      'woundDown': _woundDown,
+      'starting': _starting,
+      'recogniser': _transcriber != null,
+      'opening': _opening != null,
+      'englishWanted': _englishWanted,
+      'englishLoading': _englishLoading != null,
+      'englishIn': _englishIn != null,
+      'englishFailed': _englishFailed,
+      'run': run == null
+          ? null
+          : {
+              'frontier': run.frontier,
+              'paused': run.paused,
+              'heldForEnglish': run.heldForEnglish,
+              'ended': run.ended,
+              'extractionOver': run.extractionOver,
+            },
+    };
+  }
+
   /// It will make no more text: it failed. A page asked by the user for
   /// this transcript, or a translation of it, starts a new one instead of
   /// waiting on this.
@@ -440,6 +471,7 @@ class AsrSession {
   /// far stays, and so does the track. [resume] carries on from there.
   void suspend(String reason) {
     if (_closed || _suspended) return;
+    EventLog.add('asr', 'suspended: $reason');
     _suspended = true;
     final run = _run;
     if (run != null) _endRun(run);
@@ -464,6 +496,7 @@ class AsrSession {
   /// After [suspend]: runs start again as the viewer needs them.
   void resume() {
     if (_closed || !_suspended) return;
+    EventLog.add('asr', 'resumed after suspend');
     _suspended = false;
     // wound down before the guard stopped it: still off, and says so
     if (_woundDown && _windingDown) _setWoundDown();
@@ -1041,21 +1074,30 @@ class AsrSession {
     }
     _pause(run);
     run.heldForEnglish = true;
+    EventLog.add('asr', 'run held for English at ${run.frontier}');
   }
 
   Future<void> _loadEnglish(AsrTranscriber transcriber) async {
     final models = _models!;
     final clock = Stopwatch()..start();
     final int address;
+    EventLog.add('asr', 'English model loading');
     try {
       address = await AsrTranscriber.loadEnglish(models);
     } catch (e, stack) {
+      EventLog.add('asr', 'English model failed: $e');
       Utils.reportError('asr: English model: $e', stack);
       _englishFailed = true;
       _models = asrModelsWithEnglish(models, null, first: false);
       return;
     }
     englishLoadMs = clock.elapsedMilliseconds;
+    EventLog.add(
+      'asr',
+      'English model loaded in ${englishLoadMs}ms'
+          '${_closed ? ', closed' : ''}${_suspended ? ', suspended' : ''}'
+          '${identical(_transcriber, transcriber) ? '' : ', recogniser changed'}',
+    );
     if (_closed ||
         _suspended ||
         !identical(_transcriber, transcriber) ||
@@ -1066,6 +1108,7 @@ class AsrSession {
       return;
     }
     _englishIn = transcriber;
+    EventLog.add('asr', 'English model handed over');
     if (kDebugMode) {
       debugPrint('asr: English model handed over after ${englishLoadMs}ms');
     }
