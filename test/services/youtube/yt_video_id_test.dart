@@ -69,10 +69,62 @@ void main() {
       }
     });
 
+    // Every link in the app is asked this before it is routed: another
+    // host's path must not be read for an id (a bilibili space whose uid
+    // has 11 digits opened as a YouTube video, 2026-09-29)
+    test('only YouTube hosts are read for an id', () {
+      const notYouTube = [
+        'https://space.bilibili.com/12345678901',
+        'https://example.com/blog/abcdefghijk',
+        'https://example.com/watch?v=dQw4w9WgXcQ',
+        'https://travisleon1',
+        'https://notyoutube.com/watch?v=dQw4w9WgXcQ',
+      ];
+      for (final s in notYouTube) {
+        expect(tryParseYouTubeVideoId(s), isNull, reason: s);
+      }
+      const youTube = {
+        'youtu.be/dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+        'www.youtube.com/watch?v=dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+        'https://music.youtube.com/watch?v=dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+        'https://WWW.YouTube.com/watch?v=dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+        'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+      };
+      youTube.forEach((input, expected) {
+        expect(tryParseYouTubeVideoId(input), expected, reason: input);
+      });
+    });
+
     test('isYouTubeVideoId agrees', () {
       expect(isYouTubeVideoId('dQw4w9WgXcQ'), isTrue);
       expect(isYouTubeVideoId('dQw4w9WgXc'), isFalse);
       expect(isYouTubeVideoId('https://youtu.be/dQw4w9WgXcQ'), isFalse);
+    });
+  });
+
+  // What the search box opens directly: a link, never a bare word, even one
+  // with the shape of an id (`travisleon1` opened as a video, 2026-09-29)
+  group('tryParseYouTubeLink', () {
+    test('a bare word, id-shaped or not, is a search', () {
+      for (final s in ['travisleon1', 'helloworld1', 'dQw4w9WgXcQ', 'cats']) {
+        expect(tryParseYouTubeLink(s), isNull, reason: s);
+      }
+    });
+
+    test('a pasted link opens the video', () {
+      const links = {
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=abc': 'dQw4w9WgXcQ',
+        'youtu.be/dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+        ' https://youtu.be/dQw4w9WgXcQ ': 'dQw4w9WgXcQ',
+        'https://www.youtube.com/shorts/dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+      };
+      links.forEach((input, expected) {
+        expect(tryParseYouTubeLink(input), expected, reason: input);
+      });
+    });
+
+    test('words around a link make it a search', () {
+      expect(tryParseYouTubeLink('watch youtu.be/dQw4w9WgXcQ'), isNull);
     });
   });
 

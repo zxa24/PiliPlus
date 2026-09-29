@@ -21,29 +21,51 @@ bool isYouTubeVideoId(String s) => _idRe.hasMatch(s);
 String? tryParseYouTubeVideoId(String input) {
   final s = input.trim();
   if (_idRe.hasMatch(s)) return s;
+  return _idInLink(s);
+}
+
+/// The video id in [input] only when it is a YouTube link — never a bare
+/// 11-character string: typed into a search box, that is a word to search
+/// for (`travisleon1` opened as a video, 2026-09-29).
+String? tryParseYouTubeLink(String input) => _idInLink(input.trim());
+
+/// A link on one of YouTube's own hosts, with or without its scheme. Every
+/// link in the app is asked this before it is routed (PiliScheme), so any
+/// other host's path — a bilibili space whose uid has 11 digits — must not
+/// be read for an id.
+String? _idInLink(String s) {
+  if (s.isEmpty || s.contains(RegExp(r'\s'))) return null;
   final Uri u;
   try {
-    u = Uri.parse(s);
+    u = Uri.parse(s.contains('://') ? s : 'https://$s');
   } catch (_) {
     return null;
   }
+  final host = u.host.toLowerCase();
+  if (!_youTubeHost(host)) return null;
   final segments = u.pathSegments;
   final candidates = <String?>[
     u.queryParameters['v'],
-    if (u.host.endsWith('youtu.be') && segments.isNotEmpty) segments.last,
+    if (host == 'youtu.be' && segments.isNotEmpty) segments.first,
     if (segments.length >= 2 &&
         (segments[0] == 'shorts' ||
             segments[0] == 'embed' ||
             segments[0] == 'live' ||
             segments[0] == 'v'))
       segments[1],
-    if (segments.isNotEmpty) segments.last,
   ];
   for (final c in candidates) {
     if (c != null && _idRe.hasMatch(c)) return c;
   }
   return null;
 }
+
+bool _youTubeHost(String host) =>
+    host == 'youtu.be' ||
+    host == 'youtube.com' ||
+    host.endsWith('.youtube.com') ||
+    host == 'youtube-nocookie.com' ||
+    host.endsWith('.youtube-nocookie.com');
 
 /// Like [tryParseYouTubeVideoId] but throws instead of returning null. Use at
 /// the boundary where a caller has promised an id.

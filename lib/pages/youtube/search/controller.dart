@@ -47,8 +47,9 @@ class YtSearchController extends GetxController {
     final text = (value ?? controller.text).trim();
     if (text.isEmpty) return;
 
-    // a pasted link is not a search
-    if (tryParseYouTubeVideoId(text) case final videoId?) {
+    // a pasted link is not a search; a bare word is, even one that has the
+    // shape of a video id
+    if (tryParseYouTubeLink(text) case final videoId?) {
       Get.toNamed('/ytVideo', parameters: {'id': videoId});
       return;
     }
