@@ -865,7 +865,8 @@ class TranslationSession {
           EventLog.add(
             'translate',
             'model loaded in ${loadClock.elapsedMilliseconds} ms '
-                '(load $_modelLoads)',
+                '(load $_modelLoads'
+                '${_engine is LlamaTranslationEngine && LlamaTranslationEngine.repacks ? ', weights repacked' : ''})',
           );
           if (_parking != null) continue;
         }

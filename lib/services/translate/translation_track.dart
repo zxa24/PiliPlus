@@ -219,11 +219,8 @@ class TranslationTrack {
     session.value = current;
     current.ownsPlayer = ownsPlayer;
     _revisionWorker = ever(current.revision, (_) {
-      // Ready once there is a stretch ahead to watch, not at the first line:
-      // released at one unit, a real run reached the next one — still
-      // waiting — within seconds (2 s of "正在翻译" on screen in English,
-      // 7 s in Japanese). Published at that moment; after it the timer
-      // paces the reloads.
+      // Ready as soon as there is a line to show (see [_hasLead]); published
+      // at that moment, and after it the timer paces the reloads.
       if (!_readySent && _hasLead(current)) {
         _ready();
         publish();
@@ -234,6 +231,18 @@ class TranslationTrack {
     });
     // the playhead moves without telling anyone; check on a timer too
     final started = DateTime.now();
+    // the first line to show comes from the transcript, not from a
+    // translation: nothing ticks the revision for it, so it is looked for
+    // every second until there is one
+    _readyPoll = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_readySent) {
+        timer.cancel();
+      } else if (_hasLead(current)) {
+        timer.cancel();
+        _ready();
+        publish();
+      }
+    });
     void startRefresh() {
       _refresh ??= Timer.periodic(const Duration(seconds: 5), (_) {
         // a phone too slow to build the lead in time shows what it has, when
@@ -313,14 +322,23 @@ class TranslationTrack {
   }
 
   /// How much translated speech must lie ahead before the page stops
-  /// waiting: enough that the next units are done by the time it is watched.
+  /// waiting — none: the page lets go once there is a line to show, its
+  /// source marked 正在翻译 until the translation comes (user 2026-09-29,
+  /// D). Waiting for 10 s of translated lead held a Pixel 6 Pro's page for
+  /// 23-30 s (noisy-speech §18), where the transcript had its first line
+  /// in 3.5 s.
   static const _readyLead = 10.0;
 
   /// The page's own cap on waiting (its loading gate).
   static const _readyCap = Duration(seconds: 30);
 
+  Timer? _readyPoll;
+
   bool _hasLead(TranslationSession current) {
     final now = position();
+    // a line of the transcript (or of the captions) to show, translated or
+    // not
+    if (current.cues().isNotEmpty) return true;
     if (current.settledFrom(now) - now >= _readyLead) return true;
     // nothing to translate for a while — a long intro, the last line just
     // passed — or everything from here to the end is translated
@@ -437,6 +455,8 @@ class TranslationTrack {
   Future<void> _detach() async {
     _refresh?.cancel();
     _refresh = null;
+    _readyPoll?.cancel();
+    _readyPoll = null;
     _revisionWorker?.dispose();
     _revisionWorker = null;
     _stateWorker?.dispose();

@@ -6,6 +6,8 @@
 /// prefix reuse, thinking off.
 library;
 
+import 'dart:io';
+
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:llamadart/llamadart.dart';
@@ -15,13 +17,33 @@ class LlamaTranslationEngine implements TranslationEngine {
 
   final LlamaEngine _engine;
 
-  /// Whether the CPU backend may repack weights here: on desktops only —
-  /// unless the self test asks (`--translate-repack 1`), to measure what a
-  /// phone with the room for the second copy would gain (noisy-speech §18.1:
-  /// the prompt is read at only ~15 tok/s on a Pixel 6 Pro without it).
-  static bool get repacks => debugRepack ?? !PlatformUtils.isMobile;
+  /// Whether the CPU backend may repack weights here: on desktops, and on
+  /// phones of the 8 GB class and up (user 2026-09-29, 1A). Repacked, a
+  /// Pixel 6 Pro (12 GB) read the prompt at 35-46 tok/s instead of 14-16,
+  /// for 1.4 GB more memory (noisy-speech §18.2); a Pixel 4 XL (6 GB) took
+  /// 1.8 GB more, where the mapped file alone is paged in and out as needed.
+  /// `--translate-repack 1|0` forces it, for the self test.
+  static bool get repacks =>
+      debugRepack ?? (!PlatformUtils.isMobile || _hasRoom);
 
   static bool? debugRepack;
+
+  /// The memory an 8 GB phone reports: the kernel and firmware keep some,
+  /// so one sold as 8 GB shows 7.3-7.6 GiB as MemTotal.
+  static const repackMinMemoryKb = 7 * 1024 * 1024;
+
+  static final bool _hasRoom = () {
+    try {
+      final line = File('/proc/meminfo')
+          .readAsLinesSync()
+          .firstWhere((l) => l.startsWith('MemTotal:'), orElse: () => '');
+      final kb = int.tryParse(line.replaceAll(RegExp('[^0-9]'), ''));
+      return kb != null && kb >= repackMinMemoryKb;
+    } catch (_) {
+      // unknown: the small phone's setting, which cannot run out of memory
+      return false;
+    }
+  }();
 
   /// Loads the GGUF at [path]. Throws if it cannot be loaded.
   static Future<LlamaTranslationEngine> load(String path) async {
