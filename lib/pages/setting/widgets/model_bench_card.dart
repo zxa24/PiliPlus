@@ -154,12 +154,13 @@ class _ModelBenchCardState extends State<ModelBenchCard> {
           title: const Text('详细数据', style: TextStyle(fontSize: 14)),
           tilePadding: const EdgeInsets.symmetric(horizontal: 16),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          expandedAlignment: Alignment.centerLeft,
           expandedCrossAxisAlignment: CrossAxisAlignment.start,
           children: [
             for (final (label, value) in benchDetails(result))
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
-                child: SelectableText.rich(
+                child: Text.rich(
                   TextSpan(
                     children: [
                       TextSpan(

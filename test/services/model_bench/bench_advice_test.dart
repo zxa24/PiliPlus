@@ -276,6 +276,21 @@ void main() {
       expect(lines.last, startsWith('内存：测试中系统报告内存不足'));
     });
 
+    test('no recogniser: nothing else can be timed', () {
+      final r = ModelBenchResult(
+        at: DateTime(2026, 9, 29),
+        platform: 'windows',
+        cores: 20,
+        asrThreads: 8,
+        llamaThreads: 0,
+        repacks: true,
+        asrInstalled: false,
+      );
+      expect(texts(r), [
+        '语音转录模型未下载，无法测试；翻译要和转录一起测，也需要先下载它。',
+      ]);
+    });
+
     test('an error is the only line', () {
       expect(texts(result(error: '正在转录，请先停止')), ['正在转录，请先停止']);
     });

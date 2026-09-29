@@ -62,12 +62,14 @@ typedef ModelBenchProgress = ({double fraction, String label});
 /// Greenman reading the Gettysburg Address for LibriVox — from "Four score
 /// and seven years ago" — cut from
 /// https://archive.org/details/gettysburg_johng_librivox (23.0–43.0 s of
-/// gettysburg_address.mp3), 16 kHz mono Opus at 24 kbit/s, 62 KB. LibriVox
+/// gettysburg_address.mp3), 16 kHz mono AAC at 32 kbit/s, 84 KB — AAC
+/// because it is what bilibili serves, so every libmpv build here decodes
+/// it; an Ogg Opus copy decoded to nothing on the Windows build. LibriVox
 /// recordings are dedicated to the public domain (the item's licence is
 /// creativecommons.org/licenses/publicdomain), and the text is Lincoln's,
 /// 1863. English, so both SenseVoice and the English model read it; details
 /// in research/model-bench-2026-09-29.md.
-const benchSpeechAsset = 'assets/bench/speech_en.ogg';
+const benchSpeechAsset = 'assets/bench/speech_en.m4a';
 
 /// What each model is asked to translate: two sentences of a video's
 /// speech, about 13 s of it spoken — 45 prompt tokens with the prompt's
@@ -308,7 +310,7 @@ class ModelBench with WidgetsBindingObserver {
       if (!asrInstalled) return result();
 
       begin('准备语音样本');
-      final clip = File(path.join(work.path, 'speech_en.ogg'));
+      final clip = File(path.join(work.path, 'speech_en.m4a'));
       await clip.parent.create(recursive: true);
       await clip.writeAsBytes(
         (await rootBundle.load(benchSpeechAsset)).buffer.asUint8List(),

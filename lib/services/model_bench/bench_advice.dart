@@ -439,10 +439,13 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
     out.add((level: BenchAdviceLevel.info, text: '测试未完成：$why'));
   }
   if (!r.asrInstalled) {
+    // translation is timed beside transcription, so without the recogniser
+    // there is nothing to measure it against
     out.add((
       level: BenchAdviceLevel.info,
-      text: '语音转录模型未下载，无法测试。下载后可再测。',
+      text: '语音转录模型未下载，无法测试；翻译要和转录一起测，也需要先下载它。',
     ));
+    return out;
   }
 
   // --- which translation model
@@ -512,35 +515,32 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
   }
 
   // --- the English model
-  if (r.asrInstalled) {
-    final speed = r.english?.speed;
-    if (!r.englishInstalled) {
-      out.add((
-        level: BenchAdviceLevel.info,
-        text: '英语识别模型未下载，未测试。',
-      ));
-    } else if (speed == null) {
-      // installed but not measured: interrupted, or it failed to load
-    } else if (speed < benchEnglishMinSpeed) {
-      out.add((
-        level: BenchAdviceLevel.warn,
-        text:
-            '英语模型：本机偏慢（约 ${_x(speed)}实时），边看边转录可能跟不上，'
-            '可在设置中关闭「英语使用专用模型」。',
-      ));
-    } else if (fastest != null && fastest.rating != BenchRating.comfortable) {
-      out.add((
-        level: BenchAdviceLevel.warn,
-        text:
-            '英语模型：识别够快（约 ${_x(speed)}实时），但计算量约为默认模型的 '
-            '2–3 倍，会让翻译更慢；英语视频要翻译时，可关闭「英语使用专用模型」。',
-      ));
-    } else {
-      out.add((
-        level: BenchAdviceLevel.good,
-        text: '英语模型：值得用，本机约 ${_x(speed)}实时，英语视频识别更准确。',
-      ));
-    }
+  final englishSpeed = r.english?.speed;
+  if (!r.englishInstalled) {
+    out.add((level: BenchAdviceLevel.info, text: '英语识别模型未下载，未测试。'));
+  } else if (englishSpeed == null) {
+    // installed but not measured: interrupted, or it failed to load
+  } else if (englishSpeed < benchEnglishMinSpeed) {
+    out.add((
+      level: BenchAdviceLevel.warn,
+      text:
+          '英语模型：本机偏慢（约 ${_x(englishSpeed)}实时），边看边转录可能跟不上，'
+          '可在设置中关闭「英语使用专用模型」。',
+    ));
+  } else if (fastest != null && fastest.rating != BenchRating.comfortable) {
+    // translation beside SenseVoice is already short of room; the English
+    // model computes 2–3× as much (the models page's own figure)
+    out.add((
+      level: BenchAdviceLevel.warn,
+      text:
+          '英语模型：识别够快（约 ${_x(englishSpeed)}实时），但计算量约为默认模型的 '
+          '2–3 倍，会让翻译更慢；英语视频要翻译时，可关闭「英语使用专用模型」。',
+    ));
+  } else {
+    out.add((
+      level: BenchAdviceLevel.good,
+      text: '英语模型：值得用，本机约 ${_x(englishSpeed)}实时，英语视频识别更准确。',
+    ));
   }
 
   // --- keeping up while transcribing
@@ -557,11 +557,15 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
 
   // --- memory
   if (_memoryShort(r) case (need: final need, have: final have)?) {
+    // a phone's low-memory killer takes background apps, then this one
+    // (model_guard.dart; seen on a 6 GB Pixel 4 XL, translation-bench); a
+    // desktop pages to disk instead and slows down
+    final phone = r.platform == 'android' || r.platform == 'ios';
     out.add((
-      level: BenchAdviceLevel.bad,
+      level: phone ? BenchAdviceLevel.bad : BenchAdviceLevel.warn,
       text:
           '内存：测试前可用约 ${_gb(have)}，同时运行转录和翻译约需 ${_gb(need)}，'
-          '可能导致其他后台应用被关闭，甚至本应用被系统结束。',
+          '${phone ? '可能导致其他后台应用被关闭，甚至本应用被系统结束。' : '系统可能要用硬盘换页，明显变慢；可先关闭占内存的程序。'}',
     ));
   } else if (r.memory.pressure) {
     out.add((

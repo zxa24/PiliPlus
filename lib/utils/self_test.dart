@@ -1008,6 +1008,10 @@ abstract final class SelfTest {
       _shots = dir;
       await scenario('modelsPage', _modelsPage);
     }
+    if (_arg(args, '--bench-models-ui') case final dir?) {
+      _shots = dir;
+      await scenario('benchModelsUi', _benchModelsUi);
+    }
     if (on('--settings-reachable')) {
       await scenario('settingsReachable', _settingsReachable);
     }
@@ -3102,6 +3106,87 @@ abstract final class SelfTest {
       'englishGroup': english,
       'notice': notice,
       'shots': [page, licence],
+    };
+  }
+
+  /// The performance test as the models page runs it, with the profile's
+  /// own models: started from its button, run to the end, its advice and
+  /// 详细数据 shown and kept; then started again and left at once, which
+  /// must stop it and keep the first result as the page's.
+  static Future<Map<String, dynamic>> _benchModelsUi() async {
+    // on a short window the card is below the fold: brought into view, as
+    // a user scrolling to it would
+    Future<void> reveal(String label) async {
+      if (_findElement(_isText(label)) case final element?) {
+        await Scrollable.ensureVisible(element, alignment: 0.5);
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+    }
+
+    Future<void> openPage() async {
+      unawaited(Get.to(() => const LocalModelsPage()));
+      await Future.delayed(const Duration(seconds: 2));
+      await reveal('开始测试');
+      await reveal('重新测试');
+    }
+
+    Future<bool> waitFor(String label, Duration limit) async {
+      final end = DateTime.now().add(limit);
+      while (DateTime.now().isBefore(end)) {
+        if (_seesText(label)) return true;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+      return false;
+    }
+
+    await openPage();
+    final before = Pref.modelBench;
+    final started = await _tapText('开始测试') || await _tapText('重新测试');
+    final running = _seesText('取消测试');
+    final finished = await waitFor('重新测试', const Duration(minutes: 3));
+    final kept = Pref.modelBench;
+    final advice = _seesLabel('翻译：') || _seesLabel('语音转录模型未下载');
+    await reveal('详细数据');
+    await _tapText('详细数据');
+    final details = _seesLabel('语音转录（SenseVoice）');
+    await reveal('详细数据');
+    final shot = await _shot('bench_result');
+    Get.back();
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    // again, and away before it ends
+    await openPage();
+    final again = await _tapText('重新测试');
+    await Future.delayed(const Duration(seconds: 3));
+    final stillRunning = _seesText('取消测试');
+    Get.back();
+    await Future.delayed(const Duration(seconds: 3));
+    final afterLeave = Pref.modelBench;
+    return {
+      'pass':
+          started &&
+          finished &&
+          kept != null &&
+          kept != before &&
+          advice &&
+          details &&
+          again &&
+          afterLeave == kept,
+      'started': started,
+      'runningShown': running,
+      'finished': finished,
+      'stored': kept != null && kept != before,
+      'adviceShown': advice,
+      'detailsShown': details,
+      'secondStarted': again,
+      'secondStillRunningAt3s': stillRunning,
+      'keptAfterLeaving': afterLeave == kept,
+      'stored_json': kept,
+      'shots': [shot],
+      'benchLog': [
+        for (final line in EventLog.recent)
+          if (line.contains('[bench]')) line,
+      ],
     };
   }
 
