@@ -25,6 +25,8 @@ AsrModels _models(String freed, [String loaded = '']) => (
   japaneseSegmenter: null,
   chineseSegmenter: null,
   itn: false,
+  english: null,
+  englishFirst: false,
 );
 
 /// Behaves like the real engine: a blocking loop that checks the flags
@@ -150,6 +152,52 @@ void main() {
     await transcriber.exited.timeout(const Duration(seconds: 5));
     expect(transcriber.killed, isFalse);
     expect(File(freed).existsSync(), isTrue);
+  });
+
+  test(
+    'one recogniser is handed over, and only while the isolate is there',
+    () async {
+      final transcriber = await AsrTranscriber.spawn(
+        _fake,
+        _models('${dir.path}/freed'),
+      );
+      await transcriber.ready;
+      expect(transcriber.debugHandOverPending, isFalse);
+      // an address as AsrTranscriber.loadEnglish gives one; the fake engine
+      // never takes it, as a real one would at its next segment
+      expect(transcriber.handOver(0x1234), isTrue);
+      expect(transcriber.debugHandOverPending, isTrue);
+      // a second is refused: the caller still owns it, and frees it
+      expect(transcriber.handOver(0x5678), isFalse);
+      transcriber.close();
+      // closed: nothing more is taken
+      expect(transcriber.handOver(0x9abc), isFalse);
+      await transcriber.exited.timeout(const Duration(seconds: 5));
+      // one never taken is freed as the isolate goes (with no English model
+      // in these models, there is nothing native to free)
+      expect(transcriber.debugHandOverPending, isFalse);
+      expect(transcriber.handOver(0x9abc), isFalse);
+    },
+  );
+
+  test('models are given the English model, and whether to start with it', () {
+    final base = _models('freed');
+    const english = (
+      encoder: 'e.onnx',
+      decoder: 'd.onnx',
+      joiner: 'j.onnx',
+      tokens: 't.txt',
+    );
+    final withEnglish = asrModelsWithEnglish(base, english, first: true);
+    expect(withEnglish.english, english);
+    expect(withEnglish.englishFirst, isTrue);
+    expect(withEnglish.modelPath, base.modelPath);
+    expect(withEnglish.vadPath, base.vadPath);
+    expect(withEnglish.threads, base.threads);
+    // no English model: never first, whatever is asked
+    final without = asrModelsWithEnglish(withEnglish, null, first: true);
+    expect(without.english, isNull);
+    expect(without.englishFirst, isFalse);
   });
 
   test('stopping a run is a flag: the isolate stays for the next', () async {

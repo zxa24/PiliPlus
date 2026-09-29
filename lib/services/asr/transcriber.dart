@@ -80,6 +80,7 @@ class AsrSegmentEvent extends AsrEvent {
     this.language = '',
     this.weight = 0,
     this.hidden,
+    this.english = false,
   });
 
   /// In media time: the run's offset is included.
@@ -112,6 +113,25 @@ class AsrSegmentEvent extends AsrEvent {
   /// with no cues, no language and no weight; its [tokens] still say what
   /// was recognised.
   final AsrOddity? hidden;
+
+  /// Recognised by the English model ([AsrModels.english]) rather than
+  /// SenseVoice. Its [language] is then `en` whenever it has text: the
+  /// English model tags nothing.
+  final bool english;
+}
+
+/// SenseVoice's language for a segment it has just decoded, sent before the
+/// segment itself — which the odd-segment filter may hold back until the
+/// next one is decoded. What the switch to the English model is decided on
+/// (AsrEnglishGate); the language vote waits for the segment.
+class AsrTagEvent extends AsrEvent {
+  const AsrTagEvent(this.language, this.start, this.duration, {this.run = 0});
+
+  /// `en`, `zh`, …, or empty.
+  final String language;
+  final double start;
+  final double duration;
+  final int run;
 }
 
 /// A run is over: it reached the end of the audio ([eof]), or was stopped.
@@ -168,6 +188,14 @@ class AsrLanguageVote {
   }
 }
 
+/// The English recogniser's files (AsrModelCatalog.parakeet).
+typedef AsrEnglishModel = ({
+  String encoder,
+  String decoder,
+  String joiner,
+  String tokens,
+});
+
 /// What the recogniser loads once per session.
 typedef AsrModels = ({
   String modelPath,
@@ -192,7 +220,34 @@ typedef AsrModels = ({
   /// punctuation -> marks). On in the app; a switch here so its side effects
   /// can be measured.
   bool itn,
+
+  /// The English model, when it may be switched to (see
+  /// [AsrTranscriber.loadEnglish]); null keeps SenseVoice for good.
+  AsrEnglishModel? english,
+
+  /// Load [english] instead of SenseVoice: the session is already known to
+  /// be English (a recogniser opened again, or a language forced to `en`).
+  bool englishFirst,
 });
+
+/// [models] with the English model [english] — null for none — and whether
+/// a recogniser opened from them starts with it ([first]).
+AsrModels asrModelsWithEnglish(
+  AsrModels models,
+  AsrEnglishModel? english, {
+  required bool first,
+}) => (
+  modelPath: models.modelPath,
+  tokensPath: models.tokensPath,
+  vadPath: models.vadPath,
+  threads: models.threads,
+  language: models.language,
+  japaneseSegmenter: models.japaneseSegmenter,
+  chineseSegmenter: models.chineseSegmenter,
+  itn: models.itn,
+  english: english,
+  englishFirst: first && english != null,
+);
 
 /// One transcription over one file, the way it was before runs: kept for
 /// the self-test probes that drive the recogniser alone.
@@ -224,8 +279,15 @@ typedef AsrRunRequest = ({
   bool follow,
 });
 
-/// What the transcription isolate is started with.
-typedef AsrIsolateArgs = ({AsrModels models, SendPort send, int flags});
+/// What the transcription isolate is started with. [handoff] is the address
+/// of one native word through which the owner hands over a recogniser it
+/// loaded elsewhere (see [AsrTranscriber.handOver]).
+typedef AsrIsolateArgs = ({
+  AsrModels models,
+  SendPort send,
+  int flags,
+  int handoff,
+});
 
 /// The three words of native memory the owner and the isolate share.
 ///
@@ -339,7 +401,14 @@ Future<void> asrServe(
 }
 
 class AsrTranscriber {
-  AsrTranscriber._(this._isolate, this._port, this._flags, this._grace);
+  AsrTranscriber._(
+    this._isolate,
+    this._port,
+    this._flags,
+    this._handoff,
+    this._models,
+    this._grace,
+  );
 
   final Isolate _isolate;
   final ReceivePort _port;
@@ -350,6 +419,11 @@ class AsrTranscriber {
 
   /// Freed only once the isolate has exited: until then it may still read it.
   final Pointer<Int32> _flags;
+
+  /// A recogniser handed over and not yet taken (see [handOver]); freed,
+  /// like [_flags], only once the isolate has exited.
+  final Pointer<IntPtr> _handoff;
+  final AsrModels _models;
   final Duration _grace;
   final _exited = Completer<void>();
   final _ready = Completer<void>();
@@ -397,6 +471,8 @@ class AsrTranscriber {
       japaneseSegmenter: job.japaneseSegmenter,
       chineseSegmenter: job.chineseSegmenter,
       itn: job.itn,
+      english: null,
+      englishFirst: false,
     ));
     transcriber.events
         .firstWhere(
@@ -419,20 +495,35 @@ class AsrTranscriber {
     final port = ReceivePort();
     final exit = ReceivePort();
     final flags = calloc<Int32>(3);
+    final handoff = calloc<IntPtr>();
     final Isolate isolate;
     try {
       isolate = await Isolate.spawn(
         entry,
-        (models: models, send: port.sendPort, flags: flags.address),
+        (
+          models: models,
+          send: port.sendPort,
+          flags: flags.address,
+          handoff: handoff.address,
+        ),
         onExit: exit.sendPort,
       );
     } catch (_) {
       port.close();
       exit.close();
-      calloc.free(flags);
+      calloc
+        ..free(flags)
+        ..free(handoff);
       rethrow;
     }
-    final transcriber = AsrTranscriber._(isolate, port, flags, grace);
+    final transcriber = AsrTranscriber._(
+      isolate,
+      port,
+      flags,
+      handoff,
+      models,
+      grace,
+    );
     port.listen(transcriber._receive, onDone: transcriber._finishEvents);
     exit.first.then((_) {
       exit.close();
@@ -441,6 +532,11 @@ class AsrTranscriber {
         .._port.close()
         .._finishEvents();
       calloc.free(flags);
+      // handed over and never taken: nobody else will free it now
+      final left = handoff.value;
+      handoff.value = 0;
+      calloc.free(handoff);
+      if (left != 0) unawaited(freeEnglish(left, models));
       if (!transcriber._ready.isCompleted) {
         transcriber._ready.completeError(
           StateError('recogniser exited before it was ready'),
@@ -515,8 +611,16 @@ class AsrTranscriber {
             language: message['lang'] as String? ?? '',
             weight: message['weight'] as int? ?? 0,
             hidden: AsrOddity.values.asNameMap()[message['hidden']],
+            english: message['english'] == true,
           ),
         );
+      case {
+        'type': 'tag',
+        'lang': final String language,
+        'start': final double start,
+        'duration': final double duration,
+      }:
+        _add(AsrTagEvent(language, start, duration, run: run));
       case {'type': 'runEnd'}:
         _add(
           AsrRunEndEvent(
@@ -546,6 +650,52 @@ class AsrTranscriber {
       inbox.send(message);
     }
   }
+
+  /// Gives the isolate the English recogniser at [address] (from
+  /// [loadEnglish]) to use in place of SenseVoice from its next segment on;
+  /// the isolate frees SenseVoice then, and this one when it leaves.
+  /// Returns false — and [address] is still the caller's to free — when
+  /// there is no isolate to take it or one was handed over already.
+  bool handOver(int address) {
+    if (_closed || _exited.isCompleted || _handoff.value != 0) return false;
+    _handoff.value = address;
+    return true;
+  }
+
+  /// Whether a recogniser handed over is still waiting to be taken.
+  @visibleForTesting
+  bool get debugHandOverPending => !_exited.isCompleted && _handoff.value != 0;
+
+  /// Loads the English recogniser of [models] on an isolate of its own and
+  /// returns its native address, while the session's isolate goes on
+  /// decoding with SenseVoice (3.4–4.9 s on a Pixel 4 XL). The caller owns
+  /// it until [handOver] succeeds, and frees it with [freeEnglish].
+  static Future<int> loadEnglish(AsrModels models) {
+    final english = models.english;
+    if (english == null) throw StateError('no English model');
+    final threads = models.threads;
+    return Isolate.run(() {
+      sherpa.initBindings();
+      return _SherpaEngine.englishRecognizer(english, threads).ptr.address;
+    });
+  }
+
+  /// Frees what [loadEnglish] returned, off the UI isolate.
+  static Future<void> freeEnglish(int address, AsrModels models) {
+    final english = models.english;
+    if (address == 0 || english == null) return Future.value();
+    final threads = models.threads;
+    return Isolate.run(() {
+      sherpa.initBindings();
+      sherpa.OfflineRecognizer.fromPtr(
+        ptr: Pointer.fromAddress(address),
+        config: _SherpaEngine.englishConfig(english, threads),
+      ).free();
+    });
+  }
+
+  /// The models this recogniser was opened with.
+  AsrModels get models => _models;
 
   /// Starts a run over [pcmPath] — which begins at [offset] in the media —
   /// and returns its id. Whatever run was going is stopped: one run at a
@@ -614,12 +764,13 @@ class AsrTranscriber {
   /// [close], by its old name.
   void stop() => close();
 
-  static void _entry(AsrIsolateArgs args) => asrServe(args, _SherpaEngine.new);
+  static void _entry(AsrIsolateArgs args) =>
+      asrServe(args, (models) => _SherpaEngine(models, args.handoff));
 }
 
 /// The recogniser proper. Everything here runs off the UI thread.
 class _SherpaEngine implements AsrEngine {
-  _SherpaEngine(AsrModels models) : _models = models {
+  _SherpaEngine(AsrModels models, [this._handoff = 0]) : _models = models {
     sherpa.initBindings();
     _budoux = models.japaneseSegmenter == null
         ? null
@@ -639,19 +790,25 @@ class _SherpaEngine implements AsrEngine {
       rethrow;
     }
     try {
-      _recognizer = sherpa.OfflineRecognizer(
-        sherpa.OfflineRecognizerConfig(
-          model: sherpa.OfflineModelConfig(
-            senseVoice: sherpa.OfflineSenseVoiceModelConfig(
-              model: models.modelPath,
-              language: models.language,
-              useInverseTextNormalization: models.itn,
+      final english = models.english;
+      if (models.englishFirst && english != null) {
+        _recognizer = englishRecognizer(english, models.threads);
+        _english = true;
+      } else {
+        _recognizer = sherpa.OfflineRecognizer(
+          sherpa.OfflineRecognizerConfig(
+            model: sherpa.OfflineModelConfig(
+              senseVoice: sherpa.OfflineSenseVoiceModelConfig(
+                model: models.modelPath,
+                language: models.language,
+                useInverseTextNormalization: models.itn,
+              ),
+              tokens: models.tokensPath,
+              numThreads: models.threads,
             ),
-            tokens: models.tokensPath,
-            numThreads: models.threads,
           ),
-        ),
-      );
+        );
+      }
     } catch (_) {
       _vad.free();
       _quickVad.free();
@@ -684,7 +841,53 @@ class _SherpaEngine implements AsrEngine {
     bufferSizeInSeconds: 60,
   );
 
+  static sherpa.OfflineRecognizerConfig englishConfig(
+    AsrEnglishModel model,
+    int threads,
+  ) => sherpa.OfflineRecognizerConfig(
+    model: sherpa.OfflineModelConfig(
+      transducer: sherpa.OfflineTransducerModelConfig(
+        encoder: model.encoder,
+        decoder: model.decoder,
+        joiner: model.joiner,
+      ),
+      tokens: model.tokens,
+      numThreads: threads,
+      modelType: 'nemo_transducer',
+    ),
+  );
+
+  static sherpa.OfflineRecognizer englishRecognizer(
+    AsrEnglishModel model,
+    int threads,
+  ) => sherpa.OfflineRecognizer(englishConfig(model, threads));
+
   final AsrModels _models;
+
+  /// See [AsrIsolateArgs.handoff]; 0 where there is none.
+  final int _handoff;
+
+  /// [_recognizer] is the English model, not SenseVoice.
+  var _english = false;
+
+  /// Takes a recogniser handed over (see [AsrTranscriber.handOver]), if one
+  /// is waiting: SenseVoice is freed at once — holding both is what a 6 GB
+  /// phone cannot afford — and every segment from here on is English.
+  void _adopt() {
+    if (_handoff == 0 || _english) return;
+    final slot = Pointer<IntPtr>.fromAddress(_handoff);
+    final address = slot.value;
+    if (address == 0) return;
+    slot.value = 0;
+    final previous = _recognizer;
+    _recognizer = sherpa.OfflineRecognizer.fromPtr(
+      ptr: Pointer.fromAddress(address),
+      config: englishConfig(_models.english!, _models.threads),
+    );
+    _english = true;
+    previous.free();
+  }
+
   BudouX? _budoux;
   BudouX? _budouxZh;
   late final sherpa.VoiceActivityDetector _vad;
@@ -692,7 +895,7 @@ class _SherpaEngine implements AsrEngine {
   /// The same VAD with half a second of silence, for the first segment of a
   /// run only; see FirstCut.
   late final sherpa.VoiceActivityDetector _quickVad;
-  late final sherpa.OfflineRecognizer _recognizer;
+  late sherpa.OfflineRecognizer _recognizer;
 
   /// How far behind the read position the VAD may still open a segment
   /// once it reports no speech: its minimum speech length plus padding.
@@ -717,7 +920,7 @@ class _SherpaEngine implements AsrEngine {
     required void Function(Map<String, Object?>) send,
   }) {
     final vad = _vad;
-    final recognizer = _recognizer;
+    _adopt();
     final offset = request.offset;
     // segment offsets are counted from the last reset: from this run's
     // start, which is [offset] in the media
@@ -807,6 +1010,9 @@ class _SherpaEngine implements AsrEngine {
         capCuts.removeWhere((at) => at < span.end);
         // the token times count from the start of the audio decoded
         final from = offset + audio.from / asrSampleRate;
+        _adopt();
+        final recognizer = _recognizer;
+        final english = _english;
         final stream = recognizer.createStream()
           ..acceptWaveform(
             samples: audio.samples,
@@ -816,7 +1022,8 @@ class _SherpaEngine implements AsrEngine {
         final result = recognizer.getResult(stream);
         stream.free();
 
-        final tag = AsrCueBuilder.tagValue(result.lang);
+        // the English model tags nothing: what it hears is English
+        final tag = english ? 'en' : AsrCueBuilder.tagValue(result.lang);
         final japanese = tag == 'ja' || AsrCueBuilder.hasKana(result.text);
         final chinese = !japanese && (tag == 'zh' || tag == 'yue');
         final tokens = _tokens(result);
@@ -855,7 +1062,22 @@ class _SherpaEngine implements AsrEngine {
         // segments, and a segment seen without its text — or text without
         // its segment, which is then counted as the previous one's — gets
         // a unit built and translated from the wrong words.
-        final language = result.lang.isEmpty ? '' : tag;
+        final language = english
+            ? (AsrCueBuilder.stripTags(result.text).isEmpty ? '' : 'en')
+            : (result.lang.isEmpty ? '' : tag);
+        if (!english) {
+          // SenseVoice's tag, at once: the segment itself may be held back
+          // by [filter] until the next is decoded — with 20-47 s segments of
+          // continuous speech that put the switch to the English model a
+          // whole segment late (V5, V8: decided at 22-26 s, switched at
+          // 124-134 s)
+          send({
+            'type': 'tag',
+            'lang': language,
+            'start': start,
+            'duration': duration,
+          });
+        }
         final segment = <String, Object?>{
           'type': 'segment',
           'start': start,
@@ -872,6 +1094,7 @@ class _SherpaEngine implements AsrEngine {
           // weighted by text, so a long stretch outvotes a stray word
           'lang': language,
           'weight': result.text.length + 1,
+          if (english) 'english': true,
         };
         filter
             .add(
@@ -918,6 +1141,13 @@ class _SherpaEngine implements AsrEngine {
           speech: cut.speech,
           total: end,
         )) {
+          // held between segments too, not only between windows: a run
+          // held for the English model (AsrSession) decodes nothing more
+          // with SenseVoice from the moment it is asked
+          while (paused() && !stopping()) {
+            _adopt();
+            sleep(const Duration(milliseconds: 50));
+          }
           if (stopping()) return;
           decode(span);
         }
@@ -926,6 +1156,9 @@ class _SherpaEngine implements AsrEngine {
       for (final window in reader.windows()) {
         if (stopping()) return false;
         while (paused() && !stopping()) {
+          // held far enough ahead: an English model handed over meanwhile
+          // is taken now rather than after the pause, and SenseVoice goes
+          _adopt();
           sleep(const Duration(milliseconds: 50));
         }
         if (stopping()) return false;
