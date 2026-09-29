@@ -28,6 +28,12 @@ class Win32Window {
   Win32Window();
   virtual ~Win32Window();
 
+  // LibrePili: a self-test's window is never activated: created with
+  // WS_EX_NOACTIVATE and without taking the keyboard focus, so a test
+  // started from the user's terminal leaves their typing where it was.
+  // Set before Create.
+  static bool never_activate;
+
   // Creates a win32 window with |title| that is positioned and sized using
   // |origin| and |size|. New windows are created on the default monitor. Window
   // sizes are specified to the OS in physical pixels, hence to ensure a

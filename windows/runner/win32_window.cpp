@@ -120,6 +120,9 @@ Win32Window::~Win32Window() {
   Destroy();
 }
 
+// static
+bool Win32Window::never_activate = false;
+
 bool Win32Window::Create(const std::wstring& title,
                          const Point& origin,
                          const Size& size) {
@@ -134,8 +137,9 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
-  HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+  HWND window = CreateWindowEx(
+      never_activate ? WS_EX_NOACTIVATE : 0, window_class, title.c_str(),
+      WS_OVERLAPPEDWINDOW,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
@@ -252,7 +256,10 @@ void Win32Window::SetChildContent(HWND content) {
   MoveWindow(content, frame.left, frame.top, frame.right - frame.left,
              frame.bottom - frame.top, true);
 
-  SetFocus(child_content_);
+  // SetFocus on a child of a window that is not active activates that
+  // window: a self-test started from the user's (foreground) terminal took
+  // their keyboard input this way, though its window stayed at the bottom
+  if (!never_activate) SetFocus(child_content_);
 }
 
 RECT Win32Window::GetClientArea() {
