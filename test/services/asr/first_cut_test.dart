@@ -157,6 +157,91 @@ void main() {
     expect(out, [(start: 0, end: 320000, from: 0, to: 320000)]);
   });
 
+  test('a segment cut at the length cap is handed out at once, with no '
+      'padding across the cut; the VAD goes on inside its segment, and '
+      'the rest of that is a new segment from the cut', () {
+    quick.detected = steady.detected = true;
+    at(10000);
+    expect(padding.speechFrom, 10000 - lookBack);
+    // the cap is reached in the first segment: neither VAD has cut
+    cut.cutAt(300000, rest: 512);
+    expect(cut.speech, isTrue);
+    expect(cut.quickWanted, isFalse);
+    expect(cut.flushQuick, isFalse);
+    expect(padding.speechFrom, 300000);
+    at(330000);
+    expect(out, [
+      (start: 10000 - lookBack, end: 300000, from: 0, to: 300000),
+    ]);
+    // the steady VAD, never started over, still sees one segment: it is
+    // handed over whole, and only its part after the cut is new
+    expect(cut.speech, isTrue);
+    steady
+      ..detected = false
+      ..cuts.add((start: 5000, end: 400000));
+    at(440000, total: 440000);
+    expect(out.last, (start: 300000, end: 400000, from: 300000, to: 406400));
+    expect(out, hasLength(2));
+  });
+
+  test('the cap in the middle of a later segment; the VAD segment ending '
+      'right after the cut is dropped, the next one is as the VAD cut it', () {
+    quick.detected = steady.detected = true;
+    at(10000);
+    quick
+      ..detected = false
+      ..cuts.add((start: 5000, end: 40000));
+    at(48000);
+    steady
+      ..detected = false
+      ..cuts.add((start: 5000, end: 40000));
+    at(56000);
+    steady.detected = true;
+    at(80000);
+    cut.cutAt(390000, rest: 512);
+    // the VAD ends its segment within a window of the cut: nothing is left
+    steady
+      ..detected = false
+      ..cuts.add((start: 75000, end: 390300));
+    at(400000);
+    expect(cut.speech, isFalse);
+    expect(out.map((s) => (s.start, s.end)), [
+      (5000, 40000),
+      (80000 - lookBack, 390000),
+    ]);
+    expect(out.last.from, 80000 - lookBack - pad);
+    expect(out.last.to, 390000);
+    // new speech: where the VAD begins it, not at the cut
+    steady.detected = true;
+    at(420000);
+    expect(padding.speechFrom, 420000 - lookBack);
+    steady
+      ..detected = false
+      ..cuts.add((start: 415000, end: 450000));
+    at(600000, total: 600000);
+    expect(out.last.start, 415000);
+    expect(out, hasLength(3));
+  });
+
+  test('two cuts in one VAD segment', () {
+    steady.detected = quick.detected = true;
+    at(10000);
+    cut.cutAt(300000, rest: 512);
+    at(600000);
+    expect(padding.speechFrom, 300000);
+    cut.cutAt(600000, rest: 512);
+    at(620000);
+    steady
+      ..detected = false
+      ..cuts.add((start: 5000, end: 700000));
+    at(760000, total: 760000);
+    expect(out.map((s) => (s.start, s.end, s.from, s.to)), [
+      (10000 - lookBack, 300000, 0, 300000),
+      (300000, 600000, 300000, 600000),
+      (600000, 700000, 600000, 706400),
+    ]);
+  });
+
   test('once past the first segment the quick VAD is no longer asked', () {
     quick.detected = steady.detected = true;
     at(10000);

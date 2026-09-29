@@ -121,6 +121,18 @@ class FirstCut {
     }
   }
 
+  /// The segment open now has reached the length cap and is cut at [at]
+  /// (SegmentCap); the speech goes on as a new segment from there. The
+  /// steady VAD goes on as it is, and what it hands over next is taken from
+  /// [at] (see [SpeechPadding.cutAt] for [rest]); the quick one's part is
+  /// done, as when both cut at the cap.
+  void cutAt(int at, {int rest = 0}) {
+    padding.cutAt(at, rest: rest);
+    _stage = _Stage.steady;
+    _resumed = null;
+    _speech = true;
+  }
+
   void _bridge({
     required VadCuts quick,
     required VadCuts steady,

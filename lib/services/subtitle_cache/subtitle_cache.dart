@@ -301,7 +301,10 @@ class SubtitleCache {
   /// 5: the last line of a segment ends at its last word plus a hold
   /// rather than at the end of the padded audio (AsrCueBuilder) — a
   /// transcript kept from before holds those lines on into the silence.
-  static const format = 5;
+  ///
+  /// 6: no segment is longer than 20 s (SegmentCap) — a transcript kept
+  /// from before has segments of up to ~47 s in continuous speech.
+  static const format = 6;
 
   final Directory dir;
   final int Function() _limitBytes;

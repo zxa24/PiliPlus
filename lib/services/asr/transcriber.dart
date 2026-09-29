@@ -18,11 +18,13 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/first_cut.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
+import 'package:PiliPlus/services/asr/segment_cap.dart';
 import 'package:PiliPlus/services/asr/segment_filter.dart';
 import 'package:PiliPlus/services/asr/speech_padding.dart';
 import 'package:budoux_dart/budoux.dart';
@@ -668,8 +670,14 @@ class _SherpaEngine implements AsrEngine {
         minSilenceDuration: minSilence,
         minSpeechDuration: _minSpeech,
         windowSize: asrVadWindow,
-        // a display cue is cut out of this by AsrCueBuilder
-        maxSpeechDuration: 20,
+        // Does not cut: past it the VAD only waits for a shorter, deeper
+        // silence, which speech over music seldom has. The transcriber cuts
+        // at SegmentCap.max itself, and leaves the VAD in that stricter
+        // mode, which still ends a long segment at such a silence; the same
+        // 20 s, so it also applies to a segment the cap measures from later
+        // (the quick VAD's second part, see FirstCut). A display cue is cut
+        // out of a segment by AsrCueBuilder.
+        maxSpeechDuration: SegmentCap.max,
       ),
       numThreads: 1,
     ),
@@ -739,6 +747,10 @@ class _SherpaEngine implements AsrEngine {
       // which segments are too odd to show; one per run, so a run started
       // further on compares only with its own segments
       final filter = AsrSegmentFilter<Map<String, Object?>>();
+      // where the length cap cut (SegmentCap), not yet behind the segments
+      // decoded
+      final capCuts = <int>{};
+      final zeros = (SegmentCap.zeros * asrSampleRate).round();
 
       /// [settled], but never past a segment the VAD has cut and not sent:
       /// one still waiting for the padding after it, or held back by
@@ -783,10 +795,21 @@ class _SherpaEngine implements AsrEngine {
         // decoded is wider
         final start = offset + span.start / asrSampleRate;
         final duration = (span.end - span.start) / asrSampleRate;
-        final from = offset + span.from / asrSampleRate;
+        // silence on a side the length cap cut, where no padding is
+        // decoded (SegmentCap.withZeros)
+        final audio = SegmentCap.withZeros(
+          history.range(span.from, span.to),
+          from: span.from,
+          before: span.from == span.start && capCuts.contains(span.start),
+          after: span.to == span.end && capCuts.contains(span.end),
+          count: zeros,
+        );
+        capCuts.removeWhere((at) => at < span.end);
+        // the token times count from the start of the audio decoded
+        final from = offset + audio.from / asrSampleRate;
         final stream = recognizer.createStream()
           ..acceptWaveform(
-            samples: history.range(span.from, span.to),
+            samples: audio.samples,
             sampleRate: asrSampleRate,
           );
         recognizer.decode(stream);
@@ -805,7 +828,8 @@ class _SherpaEngine implements AsrEngine {
             planLines: chinese,
             // token times count from the start of the audio decoded
             offset: from,
-            duration: (span.to - span.from) / asrSampleRate,
+            // to the real audio's end: no line runs on into zeros after it
+            duration: (span.to - audio.from) / asrSampleRate,
             text: result.text,
             tokens: tokens,
           ))
@@ -859,9 +883,35 @@ class _SherpaEngine implements AsrEngine {
             .forEach(emit);
       }
 
+      final cap = (SegmentCap.max * asrSampleRate).round();
+      final search = (SegmentCap.search * asrSampleRate).round();
+
+      /// Cuts the segment open now if it has reached [SegmentCap.max]
+      /// without the VAD cutting it (see SegmentCap).
+      void enforceCap() {
+        final read = history.length;
+        final from = padding.speechFrom;
+        if (!cut.speech || from == null || read - from < cap) return;
+        final hi = from + cap;
+        final lo = math.max(hi - search, from + 1);
+        final at =
+            lo +
+            SegmentCap.quietest(
+              history.range(lo, hi),
+              frameLength: (SegmentCap.frame * asrSampleRate).round(),
+              hopLength: (SegmentCap.hop * asrSampleRate).round(),
+            );
+        // the VAD goes on inside its segment; what it hands over next is
+        // taken from the cut, and dropped if no more than a window is left
+        cut.cutAt(at, rest: asrVadWindow);
+        capCuts.add(at);
+        cut.update(quick: quick, steady: steady, read: read);
+      }
+
       /// Takes what the VADs have cut, and decodes whatever is ready.
       void drain({int? end}) {
         cut.update(quick: quick, steady: steady, read: history.length);
+        if (end == null) enforceCap();
         // between segments too: a backlog of them is seconds of decoding
         for (final span in padding.ready(
           read: history.length,

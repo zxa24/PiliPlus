@@ -24,6 +24,54 @@ void main() {
     expect(p.isEmpty, isTrue);
   });
 
+  test('a cut at the length cap: no padding across it, handed out at once',
+      () {
+    final p = padding()
+      ..add(1000, 50000)
+      // nothing open: nothing to cut
+      ..cutAt(60000);
+    expect(p.firstWaiting, 1000);
+    expect(p.ready(read: 60000, speech: false), isEmpty);
+    p
+      ..speechStarted(80000)
+      ..cutAt(390000);
+    expect(p.speechFrom, 390000);
+    expect(p.ready(read: 390000, speech: true), [
+      (start: 1000, end: 50000, from: 0, to: 56400),
+      (start: 80000 - lookBack, end: 390000, from: 68576, to: 390000),
+    ]);
+    // the VAD's segment the cut was in, handed over whole: only the rest is
+    // new, and it starts right at the cut
+    p.add(80000 - lookBack, 420000);
+    expect(p.ready(read: 500000, speech: false), [
+      (start: 390000, end: 420000, from: 390000, to: 426400),
+    ]);
+  });
+
+  test('after a cut at the cap, the segment it was in is taken from the cut '
+      'or, if it ended within [rest] of it, dropped; later ones are as the '
+      'VAD cut them', () {
+    final p = padding()
+      ..speechStarted(10000)
+      ..cutAt(300000, rest: 512)
+      ..add(5000, 400000);
+    expect(p.ready(read: 500000, speech: false).last.start, 300000);
+    // only the segment the cut was in
+    p.add(420000, 450000);
+    expect(p.ready(read: 600000, speech: false).last.start, 420000);
+
+    final q = padding()
+      ..speechStarted(10000)
+      ..cutAt(300000, rest: 512)
+      ..add(5000, 300512);
+    expect(q.ready(read: 400000, speech: false), [
+      (start: 10000 - lookBack, end: 300000, from: 0, to: 300000),
+    ]);
+    expect(q.isEmpty, isTrue);
+    q.add(320000, 400000);
+    expect(q.ready(read: 500000, speech: false).single.start, 320000);
+  });
+
   test('waits until no segment can begin within twice the padding', () {
     final p = padding()..add(20000, 50000);
     // the VAD hands a segment over once a minimum silence (1 s) has passed

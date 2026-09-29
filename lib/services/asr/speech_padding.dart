@@ -69,21 +69,57 @@ class SpeechPadding {
   /// Where the first segment still waiting starts, or null.
   int? get firstWaiting => _waiting.isEmpty ? null : _waiting.first.start;
 
+  /// After a cut at the length cap ([cutAt]): where it was, until the VAD
+  /// hands over the segment it was in.
+  int? _capCut;
+
   void reset() {
     _waiting.clear();
     _previousEnd = null;
     _previousTo = 0;
     _lastCut = 0;
     _speechFrom = null;
+    _capCut = null;
   }
 
   /// A segment the VAD handed over, in order. An [eager] one is handed out
   /// as soon as no segment can begin within [pad] of its end.
+  ///
+  /// After a [cutAt], the VAD's segment that the cut was in comes next: only
+  /// its part after the cut is new, and nothing of it if it ended by then.
   void add(int start, int end, {bool eager = false}) {
+    final cap = _capCut;
+    if (cap != null) {
+      _capCut = null;
+      if (start < cap) {
+        // the part before the cut is already out
+        if (end <= cap + _capRest) return;
+        start = cap;
+      }
+    }
     _waiting.add((start: start, end: end, eager: eager));
     if (end > _lastCut) _lastCut = end;
     _speechFrom = null;
   }
+
+  /// The segment the VAD is inside is cut at [at] without waiting for it
+  /// (the length cap, see SegmentCap): what came before is a segment, and
+  /// the speech goes on as a new one from [at]. Neither gets padding across
+  /// [at] — the next one begins right there.
+  ///
+  /// The VAD itself goes on inside its segment (it is not started over,
+  /// see SegmentCap); when it hands that over, [add] keeps only what is
+  /// after [at], and drops it if that is no more than [rest] samples.
+  void cutAt(int at, {int rest = 0}) {
+    final from = _speechFrom;
+    if (from == null) return;
+    add(from, at);
+    _speechFrom = at;
+    _capCut = at;
+    _capRest = rest;
+  }
+
+  var _capRest = 0;
 
   /// The VAD has just begun a segment, having read [read] samples: where it
   /// began follows from how the VAD opens one (see [lookBack]).
