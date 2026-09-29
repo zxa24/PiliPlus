@@ -204,10 +204,39 @@ const _endSlack = 1.0;
 /// Small enough to be the same instant for transcript positions.
 const _eps = 0.25;
 
+/// Where a run gives the CPU to a translation that is falling behind the
+/// viewer (see [asrYieldFor]): it stops at [pauseAt] seconds ahead of the
+/// viewer and carries on below [resumeBelow].
+typedef AsrYield = ({double pauseAt, double resumeBelow});
+
+/// Seconds of transcript a run keeps ahead of the viewer however far behind
+/// the translation is: a run started again costs `restartCost · speed` of
+/// lead to get going, and this much more is left over.
+const asrYieldFloorMargin = 30.0;
+
+/// How far past its floor a run goes each time it carries on: one burst of
+/// about a minute of media, a few seconds of work at 10× (Pixel 6 Pro).
+const asrYieldBurst = 60.0;
+
+/// The yield for a translation behind the viewer, at this [pace].
+///
+/// Measured on a Pixel 6 Pro (noisy-speech §18.1): with a run decoding
+/// beside it the translation wrote 2.9 tokens/s, 0.57× real time, while the
+/// run was already 80-150 s ahead; with the run done, 5.8 tokens/s, 1.31×.
+/// The lead rule's low mark (150 s) is sized for a translation 120 s ahead
+/// of the viewer; one that is behind needs far less, so the floor here is
+/// what the run itself needs to start again in time.
+AsrYield asrYieldFor(AsrPace pace) {
+  final floor = pace.restartCost * pace.speed + asrYieldFloorMargin;
+  return (pauseAt: floor + asrYieldBurst, resumeBelow: floor);
+}
+
 /// Decides the next step (design 4.4, 12).
 ///
 /// [covered] is the transcript's known stretches with the current run's
 /// frontier in them. [duration] is the media's length, when known.
+/// [yieldTo], when the translation is behind the viewer: the run serving
+/// the viewer stops at its [AsrYield.pauseAt] and nothing else is run.
 AsrStep decideAsrStep({
   required double playhead,
   required double? duration,
@@ -215,6 +244,7 @@ AsrStep decideAsrStep({
   required AsrRunView? run,
   required AsrLeadWindow lead,
   required AsrPace pace,
+  AsrYield? yieldTo,
 }) {
   final p = playhead;
   if (duration != null && isCoveredWhole(covered, duration)) {
@@ -250,6 +280,14 @@ AsrStep decideAsrStep({
       run.start <= span.to + _eps &&
       (run.frontier - span.to).abs() <= _eps;
   if (serving) {
+    if (yieldTo != null) {
+      if (run.paused) {
+        return ahead < yieldTo.resumeBelow
+            ? const AsrResume()
+            : const AsrKeep();
+      }
+      if (ahead >= yieldTo.pauseAt) return const AsrPause();
+    }
     if (run.paused) {
       // a lead that never pauses — a charger plugged in, or a save waiting
       // for the whole transcript — has no business with a paused run
@@ -259,15 +297,16 @@ AsrStep decideAsrStep({
     if (lead.pauses && ahead >= lead.high) return const AsrPause();
     return const AsrKeep();
   }
-  if (!reachesEnd && ahead < lead.low) {
+  // a translation behind the viewer has the CPU until the text runs low
+  if (!reachesEnd && ahead < (yieldTo?.resumeBelow ?? lead.low)) {
     // running out and nobody is extending it: a run at its edge
     return AsrStartAt(span.to, adjacent: true);
   }
-  if (!reachesEnd && !lead.pauses && run == null) {
+  if (!reachesEnd && !lead.pauses && yieldTo == null && run == null) {
     // unlimited: forward first, all the way to the end
     return AsrStartAt(span.to, adjacent: true);
   }
-  return _elsewhere(p, duration, covered, run, lead);
+  return _elsewhere(p, duration, covered, run, lead, yielding: yieldTo != null);
 }
 
 /// The viewer needs nothing more right now: what to do with the run, and
@@ -277,9 +316,11 @@ AsrStep _elsewhere(
   double? duration,
   List<TimeSpan> covered,
   AsrRunView? run,
-  AsrLeadWindow lead,
-) {
-  if (lead.pauses) {
+  AsrLeadWindow lead, {
+  bool yielding = false,
+}) {
+  // a translation behind the viewer has the CPU: no gap is filled now
+  if (lead.pauses || yielding) {
     // on battery nothing is done that the viewer does not need (section
     // 12: gaps are filled only where running on is allowed)
     if (run != null && !run.paused) return const AsrPause();

@@ -581,6 +581,10 @@ abstract final class SelfTest {
     debugCommentsFirst = args.contains('--comments-first');
     // a model file given directly (a phone test build has none installed:
     // its data is its own), for the translation probes
+    // weights repacked for the CPU (or not), whatever the platform's default
+    if (_arg(args, '--translate-repack') case final repack?) {
+      LlamaTranslationEngine.debugRepack = repack == '1';
+    }
     if (_arg(args, '--translate-model') case final model?) {
       TranslationService.to.useModelFile(model);
     }

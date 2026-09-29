@@ -50,6 +50,20 @@ class TranslationService extends GetxService {
   TranslationSession? _current;
   AsrCancelToken? _download;
 
+  @override
+  void onInit() {
+    super.onInit();
+    // a transcription running beside a translation behind its viewer gives
+    // it the CPU (noisy-speech §18.1)
+    AsrService.translationBehind = () => _current?.behindViewer ?? false;
+  }
+
+  @override
+  void onClose() {
+    AsrService.translationBehind = null;
+    super.onClose();
+  }
+
   /// Short texts waiting to be translated (see [translateText]).
   final _extras = Queue<ExtraText>();
 

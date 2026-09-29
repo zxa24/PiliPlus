@@ -99,6 +99,7 @@ void main() {
       AsrRunView? run,
       AsrLeadWindow? lead,
       double? duration = 3600,
+      AsrYield? yieldTo,
     }) => decideAsrStep(
       playhead: p,
       duration: duration,
@@ -106,7 +107,100 @@ void main() {
       run: run,
       lead: lead ?? battery,
       pace: pace,
+      yieldTo: yieldTo,
     );
+
+    // A translation behind its viewer gets the CPU (noisy-speech §18.1).
+    // c·s = 40 s here: the floor is 70 s ahead, a burst runs to 130 s.
+    group('giving the CPU to a translation behind the viewer', () {
+      final yieldTo = asrYieldFor(pace);
+
+      test('the floor is what a restart needs, the burst a minute more', () {
+        expect(yieldTo.resumeBelow, 70);
+        expect(yieldTo.pauseAt, 130);
+      });
+
+      test('a run past the burst stops, even where running on is free', () {
+        final step = decide(
+          p: 100,
+          covered: const [(from: 0, to: 240)],
+          run: (start: 0, frontier: 240, paused: false),
+          lead: unlimited,
+          yieldTo: yieldTo,
+        );
+        expect(step, isA<AsrPause>());
+      });
+
+      test('short of the burst it carries on', () {
+        final step = decide(
+          p: 100,
+          covered: const [(from: 0, to: 200)],
+          run: (start: 0, frontier: 200, paused: false),
+          lead: unlimited,
+          yieldTo: yieldTo,
+        );
+        expect(step, isA<AsrKeep>());
+      });
+
+      test('stopped, it waits below the low mark of the lead rule...', () {
+        // 100 s ahead: the battery rule alone would resume under 150 s
+        final step = decide(
+          p: 100,
+          covered: const [(from: 0, to: 200)],
+          run: (start: 0, frontier: 200, paused: true),
+          yieldTo: yieldTo,
+        );
+        expect(step, isA<AsrKeep>());
+        expect(
+          decide(
+            p: 100,
+            covered: const [(from: 0, to: 200)],
+            run: (start: 0, frontier: 200, paused: true),
+          ),
+          isA<AsrResume>(),
+        );
+      });
+
+      test('...and carries on under its floor', () {
+        final step = decide(
+          p: 140,
+          covered: const [(from: 0, to: 200)],
+          run: (start: 0, frontier: 200, paused: true),
+          lead: unlimited,
+          yieldTo: yieldTo,
+        );
+        expect(step, isA<AsrResume>());
+      });
+
+      test('no run is started ahead while the text lasts', () {
+        final step = decide(
+          p: 100,
+          covered: const [(from: 0, to: 300)],
+          lead: unlimited,
+          yieldTo: yieldTo,
+        );
+        expect(step, isA<AsrKeep>());
+        // nor on battery, where 200 s ahead is under the low mark
+        expect(
+          decide(
+            p: 100,
+            covered: const [(from: 0, to: 200)],
+            yieldTo: yieldTo,
+          ),
+          isA<AsrKeep>(),
+        );
+      });
+
+      test('one is, once the text runs low', () {
+        final step = decide(
+          p: 150,
+          covered: const [(from: 0, to: 200)],
+          yieldTo: yieldTo,
+        );
+        expect(step, isA<AsrStartAt>());
+        expect((step as AsrStartAt).at, 200);
+      });
+    });
 
     test('nothing yet: a run where the viewer is', () {
       final step = decide(p: 0, covered: const []);

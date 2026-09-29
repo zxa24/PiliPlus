@@ -15,8 +15,13 @@ class LlamaTranslationEngine implements TranslationEngine {
 
   final LlamaEngine _engine;
 
-  /// Whether the CPU backend may repack weights here: on desktops only.
-  static bool get repacks => !PlatformUtils.isMobile;
+  /// Whether the CPU backend may repack weights here: on desktops only —
+  /// unless the self test asks (`--translate-repack 1`), to measure what a
+  /// phone with the room for the second copy would gain (noisy-speech §18.1:
+  /// the prompt is read at only ~15 tok/s on a Pixel 6 Pro without it).
+  static bool get repacks => debugRepack ?? !PlatformUtils.isMobile;
+
+  static bool? debugRepack;
 
   /// Loads the GGUF at [path]. Throws if it cannot be loaded.
   static Future<LlamaTranslationEngine> load(String path) async {

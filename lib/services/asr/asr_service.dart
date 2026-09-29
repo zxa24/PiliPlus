@@ -769,6 +769,10 @@ class AsrSession {
     if (_fullCoverage == 0 && _models != null) _tick();
   }
 
+  /// Whether runs are giving the CPU to a translation behind the viewer
+  /// (see [AsrService.translationBehind]), as last seen.
+  var _yielding = false;
+
   /// Since when the viewer has been where there is no text yet, waiting
   /// for the transcript: the stall a viewer sees, logged as it starts and
   /// ends.
@@ -836,6 +840,16 @@ class AsrSession {
     final run = _run;
     final media = duration;
     final covered = transcript.covered;
+    final yielding = AsrService.translationBehind?.call() ?? false;
+    if (yielding != _yielding) {
+      _yielding = yielding;
+      EventLog.add(
+        'asr',
+        yielding
+            ? 'the translation is behind the viewer: runs give it the CPU'
+            : 'the translation has caught up',
+      );
+    }
     final step = decideAsrStep(
       playhead: _playhead,
       duration: media,
@@ -851,6 +865,7 @@ class AsrSession {
             ),
       lead: leadWindow,
       pace: pace,
+      yieldTo: yielding ? asrYieldFor(pace) : null,
     );
     if (winding) {
       // switched off: only the run going on carries on, to the mark; the
@@ -892,7 +907,12 @@ class AsrSession {
       case AsrComplete():
         if (!joining) _complete();
       case AsrPause():
-        if (run != null && !joining) _pause(run, 'far enough ahead');
+        if (run != null && !joining) {
+          _pause(
+            run,
+            yielding ? 'the translation needs the CPU' : 'far enough ahead',
+          );
+        }
       case AsrResume():
         if (run != null) _resume(run, 'the viewer is coming close');
       case AsrStartAt(:final at, :final adjacent):
@@ -931,7 +951,10 @@ class AsrSession {
     }
     switch (step) {
       case AsrPause():
-        _pause(run, 'far enough ahead');
+        _pause(
+          run,
+          _yielding ? 'the translation needs the CPU' : 'far enough ahead',
+        );
       case AsrResume():
         _resume(run, 'the viewer is coming close');
       case _:
@@ -1776,6 +1799,12 @@ class AsrService extends GetxService {
   );
 
   AsrSession? _current;
+
+  /// Whether the translation running is behind its viewer, set by the
+  /// translation service: a run far enough ahead then stops to give it the
+  /// CPU (asrYieldFor). Beside a run the translation got a third of its
+  /// speed on a Pixel 6 Pro (noisy-speech §18.1).
+  static bool Function()? translationBehind;
 
   /// The session running, for the self test's progress file.
   AsrSession? get debugCurrent => _current;

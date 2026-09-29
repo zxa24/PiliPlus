@@ -546,8 +546,38 @@ class TranslationSession {
   /// there yet: the stall a viewer sees, logged as it starts and ends.
   DateTime? _viewerWaitingSince;
 
+  /// Whether the translation is behind its viewer: the transcription gives
+  /// it the CPU then (AsrService.translationBehind). Set below
+  /// [behindBelow] seconds of translated lead, cleared at [caughtUpAt], so
+  /// a lead hovering at one mark does not flip it with every unit.
+  bool get behindViewer => _lagging;
+  var _lagging = false;
+  static const behindBelow = 20.0;
+  static const caughtUpAt = 60.0;
+
+  void _watchLead(double now) {
+    final stage = state.value.stage;
+    final running =
+        !modelFree &&
+        (routeOf == null || _usesModel) &&
+        (stage == TranslationStage.loading ||
+            stage == TranslationStage.translating ||
+            stage == TranslationStage.waiting);
+    if (!running) {
+      _lagging = false;
+      return;
+    }
+    final lead = settledFrom(now) - now;
+    if (!_lagging && lead < behindBelow) {
+      _lagging = true;
+    } else if (_lagging && lead >= caughtUpAt) {
+      _lagging = false;
+    }
+  }
+
   void _watchViewer() {
     final now = position();
+    _watchLead(now);
     TranslationUnit? here;
     for (final unit in units) {
       if (unit.from > now) break;
@@ -613,6 +643,7 @@ class TranslationSession {
     'modelLoads': _modelLoads,
     'units': units.length,
     'viewerWaitingSince': _viewerWaitingSince?.toIso8601String(),
+    'behindViewer': _lagging,
   };
 
   /// Until something changes (see [poke]), or a second has passed.
