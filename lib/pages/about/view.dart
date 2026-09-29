@@ -348,7 +348,7 @@ Commit Hash: ${BuildConfig.commitHash}''',
               final confirmed = await showConfirmDialog(
                 context: context,
                 title: const Text('恢复到导入前'),
-                content: const Text('撤回最近一次恢复/导入，回到那之前的设置、本地关注和本地收藏'),
+                content: const Text('撤回最近一次恢复/导入，回到那之前的设置、本地关注、本地收藏和本机观看记录'),
               );
               if (!confirmed) return;
               try {
@@ -410,7 +410,7 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         SmartDialog.showToast('重置成功（重启生效）');
                       },
                       child: const Text(
-                        '重置所有数据（含登录信息、本地关注/收藏，不可撤回）',
+                        '重置所有数据（含登录信息、本地关注/收藏、本机观看记录，不可撤回）',
                         style: style,
                       ),
                     ),

@@ -127,7 +127,7 @@ class _WebDavSettingPageState extends State<WebDavSettingPage> {
                         context: context,
                         title: const Text('恢复设置'),
                         content: const Text(
-                          '将用 WebDAV 上的备份替换本机的全部设置、本地关注和本地收藏。'
+                          '将用 WebDAV 上的备份替换本机的全部设置、本地关注、本地收藏和本机观看记录。'
                           '恢复前的数据会自动保存，可用「恢复到导入前」撤回',
                         ),
                       );
@@ -153,7 +153,7 @@ class _WebDavSettingPageState extends State<WebDavSettingPage> {
                 final confirmed = await showConfirmDialog(
                   context: context,
                   title: const Text('恢复到导入前'),
-                  content: const Text('撤回最近一次恢复/导入，回到那之前的设置、本地关注和本地收藏'),
+                  content: const Text('撤回最近一次恢复/导入，回到那之前的设置、本地关注、本地收藏和本机观看记录'),
                 );
                 if (confirmed) WebDav().restoreSnapshot();
               },
