@@ -945,8 +945,15 @@ class HeaderControlState extends State<HeaderControl>
     final VideoQuality? currentVideoQa = videoDetailCtr.currentVideoQa.value;
     if (currentVideoQa == null) return;
 
-    final List<FormatItem> videoFormat = videoInfo.supportFormats!;
+    // LibrePili: only what this response can play. The rest (大会员, or
+    // anything a signed-in request would get) used to be listed greyed out;
+    // requests here are anonymous unless login mode is on, so that was most
+    // of the list, none of it reachable (user 2026-09-29).
     final availableQa = videoInfo.dash!.video!.availableVideoQualities;
+    final List<FormatItem> videoFormat = [
+      for (final item in videoInfo.supportFormats!)
+        if (availableQa.contains(item.quality)) item,
+    ];
 
     showBottomSheet(
       (context, setState) {
@@ -964,7 +971,7 @@ class HeaderControlState extends State<HeaderControl>
                     height: 45,
                     child: GestureDetector(
                       onTap: () => SmartDialog.showToast(
-                        '标灰画质需要bilibili会员（已是会员？请关闭无痕模式）；4k和杜比视界播放效果可能不佳',
+                        '只列出当前可播放的画质；更高画质可能需要登录或大会员。4K 和杜比视界播放效果可能不佳',
                       ),
                       child: Row(
                         spacing: 8,
@@ -1013,8 +1020,6 @@ class HeaderControlState extends State<HeaderControl>
                           );
                         }
                       },
-                      // 可能包含会员解锁画质
-                      enabled: availableQa.contains(item.quality),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 20,
                       ),
