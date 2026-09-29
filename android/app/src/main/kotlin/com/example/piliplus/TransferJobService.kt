@@ -160,7 +160,7 @@ object TransferJobs {
             // required of a user-initiated job; ANY, as the download itself
             // has always gone ahead on whatever network there is
             .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-            .setEstimatedNetworkBytes(if (total > 0) total else JobInfo.NETWORK_BYTES_UNKNOWN, 0)
+            .setEstimatedNetworkBytes(if (total > 0) total else JobInfo.NETWORK_BYTES_UNKNOWN.toLong(), 0L)
             .build()
         val result = try {
             scheduler.schedule(info)
@@ -328,7 +328,7 @@ object TransferJobs {
                 builder.build(),
                 JobService.JOB_END_NOTIFICATION_POLICY_REMOVE,
             )
-            service.updateTransferredNetworkBytes(params, transfer.received, 0)
+            service.updateTransferredNetworkBytes(params, transfer.received, 0L)
         } catch (e: Exception) {
             Log.w(TAG, "notification for job ${transfer.id} failed", e)
         }
