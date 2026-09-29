@@ -7,6 +7,7 @@ import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models_new/member/search_archive/vlist.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/utils/grid.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// Latest uploads of locally followed UPs, newest first.
@@ -23,6 +24,8 @@ class _LocalFeedTabState extends State<LocalFeedTab>
   static const _concurrency = 2;
   static const _batchDelay = Duration(milliseconds: 400);
   static const _maxItems = 300;
+
+  static final _gridDelegate = Grid.videoCardHDelegate();
 
   /// Uploads per UP, kept for the session: opening the tab again or
   /// (un)following someone only fetches the UPs not fetched recently, not
@@ -182,7 +185,13 @@ class _LocalFeedTabState extends State<LocalFeedTab>
                 child: _Hint(icon: Icons.inbox_outlined, text: '暂无投稿'),
               )
             else
-              SliverList.builder(
+              // a grid, not a list: VideoCardH sizes its cover from an
+              // aspect ratio, and in an unbounded-height list it throws
+              // "RenderAspectRatio has unbounded constraints" (found by
+              // --local-feed-probe; 本地 → 收藏 had the same bug, fixed the
+              // same way)
+              SliverGrid.builder(
+                gridDelegate: _gridDelegate,
                 itemCount: _items.length,
                 itemBuilder: (context, index) =>
                     VideoCardH(videoItem: _items[index]),

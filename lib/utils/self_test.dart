@@ -41,7 +41,10 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart'
 import 'package:PiliPlus/pages/danmaku/controller.dart';
 import 'package:PiliPlus/pages/danmaku/view.dart' show PlDanmaku;
 import 'package:canvas_danmaku/canvas_danmaku.dart' show DanmakuScreen;
+import 'package:PiliPlus/common/widgets/video_card/video_card_h.dart';
 import 'package:PiliPlus/pages/local/favs.dart';
+import 'package:PiliPlus/pages/local/feed.dart';
+import 'package:PiliPlus/pages/local/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
@@ -110,7 +113,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart'
     show SmartDialog;
 import 'package:material_ui/material_ui.dart'
-    show AlertDialog, IconButton, PopupMenuButton, Tooltip, showDialog;
+    show AlertDialog, IconButton, PopupMenuButton, Scaffold, Tooltip, showDialog;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 import 'package:PiliPlus/common/widgets/scale_app.dart';
@@ -650,6 +653,9 @@ abstract final class SelfTest {
           'error': state is Error ? state.errMsg : null,
         };
       });
+    }
+    if (_arg(args, '--local-feed-probe') case final mid?) {
+      await scenario('localFeed', () => _localFeedProbe(int.parse(mid)));
     }
     if (_arg(args, '--feed') case final mid?) {
       await scenario('feed', () => _feed(int.parse(mid)));
@@ -6584,6 +6590,57 @@ abstract final class SelfTest {
           'ctime': app.response.item!.first.ctime,
           'duration': app.response.item!.first.duration,
         },
+    };
+  }
+
+  /// `--local-feed-probe MID`: the 本地 → 动态 page as the user meets it:
+  /// MID followed locally (in the self-test profile only), the local page
+  /// opened, and what its feed tab then shows — how many video cards, and
+  /// whether it says fetching failed.
+  static Future<Map<String, dynamic>> _localFeedProbe(int mid) async {
+    await LocalLibrary.follow(mid);
+    final clock = Stopwatch()..start();
+    unawaited(Get.to(() => const Scaffold(body: LocalPage())));
+    var cards = 0;
+    var failedText = '';
+    var emptyText = false;
+    while (clock.elapsed < const Duration(seconds: 30)) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      cards = 0;
+      failedText = '';
+      emptyText = false;
+      void visit(Element e) {
+        final w = e.widget;
+        if (w is VideoCardH) cards++;
+        if (w is Text) {
+          final t = w.data ?? '';
+          if (t.contains('获取失败')) failedText = t;
+          if (t == '暂无投稿') emptyText = true;
+        }
+        e.visitChildren(visit);
+      }
+
+      void findFeed(Element e) {
+        if (e.widget is LocalFeedTab) {
+          e.visitChildren(visit);
+          return;
+        }
+        e.visitChildren(findFeed);
+      }
+
+      WidgetsBinding.instance.rootElement?.visitChildren(findFeed);
+      if (cards > 0 || failedText.isNotEmpty || emptyText) break;
+    }
+    final ms = clock.elapsedMilliseconds;
+    Get.back();
+    await LocalLibrary.unfollow(mid);
+    return {
+      'pass': cards > 0 && failedText.isEmpty,
+      'mid': mid,
+      'cards': cards,
+      'ms': ms,
+      'failed': failedText.isEmpty ? null : failedText,
+      'empty': emptyText,
     };
   }
 
