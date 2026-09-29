@@ -1815,6 +1815,13 @@ abstract final class SelfTest {
       "But it's not really usable without this extra layer of instruction.",
       '私はこの提案に賛成しません。',
       '実は今日は朝早く起きることに成功して、セントラルパークに行くんです。',
+      // as long as a unit of recognised speech usually is on a phone
+      // (about 20 s, 11 units in V8's 5 minutes; noisy-speech §18)
+      "I want to be upfront about this, because I don't want you to get the "
+          'wrong idea of what the experience actually felt like. It looked '
+          "packed in real time, but the pace really wasn't that fast, and "
+          'between the rounds there was a lot of waiting around while they '
+          'fixed the robots and swapped out the batteries.',
     ];
     final before = memory();
     final loadWatch = Stopwatch()..start();
@@ -1833,6 +1840,13 @@ abstract final class SelfTest {
           'reply': reply,
           'cleaned': cleanTranslation(reply, source: line),
           'ms': watch.elapsedMilliseconds,
+          if (engine.lastStats case final stats?)
+            'stats': {
+              'promptTokens': stats.promptTokens,
+              'replyTokens': stats.replyTokens,
+              'firstMs': stats.firstMs,
+              'totalMs': stats.totalMs,
+            },
         });
       }
     } finally {

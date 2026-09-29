@@ -18,6 +18,7 @@ import 'dart:async';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/translate/llama_engine.dart';
 import 'package:PiliPlus/services/translate/text_language.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
@@ -578,6 +579,30 @@ class TranslationSession {
     }
   }
 
+  /// One line per unit the model translated: how long its prompt took to
+  /// read (to the first piece of the reply) and how fast the reply came,
+  /// against where the viewer was (design notes: noisy-speech §18).
+  void _logUnitStats(TranslationUnit unit, String? text) {
+    final engine = _engine;
+    if (engine is! LlamaTranslationEngine) return;
+    final stats = engine.lastStats;
+    if (stats == null) return;
+    engine.lastStats = null;
+    final genMs = stats.totalMs - stats.firstMs;
+    final perSecond = genMs <= 0
+        ? '-'
+        : (stats.replyTokens * 1000 / genMs).toStringAsFixed(1);
+    EventLog.add(
+      'translate',
+      'unit ${unit.from.toStringAsFixed(1)}-${unit.to.toStringAsFixed(1)} s: '
+          '${stats.promptTokens} prompt tokens, first piece after '
+          '${stats.firstMs} ms, ${stats.replyTokens} reply tokens in '
+          '$genMs ms ($perSecond/s), '
+          'playhead ${position().toStringAsFixed(1)} s'
+          '${text == null ? ', no text' : ''}',
+    );
+  }
+
   /// For the self test's progress file.
   Map<String, Object?> get debugStatus => {
     'stage': state.value.stage.name,
@@ -845,6 +870,7 @@ class TranslationSession {
           }
         }
         if (_closed) return;
+        _logUnitStats(unit, text);
         results.record(unit, text);
         revision.value++;
       }

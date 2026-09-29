@@ -57,9 +57,16 @@ class LlamaTranslationEngine implements TranslationEngine {
     return LlamaTranslationEngine._(engine);
   }
 
+  /// How the last [complete] went, for the event log: whether a slow line
+  /// is slow reading its prompt (up to the first piece of the reply) or
+  /// writing the reply.
+  ({int promptTokens, int replyTokens, int firstMs, int totalMs})? lastStats;
+
   @override
   Future<String> complete(String prompt) async {
     final out = StringBuffer();
+    final clock = Stopwatch()..start();
+    int? firstMs;
     await for (final chunk in _engine.create(
       [LlamaChatMessage.fromText(role: LlamaChatRole.user, text: prompt)],
       params: const GenerationParams(
@@ -71,9 +78,22 @@ class LlamaTranslationEngine implements TranslationEngine {
       enableThinking: false,
     )) {
       final text = chunk.choices.first.delta.content;
-      if (text != null) out.write(text);
+      if (text != null) {
+        firstMs ??= clock.elapsedMilliseconds;
+        out.write(text);
+      }
     }
-    return out.toString();
+    final totalMs = clock.elapsedMilliseconds;
+    final reply = out.toString();
+    // counted after the reply, off the clock: a tokenisation is cheap
+    // beside the generation, and the reply is what it measures
+    lastStats = (
+      promptTokens: await _engine.getTokenCount(prompt),
+      replyTokens: await _engine.getTokenCount(reply),
+      firstMs: firstMs ?? totalMs,
+      totalMs: totalMs,
+    );
+    return reply;
   }
 
   @override
