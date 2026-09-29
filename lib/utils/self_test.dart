@@ -880,7 +880,8 @@ abstract final class SelfTest {
       final codecsDefault = codecs == 'default';
       final overrides = <String, Object>{
         if (!codecsDefault) SettingBoxKey.preferCodecs: ?codecs?.split(','),
-        if (autoplay) SettingBoxKey.autoPlayEnable: true,
+        // explicit either way: the default is on since 2026-09-29
+        SettingBoxKey.autoPlayEnable: autoplay,
         // moving comments over a frozen picture would look like playback
         // to anything comparing frames
         if (args.contains('--no-danmaku'))
