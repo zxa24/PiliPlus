@@ -217,8 +217,9 @@ abstract final class GStorage {
 
   /// Replaces settings, the local library and the local watch history
   /// with [map]. Unless [snapshot] is false, the current state is saved
-  /// first (see [saveSnapshot]) and the snapshot path is returned. This device's [credentialKeys] are kept
-  /// unless [importCredentials] (the user agreed) and [map] has them.
+  /// first (see [saveSnapshot]) and the snapshot path is returned. This
+  /// device's [credentialKeys] are kept unless [importCredentials] (the user
+  /// agreed) and [map] has them.
   static Future<String?> importAllJsonSettings(
     Map<String, dynamic> map, {
     bool importCredentials = false,

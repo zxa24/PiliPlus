@@ -162,6 +162,39 @@ void main() {
     expect(LocalHistory.entries().map((e) => e.key), ['ytx']);
   });
 
+  test('by default the 5000 most recent are kept', () async {
+    // 5000 entries, oldest first, put directly (recording each would take
+    // as long as 5000 disk writes)
+    await LocalHistory.box.putAll({
+      for (var i = 1; i <= 5000; i++)
+        'av$i': LocalWatchEntry(
+          key: 'av$i',
+          platform: LocalHistoryPlatform.bili,
+          type: 'ugc',
+          aid: i,
+          title: 'video $i',
+          time: i,
+          last: '1',
+          parts: {
+            '1': LocalWatchPart(id: '1', progress: 1000, duration: 0, time: i),
+          },
+        ).toJson(),
+    });
+    expect(LocalHistory.length, 5000);
+
+    // watching one already there adds nothing and drops nothing
+    await LocalHistory.record(_ugc(1), progress: 2000);
+    expect(LocalHistory.length, 5000);
+    expect(LocalHistory.get('av1'), isNotNull);
+
+    // the 5001st drops the oldest: av1 was just watched, so av2
+    await LocalHistory.record(_yt('new'), progress: 1000);
+    expect(LocalHistory.length, 5000);
+    expect(LocalHistory.get('av2'), isNull);
+    expect(LocalHistory.get('av3'), isNotNull);
+    expect(LocalHistory.entries().take(2).map((e) => e.key), ['ytnew', 'av1']);
+  });
+
   test('keeps at most maxParts parts per entry, the recent ones', () async {
     for (var i = 1; i <= LocalHistory.maxParts + 2; i++) {
       await LocalHistory.record(_ugc(7, cid: i, page: i), progress: 1000);
