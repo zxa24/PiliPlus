@@ -18,6 +18,12 @@
 /// reports a segment once a full minimum silence has passed, so that is a
 /// few windows more; after the 20 s cap cut a speaker off, the next segment
 /// begins at once and is seen within a window or so.
+///
+/// The first segment of a run is [SpeechPadding.add]ed `eager`: the viewer
+/// is waiting for it (see FirstCut), so it waits only until no segment can
+/// begin within its own padding, not twice that — about 0.4 s less. Its
+/// padding after is then the full 0.4 s, and the padding before the next
+/// segment stops where it ended instead of at the middle of the gap.
 library;
 
 import 'dart:math' as math;
@@ -39,17 +45,22 @@ class SpeechPadding {
   /// min_speech`).
   final int lookBack;
 
-  final _waiting = <({int start, int end})>[];
+  final _waiting = <({int start, int end, bool eager})>[];
 
   /// Where the last span handed out ended, as the VAD cut it: the padding
   /// before the next one stops half way to it.
   int? _previousEnd;
+
+  /// Where the audio decoded for the last span handed out ended: the next
+  /// one never starts before it, so no audio is decoded twice.
+  var _previousTo = 0;
 
   /// Where the last segment the VAD handed over ended; the VAD cannot open
   /// the next one before it.
   var _lastCut = 0;
 
   /// Where the segment the VAD is inside now began, once it is known.
+  int? get speechFrom => _speechFrom;
   int? _speechFrom;
 
   /// Whether anything is waiting to be handed out.
@@ -61,13 +72,15 @@ class SpeechPadding {
   void reset() {
     _waiting.clear();
     _previousEnd = null;
+    _previousTo = 0;
     _lastCut = 0;
     _speechFrom = null;
   }
 
-  /// A segment the VAD handed over, in order.
-  void add(int start, int end) {
-    _waiting.add((start: start, end: end));
+  /// A segment the VAD handed over, in order. An [eager] one is handed out
+  /// as soon as no segment can begin within [pad] of its end.
+  void add(int start, int end, {bool eager = false}) {
+    _waiting.add((start: start, end: end, eager: eager));
     if (end > _lastCut) _lastCut = end;
     _speechFrom = null;
   }
@@ -98,18 +111,24 @@ class SpeechPadding {
         to = math.min(s.end + pad, (s.end + next) ~/ 2);
       } else if (total != null) {
         to = math.max(s.start, math.min(s.end + pad, total));
-      } else if (!speech && read - lookBack >= s.end + 2 * pad) {
-        // no segment can begin before s.end + 2 * pad any more
+      } else if (!speech &&
+          read - lookBack >= s.end + (s.eager ? pad : 2 * pad)) {
+        // no segment can begin before s.end + 2 * pad any more, or, for an
+        // eager one, before s.end + pad
         to = s.end + pad;
       } else {
         break;
       }
       final previous = _previousEnd;
-      final from = previous == null
-          ? math.max(0, s.start - pad)
-          : math.max(s.start - pad, (previous + s.start) ~/ 2);
+      final from = math.max(
+        _previousTo,
+        previous == null
+            ? s.start - pad
+            : math.max(s.start - pad, (previous + s.start) ~/ 2),
+      );
       out.add((start: s.start, end: s.end, from: from, to: to));
       _previousEnd = s.end;
+      _previousTo = to;
       _waiting.removeAt(0);
     }
     return out;

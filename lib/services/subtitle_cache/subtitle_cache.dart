@@ -294,7 +294,10 @@ class SubtitleCache {
   ///
   /// 3: isolated odd segments are kept with no text (AsrSegmentFilter); a
   /// transcript kept from before still shows them.
-  static const format = 3;
+  ///
+  /// 4: the first segment of a run is cut after 0.5 s of silence (FirstCut)
+  /// — a transcript kept from before has it cut the other way.
+  static const format = 4;
 
   final Directory dir;
   final int Function() _limitBytes;

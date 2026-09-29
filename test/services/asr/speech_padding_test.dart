@@ -63,6 +63,22 @@ void main() {
     expect(p.ready(read: 321000, speech: true).single.to, 320000);
   });
 
+  test('an eager segment waits only until none can begin within one '
+      'padding; the next one is not decoded over it', () {
+    final p = padding()..add(20000, 50000, eager: true);
+    // 50000 + pad + lookBack = 61424
+    expect(p.ready(read: 61184, speech: false), isEmpty);
+    expect(p.ready(read: 61696, speech: false), [
+      (start: 20000, end: 50000, from: 13600, to: 56400),
+    ]);
+    // begun where the look-back allows, 57000: the middle of the gap
+    // (53500) was already decoded with the first
+    p.add(57000, 90000);
+    expect(p.ready(read: 120000, speech: false), [
+      (start: 57000, end: 90000, from: 56400, to: 96400),
+    ]);
+  });
+
   test('inside speech, with no start seen, it keeps waiting', () {
     final p = padding()..add(0, 30000);
     expect(p.ready(read: 90000, speech: true), isEmpty);

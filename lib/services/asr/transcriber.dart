@@ -21,6 +21,7 @@ import 'dart:isolate';
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
+import 'package:PiliPlus/services/asr/first_cut.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:PiliPlus/services/asr/segment_filter.dart';
 import 'package:PiliPlus/services/asr/speech_padding.dart';
@@ -624,24 +625,17 @@ class _SherpaEngine implements AsrEngine {
     _budouxZh = models.chineseSegmenter == null
         ? null
         : BudouX(models.chineseSegmenter!);
-    _vad = sherpa.VoiceActivityDetector(
-      config: sherpa.VadModelConfig(
-        sileroVad: sherpa.SileroVadModelConfig(
-          model: models.vadPath,
-          threshold: 0.5,
-          // 1 s rather than 0.5: a pause for breath no longer cuts a
-          // sentence in two (research/noisy-speech-design-2026-09-26.md, 6;
-          // together with [_pad], see SpeechPadding)
-          minSilenceDuration: 1.0,
-          minSpeechDuration: _minSpeech,
-          windowSize: asrVadWindow,
-          // a display cue is cut out of this by AsrCueBuilder
-          maxSpeechDuration: 20,
-        ),
-        numThreads: 1,
-      ),
-      bufferSizeInSeconds: 60,
-    );
+    // 1 s rather than 0.5: a pause for breath no longer cuts a sentence in
+    // two (research/noisy-speech-design-2026-09-26.md, 6; together with
+    // [_pad], see SpeechPadding) — except the first segment of a run, which
+    // the viewer is waiting for (FirstCut)
+    _vad = _newVad(models, minSilence: 1.0);
+    try {
+      _quickVad = _newVad(models, minSilence: 0.5);
+    } catch (_) {
+      _vad.free();
+      rethrow;
+    }
     try {
       _recognizer = sherpa.OfflineRecognizer(
         sherpa.OfflineRecognizerConfig(
@@ -658,14 +652,38 @@ class _SherpaEngine implements AsrEngine {
       );
     } catch (_) {
       _vad.free();
+      _quickVad.free();
       rethrow;
     }
   }
+
+  static sherpa.VoiceActivityDetector _newVad(
+    AsrModels models, {
+    required double minSilence,
+  }) => sherpa.VoiceActivityDetector(
+    config: sherpa.VadModelConfig(
+      sileroVad: sherpa.SileroVadModelConfig(
+        model: models.vadPath,
+        threshold: 0.5,
+        minSilenceDuration: minSilence,
+        minSpeechDuration: _minSpeech,
+        windowSize: asrVadWindow,
+        // a display cue is cut out of this by AsrCueBuilder
+        maxSpeechDuration: 20,
+      ),
+      numThreads: 1,
+    ),
+    bufferSizeInSeconds: 60,
+  );
 
   final AsrModels _models;
   BudouX? _budoux;
   BudouX? _budouxZh;
   late final sherpa.VoiceActivityDetector _vad;
+
+  /// The same VAD with half a second of silence, for the first segment of a
+  /// run only; see FirstCut.
+  late final sherpa.VoiceActivityDetector _quickVad;
   late final sherpa.OfflineRecognizer _recognizer;
 
   /// How far behind the read position the VAD may still open a segment
@@ -696,11 +714,15 @@ class _SherpaEngine implements AsrEngine {
     // segment offsets are counted from the last reset: from this run's
     // start, which is [offset] in the media
     vad.reset();
+    final quickVad = _quickVad..reset();
+    final steady = _VadCuts(vad);
+    final quick = _VadCuts(quickVad);
     final history = _history..reset();
     final padding = SpeechPadding(
       pad: (_pad * asrSampleRate).round(),
       lookBack: 2 * asrVadWindow + (_minSpeech * asrSampleRate).round(),
     );
+    final cut = FirstCut(padding);
     final reader = PcmWindowReader(
       request.pcmPath,
       follow: request.follow,
@@ -714,7 +736,6 @@ class _SherpaEngine implements AsrEngine {
       var total = reader.durationSeconds;
       var lastProgress = 0.0;
       var settled = offset;
-      var speech = false;
       // which segments are too odd to show; one per run, so a run started
       // further on compares only with its own segments
       final filter = AsrSegmentFilter<Map<String, Object?>>();
@@ -832,20 +853,13 @@ class _SherpaEngine implements AsrEngine {
             .forEach(emit);
       }
 
-      /// Takes what the VAD has cut, and decodes whatever is ready.
+      /// Takes what the VADs have cut, and decodes whatever is ready.
       void drain({int? end}) {
-        while (!vad.isEmpty()) {
-          final segment = vad.front();
-          padding.add(segment.start, segment.start + segment.samples.length);
-          vad.pop();
-        }
-        final detected = vad.isDetected();
-        if (detected && !speech) padding.speechStarted(history.length);
-        speech = detected;
+        cut.update(quick: quick, steady: steady, read: history.length);
         // between segments too: a backlog of them is seconds of decoding
         for (final span in padding.ready(
           read: history.length,
-          speech: speech,
+          speech: cut.speech,
           total: end,
         )) {
           if (stopping()) return;
@@ -861,6 +875,7 @@ class _SherpaEngine implements AsrEngine {
         if (stopping()) return false;
         history.add(window);
         vad.acceptWaveform(window);
+        if (cut.quickWanted) quickVad.acceptWaveform(window);
         drain();
         final done = reader.samplesRead / asrSampleRate;
         if (done - lastProgress >= 1) {
@@ -883,7 +898,7 @@ class _SherpaEngine implements AsrEngine {
       if (stopping()) return false;
       // only once the reader has really ended: in follow mode it returns
       // when the extractor's marker appears, not at the first empty read
-      vad.flush();
+      (cut.flushQuick ? quickVad : vad).flush();
       drain(end: reader.samplesRead);
       if (stopping()) return false;
       filter.finish().forEach(emit);
@@ -905,6 +920,7 @@ class _SherpaEngine implements AsrEngine {
   @override
   void free() {
     _vad.free();
+    _quickVad.free();
     _recognizer.free();
   }
 
@@ -920,6 +936,30 @@ class _SherpaEngine implements AsrEngine {
 
   @override
   String toString() => '_SherpaEngine(${_models.modelPath})';
+}
+
+/// A sherpa-onnx VAD as FirstCut sees it.
+class _VadCuts implements VadCuts {
+  _VadCuts(this._vad);
+
+  final sherpa.VoiceActivityDetector _vad;
+
+  @override
+  List<VadCut> take() {
+    final out = <VadCut>[];
+    while (!_vad.isEmpty()) {
+      final segment = _vad.front();
+      out.add((
+        start: segment.start,
+        end: segment.start + segment.samples.length,
+      ));
+      _vad.pop();
+    }
+    return out;
+  }
+
+  @override
+  bool get detected => _vad.isDetected();
 }
 
 /// The last [capacity] samples a run has read, by their place in it.
