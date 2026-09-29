@@ -113,9 +113,10 @@ SubtitleStatus? translationStatus({
   TranslationStage.idle => null,
 };
 
-/// The major languages the speech is in, by how much of it each takes:
-/// those with at least a fifth, two at most. Segments tagged with nothing
-/// do not count, and a stray mistagged one is too short to.
+/// The major language the speech is mostly in — the one that takes the
+/// most of it (user 2026-09-28: the label names one language, the main
+/// one; it was up to two). A list, empty before any tagged speech.
+/// Segments tagged with nothing do not count.
 List<String> spokenLanguages(
   Iterable<({String language, double duration})> segments,
 ) {
@@ -132,10 +133,7 @@ List<String> spokenLanguages(
   if (all <= 0) return const [];
   final ranked = totals.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
-  return [
-    for (final (i, e) in ranked.indexed)
-      if (i < 2 && (i == 0 || e.value >= all * 0.2)) e.key,
-  ];
+  return [ranked.first.key];
 }
 
 /// The languages spoken in a video: as its transcript tags them, or,
@@ -155,8 +153,8 @@ List<String> spokenOf(AsrSession? session, List<PlatformTrack> tracks) {
   return const [];
 }
 
-/// The 原文 row's name (decision ④): 原文 · 日语, 原文 · 日语/中文 for
-/// speech in two, and 原文 alone before the language is known.
+/// The 原文 row's name (decision ④): 原文 · 日语 for the main language
+/// of the speech, and 原文 alone before it is known.
 String originalLabel(List<String> languages) => languages.isEmpty
     ? '原文'
     : '原文 · ${languages.map(translationLanguageLabel).join('/')}';

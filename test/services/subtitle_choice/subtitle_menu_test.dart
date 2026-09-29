@@ -96,9 +96,8 @@ void main() {
       expect(rows(picked: null).every((r) => !r.checked), isTrue);
     });
 
-    test('named by the speech: 原文 · 日语, 原文 · 日语/中文, 原文', () {
+    test('named by the main language of the speech: 原文 · 日语, 原文', () {
       expect(rows(spoken: const ['ja']).first.label, '原文 · 日语');
-      expect(rows(spoken: const ['ja', 'zh']).first.label, '原文 · 日语/中文');
       expect(rows().first.label, '原文');
     });
 
@@ -113,14 +112,14 @@ void main() {
   });
 
   group('the languages spoken', () {
-    test('those with a fifth of the speech, two at most, most first', () {
+    test('only the one that takes most of the speech', () {
       expect(
         spokenLanguages(const [
           (language: 'ja', duration: 60),
           (language: 'zh', duration: 30),
           (language: 'en', duration: 5),
         ]),
-        ['ja', 'zh'],
+        ['ja'],
       );
       // a stray mistagged line is not a second language
       expect(
