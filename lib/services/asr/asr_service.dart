@@ -32,6 +32,7 @@ import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
+import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -1828,10 +1829,18 @@ class AsrService extends GetxService {
     final token = _englishToken = AsrCancelToken();
     englishDownloadError.value = null;
     try {
-      await store.ensure(
-        AsrModelCatalog.parakeet,
+      await BackgroundTransfer.instance.run(
+        title: '下载英语识别模型',
+        bytes: AsrModelCatalog.parakeet.totalSize,
         token: token,
-        onProgress: (p) => englishDownload.value = p,
+        body: (keepAlive) => store.ensure(
+          AsrModelCatalog.parakeet,
+          token: token,
+          onProgress: (p) {
+            keepAlive(p);
+            englishDownload.value = p;
+          },
+        ),
       );
       final english = englishModel;
       if (english != null) _current?.englishModelInstalled(english);
@@ -2007,15 +2016,25 @@ class AsrService extends GetxService {
               language: session.state.value.language,
             ),
           );
-        await store.ensureAll(
+        // started from the user's tap on 生成字幕: the app is on screen,
+        // which is when the system allows the job (BackgroundTransfer)
+        await BackgroundTransfer.instance.run(
+          title: '下载语音识别模型',
+          bytes: downloadSize,
           token: token,
-          onProgress: (p) => session._set(
-            AsrState(
-              stage: AsrStage.models,
-              progress: p.total == 0 ? null : p.received / p.total,
-              message: p.verifying ? '校验 ${p.label}' : '下载 ${p.label}',
-              language: session.state.value.language,
-            ),
+          body: (keepAlive) => store.ensureAll(
+            token: token,
+            onProgress: (p) {
+              keepAlive(p);
+              session._set(
+                AsrState(
+                  stage: AsrStage.models,
+                  progress: p.total == 0 ? null : p.received / p.total,
+                  message: p.verifying ? '校验 ${p.label}' : '下载 ${p.label}',
+                  language: session.state.value.language,
+                ),
+              );
+            },
           ),
         );
         session._download = null;

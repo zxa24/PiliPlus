@@ -56,6 +56,7 @@ import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/pages/history/local.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -621,11 +622,13 @@ abstract final class SelfTest {
                 },
                 null => null,
               },
-              'asr': Get.isRegistered<AsrService>() &&
+              'asr':
+                  Get.isRegistered<AsrService>() &&
                       !Get.isPrepared<AsrService>()
                   ? AsrService.to.debugCurrent?.debugStatus
                   : null,
-              'translation': Get.isRegistered<TranslationService>() &&
+              'translation':
+                  Get.isRegistered<TranslationService>() &&
                       !Get.isPrepared<TranslationService>()
                   ? TranslationService.to.debugCurrent?.debugStatus
                   : null,
@@ -5871,27 +5874,36 @@ abstract final class SelfTest {
     final started = DateTime.now();
     var lastLabel = '';
     final steps = <String>[];
-    await store.ensureAll(
-      onProgress: (p) {
-        if (p.label != lastLabel) {
-          lastLabel = p.label;
-          steps.add(p.label);
-        }
-      },
-    );
-    // `--with-english`: the optional English model too (Parakeet, from the
-    // project's mirror), with the licence files it is installed with
-    if (english) {
-      await store.ensure(
-        AsrModelCatalog.parakeet,
-        onProgress: (p) {
+    // one background job over both, as the app holds one per user action
+    // (lib/services/background_transfer.dart). Scheduled only if the app is
+    // on screen: `am start` behind the lock screen gets `keepAlive` false,
+    // and the download is then cut off with the rest of the app's network.
+    final transfer = BackgroundTransfer.instance;
+    final bytes = [
+      ...store.missing,
+      if (english && !store.isEnglishReady) AsrModelCatalog.parakeet,
+    ].fold(0, (sum, model) => sum + model.totalSize);
+    await transfer.run(
+      title: '下载语音识别模型',
+      bytes: bytes,
+      token: AsrCancelToken(),
+      body: (keepAlive) async {
+        void onProgress(AsrProgress p) {
+          keepAlive(p);
           if (p.label != lastLabel) {
             lastLabel = p.label;
             steps.add(p.label);
           }
-        },
-      );
-    }
+        }
+
+        await store.ensureAll(onProgress: onProgress);
+        // `--with-english`: the optional English model too (Parakeet, from
+        // the project's mirror), with the licence files it is installed with
+        if (english) {
+          await store.ensure(AsrModelCatalog.parakeet, onProgress: onProgress);
+        }
+      },
+    );
     final ms = DateTime.now().difference(started).inMilliseconds;
     final models = [
       ...AsrModelCatalog.required,
@@ -5904,6 +5916,8 @@ abstract final class SelfTest {
       'ms': ms,
       'bytes': store.installedBytes(),
       'steps': steps,
+      'keepAlive': transfer.lastStart?.scheduled,
+      'keepAliveReason': transfer.lastStart?.reason,
       if (english)
         'englishNotice': File(
           path.join(store.dirOf(AsrModelCatalog.parakeet).path, 'NOTICE.txt'),
