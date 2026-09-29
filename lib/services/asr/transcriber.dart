@@ -811,7 +811,13 @@ class _SherpaEngine implements AsrEngine {
           ))
             // A word begun in the padding before the segment starts its cue
             // at the segment: a cue lies in the segment it came from, which
-            // is how translation tells whose it is.
+            // is how translation tells whose it is. This is the one place a
+            // cue start is not its first token's time; it costs little —
+            // 84 of 113 segments on four clips began in the padding, by a
+            // median 0.10 s, and cue starts still sat a median 0.05-0.20 s
+            // from the burned-in subtitles' (measured 2026-09-29; moving
+            // them to the token would move segment starts, and with them
+            // which segments translation joins).
             if (cue.from < start)
               AsrCue(
                 from: start,

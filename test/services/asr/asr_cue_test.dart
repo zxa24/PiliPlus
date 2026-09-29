@@ -126,7 +126,53 @@ void main() {
         tokens: _tokens([('a', 0.5)]),
       );
       expect(cues.single.from, 13.0);
-      expect(cues.single.to, 15.5);
+      // held for the minimum on screen, not stretched to the audio's end
+      expect(cues.single.to, 15.0);
+    });
+
+    test('the last cue ends at its last word plus the hold, not with the '
+        'padded audio', () {
+      // 0.4 s of padding either side: speech from 0.4 to about 4.5 s of
+      // 5.3 s decoded
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 10,
+        duration: 5.3,
+        tokens: _tokens([
+          (' we', 0.4),
+          (' went', 0.7),
+          (' to', 1.0),
+          (' buy', 1.3),
+          (' some', 1.6),
+          (' bread', 1.9),
+          // a closing mark is placed at the end of the audio given
+          ('.', 5.2),
+        ]),
+      );
+      expect(cues, hasLength(1));
+      // 1.9 + 3 x 0.3: not 15.3, and not 15.2 from the full stop
+      expect(cues.single.to, closeTo(12.8, 1e-9));
+      expect(cues.single.content, 'we went to buy some bread.');
+    });
+
+    test('the last cue never runs past the audio decoded', () {
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 0,
+        duration: 3.2,
+        tokens: _tokens([
+          for (var i = 0; i < 6; i++) ('字', 0.4 + i * 0.4),
+        ]),
+      );
+      // 2.4 + 1.2 would be 3.6
+      expect(cues.last.to, 3.2);
+    });
+
+    test('a cue start is its first token, wherever that falls', () {
+      final cues = AsrCueBuilder.fromSegment(
+        offset: 20,
+        duration: 6,
+        tokens: _tokens([('前', 0.12), ('面', 0.3), ('的', 0.5), ('话', 0.7)]),
+      );
+      expect(cues.single.from, closeTo(20.12, 1e-9));
     });
 
     test('cuts at a sentence end once the cue is long enough', () {
@@ -282,7 +328,9 @@ void main() {
       );
       expect(cues, hasLength(1));
       expect(cues.single.content, '严师客。');
-      expect(cues.single.to, 3.1);
+      // the last word (0.8) plus 3 x 0.4, held to the 2 s minimum — the
+      // mark's own time (3.0) is where the audio ended, not speech
+      expect(cues.single.to, 2.0);
     });
 
     test('a punctuation-only segment produces nothing at all', () {

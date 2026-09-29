@@ -5,6 +5,8 @@
 /// existing subtitle path work on them unchanged.
 library;
 
+import 'dart:math' as math;
+
 import 'package:PiliPlus/services/asr/line_planner.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -411,6 +413,16 @@ abstract final class AsrCueBuilder {
         : spacings[spacings.length ~/ 2];
     // enough for the word itself plus a moment to finish reading it
     final tailHold = (typicalToken * 3).clamp(_gap, 2.0);
+    // Where the last word starts. A closing mark is not said: SenseVoice
+    // places it at the end of the audio it was given, which since the
+    // padding (SpeechPadding) is up to 0.4 s of silence past the segment.
+    var lastSpoken = clean.last.time;
+    for (var k = clean.length - 1; k >= 0; k--) {
+      if (clean[k].text.replaceAll(_punctuation, '').isNotEmpty) {
+        lastSpoken = clean[k].time;
+        break;
+      }
+    }
 
     final planned = planLines && phraseStarts != null
         ? _plannedBreaks(clean, phraseStarts, typicalToken, maxDuration)
@@ -520,7 +532,26 @@ abstract final class AsrCueBuilder {
       }
     }
     final merged = _mergeRunts(cues, keepSentences: planned != null);
-    return _holdBriefly(planned != null ? _joinNext(merged) : merged);
+    final lines = planned != null ? _joinNext(merged) : merged;
+    // The last line ends like one before a pause: its last word plus the
+    // hold, never later than it did. It used to end with the audio, which
+    // was the VAD's end until the padding made it 0.4 s of silence more.
+    //
+    // Only the time moves, after the lines are decided: which cues are
+    // folded or joined still measures them against the audio's end, so the
+    // text of every line is what it was.
+    if (lines.isNotEmpty) {
+      final last = lines.last;
+      final spoken = offset + lastSpoken + tailHold;
+      if (spoken < last.to) {
+        lines[lines.length - 1] = AsrCue(
+          from: last.from,
+          to: math.max(spoken, last.from),
+          content: last.content,
+        );
+      }
+    }
+    return _holdBriefly(lines);
   }
 
   /// With `planLines`: the tokens lines start at, chosen per sentence by

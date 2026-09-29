@@ -297,7 +297,11 @@ class SubtitleCache {
   ///
   /// 4: the first segment of a run is cut after 0.5 s of silence (FirstCut)
   /// — a transcript kept from before has it cut the other way.
-  static const format = 4;
+  ///
+  /// 5: the last line of a segment ends at its last word plus a hold
+  /// rather than at the end of the padded audio (AsrCueBuilder) — a
+  /// transcript kept from before holds those lines on into the silence.
+  static const format = 5;
 
   final Directory dir;
   final int Function() _limitBytes;
