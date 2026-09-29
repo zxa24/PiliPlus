@@ -53,6 +53,8 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/pages/history/local.dart';
+import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
@@ -113,7 +115,13 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart'
     show SmartDialog;
 import 'package:material_ui/material_ui.dart'
-    show AlertDialog, IconButton, PopupMenuButton, Scaffold, Tooltip, showDialog;
+    show
+        AlertDialog,
+        IconButton,
+        PopupMenuButton,
+        Scaffold,
+        Tooltip,
+        showDialog;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 import 'package:PiliPlus/common/widgets/scale_app.dart';
@@ -953,6 +961,30 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--yt-search') case final query?) {
       await scenario('youtubeSearch', () => _youtubeSearch(query));
+    }
+    if (_arg(args, '--history-probe') case final bili?) {
+      // a fresh profile does not start the player on its own: without it
+      // the bilibili page never opens a source to record
+      final autoplayBefore = GStorage.setting.get(SettingBoxKey.autoPlayEnable);
+      await GStorage.setting.put(SettingBoxKey.autoPlayEnable, true);
+      try {
+        await scenario(
+          'localHistory',
+          () => _historyProbe(
+            bili,
+            yt: _arg(args, '--history-yt') ?? 'dQw4w9WgXcQ',
+            paused: _arg(args, '--history-paused') ?? 'BV1xx411c7mD',
+            seekTo: int.tryParse(_arg(args, '--seek-to') ?? '') ?? 60,
+          ),
+        );
+      } finally {
+        autoplayBefore == null
+            ? await GStorage.setting.delete(SettingBoxKey.autoPlayEnable)
+            : await GStorage.setting.put(
+                SettingBoxKey.autoPlayEnable,
+                autoplayBefore,
+              );
+      }
     }
     if (_arg(args, '--open-yt') case final video?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
@@ -5217,6 +5249,268 @@ abstract final class SelfTest {
 
   /// LibrePili: opens the YouTube watch page for real and reports whether the
   /// player actually advanced — resolving a URL is not the same as playing it.
+  /// LibrePili: the watch history kept on this device, end to end.
+  ///
+  /// A bilibili video [bili] (a link or BV id) and a YouTube video [yt] are
+  /// each played a few seconds, sought to [seekTo] s, played on, paused and
+  /// left; both must be in [LocalHistory] with their platform, the part and
+  /// a progress within 3 s of where the player was. With 暂停记录 on, a third
+  /// video [paused] leaves no entry. Each is then opened again from its
+  /// entry, the way the 本机 tab opens it, and must start where it was left
+  /// (a fresh profile has no account: this device's point is the only one).
+  /// Last, the 观看记录 page must list both with their platform marks.
+  ///
+  /// Clears the profile's local history first.
+  static Future<Map<String, dynamic>> _historyProbe(
+    String bili, {
+    required String yt,
+    required String paused,
+    required int seekTo,
+  }) async {
+    final result = <String, dynamic>{};
+    final fails = <String>[];
+    await LocalHistory.setPaused(false);
+    await LocalHistory.clear();
+
+    String biliUrl(String s) =>
+        s.startsWith('http') ? s : 'https://www.bilibili.com/video/$s';
+
+    VideoDetailController? findVideoPage() {
+      try {
+        return Get.find<VideoDetailController>(
+          tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+
+    Future<VideoDetailController?> waitVideoPage() async {
+      for (var i = 0; i < 180; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        final page = findVideoPage();
+        if (page != null && page.videoState.value) {
+          // the player may still be opening the source
+          await Future.delayed(const Duration(seconds: 2));
+          return page;
+        }
+      }
+      return null;
+    }
+
+    int? position(PlPlayerController player) =>
+        player.videoPlayerController?.state.position.inMilliseconds;
+
+    /// plays [lead] s, seeks to [seekTo], plays [after] s, pauses; returns
+    /// the position at the pause (ms)
+    Future<int?> watch(
+      PlPlayerController player, {
+      int lead = 4,
+      int after = 5,
+      bool seek = true,
+    }) async {
+      await player.play();
+      await Future.delayed(Duration(seconds: lead));
+      if (seek) {
+        await player.seekTo(Duration(seconds: seekTo), isSeek: false);
+        await player.play();
+      }
+      await Future.delayed(Duration(seconds: after));
+      final at = position(player);
+      await player.pause();
+      await Future.delayed(const Duration(seconds: 1));
+      return at;
+    }
+
+    Map<String, dynamic> describe(LocalWatchEntry? e) => {
+      if (e != null) ...{
+        'key': e.key,
+        'platform': e.platform.name,
+        'title': e.title,
+        'author': e.author,
+        'hasCover': e.cover?.isNotEmpty == true,
+        'last': e.last,
+        'parts': e.parts.length,
+        'progress': e.lastPart?.progress,
+        'duration': e.lastPart?.duration,
+        'page': e.lastPart?.page,
+      },
+    };
+
+    // ---- bilibili
+    await PiliScheme.routePushFromUrl(biliUrl(bili));
+    final page = await waitVideoPage();
+    if (page == null) {
+      return {'pass': false, 'reason': 'bilibili page never became ready'};
+    }
+    final biliKey = LocalHistory.ugcKey(page.aid);
+    final biliCid = page.cid.value;
+    final biliAt = await watch(page.plPlayerController);
+    Get.back();
+    await Future.delayed(const Duration(seconds: 3));
+    final biliEntry = LocalHistory.get(biliKey);
+    result['bili'] = {
+      'aid': page.aid,
+      'cid': biliCid,
+      'positionAtPause': biliAt,
+      'timeLength': page.data.timeLength,
+      'entry': describe(biliEntry),
+    };
+    if (biliEntry == null) {
+      fails.add('no bilibili entry');
+    } else {
+      final progress = biliEntry.lastPart?.progress ?? -1;
+      if (biliEntry.platform != LocalHistoryPlatform.bili) {
+        fails.add('bilibili platform');
+      }
+      if (biliEntry.last != '$biliCid') fails.add('bilibili part');
+      if (biliEntry.title.isEmpty) fails.add('bilibili title');
+      if (biliAt == null || (progress - biliAt).abs() > 3000) {
+        fails.add('bilibili progress $progress vs $biliAt');
+      }
+      if (progress < seekTo * 1000) fails.add('bilibili seek not recorded');
+      if ((biliEntry.lastPart?.duration ?? 0) <= 0) {
+        fails.add('bilibili duration');
+      }
+    }
+
+    // ---- YouTube
+    final ytId = tryParseYouTubeVideoId(yt) ?? yt;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': ytId}));
+    YtVideoController? ytPage;
+    for (var i = 0; i < 180; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        ytPage = Get.find<YtVideoController>(tag: ytId);
+      } catch (_) {}
+      if (ytPage?.stage.value == YtPageStage.ready) break;
+    }
+    if (ytPage?.stage.value != YtPageStage.ready) {
+      Get.back();
+      return {
+        ...result,
+        'pass': false,
+        'reason': 'YouTube page never became ready: ${ytPage?.message.value}',
+      };
+    }
+    await Future.delayed(const Duration(seconds: 2));
+    final ytAt = await watch(ytPage!.plPlayerController);
+    Get.back();
+    await Future.delayed(const Duration(seconds: 3));
+    final ytEntry = LocalHistory.get(LocalHistory.ytKey(ytId));
+    result['yt'] = {
+      'id': ytId,
+      'positionAtPause': ytAt,
+      'entry': describe(ytEntry),
+    };
+    if (ytEntry == null) {
+      fails.add('no YouTube entry');
+    } else {
+      final progress = ytEntry.lastPart?.progress ?? -1;
+      if (ytEntry.platform != LocalHistoryPlatform.yt) {
+        fails.add('YouTube platform');
+      }
+      if (ytEntry.title.isEmpty) fails.add('YouTube title');
+      if (ytAt == null || (progress - ytAt).abs() > 3000) {
+        fails.add('YouTube progress $progress vs $ytAt');
+      }
+      if (progress < seekTo * 1000) fails.add('YouTube seek not recorded');
+      if ((ytEntry.lastPart?.duration ?? 0) <= 0) {
+        fails.add('YouTube duration');
+      }
+    }
+    final order = [for (final e in LocalHistory.entries()) e.key];
+    result['order'] = order;
+    if (order.length != 2 ||
+        order.first != LocalHistory.ytKey(ytId) ||
+        order.last != biliKey) {
+      fails.add('order $order');
+    }
+
+    // ---- 暂停记录
+    await LocalHistory.setPaused(true);
+    await PiliScheme.routePushFromUrl(biliUrl(paused));
+    final pausedPage = await waitVideoPage();
+    if (pausedPage == null) {
+      fails.add('paused video never became ready');
+    } else {
+      await watch(pausedPage.plPlayerController, seek: false);
+      Get.back();
+      await Future.delayed(const Duration(seconds: 3));
+    }
+    final afterPause = [for (final e in LocalHistory.entries()) e.key];
+    result['whilePaused'] = afterPause;
+    if (afterPause.length != 2) fails.add('recorded while paused');
+    await LocalHistory.setPaused(false);
+
+    // ---- opened again from the entries: resumes where it was left
+    Future<int?> firstPosition(PlPlayerController player) async {
+      // the player opens at the start point: wait for it to report one
+      for (var i = 0; i < 20; i++) {
+        final at = position(player);
+        if (at != null && at > 0) return at;
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      return position(player);
+    }
+
+    if (biliEntry != null) {
+      LocalHistoryItem.open(biliEntry);
+      final again = await waitVideoPage();
+      final at = again == null
+          ? null
+          : await firstPosition(again.plPlayerController);
+      if (again != null) Get.back();
+      await Future.delayed(const Duration(seconds: 3));
+      final saved = biliEntry.lastPart?.progress ?? 0;
+      result['biliReopenedAt'] = at;
+      if (at == null || (at - saved).abs() > 3000) {
+        fails.add('bilibili reopened at $at, saved $saved');
+      }
+    }
+    if (ytEntry != null) {
+      LocalHistoryItem.open(ytEntry);
+      YtVideoController? again;
+      for (var i = 0; i < 180; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        try {
+          again = Get.find<YtVideoController>(tag: ytId);
+        } catch (_) {}
+        if (again?.stage.value == YtPageStage.ready) break;
+      }
+      final at = again == null
+          ? null
+          : await firstPosition(again.plPlayerController);
+      if (again != null) Get.back();
+      await Future.delayed(const Duration(seconds: 3));
+      final saved = ytEntry.lastPart?.progress ?? 0;
+      result['ytReopenedAt'] = at;
+      if (at == null || (at - saved).abs() > 3000) {
+        fails.add('YouTube reopened at $at, saved $saved');
+      }
+    }
+
+    // ---- the page
+    unawaited(Get.toNamed('/history'));
+    await Future.delayed(const Duration(seconds: 3));
+    final shown = {
+      'bili title': biliEntry != null && _seesText(biliEntry.title),
+      'yt title': ytEntry != null && _seesText(ytEntry.title),
+      'B 站': _seesText(LocalHistoryPlatform.bili.label),
+      'YouTube': _seesText(LocalHistoryPlatform.yt.label),
+      // no account in a fresh profile: no tabs
+      'no account tab': !_seesText('B 站账号'),
+    };
+    result['page'] = shown;
+    for (final MapEntry(:key, :value) in shown.entries) {
+      if (!value) fails.add('page: $key');
+    }
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+
+    return {...result, 'pass': fails.isEmpty, 'fails': fails};
+  }
+
   static Future<Map<String, dynamic>> _openYouTube(
     String input,
     int holdSeconds,
@@ -6907,7 +7201,10 @@ class _GateWatch {
     'skipAfterMs': skippableMs == null || openedMs == null
         ? null
         : skippableMs! - openedMs!,
-    'pageSkipAfterMs': switch ((pageOpenedAt?.call(), pageSkippableAt?.call())) {
+    'pageSkipAfterMs': switch ((
+      pageOpenedAt?.call(),
+      pageSkippableAt?.call(),
+    )) {
       (final DateTime a, final DateTime b) => b.difference(a).inMilliseconds,
       _ => null,
     },
