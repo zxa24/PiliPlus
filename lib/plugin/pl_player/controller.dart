@@ -2398,7 +2398,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (playerStatus.isPlaying) {
         longPressStatus.value = val;
         HapticFeedback.lightImpact();
-        if (_releasesWithoutDrops) _holdFrames();
         await setPlaybackSpeed(
           enableAutoLongPressSpeed ? playbackSpeed * 2 : longPressSpeed,
         );
@@ -2432,16 +2431,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         case 'now':
           await setPlaybackSpeed(target);
         default:
-          await setPlaybackSpeed(target);
-          _releaseFrames();
+          // in step on release: the gap the release itself makes is taken
+          // up without drops; far behind (a phone that could not decode 3x),
+          // only dropping catches up, as before
+          if (_nearlyInStep()) {
+            _holdFrames();
+            await setPlaybackSpeed(target);
+            _releaseFrames();
+          } else {
+            await setPlaybackSpeed(target);
+          }
       }
     }
   }
 
-  /// The release every long press uses (see [_holdFrames]); the self test's
-  /// `--longpress-release` picks another to compare it with.
-  static bool get _releasesWithoutDrops =>
-      debugLongPressRelease == null || debugLongPressRelease == 'nodrop';
 
   /// How a long press lets go of its speed, for the self test to compare
   /// (`--longpress-release now|ramp|seek|aoreload`; unset, the app's own,
@@ -2450,8 +2453,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// release, 2026-09-29).
   static String? debugLongPressRelease;
 
-  /// While a long press runs and until A/V is back in step after it: mpv
-  /// takes the gap up by adjusting the audio instead of dropping frames.
+  /// How far apart audio and picture may be on release for it to be taken
+  /// up without drops. A Pixel 6 Pro held at 3x kept up about half the
+  /// time: in step, the release left +0.35-0.5 s, back to 0 within 2 s
+  /// without a drop; not keeping up, the picture was 2-3 s behind, and
+  /// without drops the audio stayed that far ahead for seconds — worse
+  /// than the jump (user 2026-09-29, A).
+  static const _inStepOnRelease = 0.5;
+
+  bool _nearlyInStep() {
+    final avsync = double.tryParse(
+      _videoPlayerController?.getProperty('avsync') ?? '',
+    );
+    return avsync != null && avsync.abs() <= _inStepOnRelease;
+  }
+
+  /// From the release until A/V is back in step after it: mpv takes the gap
+  /// up by adjusting the audio instead of dropping frames.
   /// Letting go of 3x left about 0.4 s of audio made at 3x in the output
   /// buffer; mpv's audio clock ran ahead by it and the picture dropped 13-14
   /// frames to catch up (2026-09-29, research: two voices, playing_audio_pts
