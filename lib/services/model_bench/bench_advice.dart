@@ -180,6 +180,7 @@ class BenchTranslation {
     this.alone,
     this.concurrent,
     this.asrBeside,
+    this.asrAloneSpeed,
     this.error,
   });
 
@@ -198,10 +199,34 @@ class BenchTranslation {
 
   /// SenseVoice's own speed meanwhile.
   final BenchAsrSpeed? asrBeside;
+
+  /// SenseVoice's speed on its own, from the same test.
+  final double? asrAloneSpeed;
   final String? error;
 
-  /// What the advice is read from: the concurrent real-time factor, or,
-  /// when the reply could not be timed, the ceiling the prompt alone sets.
+  /// The real-time factor while transcription and translation take turns,
+  /// which is how they run: a transcription far enough ahead gives the CPU
+  /// to a translation behind its viewer (asrYieldFor). The translation
+  /// then has what the recogniser leaves of each second, `1 - 1/speed`.
+  /// On a Pixel 6 Pro that made the viewer wait for no line where, both
+  /// running at once, they had waited 62 and 92 s (noisy-speech §18.3).
+  double? get sharedRealTime {
+    final a = alone?.realTime;
+    final s = asrAloneSpeed;
+    if (a == null || s == null || s <= 1) return null;
+    return a * (1 - 1 / s);
+  }
+
+  /// What the advice is read from: [sharedRealTime] where it is known, the
+  /// concurrent factor (or its ceiling) otherwise.
+  ({double value, bool ceiling})? get basisRealTime => switch (sharedRealTime) {
+    final v? => (value: v, ceiling: false),
+    null => concurrentRealTime,
+  };
+
+  /// Both running at once, the whole time: the worst case, kept for the
+  /// details. When the reply could not be timed, the ceiling the prompt
+  /// alone sets.
   ({double value, bool ceiling})? get concurrentRealTime =>
       switch (concurrent) {
         null => null,
@@ -212,7 +237,7 @@ class BenchTranslation {
         },
       };
 
-  BenchRating? get rating => switch (concurrentRealTime) {
+  BenchRating? get rating => switch (basisRealTime) {
     null => null,
     (value: final v, ceiling: _) when v < benchBorderlineRealTime =>
       BenchRating.tooSlow,
@@ -234,6 +259,8 @@ class BenchTranslation {
     // derived, for whoever reads the self-test's JSON
     'aloneRealTime': alone?.realTime,
     'concurrentRealTime': concurrentRealTime?.value,
+    'asrAloneSpeed': ?asrAloneSpeed,
+    'sharedRealTime': ?sharedRealTime,
     'rating': rating?.name,
   };
 
@@ -246,6 +273,7 @@ class BenchTranslation {
         alone: BenchTokenRates.fromJson(json['alone']),
         concurrent: BenchTokenRates.fromJson(json['concurrent']),
         asrBeside: BenchAsrSpeed.fromJson(json['asrBeside']),
+        asrAloneSpeed: (json['asrAloneSpeed'] as num?)?.toDouble(),
         error: json['error'] as String?,
       ),
     _ => null,
@@ -467,12 +495,12 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
   final fastest = measured.isEmpty
       ? null
       : measured.reduce(
-          (a, b) => a.concurrentRealTime!.value >= b.concurrentRealTime!.value
+          (a, b) => a.basisRealTime!.value >= b.basisRealTime!.value
               ? a
               : b,
         );
   String rt(BenchTranslation t) {
-    final v = t.concurrentRealTime!;
+    final v = t.basisRealTime!;
     return '${v.ceiling ? '至多' : '约 '}${_x(v.value)}实时';
   }
 
@@ -493,9 +521,9 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
     out.add((
       level: BenchAdviceLevel.good,
       text: other == null
-          ? '翻译：用 ${comfortable.label}。边转录边翻译${rt(comfortable)}，跟得上。'
+          ? '翻译：用 ${comfortable.label}。与转录轮流${rt(comfortable)}，跟得上。'
                 '${comfortable.modelId == _hyId && !r.translations.any((t) => t.modelId == _gemmaId) ? 'Gemma（推荐）未下载，未测。' : ''}'
-          : '翻译：用 ${comfortable.label}。边转录边翻译${rt(comfortable)}；'
+          : '翻译：用 ${comfortable.label}。与转录轮流${rt(comfortable)}；'
                 'Gemma ${rt(other)}，偏慢。',
     ));
   } else if (fastest!.rating == BenchRating.borderline) {
@@ -549,9 +577,9 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
     out.add((
       level: BenchAdviceLevel.warn,
       text: alone != null && alone >= benchBorderlineRealTime
-          ? '注意：转录进行时翻译跟不上播放；转录跑完后会快一些'
+          ? '注意：与转录轮流时翻译跟不上播放；转录跑完后会快一些'
                 '（单独约 ${_x(alone)}实时），开头可能要等译文。'
-          : '注意：转录进行时翻译跟不上播放，要等译文。',
+          : '注意：本机翻译跟不上播放，要等译文。',
     ));
   }
 
@@ -650,7 +678,9 @@ List<(String, String)> benchDetails(ModelBenchResult r) {
         t.error != null ? '出错：${t.error}' : '载入 ${_seconds(t.loadMs)} s',
       ),
       ('　单独', _rates(t.alone)),
-      ('　同时转录', _rates(t.concurrent)),
+      if (t.sharedRealTime case final v?)
+        ('　与转录轮流', '约 ${_x(v)}实时（建议依据）'),
+      ('　一直同时转录', _rates(t.concurrent)),
       if (t.asrBeside != null) ('　此时转录', _asr(t.asrBeside)),
     ],
     for (final n in r.notInstalled) (n, '未下载，未测'),

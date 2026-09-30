@@ -184,7 +184,7 @@ void main() {
       expect(lines.first, contains('建议只转录不翻译'));
       expect(
         lines.last,
-        allOf(startsWith('注意：转录进行时翻译跟不上播放'), contains('单独约 1.7 倍实时')),
+        allOf(startsWith('注意：与转录轮流时翻译跟不上播放'), contains('单独约 1.7 倍实时')),
       );
     });
 
@@ -323,5 +323,48 @@ void main() {
     expect(benchDetails(back), benchDetails(r));
     expect(ModelBenchResult.fromJson({'at': 'nonsense'}), isNull);
     expect(ModelBenchResult.fromJson('x'), isNull);
+  });
+
+  // Transcription gives the CPU to a translation behind its viewer, so the
+  // two take turns (noisy-speech §18.3): the advice is read from that.
+  group('taking turns with transcription', () {
+    test('what the recogniser leaves of each second', () {
+      final t = BenchTranslation(
+        modelId: 'gemma-4-e2b-it-q4_0',
+        label: 'Gemma',
+        // 16 prompt / 9 reply tok/s: 1.71x on its own
+        alone: rates(16, 9),
+        concurrent: rates(9, 2.9),
+        asrAloneSpeed: 10,
+      );
+      expect(t.alone!.realTime, closeTo(1.714, 0.01));
+      expect(t.sharedRealTime, closeTo(1.543, 0.01));
+      expect(t.rating, BenchRating.comfortable);
+      // both at once the whole time it would be too slow
+      expect(t.concurrentRealTime!.value, lessThan(1.0));
+    });
+
+    test('without the recogniser alone, the concurrent figure is used', () {
+      final t = BenchTranslation(
+        modelId: 'x',
+        label: 'x',
+        alone: rates(16, 9),
+        concurrent: rates(9, 2.9),
+      );
+      expect(t.sharedRealTime, isNull);
+      expect(t.rating, BenchRating.tooSlow);
+    });
+
+    test('kept in the stored result', () {
+      final t = BenchTranslation(
+        modelId: 'x',
+        label: 'x',
+        alone: rates(16, 9),
+        asrAloneSpeed: 10,
+      );
+      final back = BenchTranslation.fromJson(t.toJson())!;
+      expect(back.asrAloneSpeed, 10);
+      expect(back.sharedRealTime, closeTo(t.sharedRealTime!, 1e-9));
+    });
   });
 }

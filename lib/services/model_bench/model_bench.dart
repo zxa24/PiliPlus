@@ -384,7 +384,9 @@ class ModelBench with WidgetsBindingObserver {
 
       for (final model in models) {
         begin('测试翻译：${model.label}');
-        translations.add(await _translation(model, recogniser));
+        translations.add(
+          await _translation(model, recogniser, asrAlone: senseVoice?.speed),
+        );
         if (_cancelled) return result();
       }
       return result();
@@ -436,8 +438,9 @@ class ModelBench with WidgetsBindingObserver {
   /// line again while [recogniser] decodes the clip in a loop.
   Future<BenchTranslation> _translation(
     ({String id, String label, String file}) model,
-    _Recogniser recogniser,
-  ) async {
+    _Recogniser recogniser, {
+    double? asrAlone,
+  }) async {
     int? loadMs;
     BenchTokenRates? alone;
     BenchTokenRates? concurrent;
@@ -476,6 +479,7 @@ class ModelBench with WidgetsBindingObserver {
         label: model.label,
         loadMs: loadMs,
         alone: alone,
+        asrAloneSpeed: asrAlone,
         error: '$e',
       );
     }
@@ -484,6 +488,7 @@ class ModelBench with WidgetsBindingObserver {
       label: model.label,
       loadMs: loadMs,
       alone: alone,
+      asrAloneSpeed: asrAlone,
       concurrent: _cancelled ? null : concurrent,
       asrBeside: _cancelled ? null : beside,
     );
