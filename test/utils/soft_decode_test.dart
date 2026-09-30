@@ -224,7 +224,9 @@ void main() {
     ];
 
     test('judges the stream each cap picks', () {
-      // every cap picks AVC while AVC is on offer (at 1080 at most)
+      // the height first, then the codec: 2160 and 1440 are VP9 (hardware
+      // here), 1080 and 720 AVC (not) — before 2026-09-29 every cap picked
+      // AVC at 1080 at most
       expect(
         ytSoftwareHeights(
           formats: formats,
@@ -236,7 +238,7 @@ void main() {
           },
           hardwareDecoding: true,
         ),
-        {2160, 1440, 1080, 720},
+        {1080, 720},
       );
       expect(
         ytSoftwareHeights(

@@ -44,6 +44,7 @@ import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/codec_support.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -293,11 +294,23 @@ abstract final class Pref {
   /// The codecs in the order they are preferred: the user's, or AV1 first
   /// where it is decoded in hardware (see CodecSupport), AVC first
   /// otherwise.
+  /// HEVC is in the default too (user 2026-09-29): 8K comes only as AV1 or
+  /// HEVC, and a phone without AV1 hardware — a Pixel 4 XL — decoded AV1 in
+  /// software while it had HEVC in hardware. Where AVC is on offer the pick
+  /// is as before; HEVC goes before AV1 only where it is hardware and AV1
+  /// is not.
   static List<VideoDecodeFormatType> get preferCodecs =>
       _codecsOf(SettingBoxKey.preferCodecs) ??
       (av1Preferred
-          ? const <VideoDecodeFormatType>[.AV1, .AVC]
-          : const <VideoDecodeFormatType>[.AVC, .AV1]);
+          ? const <VideoDecodeFormatType>[.AV1, .AVC, .HEVC]
+          : hevcHardware
+          ? const <VideoDecodeFormatType>[.AVC, .HEVC, .AV1]
+          : const <VideoDecodeFormatType>[.AVC, .AV1, .HEVC]);
+
+  /// HEVC is decoded in hardware here and hardware decoding is on (the
+  /// device's answer, see CodecSupport).
+  static bool get hevcHardware =>
+      enableHA && CodecSupport.hardware[HwCodec.hevc] == true;
 
   /// AV1 is decoded in hardware here and hardware decoding is on.
   static bool get av1Preferred =>

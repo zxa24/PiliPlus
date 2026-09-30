@@ -370,4 +370,49 @@ void main() {
       expect(fmt.hasThrottleParam, isFalse);
     });
   });
+
+  // Picking 2160P played 1080p AVC: the codec was chosen before the height
+  // (LXb3EKWsInQ, 2026-09-29)
+  group('the height is chosen before the codec', () {
+    YtFormat v(int itag, String codec, int height) => YtFormat({
+      'itag': itag,
+      'mimeType': 'video/${codec == 'avc1' ? 'mp4' : 'webm'}; codecs="$codec"',
+      'url': 'https://example.invalid/$itag',
+      'width': height * 16 ~/ 9,
+      'height': height,
+      'bitrate': height * 1000,
+    });
+    final formats = [
+      v(137, 'avc1', 1080),
+      v(248, 'vp9', 1080),
+      v(271, 'vp9', 1440),
+      v(313, 'vp9', 2160),
+      v(401, 'av01', 2160),
+    ];
+
+    test('a 2160 cap gets 2160, in the preferred codec there', () {
+      final f = selectYtVideoFormat(
+        formats,
+        const YtFormatPreference(maxHeight: 2160),
+      )!;
+      expect(f.height, 2160);
+      expect(f.codecFamily, 'vp9');
+    });
+
+    test('1440 likewise', () {
+      expect(
+        selectYtVideoFormat(
+          formats,
+          const YtFormatPreference(maxHeight: 1440),
+        )!.height,
+        1440,
+      );
+    });
+
+    test('where AVC is on offer at the height, AVC as before', () {
+      final f = selectYtVideoFormat(formats)!;
+      expect(f.height, 1080);
+      expect(f.codecFamily, 'avc1');
+    });
+  });
 }

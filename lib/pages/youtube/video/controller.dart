@@ -281,12 +281,14 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
   /// 0 is "no cap".
   final maxHeight = 1080.obs;
 
-  /// The heights actually on offer for this video, best first.
+  /// The heights actually on offer for this video, best first: each one a
+  /// cap the selection reaches (it picks the height before the codec), by
+  /// the short side as the cap is — a portrait 1080x1920 is 1080P.
   List<int> get availableHeights {
     final heights = <int>{
       for (final format in detail.value?.formats ?? const <YtFormat>[])
-        if (format.isVideo && format.isPlayable && format.height != null)
-          format.height!,
+        if (format.isVideo && format.isPlayable && ytShortSide(format) > 0)
+          ytShortSide(format),
     }.toList()..sort((a, b) => b.compareTo(a));
     return heights;
   }

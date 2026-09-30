@@ -91,17 +91,27 @@ YtFormat? selectYtVideoFormat(
       .toList(growable: false);
   if (playable.isEmpty) return null;
 
+  // The height first, the codec within it. Codec first (as it was) capped
+  // each codec separately, and AVC tops out at 1080p: 1440p and 2160p,
+  // offered only as VP9 and AV1, were never reached — picking 2160P played
+  // 1080p AVC (LXb3EKWsInQ, 2026-09-29). The height list the page shows now
+  // gets what it says.
+  final top = _bestUnderHeightCap(playable, pref.maxHeight);
+  if (top == null) return null;
+  final side = _shortSide(top);
+  final atHeight = playable
+      .where((f) => _shortSide(f) == side)
+      .toList(growable: false);
   for (final codec in pref.videoCodecs) {
-    final pool = playable
+    final pool = atHeight
         .where((f) => f.codecFamily == codec)
         .toList(growable: false);
     if (pool.isEmpty) continue;
-    final best = _bestUnderHeightCap(pool, pref.maxHeight);
-    if (best != null) return best;
+    return (pool.toList()..sort(_byResolutionThenBitrate)).last;
   }
-  // No preferred codec present: take whatever is there rather than failing,
-  // and let the caller's codec support decide.
-  return _bestUnderHeightCap(playable, pref.maxHeight);
+  // No preferred codec at that height: whatever is there, and let the
+  // caller's codec support decide.
+  return (atHeight.toList()..sort(_byResolutionThenBitrate)).last;
 }
 
 YtFormat? _bestUnderHeightCap(List<YtFormat> pool, int maxHeight) {
@@ -113,6 +123,10 @@ YtFormat? _bestUnderHeightCap(List<YtFormat> pool, int maxHeight) {
   // the smallest rather than nothing.
   return within.isEmpty ? sorted.first : within.last;
 }
+
+/// The smaller dimension, so a 720x1280 portrait video counts as 720p: what
+/// a height cap and the quality list both go by.
+int ytShortSide(YtFormat f) => _shortSide(f);
 
 /// The smaller dimension, so a 720x1280 portrait video counts as 720p.
 int _shortSide(YtFormat f) {
