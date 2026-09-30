@@ -110,6 +110,9 @@ abstract final class SettingBoxKey {
       subtitleCacheLimit = 'subtitleCacheLimit',
       av1Hardware = 'av1Hardware',
       av1Software = 'av1Software',
+      // LibrePili: which of AVC / HEVC / VP9 / AV1 the device decodes in
+      // hardware, {'avc': true, ...} (see CodecSupport)
+      hardwareDecoders = 'hardwareDecoders',
       platformMode = 'platformMode',
       showBangumiReply = 'showBangumiReply',
       alwaysExpandIntroPanel = 'alwaysExapndIntroPanel',

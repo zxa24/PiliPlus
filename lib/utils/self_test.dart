@@ -36,6 +36,7 @@ import 'package:PiliPlus/models_new/member/search_archive/data.dart';
 import 'package:PiliPlus/models_new/space/space_archive/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
+import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart'
     as bili_sub;
 import 'package:PiliPlus/pages/danmaku/controller.dart';
@@ -79,6 +80,7 @@ import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
+import 'package:PiliPlus/utils/soft_decode.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -86,6 +88,7 @@ import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
+import 'package:PiliPlus/utils/codec_support.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
@@ -1046,6 +1049,9 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--yt') case final video?) {
       await scenario('youtube', () => _youtube(video));
+    }
+    if (_arg(args, '--quality-codecs') case final video?) {
+      await scenario('qualityCodecs', () => _qualityCodecs(video));
     }
     if (_arg(args, '--probe-playback') case final url?) {
       final seconds = int.tryParse(_arg(args, '--probe-secs') ?? '') ?? 20;
@@ -5720,6 +5726,117 @@ abstract final class SelfTest {
   /// The client identities in `yt_identity.dart` are documented as rotting:
   /// the offline fixture tests cannot notice when YouTube changes its mind,
   /// so this asks the real thing before the layer is wired to the player.
+  /// `--quality-codecs <BV… | YouTube id>`: for every quality the list
+  /// offers, the codecs it comes in, the one the player would pick, and
+  /// whether the list marks it 「软解码」 on this device. Anonymous, like
+  /// the app's own requests unless login mode is on.
+  static Future<Map<String, dynamic>> _qualityCodecs(String input) async {
+    // the start's own check runs unawaited; the answer is wanted here
+    await CodecSupport.check();
+    final hardware = CodecSupport.hardware;
+    final hardwareDecoding = CodecSupport.hardwareDecodingOn;
+    final result = <String, dynamic>{
+      'hardware': {for (final e in hardware.entries) e.key.name: e.value},
+      'hardwareDecodingOn': hardwareDecoding,
+      'av1Hardware': GStorage.setting.get(SettingBoxKey.av1Hardware),
+      'preferCodecs': [for (final c in Pref.preferCodecs) c.name],
+    };
+    final bv = IdUtils.bvRegex.firstMatch(input)?.group(0);
+    if (bv != null) {
+      final intro = await VideoHttp.videoIntro(bvid: bv);
+      final cid = intro.dataOrNull?.cid;
+      if (cid == null) return {...result, 'pass': false, 'reason': 'no cid'};
+      Future<PlayUrlModel?> play(int qn) async => (await VideoHttp.videoUrl(
+        bvid: bv,
+        cid: cid,
+        qn: qn,
+        tryLook: true,
+        videoType: VideoType.ugc,
+      )).dataOrNull;
+      // the page's two requests: the best, then what it left out below it
+      final data = await play(VideoQuality.hdrVivid.code);
+      final videos = data?.dash?.video;
+      if (data == null || videos == null) {
+        return {...result, 'pass': false, 'reason': 'no dash'};
+      }
+      final missing = data.missingVideoQualityBelowHighest;
+      if (missing != -1) videos.merge((await play(missing))?.dash?.video);
+      final preference = [for (final c in Pref.preferCodecs) c.codes];
+      final software = biliSoftwareQualities(
+        videos: videos,
+        preference: preference,
+        hardware: hardware,
+        hardwareDecoding: hardwareDecoding,
+      );
+      final byQuality = <int, List<String>>{};
+      for (final v in videos) {
+        (byQuality[v.id] ??= []).add(v.codecs ?? '?');
+      }
+      result
+        ..['bvid'] = bv
+        ..['title'] = intro.dataOrNull?.title
+        ..['supportFormats'] = [
+          for (final f in data.supportFormats ?? const <FormatItem>[])
+            {'quality': f.quality, 'desc': f.newDesc, 'codecs': f.codecs},
+        ]
+        ..['qualities'] = [
+          for (final MapEntry(key: qa, value: offered) in byQuality.entries)
+            {
+              'quality': qa,
+              'desc': VideoQuality.fromCode(qa).desc,
+              'offered': offered,
+              'picked': pickCodec(offered, preference),
+              'software': software.contains(qa),
+              'hardwareAlternative': ?hardwareAlternative(
+                offered: offered,
+                preference: preference,
+                hardware: hardware,
+              ),
+            },
+        ];
+      return {...result, 'pass': true};
+    }
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    final router = YtSourceRouter(YtDirectSource.create());
+    final detail = await router.run((s) => s.detail(videoId));
+    final formats = detail.value?.formats;
+    if (formats == null) {
+      return {...result, 'pass': false, 'reason': detail.verdict.toString()};
+    }
+    final heights = <int>{
+      for (final f in formats)
+        if (f.isVideo && f.isPlayable && f.height != null) f.height!,
+    }.toList()..sort((a, b) => b.compareTo(a));
+    final software = ytSoftwareHeights(
+      formats: formats,
+      heights: heights,
+      hardware: hardware,
+      hardwareDecoding: hardwareDecoding,
+    );
+    result
+      ..['videoId'] = videoId
+      ..['title'] = detail.value?.title
+      ..['heights'] = [
+        for (final h in heights)
+          {
+            'height': h,
+            'offered': {
+              for (final f in formats)
+                if (f.isVideo && f.isPlayable && f.height == h) f.codecFamily,
+            }.toList(),
+            'picked': switch (selectYtVideoFormat(
+              formats,
+              YtFormatPreference(maxHeight: h),
+            )) {
+              final f? => '${f.codec} ${f.width}x${f.height}',
+              null => null,
+            },
+            'software': software.contains(h),
+          },
+      ];
+    return {...result, 'pass': true};
+  }
+
   static Future<Map<String, dynamic>> _youtube(String input) async {
     final videoId = tryParseYouTubeVideoId(input) ?? input;
     final source = YtDirectSource.create();

@@ -122,6 +122,7 @@ const ctlSettingKeys = [
   SettingBoxKey.bufferSec,
   SettingBoxKey.av1Hardware,
   SettingBoxKey.av1Software,
+  SettingBoxKey.hardwareDecoders,
   SettingBoxKey.audioNormalization,
   SettingBoxKey.superResolutionType,
   SettingBoxKey.preInitPlayer,
