@@ -19,6 +19,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/chinese_convert.dart';
 import 'package:PiliPlus/services/translate/llama_engine.dart';
@@ -56,6 +57,31 @@ class TranslationService extends GetxService {
     // a transcription running beside a translation behind its viewer gives
     // it the CPU (noisy-speech §18.1)
     AsrService.translationBehind = () => _current?.behindViewer ?? false;
+    unawaited(removeRetiredModels());
+  }
+
+  /// Deletes what was downloaded for a model no longer offered (Hy-MT2,
+  /// 1.1 GB, replaced by Index-Translate on 2026-09-30). Nothing can be
+  /// using it: a stored choice of it reads as its replacement.
+  @visibleForTesting
+  Future<void> removeRetiredModels() async {
+    for (final id in TranslationModelCatalog.retiredIds) {
+      final dir = Directory(path.join(store.root.path, id));
+      try {
+        if (!await dir.exists()) continue;
+        var bytes = 0;
+        await for (final e in dir.list(recursive: true)) {
+          if (e is File) bytes += await e.length();
+        }
+        await dir.delete(recursive: true);
+        EventLog.add(
+          'translate',
+          'removed retired model $id (${(bytes / (1 << 20)).round()} MB)',
+        );
+      } catch (e) {
+        EventLog.add('translate', 'could not remove retired model $id: $e');
+      }
+    }
   }
 
   @override

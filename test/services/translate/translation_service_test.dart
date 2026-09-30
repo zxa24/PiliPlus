@@ -239,4 +239,24 @@ void main() {
       expect(engines, hasLength(2));
     });
   });
+
+  // Hy-MT2 was replaced by Index-Translate (2026-09-30): what was
+  // downloaded of it is deleted at start, and nothing else
+  test('a retired model is removed, the others are kept', () async {
+    final service = TranslationService();
+    final hy = File('${service.store.root.path}/hy-mt2-1.8b-q4_k_m/x.gguf')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(List.filled(1024, 1));
+    final gemma = File(
+      '${service.store.root.path}/gemma-4-e2b-it-q4_0/retired-test.bin',
+    )..createSync(recursive: true);
+    addTearDown(() {
+      if (gemma.existsSync()) gemma.deleteSync();
+    });
+    await service.removeRetiredModels();
+    expect(hy.parent.existsSync(), isFalse);
+    expect(gemma.existsSync(), isTrue);
+    // nothing left to remove: no error
+    await service.removeRetiredModels();
+  });
 }

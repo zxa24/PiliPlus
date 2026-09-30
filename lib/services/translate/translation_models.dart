@@ -84,6 +84,11 @@ abstract final class TranslationModelCatalog {
   /// [indexTranslate], the model that took its place.
   static const _replacedHy = 'hy-mt2-1.8b-q4_k_m';
 
+  /// Models no longer offered, whose downloaded files are deleted at start
+  /// (user 2026-09-30): the models page no longer lists them, so nothing
+  /// else could free the space.
+  static const retiredIds = [_replacedHy];
+
   static const all = <AsrModel>[gemma, indexTranslate];
 
   /// With nothing chosen: Index-Translate on a phone, where it is faster
