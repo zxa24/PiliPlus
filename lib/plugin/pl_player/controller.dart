@@ -2405,9 +2405,36 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } else {
       // if (kDebugMode) debugPrint('$playbackSpeed');
       longPressStatus.value = val;
-      await setPlaybackSpeed(lastPlaybackSpeed);
+      final fast = playbackSpeed;
+      final target = lastPlaybackSpeed;
+      switch (debugLongPressRelease) {
+        case 'ramp':
+          // down in small steps: each leaves mpv a small A/V gap to take up
+          // by resampling instead of the whole 3x buffer at once
+          const steps = 8;
+          for (var i = 1; i < steps; i++) {
+            if (longPressStatus.value) return;
+            final rate = fast + (target - fast) * i / steps;
+            await _videoPlayerController?.setRate(rate);
+            await Future.delayed(const Duration(milliseconds: 150));
+          }
+          await setPlaybackSpeed(target);
+          lastPlaybackSpeed = target;
+        case 'seek':
+          await setPlaybackSpeed(target);
+          final at = _videoPlayerController?.state.position;
+          if (at != null) await _videoPlayerController?.seek(at);
+        default:
+          await setPlaybackSpeed(target);
+      }
     }
   }
+
+  /// How a long press lets go of its speed, for the self test to compare
+  /// (`--longpress-release ramp|seek`): the audio made at the fast speed
+  /// plays out after the speed is back, and the picture drops frames to
+  /// catch up (13-14 on release, 2026-09-29).
+  static String? debugLongPressRelease;
 
   bool get isCompleted =>
       videoPlayerController!.state.completed ||

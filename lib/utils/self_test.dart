@@ -587,6 +587,7 @@ abstract final class SelfTest {
     debugCommentsFirst = args.contains('--comments-first');
     // a model file given directly (a phone test build has none installed:
     // its data is its own), for the translation probes
+    PlPlayerController.debugLongPressRelease = _arg(args, '--longpress-release');
     // mpv options on top of the app's, repeatable: `--mpv-opt audio-buffer=0.05`
     PlPlayerController.debugMpvOptions = {
       for (var i = 0; i < args.length - 1; i++)
@@ -4143,7 +4144,9 @@ abstract final class SelfTest {
     final samples = <Map<String, Object?>>[];
     final clock = Stopwatch()..start();
     var phase = 'held';
-    final sampler = Timer.periodic(const Duration(milliseconds: 250), (_) {
+    // every 20 ms: a stall on release shorter than a quarter second would
+    // not show at a coarser step
+    final sampler = Timer.periodic(const Duration(milliseconds: 20), (_) {
       String? prop(String name) {
         try {
           return native?.getProperty(name);
@@ -4157,6 +4160,7 @@ abstract final class SelfTest {
         'phase': phase,
         'pos': pos(),
         'rate': player.videoPlayerController?.state.rate,
+        'timePos': prop('time-pos'),
         'avsync': prop('avsync'),
         'frameDrops': prop('frame-drop-count'),
         'decoderDrops': prop('decoder-frame-drop-count'),
@@ -4173,7 +4177,7 @@ abstract final class SelfTest {
     await holding;
     phase = 'released';
     final released = pos();
-    await Future.delayed(const Duration(milliseconds: 1500));
+    await Future.delayed(const Duration(milliseconds: 2500));
     sampler.cancel();
     final afterRelease = pos();
     final rateAfter = player.videoPlayerController?.state.rate;
