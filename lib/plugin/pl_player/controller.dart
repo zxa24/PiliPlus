@@ -807,6 +807,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
+  /// Extra mpv options for every player made from here on: the self
+  /// test's `--mpv-opt`, never set otherwise.
+  static Map<String, String> debugMpvOptions = const {};
+
   Future<Player> _initPlayer() async {
     assert(_videoPlayerController == null);
     assert(_videoController == null);
@@ -828,6 +832,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       'stream-lavf-o': 'reconnect=1,reconnect_max_retries=${Pref.retryCount}',
       // a self-test plays muted unless asked for sound (see selfTestSound)
       if (isSelfTestProfile && !selfTestSound) 'mute': 'yes',
+      // the self test's `--mpv-opt key=value`, to compare mpv's settings
+      ...debugMpvOptions,
     };
     final autosync = Pref.autosync;
     if (autosync != '0') {

@@ -108,6 +108,7 @@ import 'package:flutter/services.dart'
     show
         KeyDownEvent,
         KeyMessage,
+        KeyRepeatEvent,
         KeyUpEvent,
         LogicalKeyboardKey,
         PhysicalKeyboardKey,
@@ -581,6 +582,12 @@ abstract final class SelfTest {
     debugCommentsFirst = args.contains('--comments-first');
     // a model file given directly (a phone test build has none installed:
     // its data is its own), for the translation probes
+    // mpv options on top of the app's, repeatable: `--mpv-opt audio-buffer=0.05`
+    PlPlayerController.debugMpvOptions = {
+      for (var i = 0; i < args.length - 1; i++)
+        if (args[i] == '--mpv-opt' && args[i + 1].contains('='))
+          args[i + 1].split('=').first: args[i + 1].split('=').skip(1).join('='),
+    };
     // weights repacked for the CPU (or not), whatever the platform's default
     if (_arg(args, '--translate-repack') case final repack?) {
       LlamaTranslationEngine.debugRepack = repack == '1';
@@ -3921,26 +3928,44 @@ abstract final class SelfTest {
 
   /// Presses [logical] the way a keyboard does: the key message goes to the
   /// focus system (the handler the engine calls), from the focused node up.
+  /// A key pressed for [hold] (a tap by default). Held, it repeats as a
+  /// keyboard does: after 500 ms, every 33 ms.
   static Future<void> _press(
     LogicalKeyboardKey logical,
-    PhysicalKeyboardKey physical,
-  ) async {
+    PhysicalKeyboardKey physical, {
+    Duration hold = const Duration(milliseconds: 80),
+  }) async {
     final handler = ServicesBinding.instance.keyEventManager.keyMessageHandler;
     if (handler == null) return;
-    final at = Duration(milliseconds: DateTime.now().millisecondsSinceEpoch);
+    Duration now() =>
+        Duration(milliseconds: DateTime.now().millisecondsSinceEpoch);
+    final down = DateTime.now();
     handler(
       KeyMessage([
-        KeyDownEvent(physicalKey: physical, logicalKey: logical, timeStamp: at),
+        KeyDownEvent(physicalKey: physical, logicalKey: logical, timeStamp: now()),
       ], null),
     );
-    await Future.delayed(const Duration(milliseconds: 80));
+    const repeatAfter = Duration(milliseconds: 500);
+    if (hold <= repeatAfter) {
+      await Future.delayed(hold);
+    } else {
+      await Future.delayed(repeatAfter);
+      while (DateTime.now().difference(down) < hold) {
+        handler(
+          KeyMessage([
+            KeyRepeatEvent(
+              physicalKey: physical,
+              logicalKey: logical,
+              timeStamp: now(),
+            ),
+          ], null),
+        );
+        await Future.delayed(const Duration(milliseconds: 33));
+      }
+    }
     handler(
       KeyMessage([
-        KeyUpEvent(
-          physicalKey: physical,
-          logicalKey: logical,
-          timeStamp: at + const Duration(milliseconds: 80),
-        ),
+        KeyUpEvent(physicalKey: physical, logicalKey: logical, timeStamp: now()),
       ], null),
     );
   }
@@ -3963,7 +3988,72 @@ abstract final class SelfTest {
     if (playingBefore == true && playingAfter == false) {
       await player.play();
     }
+    // -> held while playing: faster while held, the speed back on release,
+    // and no seek step on top (user 2026-09-29: does letting go jump?)
+    await Future.delayed(const Duration(milliseconds: 800));
+    final rateBefore = player.videoPlayerController?.state.rate;
+    final holdStart = pos();
+    double? rateHeld;
+    // what mpv says of the picture meanwhile: a picture that falls behind
+    // at the fast speed catches up on release, and looks like a jump
+    final native = player.videoPlayerController;
+    final samples = <Map<String, Object?>>[];
+    final clock = Stopwatch()..start();
+    var phase = 'held';
+    final sampler = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      String? prop(String name) {
+        try {
+          return native?.getProperty(name);
+        } catch (_) {
+          return null;
+        }
+      }
+
+      samples.add({
+        'ms': clock.elapsedMilliseconds,
+        'phase': phase,
+        'pos': pos(),
+        'rate': player.videoPlayerController?.state.rate,
+        'avsync': prop('avsync'),
+        'frameDrops': prop('frame-drop-count'),
+        'decoderDrops': prop('decoder-frame-drop-count'),
+        'delayedFrames': prop('vo-delayed-frame-count'),
+      });
+    });
+    final holding = _press(
+      LogicalKeyboardKey.arrowRight,
+      PhysicalKeyboardKey.arrowRight,
+      hold: const Duration(seconds: 2),
+    );
+    await Future.delayed(const Duration(milliseconds: 1500));
+    rateHeld = player.videoPlayerController?.state.rate;
+    await holding;
+    phase = 'released';
+    final released = pos();
+    await Future.delayed(const Duration(milliseconds: 1500));
+    sampler.cancel();
+    final afterRelease = pos();
+    final rateAfter = player.videoPlayerController?.state.rate;
+    final held = holdStart == null || released == null
+        ? null
+        : released - holdStart;
+    final sinceRelease = released == null || afterRelease == null
+        ? null
+        : afterRelease - released;
     return {
+      'longPress': {
+        'playing': player.videoPlayerController?.state.playing,
+        'rateBefore': rateBefore,
+        'rateHeld': rateHeld,
+        'rateAfter': rateAfter,
+        // 2 s held: about 0.2 s at the old speed and 1.8 s at the fast one
+        'movedWhileHeldMs': held,
+        // 1 s of playback, and a seek step if letting go jumped
+        'movedInSecondAfterReleaseMs': sinceRelease,
+        'jumpedOnRelease': sinceRelease != null && sinceRelease > 3000,
+        'seekStepMs': player.fastForBackwardDuration.inMilliseconds,
+        'samples': samples,
+      },
       'focus': _focusChainNow().take(3).join(' > '),
       'positionBefore': before,
       'positionAfterArrowRight': after,
