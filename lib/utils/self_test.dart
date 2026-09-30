@@ -303,6 +303,9 @@ abstract final class SelfTest {
   /// Inverse text normalisation for probe runs; see [AsrJob.itn].
   static bool _itn = true;
 
+  /// How often the key probe samples mpv, in ms (`--probe-sample-ms`).
+  static int probeSampleMs = 20;
+
   /// What a running scenario is waiting on, written every few seconds to
   /// `<out>.progress` beside the report: a run on a phone that stopped
   /// moving otherwise says nothing until its deadline, half an hour on.
@@ -588,6 +591,7 @@ abstract final class SelfTest {
     // a model file given directly (a phone test build has none installed:
     // its data is its own), for the translation probes
     PlPlayerController.debugLongPressRelease = _arg(args, '--longpress-release');
+    probeSampleMs = int.tryParse(_arg(args, '--probe-sample-ms') ?? '') ?? 20;
     // mpv options on top of the app's, repeatable: `--mpv-opt audio-buffer=0.05`
     PlPlayerController.debugMpvOptions = {
       for (var i = 0; i < args.length - 1; i++)
@@ -4144,9 +4148,11 @@ abstract final class SelfTest {
     final samples = <Map<String, Object?>>[];
     final clock = Stopwatch()..start();
     var phase = 'held';
-    // every 20 ms: a stall on release shorter than a quarter second would
-    // not show at a coarser step
-    final sampler = Timer.periodic(const Duration(milliseconds: 20), (_) {
+    // every 20 ms by default: a stall on release shorter than a quarter
+    // second would not show at a coarser step. `--probe-sample-ms` coarser
+    // where reading mpv's properties this often slows playback itself (a
+    // Pixel 6 Pro kept up with only 40-94 % of the samples)
+    final sampler = Timer.periodic(Duration(milliseconds: probeSampleMs), (_) {
       String? prop(String name) {
         try {
           return native?.getProperty(name);
