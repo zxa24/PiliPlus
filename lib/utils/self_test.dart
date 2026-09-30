@@ -4161,6 +4161,7 @@ abstract final class SelfTest {
         'pos': pos(),
         'rate': player.videoPlayerController?.state.rate,
         'timePos': prop('time-pos'),
+        'framedrop': prop('framedrop'),
         'avsync': prop('avsync'),
         'frameDrops': prop('frame-drop-count'),
         'decoderDrops': prop('decoder-frame-drop-count'),
@@ -4177,7 +4178,7 @@ abstract final class SelfTest {
     await holding;
     phase = 'released';
     final released = pos();
-    await Future.delayed(const Duration(milliseconds: 2500));
+    await Future.delayed(const Duration(milliseconds: 4000));
     sampler.cancel();
     final afterRelease = pos();
     final rateAfter = player.videoPlayerController?.state.rate;

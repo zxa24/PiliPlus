@@ -2398,6 +2398,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (playerStatus.isPlaying) {
         longPressStatus.value = val;
         HapticFeedback.lightImpact();
+        if (_releasesWithoutDrops) _holdFrames();
         await setPlaybackSpeed(
           enableAutoLongPressSpeed ? playbackSpeed * 2 : longPressSpeed,
         );
@@ -2424,17 +2425,74 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           await setPlaybackSpeed(target);
           final at = _videoPlayerController?.state.position;
           if (at != null) await _videoPlayerController?.seek(at);
+        case 'aoreload':
+          // the audio made at the fast speed is thrown away with the output
+          await setPlaybackSpeed(target);
+          await _videoPlayerController?.command(['ao-reload']);
+        case 'now':
+          await setPlaybackSpeed(target);
         default:
           await setPlaybackSpeed(target);
+          _releaseFrames();
       }
     }
   }
 
+  /// The release every long press uses (see [_holdFrames]); the self test's
+  /// `--longpress-release` picks another to compare it with.
+  static bool get _releasesWithoutDrops =>
+      debugLongPressRelease == null || debugLongPressRelease == 'nodrop';
+
   /// How a long press lets go of its speed, for the self test to compare
-  /// (`--longpress-release ramp|seek`): the audio made at the fast speed
-  /// plays out after the speed is back, and the picture drops frames to
-  /// catch up (13-14 on release, 2026-09-29).
+  /// (`--longpress-release now|ramp|seek|aoreload`; unset, the app's own,
+  /// [_holdFrames]): the audio made at the fast speed plays out after the
+  /// speed is back, and the picture dropped frames to catch up (13-14 on
+  /// release, 2026-09-29).
   static String? debugLongPressRelease;
+
+  /// While a long press runs and until A/V is back in step after it: mpv
+  /// takes the gap up by adjusting the audio instead of dropping frames.
+  /// Letting go of 3x left about 0.4 s of audio made at 3x in the output
+  /// buffer; mpv's audio clock ran ahead by it and the picture dropped 13-14
+  /// frames to catch up (2026-09-29, research: two voices, playing_audio_pts
+  /// scales the whole AO delay by the current speed). With framedrop=no and
+  /// a wider audio correction: 0 dropped, no stall, avsync back to 0 within
+  /// 2.5 s (desktop).
+  Timer? _framesTimer;
+
+  void _holdFrames() {
+    _framesTimer?.cancel();
+    _framesTimer = null;
+    final player = _videoPlayerController;
+    if (player == null) return;
+    player
+      ..setProperty('framedrop', 'no')
+      ..setProperty('video-sync-max-audio-change', '5');
+  }
+
+  void _releaseFrames() {
+    _framesTimer?.cancel();
+    final started = DateTime.now();
+    var inStep = 0;
+    _framesTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      final player = _videoPlayerController;
+      if (player == null || longPressStatus.value) {
+        timer.cancel();
+        return;
+      }
+      final avsync = double.tryParse(player.getProperty('avsync')) ?? 0;
+      inStep = avsync.abs() < 0.02 ? inStep + 1 : 0;
+      // in step for half a second, or given up on after 10 s
+      if (inStep >= 5 ||
+          DateTime.now().difference(started) > const Duration(seconds: 10)) {
+        timer.cancel();
+        _framesTimer = null;
+        player
+          ..setProperty('framedrop', 'vo')
+          ..setProperty('video-sync-max-audio-change', '0.125');
+      }
+    });
+  }
 
   bool get isCompleted =>
       videoPlayerController!.state.completed ||
@@ -2703,6 +2761,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // 每次减1，最后销毁
     resetScreenRotation();
     cancelLongPressTimer();
+    _framesTimer?.cancel();
+    _framesTimer = null;
     _cancelSubForSeek();
     if (!_isCloseAll && _playerCount > 1) {
       _playerCount -= 1;
