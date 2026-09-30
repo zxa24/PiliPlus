@@ -22,8 +22,10 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart'
     show shutdownTimerService, ShutdownPanel;
+import 'package:PiliPlus/utils/codec_support.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/soft_decode.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -405,6 +407,14 @@ class YtHeaderControlState extends State<YtHeaderControl>
   /// video actually offers.
   void showSetVideoQa() {
     final heights = controller.availableHeights;
+    // LibrePili: 「软解码」 on a height this device would decode in software
+    // (user 2026-09-29), judged on the stream that height would pick
+    final softwareHeights = ytSoftwareHeights(
+      formats: controller.detail.value?.formats ?? const [],
+      heights: heights,
+      hardware: CodecSupport.hardware,
+      hardwareDecoding: CodecSupport.hardwareDecodingOn,
+    );
     showBottomSheet(
       (context, setState) {
         final theme = Theme.of(context);
@@ -426,6 +436,14 @@ class YtHeaderControlState extends State<YtHeaderControl>
                     () => ListTile(
                       dense: true,
                       title: Text('${height}P', style: titleStyle),
+                      trailing: softwareHeights.contains(height)
+                          ? Text(
+                              '软解码',
+                              style: subTitleStyle.copyWith(
+                                color: theme.colorScheme.tertiary,
+                              ),
+                            )
+                          : null,
                       selected: controller.maxHeight.value == height,
                       onTap: () {
                         Get.back();

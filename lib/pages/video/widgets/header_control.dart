@@ -44,6 +44,7 @@ import 'package:PiliPlus/services/shutdown_timer_service.dart'
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
+import 'package:PiliPlus/utils/codec_support.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
@@ -52,6 +53,7 @@ import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/soft_decode.dart';
 import 'package:PiliPlus/utils/storage_utils.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
@@ -954,6 +956,17 @@ class HeaderControlState extends State<HeaderControl>
       for (final item in videoInfo.supportFormats!)
         if (availableQa.contains(item.quality)) item,
     ];
+    // LibrePili: 「软解码」 on a quality this device would decode in software
+    // (user 2026-09-29), judged on the stream the player would pick for it
+    final softwareQa = biliSoftwareQualities(
+      videos: videoInfo.dash!.video!,
+      preference: [
+        videoDetailCtr.currentDecodeFormats.codes,
+        for (final codec in videoDetailCtr.preferCodecs) codec.codes,
+      ],
+      hardware: CodecSupport.hardware,
+      hardwareDecoding: CodecSupport.hardwareDecodingOn,
+    );
 
     showBottomSheet(
       (context, setState) {
@@ -1024,15 +1037,28 @@ class HeaderControlState extends State<HeaderControl>
                         horizontal: 20,
                       ),
                       title: Text(item.newDesc!),
-                      trailing: isCurr
-                          ? Icon(
-                              Icons.done,
-                              color: theme.colorScheme.primary,
-                            )
-                          : Text(
-                              item.format!,
-                              style: subTitleStyle,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 8,
+                        children: [
+                          if (softwareQa.contains(item.quality))
+                            Text(
+                              '软解码',
+                              style: subTitleStyle.copyWith(
+                                color: theme.colorScheme.tertiary,
+                              ),
                             ),
+                          isCurr
+                              ? Icon(
+                                  Icons.done,
+                                  color: theme.colorScheme.primary,
+                                )
+                              : Text(
+                                  item.format!,
+                                  style: subTitleStyle,
+                                ),
+                        ],
+                      ),
                     );
                   },
                 ),

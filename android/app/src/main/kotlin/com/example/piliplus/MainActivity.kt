@@ -87,6 +87,7 @@ class MainActivity : AudioServiceActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "av1Hardware" -> background(result) { hasAv1Hardware() }
+                    "hardwareDecoders" -> background(result) { HardwareDecoders.query() }
                     else -> result.notImplemented()
                 }
             }
