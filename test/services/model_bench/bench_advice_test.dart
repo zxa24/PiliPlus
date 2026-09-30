@@ -19,10 +19,10 @@ BenchTranslation gemma({BenchTokenRates? alone, BenchTokenRates? together}) =>
       concurrent: together,
     );
 
-BenchTranslation hy({BenchTokenRates? alone, BenchTokenRates? together}) =>
+BenchTranslation idx({BenchTokenRates? alone, BenchTokenRates? together}) =>
     BenchTranslation(
-      modelId: 'hy-mt2-1.8b-q4_k_m',
-      label: 'Hy-MT2 1.8B（体积小）',
+      modelId: 'index-translate-2b-q4_k_m',
+      label: 'Index-Translate 2B（体积小）',
       loadMs: 1500,
       alone: alone,
       concurrent: together,
@@ -54,8 +54,11 @@ ModelBenchResult result({
   error: error,
 );
 
-List<String> texts(ModelBenchResult r) => [
-  for (final a in benchAdvice(r)) a.text,
+List<String> texts(ModelBenchResult r, {String? preferred}) => [
+  for (final a in preferred == null
+      ? benchAdvice(r)
+      : benchAdvice(r, preferred: preferred))
+    a.text,
 ];
 
 void main() {
@@ -133,7 +136,7 @@ void main() {
         result(
           translations: [
             gemma(alone: rates(16, 12), together: rates(16, 12)),
-            hy(alone: rates(30, 20), together: rates(30, 20)),
+            idx(alone: rates(30, 20), together: rates(30, 20)),
           ],
         ),
       );
@@ -142,34 +145,48 @@ void main() {
       expect(lines.any((l) => l.startsWith('注意')), isFalse);
     });
 
-    test('Hy-MT2 when only it keeps up', () {
+    test('Index-Translate when only it keeps up', () {
       final lines = texts(
         result(
           translations: [
             gemma(together: rates(9.1, 2.9)),
-            hy(together: rates(16, 12)),
+            idx(together: rates(16, 12)),
           ],
         ),
       );
-      expect(lines.first, startsWith('翻译：用 Hy-MT2 1.8B（体积小）'));
-      expect(lines.first, contains('Gemma 约 0.7 倍实时'));
+      expect(lines.first, startsWith('翻译：用 Index-Translate 2B（体积小）'));
+      expect(lines.first, contains('Gemma 4 E2B（推荐） 约 0.7 倍实时'));
     });
 
-    test('Hy-MT2 alone says Gemma was not tested', () {
+    test('Index-Translate alone says Gemma was not tested', () {
       final lines = texts(
         result(
-          translations: [hy(together: rates(16, 12))],
+          translations: [idx(together: rates(16, 12))],
           notInstalled: ['Gemma 4 E2B（推荐）'],
         ),
       );
-      expect(lines.first, contains('Gemma（推荐）未下载，未测'));
+      expect(lines.first, contains('Gemma 4 E2B（推荐）未下载，未测'));
+    });
+
+    // a phone recommends Index-Translate (user 2026-09-30, 2B)
+    test('on a phone, Index-Translate first when both keep up', () {
+      final lines = texts(
+        result(
+          translations: [
+            gemma(alone: rates(16, 12), together: rates(16, 12)),
+            idx(alone: rates(30, 20), together: rates(30, 20)),
+          ],
+        ),
+        preferred: 'index-translate-2b-q4_k_m',
+      );
+      expect(lines.first, startsWith('翻译：用 Index-Translate 2B'));
     });
 
     test('borderline', () {
       final lines = texts(result(translations: [gemma(together: rates(8, 6))]));
       expect(lines.first, startsWith('翻译：可以用 Gemma 4 E2B（推荐），但余量小'));
-      // Hy-MT2 not installed: named to try, with no number for it
-      expect(lines.first, endsWith('也可下载 Hy-MT2（体积小）后再测。'));
+      // Index-Translate not installed: named to try, with no number for it
+      expect(lines.first, endsWith('也可下载 Index-Translate 2B（体积小）后再测。'));
     });
 
     test('too slow: transcribe only, and the keep-up note', () {
@@ -243,15 +260,16 @@ void main() {
     test('a measured growth larger than the estimate is used', () {
       final lines = texts(
         result(
-          translations: [hy(together: rates(16, 12))],
+          // estimate 0.4 + 2.6 GB; measured 3.6 GB of growth
+          translations: [idx(together: rates(16, 12))],
           memory: const BenchMemory(
             availableAtStartMb: 2500,
             rssAtStartMb: 300,
-            peakRssMb: 3400,
+            peakRssMb: 3900,
           ),
         ),
       );
-      expect(lines.last, contains('约需 3.0 GB'));
+      expect(lines.last, contains('约需 3.5 GB'));
     });
 
     test('memory enough: no line', () {
@@ -315,7 +333,7 @@ void main() {
         rssAtStartMb: 400,
         peakRssMb: 4300,
       ),
-      notInstalled: ['Hy-MT2 1.8B（体积小）'],
+      notInstalled: ['Index-Translate 2B（体积小）'],
     );
     final back = ModelBenchResult.fromJson(r.toJson())!;
     expect(back.toJson(), r.toJson());

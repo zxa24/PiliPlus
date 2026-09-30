@@ -39,11 +39,12 @@ const benchEnglishMinSpeed = 5.0;
 /// Resident memory a translation model needs while it runs, in MB, beside
 /// the recogniser — for the memory advice when the test itself could not
 /// measure it. Gemma: VmHWM 2.5 GB on a Pixel 4 XL, mostly the mapped model
-/// file (translation-bench, "Gemma 4 E2B 在手机上"). Hy-MT2: 383 MB anonymous
-/// plus its 1.1 GB file mapped (same doc, 内存).
+/// file (translation-bench, "Gemma 4 E2B 在手机上"). Index-Translate-2B:
+/// 1.46 GB anonymous (weights repacked) plus its 1.3 GB file mapped, on a
+/// Pixel 6 Pro (translation-bench, Index-Translate).
 const benchTranslationResidentMb = {
   'gemma-4-e2b-it-q4_0': 2500,
-  'hy-mt2-1.8b-q4_k_m': 1500,
+  'index-translate-2b-q4_k_m': 2600,
 };
 
 /// Resident memory of the recogniser: SenseVoice peaked at 415 MB alone on
@@ -452,12 +453,19 @@ String _x(double v) => '${v.toStringAsFixed(v < 10 ? 1 : 0)} 倍';
 
 /// The catalog ids, repeated here so this file needs nothing native.
 const _gemmaId = 'gemma-4-e2b-it-q4_0';
-const _hyId = 'hy-mt2-1.8b-q4_k_m';
+const _indexId = 'index-translate-2b-q4_k_m';
 
 /// The advice lines, in the order shown: which translation model, whether
 /// the English model is worth it, whether translation keeps up while
 /// transcribing, and memory. Nothing here changes a setting.
-List<BenchAdvice> benchAdvice(ModelBenchResult r) {
+///
+/// [preferred] is the model recommended here when it keeps up
+/// (TranslationModelCatalog.platformDefault: Index-Translate on a phone,
+/// Gemma on a desktop); the other comes next.
+List<BenchAdvice> benchAdvice(
+  ModelBenchResult r, {
+  String preferred = _gemmaId,
+}) {
   final out = <BenchAdvice>[];
   if (r.error case final error?) {
     out.add((level: BenchAdviceLevel.bad, text: error));
@@ -483,14 +491,14 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
   ];
   BenchTranslation? byId(String id) =>
       measured.where((t) => t.modelId == id).firstOrNull;
-  final gemma = byId(_gemmaId);
-  final hy = byId(_hyId);
-  // Gemma first when it keeps up: it scored best (translation-bench,
-  // decision 1C); Hy-MT2 when only it does; otherwise the faster one
+  final first = byId(preferred);
+  final second = byId(preferred == _gemmaId ? _indexId : _gemmaId);
+  // the platform's recommended model first when it keeps up, the other
+  // when only it does; otherwise the faster one
   final comfortable = [
-    ?gemma,
-    ?hy,
-    ...measured.where((t) => t != gemma && t != hy),
+    ?first,
+    ?second,
+    ...measured.where((t) => t != first && t != second),
   ].where((t) => t.rating == BenchRating.comfortable).firstOrNull;
   final fastest = measured.isEmpty
       ? null
@@ -517,28 +525,32 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
       ));
     }
   } else if (comfortable != null) {
-    final other = comfortable == gemma ? null : gemma;
+    // the recommended one was measured and fell short, or was not there
+    final passedOver = comfortable == first ? null : first;
+    final untested =
+        comfortable != first &&
+        !r.translations.any((t) => t.modelId == preferred);
     out.add((
       level: BenchAdviceLevel.good,
-      text: other == null
+      text: passedOver == null
           ? '翻译：用 ${comfortable.label}。与转录轮流${rt(comfortable)}，跟得上。'
-                '${comfortable.modelId == _hyId && !r.translations.any((t) => t.modelId == _gemmaId) ? 'Gemma（推荐）未下载，未测。' : ''}'
+                '${untested ? '${_names[preferred]}（推荐）未下载，未测。' : ''}'
           : '翻译：用 ${comfortable.label}。与转录轮流${rt(comfortable)}；'
-                'Gemma ${rt(other)}，偏慢。',
+                '${passedOver.label} ${rt(passedOver)}，偏慢。',
     ));
   } else if (fastest!.rating == BenchRating.borderline) {
     out.add((
       level: BenchAdviceLevel.warn,
       text:
           '翻译：可以用 ${fastest.label}，但余量小（${rt(fastest)}），'
-          '偶尔要等译文。${_tryHy(r, fastest)}',
+          '偶尔要等译文。${_trySmaller(r, fastest)}',
     ));
   } else {
     out.add((
       level: BenchAdviceLevel.bad,
       text:
           '翻译：本机太慢（${fastest.label} ${rt(fastest)}），'
-          '建议只转录不翻译。${_tryHy(r, fastest)}',
+          '建议只转录不翻译。${_trySmaller(r, fastest)}',
     ));
   }
 
@@ -606,13 +618,20 @@ List<BenchAdvice> benchAdvice(ModelBenchResult r) {
 
 String _gb(int mb) => '${(mb / 1024).toStringAsFixed(1)} GB';
 
-/// Hy-MT2 as something to try, when it was not measured: no number, since
-/// none was measured here (see ModelBench on why there is no estimate).
-String _tryHy(ModelBenchResult r, BenchTranslation fastest) =>
+/// The smaller model as something to try, when it was not measured: no
+/// number, since none was measured here (see ModelBench on why there is no
+/// estimate).
+String _trySmaller(ModelBenchResult r, BenchTranslation fastest) =>
     fastest.modelId == _gemmaId &&
-        !r.translations.any((t) => t.modelId == _hyId)
-    ? '也可下载 Hy-MT2（体积小）后再测。'
+        !r.translations.any((t) => t.modelId == _indexId)
+    ? '也可下载 Index-Translate 2B（体积小）后再测。'
     : '';
+
+/// The catalog's names, for a model named before it was measured.
+const _names = {
+  _gemmaId: 'Gemma 4 E2B',
+  _indexId: 'Index-Translate 2B',
+};
 
 /// Whether what the test loaded — or would load — does not fit in what was
 /// available before it started: need and have, in MB, or null if it fits

@@ -1933,7 +1933,10 @@ abstract final class SelfTest {
       'pass': result.complete,
       'result': result.toJson(),
       'advice': [
-        for (final a in benchAdvice(result))
+        for (final a in benchAdvice(
+          result,
+          preferred: TranslationModelCatalog.platformDefault.id,
+        ))
           {'level': a.level.name, 'text': a.text},
       ],
       'details': [

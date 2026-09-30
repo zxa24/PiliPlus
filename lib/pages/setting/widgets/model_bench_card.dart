@@ -7,6 +7,7 @@
 library;
 
 import 'package:PiliPlus/services/model_bench/bench_advice.dart';
+import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/model_bench/model_bench.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:material_ui/material_ui.dart';
@@ -108,7 +109,10 @@ class _ModelBenchCardState extends State<ModelBenchCard> {
 
   List<Widget> _resultView(ThemeData theme, ModelBenchResult result) {
     final outline = theme.colorScheme.outline;
-    final advice = benchAdvice(result);
+    final advice = benchAdvice(
+          result,
+          preferred: TranslationModelCatalog.platformDefault.id,
+        );
     return [
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
