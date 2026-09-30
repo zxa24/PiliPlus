@@ -103,6 +103,8 @@ abstract final class SettingBoxKey {
       translateModel = 'translateModel',
       translateDual = 'translateDual',
       translatePinnedLanguages = 'translatePinnedLanguages',
+      // LibrePili: the models page's last performance test, as JSON
+      modelBench = 'modelBench',
       // LibrePili: the subtitle switch, and where its subtitles come from
       subtitleChoice = 'subtitleChoice',
       subtitleSource = 'subtitleSource',

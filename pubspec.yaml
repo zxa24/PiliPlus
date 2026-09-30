@@ -309,6 +309,9 @@ flutter:
     # the agreement the optional English recogniser (Parakeet) comes under,
     # passed on with it as its licence requires
     - assets/licenses/nvidia-open-model-license.txt
+    # 20 s of public-domain speech (LibriVox, the Gettysburg Address) that
+    # the models page's performance test times the recognisers on
+    - assets/bench/speech_en.m4a
 
   fonts:
     - family: digital_id_num

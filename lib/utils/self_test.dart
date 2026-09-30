@@ -74,6 +74,8 @@ import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/services/model_bench/bench_advice.dart';
+import 'package:PiliPlus/services/model_bench/model_bench.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -845,6 +847,15 @@ abstract final class SelfTest {
     if (_arg(args, '--translate-probe') case final gguf?) {
       await scenario('translateProbe', () => _translateProbe(gguf));
     }
+    if (args.contains('--bench-models')) {
+      await scenario(
+        'benchModels',
+        () => _benchModels(
+          asrModels: _arg(args, '--asr-models'),
+          translationFile: _arg(args, '--translate-model'),
+        ),
+      );
+    }
     if (_arg(args, '--caption-compare') case final video?) {
       await scenario('captionCompare', () => _captionCompare(video));
     }
@@ -1010,6 +1021,10 @@ abstract final class SelfTest {
     if (_arg(args, '--models-page') case final dir?) {
       _shots = dir;
       await scenario('modelsPage', _modelsPage);
+    }
+    if (_arg(args, '--bench-models-ui') case final dir?) {
+      _shots = dir;
+      await scenario('benchModelsUi', _benchModelsUi);
     }
     if (on('--settings-reachable')) {
       await scenario('settingsReachable', _settingsReachable);
@@ -1879,6 +1894,47 @@ abstract final class SelfTest {
       'memoryLoaded': loaded,
       'memoryAfterDispose': translated,
       'outputs': outputs,
+    };
+  }
+
+  /// The models page's performance test (本地模型 → 性能测试), run the same
+  /// way with no UI: the installed models — or those under [asrModels] and
+  /// the GGUF [translationFile], for a phone test build with none of its own
+  /// — timed alone and together, the advice the page would show, and the
+  /// progress it reported. The result is not stored as the page's.
+  static Future<Map<String, dynamic>> _benchModels({
+    String? asrModels,
+    String? translationFile,
+  }) async {
+    ModelBenchProgress? last;
+    final labels = <String>[];
+    final bench = ModelBench(
+      asrStore: asrModels == null
+          ? null
+          : AsrModelStore(root: Directory(asrModels)),
+      translationFile: translationFile,
+      // unattended: a screen that turns off must not end it
+      stopInBackground: false,
+      onProgress: (p) {
+        last = p;
+        if (labels.isEmpty || labels.last != p.label) labels.add(p.label);
+      },
+    );
+    _progress = () => {'fraction': last?.fraction, 'label': last?.label};
+    final result = await bench.run();
+    return {
+      // measured something and finished: an install with no models passes
+      // as a test of that path, with the advice saying so
+      'pass': result.complete,
+      'result': result.toJson(),
+      'advice': [
+        for (final a in benchAdvice(result))
+          {'level': a.level.name, 'text': a.text},
+      ],
+      'details': [
+        for (final (label, value) in benchDetails(result)) '$label：$value',
+      ],
+      'steps': labels,
     };
   }
 
@@ -3067,6 +3123,87 @@ abstract final class SelfTest {
       'englishGroup': english,
       'notice': notice,
       'shots': [page, licence],
+    };
+  }
+
+  /// The performance test as the models page runs it, with the profile's
+  /// own models: started from its button, run to the end, its advice and
+  /// 详细数据 shown and kept; then started again and left at once, which
+  /// must stop it and keep the first result as the page's.
+  static Future<Map<String, dynamic>> _benchModelsUi() async {
+    // on a short window the card is below the fold: brought into view, as
+    // a user scrolling to it would
+    Future<void> reveal(String label) async {
+      if (_findElement(_isText(label)) case final element?) {
+        await Scrollable.ensureVisible(element, alignment: 0.5);
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+    }
+
+    Future<void> openPage() async {
+      unawaited(Get.to(() => const LocalModelsPage()));
+      await Future.delayed(const Duration(seconds: 2));
+      await reveal('开始测试');
+      await reveal('重新测试');
+    }
+
+    Future<bool> waitFor(String label, Duration limit) async {
+      final end = DateTime.now().add(limit);
+      while (DateTime.now().isBefore(end)) {
+        if (_seesText(label)) return true;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+      return false;
+    }
+
+    await openPage();
+    final before = Pref.modelBench;
+    final started = await _tapText('开始测试') || await _tapText('重新测试');
+    final running = _seesText('取消测试');
+    final finished = await waitFor('重新测试', const Duration(minutes: 3));
+    final kept = Pref.modelBench;
+    final advice = _seesLabel('翻译：') || _seesLabel('语音转录模型未下载');
+    await reveal('详细数据');
+    await _tapText('详细数据');
+    final details = _seesLabel('语音转录（SenseVoice）');
+    await reveal('详细数据');
+    final shot = await _shot('bench_result');
+    Get.back();
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    // again, and away before it ends
+    await openPage();
+    final again = await _tapText('重新测试');
+    await Future.delayed(const Duration(seconds: 3));
+    final stillRunning = _seesText('取消测试');
+    Get.back();
+    await Future.delayed(const Duration(seconds: 3));
+    final afterLeave = Pref.modelBench;
+    return {
+      'pass':
+          started &&
+          finished &&
+          kept != null &&
+          kept != before &&
+          advice &&
+          details &&
+          again &&
+          afterLeave == kept,
+      'started': started,
+      'runningShown': running,
+      'finished': finished,
+      'stored': kept != null && kept != before,
+      'adviceShown': advice,
+      'detailsShown': details,
+      'secondStarted': again,
+      'secondStillRunningAt3s': stillRunning,
+      'keptAfterLeaving': afterLeave == kept,
+      'stored_json': kept,
+      'shots': [shot],
+      'benchLog': [
+        for (final line in EventLog.recent)
+          if (line.contains('[bench]')) line,
+      ],
     };
   }
 
