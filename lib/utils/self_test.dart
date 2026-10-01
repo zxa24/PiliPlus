@@ -5240,7 +5240,97 @@ abstract final class SelfTest {
       'first': page.videos.items.isEmpty
           ? null
           : '${page.videos.items.first.title} / ${page.videos.items.first.author}',
+      // what the list shows: dates and views per item, and how far paging
+      // goes (user 2026-09-30: list incomplete, no upload dates)
+      'withPublished': page.videos.items
+          .where((i) => i.publishedText != null)
+          .length,
+      'withViews': page.videos.items.where((i) => i.viewCountText != null).length,
+      'firstItems': [
+        for (final i in page.videos.items.take(3))
+          {
+            'title': i.title,
+            'author': i.author,
+            'views': i.viewCountText,
+            'published': i.publishedText,
+          },
+      ],
+      'raw': await _ytChannelRaw(source, channelId),
+      'pages': await _ytChannelPages(router, channelId, page.videos),
     };
+  }
+
+  /// The channel's first response as it comes: its tabs, and the metadata
+  /// rows of its first items, before any parsing decides what they are.
+  static Future<Map<String, Object?>> _ytChannelRaw(
+    YtDirectSource source,
+    String channelId,
+  ) async {
+    final response = await source.client.browse(
+      channelId,
+      params: 'EgZ2aWRlb3M%3D',
+    );
+    final json = response.json;
+    return {
+      'tabs': [
+        for (final t in collectObjects(json, 'tabRenderer'))
+          {
+            'title': t['title'],
+            'params': (t['endpoint'] as Map?)?['browseEndpoint'] is Map
+                ? ((t['endpoint'] as Map)['browseEndpoint'] as Map)['params']
+                : null,
+            'selected': t['selected'],
+          },
+      ],
+      'lockups': collectObjects(json, 'lockupViewModel').length,
+      'richItems': collectObjects(json, 'richItemRenderer').length,
+      'videoRenderers': collectObjects(json, 'videoRenderer').length,
+      'firstRows': [
+        for (final m in collectObjects(json, 'lockupViewModel').take(2))
+          [
+            for (final v in collectObjects(m['metadata'], 'contentMetadataViewModel'))
+              for (final r in (v['metadataRows'] as List?) ?? const [])
+                [
+                  for (final part in ((r as Map)['metadataParts'] as List?) ?? const [])
+                    readText((part as Map)['text']),
+                ],
+          ],
+      ],
+    };
+  }
+
+  /// Follows the continuation tokens for up to five pages: how many items
+  /// each brings, and where paging stops.
+  static Future<List<Object?>> _ytChannelPages(
+    YtSourceRouter router,
+    String channelId,
+    YtPage<YtSearchItem> first,
+  ) async {
+    final out = <Object?>[
+      {'items': first.items.length, 'next': first.continuation != null},
+    ];
+    var token = first.continuation;
+    for (var i = 0; i < 4 && token != null; i++) {
+      final r = await router.run(
+        (s) => (s as YtDirectSource).channelVideos(
+          channelId,
+          continuation: token,
+        ),
+      );
+      if (!r.ok || r.value == null) {
+        out.add({'error': r.verdict.toString()});
+        break;
+      }
+      out.add({
+        'items': r.value!.items.length,
+        'next': r.value!.continuation != null,
+        'withPublished': r.value!.items
+            .where((x) => x.publishedText != null)
+            .length,
+      });
+      token = r.value!.continuation;
+    }
+    return out;
   }
 
   /// LibrePili: switch to the YouTube platform, search, open a result.
