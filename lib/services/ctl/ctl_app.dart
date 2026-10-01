@@ -217,6 +217,8 @@ abstract final class Ctl {
     'enabled': t.enabled.value,
     'done': t.done.value,
     'total': t.total.value,
+    // comments turned the other way from 'enabled' by their own button
+    'overrides': t.overrides,
   };
 
   static Map<String, Object?>? _pageOf(Route<dynamic> route) {

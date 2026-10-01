@@ -1,9 +1,11 @@
+import 'package:PiliPlus/models/common/comment_translation_display.dart';
 import 'package:PiliPlus/models/common/subtitle_cache_limit.dart';
 import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/pages/local_models.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
+import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
@@ -62,6 +64,23 @@ List<SettingsModel> get asrSettings => [
       subtitle: '译文下方同时显示原文',
       leading: Icon(Icons.subtitles_outlined),
       setKey: SettingBoxKey.translateDual,
+    ),
+    // the comments' counterpart of 双语字幕, bilingual unless chosen
+    // otherwise (user 2026-10-01); every comment list, both platforms
+    PopupModel<CommentTranslationDisplay>(
+      title: '评论翻译显示',
+      leading: const Icon(Icons.translate),
+      value: () => Pref.commentTranslateDisplay,
+      items: CommentTranslationDisplay.values,
+      onSelected: (value, setState) async {
+        await GStorage.setting.put(
+          SettingBoxKey.commentTranslateDisplay,
+          value.name,
+        );
+        // comment lists open behind this page show it at once
+        CommentTranslator.revision.value++;
+        setState();
+      },
     ),
     NormalModel(
       title: '常驻语言',

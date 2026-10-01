@@ -149,6 +149,7 @@ const ctlSettingKeys = [
   SettingBoxKey.asrEnglishModel,
   SettingBoxKey.translateModel,
   SettingBoxKey.translateDual,
+  SettingBoxKey.commentTranslateDisplay,
   SettingBoxKey.translatePinnedLanguages,
   // YouTube
   SettingBoxKey.ytRegion,

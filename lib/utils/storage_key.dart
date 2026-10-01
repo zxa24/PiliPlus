@@ -102,6 +102,8 @@ abstract final class SettingBoxKey {
       translateAsked = 'translateAsked',
       translateModel = 'translateModel',
       translateDual = 'translateDual',
+      // LibrePili: a translated comment bilingual, or the translation alone
+      commentTranslateDisplay = 'commentTranslateDisplay',
       translatePinnedLanguages = 'translatePinnedLanguages',
       // LibrePili: the models page's last performance test, as JSON
       modelBench = 'modelBench',

@@ -4,6 +4,7 @@ import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recogniz
     show deviceTouchSlop;
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/http/constants.dart';
+import 'package:PiliPlus/models/common/comment_translation_display.dart';
 import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
@@ -492,6 +493,15 @@ abstract final class Pref {
   /// Source line under each translated line (decision 4A, 2026-09-23).
   static bool get translateDual =>
       _setting.get(SettingBoxKey.translateDual, defaultValue: false);
+
+  /// How a comment translated on the device is shown (user 2026-10-01:
+  /// bilingual, the translation first, unless chosen otherwise).
+  static CommentTranslationDisplay get commentTranslateDisplay =>
+      _enumByName(
+        CommentTranslationDisplay.values,
+        _setting.get(SettingBoxKey.commentTranslateDisplay),
+      ) ??
+      CommentTranslationDisplay.bilingual;
 
   /// Languages kept in the subtitle menu besides the app's (see
   /// `pinnedTranslationLanguages`).
