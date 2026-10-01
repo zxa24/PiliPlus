@@ -26,6 +26,7 @@ import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/text_language.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
+import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/models/common/video/source_type.dart';
@@ -1042,6 +1043,16 @@ abstract final class SelfTest {
     }
     if (on('--platform-search')) {
       await scenario('platformSearch', _platformSearch);
+    }
+    if (_arg(args, '--yt-steps') case final video?) {
+      await scenario(
+        'ytSteps',
+        () => _ytSteps(
+          video,
+          (_arg(args, '--steps') ?? 'off,asr,zh').split(','),
+          int.tryParse(_arg(args, '--step-hold') ?? '') ?? 20,
+        ),
+      );
     }
     if (_arg(args, '--yt-channel') case final channel?) {
       await scenario('youtubeChannel', () => _youtubeChannel(channel));
@@ -2682,6 +2693,88 @@ abstract final class SelfTest {
     await controller.stopAsr();
     Get.back();
     return result;
+  }
+
+  /// `--yt-steps VIDEO --steps off,asr,zh [--step-hold N]`: the subtitle
+  /// menu picked in order, as a viewer clicks it, N seconds apart — and after
+  /// each pick, what is on screen and what the menu says (user 2026-09-30:
+  /// 关闭 → 原文 → 中文 left English on screen and 中文 doing nothing).
+  static Future<Map<String, dynamic>> _ytSteps(
+    String input,
+    List<String> steps,
+    int holdSeconds,
+  ) async {
+    await _setSwitch(SubtitleChoice.off);
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 2));
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    await controller.plPlayerController.play();
+    Map<String, Object?> snapshot() {
+      final session = controller.translation.session.value;
+      return {
+        'subtitleOnScreen': controller
+            .plPlayerController
+            .videoPlayerController
+            ?.state
+            .track
+            .subtitle
+            .title,
+        'captionIndex': controller.captionIndex.value,
+        'translationActive': controller.translation.isActive,
+        'translationStage': session?.state.value.stage.name,
+        'translatedUnits': session?.results.values
+            .where((r) => r.text != null)
+            .length,
+        'asrStage': controller.asrSession.value?.state.value.stage.name,
+        'position': controller.plPlayerController.position.value,
+        'menu': [
+          for (final r in OnDeviceMenu.rowsFor(controller))
+            {
+              'label': r.label,
+              'checked': r.checked,
+              'status': r.status?.text,
+            },
+        ],
+      };
+    }
+
+    final out = <Map<String, Object?>>[
+      {'step': 'opened', ...snapshot()},
+    ];
+    for (final step in steps) {
+      // `asr@device` / `zh@platform`: the row's source icon, as tapped
+      final parts = step.split('@');
+      final code = parts.first;
+      final via = parts.length > 1
+          ? SubtitleSourcePreference.values
+                .where((v) => v.name == parts[1])
+                .firstOrNull
+          : null;
+      if (code == 'off') {
+        await controller.chooseOff();
+      } else {
+        await controller.chooseLanguage(
+          code,
+          controller.planFor(code, via: via),
+        );
+      }
+      await Future.delayed(Duration(seconds: holdSeconds));
+      out.add({'step': step, ...snapshot()});
+    }
+    await controller.stopAsr();
+    Get.back();
+    final last = out.last;
+    return {
+      'pass':
+          !steps.last.startsWith('zh') ||
+          last['subtitleOnScreen'] == onDeviceLabel('zh'),
+      'videoId': videoId,
+      'steps': out,
+    };
   }
 
   /// `--ctl-probe FILE [--hold N] [--hold-off M]`: the command-line reader
