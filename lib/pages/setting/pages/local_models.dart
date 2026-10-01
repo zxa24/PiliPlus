@@ -14,6 +14,7 @@ import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/pages/setting/widgets/model_bench_card.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
+import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:file_picker/file_picker.dart';
@@ -54,11 +55,17 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
       _progress = null;
     });
     try {
-      await _store.ensureAll(
+      await BackgroundTransfer.instance.run(
+        title: '下载语音识别模型',
+        bytes: AsrService.to.downloadSize,
         token: token,
-        onProgress: (progress) {
-          if (mounted) setState(() => _progress = progress);
-        },
+        body: (keepAlive) => _store.ensureAll(
+          token: token,
+          onProgress: (progress) {
+            keepAlive(progress);
+            if (mounted) setState(() => _progress = progress);
+          },
+        ),
       );
     } on AsrCancelled {
       // nothing to say: the user pressed cancel

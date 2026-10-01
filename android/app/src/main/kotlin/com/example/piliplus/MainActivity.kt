@@ -79,6 +79,9 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // LibrePili: model downloads keep the network in the background
+        // (TransferJobService.kt)
+        TransferJobs.attach(this, flutterEngine)
         // LibrePili: index files written to shared storage (e.g. finished
         // downloads in Download/LibrePili) so galleries / players list them.
         // LibrePili: what the device decodes in hardware, for choosing a codec

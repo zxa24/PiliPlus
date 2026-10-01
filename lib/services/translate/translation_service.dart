@@ -19,6 +19,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_store.dart';
+import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/chinese_convert.dart';
@@ -491,13 +492,21 @@ class TranslationService extends GetxService {
     return (report) async {
       if (!store.isInstalled(model)) {
         final token = _download = AsrCancelToken();
-        await store.ensure(
-          model,
+        await BackgroundTransfer.instance.run(
+          title: '下载翻译模型',
+          bytes: model.totalSize,
           token: token,
-          onProgress: (p) => report(
-            p.verifying
-                ? '校验模型'
-                : '下载模型 ${p.total == 0 ? '' : '${(p.received * 100 ~/ p.total)}%'}',
+          body: (keepAlive) => store.ensure(
+            model,
+            token: token,
+            onProgress: (p) {
+              keepAlive(p);
+              report(
+                p.verifying
+                    ? '校验模型'
+                    : '下载模型 ${p.total == 0 ? '' : '${(p.received * 100 ~/ p.total)}%'}',
+              );
+            },
           ),
         );
         _download = null;
