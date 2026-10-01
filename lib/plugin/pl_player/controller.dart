@@ -1075,7 +1075,50 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   /// 播放事件监听
+  /// 调试模式: one line of the player's state, changed in place every
+  /// second, whatever else is or is not happening — with subtitles off no
+  /// transcription or translation writes to the overlay, and it went blank
+  /// (user 2026-10-01). Off, the tick returns at once.
+  Timer? _debugStatusTimer;
+
+  void _debugStatus() => DebugOverlay.progress('player', 'player', () {
+    final player = _videoPlayerController;
+    String read(String name) {
+      if (player is! NativePlayer) return '';
+      try {
+        return player.getProperty(name);
+      } catch (_) {
+        return '';
+      }
+    }
+
+    final w = read('video-params/w');
+    final h = read('video-params/h');
+    final codec = read('video-format');
+    final hwdec = read('hwdec-current');
+    final cache = double.tryParse(read('demuxer-cache-duration'));
+    // a DASH pair is an edl:// list with the URLs inside (escaped by
+    // length, so the first http one is read out rather than parsed whole)
+    final host =
+        RegExp(r'https?://([^/;%:]+)').firstMatch(read('path'))?.group(1) ??
+        '';
+    final rate = player?.state.rate ?? 1;
+    final paused = !(player?.state.playing ?? false);
+    return '${paused ? 'paused' : 'playing'} ${position.value}/'
+        '${duration.value} s'
+        '${w.isEmpty ? '' : ' · ${w}x$h'}'
+        '${codec.isEmpty ? '' : ' $codec'}'
+        ' · hwdec ${hwdec.isEmpty || hwdec == 'no' ? 'off' : hwdec}'
+        '${cache == null ? '' : ' · cache ${cache.toStringAsFixed(0)} s'}'
+        '${host.isEmpty ? '' : ' · $host'}'
+        '${rate == 1 ? '' : ' · ${rate}x'}';
+  }, every: const Duration(seconds: 1));
+
   void _startListeners(NativePlayer player) {
+    _debugStatusTimer?.cancel();
+    _debugStatusTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (DebugOverlay.on) _debugStatus();
+    });
     assert(_subscriptions == null);
     final stream = player.stream;
     _subscriptions = [
@@ -2810,6 +2853,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     cancelLongPressTimer();
     _framesTimer?.cancel();
     _framesTimer = null;
+    _debugStatusTimer?.cancel();
+    _debugStatusTimer = null;
+    DebugOverlay.drop('player');
     _cancelSubForSeek();
     if (!_isCloseAll && _playerCount > 1) {
       _playerCount -= 1;
