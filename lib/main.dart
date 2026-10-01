@@ -16,6 +16,7 @@ import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
+import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
@@ -156,6 +157,8 @@ void main(List<String> args) async {
   // the command-line reader (设置 → 其它设置 → 允许命令行读取状态); off, it
   // only clears a ctl.json a crashed run left
   unawaited(Ctl.apply(Pref.ctlServer));
+  // 调试模式 (设置 → 其它设置): the player's overlay of decisions
+  DebugOverlay.setEnabled(Pref.debugMode);
   HttpOverrides.global = _CustomHttpOverrides();
 
   if (PlatformUtils.isMobile) {

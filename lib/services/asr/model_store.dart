@@ -11,6 +11,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:PiliPlus/services/asr/model_catalog.dart';
+import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:archive/archive.dart';
 import 'package:archive/archive_io.dart';
@@ -205,6 +206,19 @@ class AsrModelStore {
     final total = pending.fold(0, (sum, f) => sum + f.size);
     var done = 0;
     void report(AsrModelFile file, int received, {bool verifying = false}) {
+      // 调试模式: every download of a model (transcription or translation),
+      // whoever asked for it, as one line changed in place
+      if (DebugOverlay.on) {
+        final got = done + received;
+        DebugOverlay.progress(
+          'download ${model.id}',
+          'download',
+          () =>
+              '${verifying ? 'verifying' : 'downloading'} ${model.id} '
+              '${total <= 0 ? '' : '${got * 100 ~/ total}% '}'
+              '(${got >> 20} of ${total >> 20} MB, ${file.name})',
+        );
+      }
       onProgress?.call((
         label: '${model.label} · ${file.name}',
         received: done + received,

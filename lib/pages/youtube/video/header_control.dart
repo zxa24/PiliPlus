@@ -20,6 +20,7 @@ import 'package:PiliPlus/pages/video/widgets/header_mixin.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/debug_overlay_view.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart'
     show shutdownTimerService, ShutdownPanel;
 import 'package:PiliPlus/utils/codec_support.dart';
@@ -395,6 +396,8 @@ class YtHeaderControlState extends State<YtHeaderControl>
                       player: player,
                     ),
                   ),
+                // the overlay of decisions, on and off at once
+                const DebugModeTile(titleStyle: titleStyle),
               ],
             ),
           ),
