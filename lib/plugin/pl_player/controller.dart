@@ -21,6 +21,7 @@ import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/quality_advisor.dart';
+import 'package:PiliPlus/plugin/pl_player/smoothness_monitor.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/double_tap_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/duration.dart';
@@ -56,6 +57,7 @@ import 'package:archive/archive.dart' show getCrc32;
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:easy_debounce/easy_throttle.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:flutter/services.dart' show HapticFeedback, DeviceOrientation;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
@@ -711,6 +713,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _replacedVid = null;
       _externalVideo = _externalAudio = null;
       _replaced = false;
+      // what the source before lost is told as it ends
+      _smooth.flush();
       // the renewal's new source is here: its own autoplay must go through
       _renewing = false;
       _sourceExpiresAt = debugExpiresIn != null && dataSource is NetworkSource
@@ -875,7 +879,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     final player = await Player.create(
       configuration: PlayerConfiguration(
-        logLevel: kDebugMode ? .warn : .error,
+        // warnings in a release build too: a 403 and a sound underrun are
+        // warnings, and both are seen (see the log listener's filter)
+        logLevel: .warn,
         options: opt,
       ),
     );
@@ -1088,37 +1094,150 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   void _debugStatus() => DebugOverlay.progress('player', 'player', () {
     final player = _videoPlayerController;
-    String read(String name) {
-      if (player is! NativePlayer) return '';
-      try {
-        return player.getProperty(name);
-      } catch (_) {
-        return '';
-      }
-    }
+    final paused = !(player?.state.playing ?? false);
+    final episode = _smooth.current;
+    return '${paused ? 'paused' : 'playing'} ${position.value}/'
+        '${duration.value} s · ${_playerSummary()}'
+        '${episode == null ? '' : ' · 不流畅中'}';
+  }, every: const Duration(seconds: 1));
 
-    final w = read('video-params/w');
-    final h = read('video-params/h');
-    final codec = read('video-format');
-    final hwdec = read('hwdec-current');
-    final cache = double.tryParse(read('demuxer-cache-duration'));
+  String _read(String name) {
+    final player = _videoPlayerController;
+    if (player is! NativePlayer) return '';
+    try {
+      return player.getProperty(name);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// What is being played and how: size and codec, decoding, cache, host,
+  /// rate. The status line and each 不流畅 line carry it.
+  String _playerSummary() {
+    final w = _read('video-params/w');
+    final h = _read('video-params/h');
+    final codec = _read('video-format');
+    final hwdec = _read('hwdec-current');
+    final cache = double.tryParse(_read('demuxer-cache-duration'));
     // a DASH pair is an edl:// list with the URLs inside (escaped by
     // length, so the first http one is read out rather than parsed whole)
     final host =
-        RegExp(r'https?://([^/;%:]+)').firstMatch(read('path'))?.group(1) ?? '';
-    final rate = player?.state.rate ?? 1;
-    final paused = !(player?.state.playing ?? false);
-    return '${paused ? 'paused' : 'playing'} ${position.value}/'
-        '${duration.value} s'
-        '${w.isEmpty ? '' : ' · ${w}x$h'}'
-        '${codec.isEmpty ? '' : ' $codec'}'
-        ' · hwdec ${hwdec.isEmpty || hwdec == 'no' ? 'off' : hwdec}'
-        '${cache == null ? '' : ' · cache ${cache.toStringAsFixed(0)} s'}'
-        '${host.isEmpty ? '' : ' · $host'}'
-        '${rate == 1 ? '' : ' · ${rate}x'}';
-  }, every: const Duration(seconds: 1));
+        RegExp(r'https?://([^/;%:]+)').firstMatch(_read('path'))?.group(1) ??
+        '';
+    final rate = _videoPlayerController?.state.rate ?? 1;
+    return [
+      if (w.isNotEmpty) '${w}x$h${codec.isEmpty ? '' : ' $codec'}',
+      'hwdec ${hwdec.isEmpty || hwdec == 'no' ? 'off' : hwdec}',
+      if (cache != null) 'cache ${cache.toStringAsFixed(0)} s',
+      if (host.isNotEmpty) host,
+      if (rate != 1) '${rate}x',
+    ].join(' · ');
+  }
+
+  /// What else runs (transcription, translation), for the 不流畅 lines: set
+  /// by the translation service, which knows both. Null: nothing said.
+  static String Function()? busyProbe;
+
+  /// Merges what mpv and Flutter lose into one 不流畅 line per bad stretch
+  /// (see SmoothnessMonitor).
+  late final _smooth = SmoothnessMonitor(
+    log: (line) => EventLog.add('player', line),
+    context: () {
+      final busy = busyProbe?.call() ?? '';
+      return [_playerSummary(), if (busy.isNotEmpty) busy].join(' · ');
+    },
+  );
+
+  /// Until when lost frames are expected and not counted: an open, a seek.
+  DateTime _smoothQuietUntil = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _quietSmoothness([Duration d = const Duration(milliseconds: 1500)]) {
+    final until = DateTime.now().add(d);
+    if (until.isAfter(_smoothQuietUntil)) _smoothQuietUntil = until;
+  }
+
+  /// The video's frame rate, read with each sample, for Flutter's gaps.
+  double _videoFps = 0;
+
+  /// One second of mpv for [_smooth].
+  void _sampleSmoothness() {
+    final player = _videoPlayerController;
+    if (player is! NativePlayer) return;
+    int? count(String name) => int.tryParse(_read(name));
+    final now = DateTime.now();
+    final pos = double.tryParse(_read('time-pos'));
+    final total = double.tryParse(_read('duration'));
+    _videoFps =
+        double.tryParse(_read('estimated-vf-fps')) ??
+        double.tryParse(_read('container-fps')) ??
+        _videoFps;
+    _smooth.add(
+      SmoothSample(
+        at: now,
+        position: pos,
+        playing: player.state.playing,
+        buffering: isBuffering.value || _replacing,
+        decoderDrops: count('decoder-frame-drop-count'),
+        outputDrops: count('frame-drop-count'),
+        delayed: count('vo-delayed-frame-count'),
+        mistimed: count('mistimed-frame-count'),
+        avsync: double.tryParse(_read('avsync')),
+        // a minimised or covered window is not watched: what mpv does there
+        // is not seen
+        quiet:
+            now.isBefore(_smoothQuietUntil) ||
+            WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed,
+        atEnd: pos != null && total != null && total - pos < 1,
+      ),
+    );
+  }
+
+  /// Flutter's frames, once for the app: the ones drawn while a video plays
+  /// go to the player's account; one that takes more than 100 ms anywhere
+  /// is a visible hitch of its own, and is logged as one.
+  static void _watchFrames() {
+    if (_framesWatched) return;
+    _framesWatched = true;
+    int? lastEnd;
+    SchedulerBinding.instance.addTimingsCallback((timings) {
+      final player = _instance;
+      final playing =
+          player != null &&
+          player.playerStatus.isPlaying &&
+          !player.isBuffering.value;
+      final gaps = <int>[];
+      for (final t in timings) {
+        final end = t.timestampInMicroseconds(ui.FramePhase.rasterFinish);
+        if (playing && lastEnd != null) {
+          final gap = ((end - lastEnd!) / 1000).round();
+          // a second without a frame is nothing being drawn at all (the
+          // window hidden); a frame that itself takes that long is logged
+          // below as 界面卡
+          if (gap < 1000) gaps.add(gap);
+        }
+        lastEnd = end;
+        final span = t.totalSpan.inMilliseconds;
+        if (span > 100) {
+          EventLog.add(
+            'ui',
+            '界面卡 $span ms (构建 ${t.buildDuration.inMilliseconds} ms'
+                ' · 绘制 ${t.rasterDuration.inMilliseconds} ms)',
+          );
+        }
+      }
+      if (!playing) {
+        lastEnd = null;
+        return;
+      }
+      if (DateTime.now().isBefore(player._smoothQuietUntil)) return;
+      player._smooth.addUiGaps(gaps, videoFps: player._videoFps);
+    });
+  }
+
+  static var _framesWatched = false;
 
   void _startListeners(NativePlayer player) {
+    _watchFrames();
     _debugStatusTimer?.cancel();
     _debugStatusTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (DebugOverlay.on) _debugStatus();
@@ -1224,7 +1343,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // what mpv reports (warnings and up in a debug build, errors in a
       // release one) goes to the events a failure report shows
       stream.log.listen((PlayerLog log) {
-        EventLog.add('mpv', '${log.level} ${log.prefix}: ${log.text.trim()}');
+        final text = log.text.trim();
+        // the sound running dry is heard as a stutter: its own line
+        if (_underrun.hasMatch(text)) {
+          EventLog.add('player', '声音断续: $text');
+        }
+        // a release build keeps only the warnings that say something about
+        // the connection; a debug one keeps all
+        if (kDebugMode || log.level != 'warn' || _keptWarning.hasMatch(text)) {
+          EventLog.add('mpv', '${log.level} ${log.prefix}: $text');
+        }
         if (kDebugMode && (log.level == 'error' || log.level == 'fatal')) {
           Utils.reportError(
             '${log.level}: ${log.prefix}: ${log.text}\n${player.state.playlist}',
@@ -1343,6 +1471,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         _switchCdn();
     }
   }
+
+  static final _underrun = RegExp('underrun', caseSensitive: false);
+
+  static final _keptWarning = RegExp(
+    r'^(https|tls|tcp|http):|underrun|HTTP error',
+  );
 
   /// Asked for new play URLs, and to reopen on them at the position given,
   /// playing: the page's own request, which is the only thing that can make
@@ -2012,7 +2146,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // moment (measured: playhead 15.0 s, cache to 13.2 s, a reopen at 15 s
     // that then played on) — what a recovery gets, every open gets
     _dryTicks = -3;
+    _quietSmoothness(const Duration(seconds: 3));
     _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
+      _sampleSmoothness();
       _watchHealth(player);
       _watchReplacedVideo(player);
       _rehome();
@@ -2269,6 +2405,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     // a seek empties the buffer on purpose: not a host falling behind
     _health.clear();
+    // and a precise one drops frames on its way to the target
+    _quietSmoothness();
     // mpv turns a seek down until it has the file, and the only trace was a
     // line in the log: a seek in the first seconds after opening a video was
     // lost, and it played from the start (measured: at 0.3, 1, 2 and 3 s

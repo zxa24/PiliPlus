@@ -31,6 +31,7 @@ import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_cache/translation_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
@@ -58,6 +59,18 @@ class TranslationService extends GetxService {
     // a transcription running beside a translation behind its viewer gives
     // it the CPU (noisy-speech §18.1)
     AsrService.translationBehind = () => _current?.behindViewer ?? false;
+    // what else takes the CPU, on each 不流畅 line the player logs
+    PlPlayerController.busyProbe = () {
+      final asr = AsrService.to.debugCurrent?.debugStatus['stage'];
+      final translation = _current?.debugStatus['stage'];
+      return [
+        // only the stages that take the CPU
+        if (const {'models', 'extracting', 'transcribing'}.contains(asr))
+          '转录 $asr',
+        if (const {'loading', 'translating'}.contains(translation))
+          '翻译 $translation',
+      ].join(' · ');
+    };
     unawaited(removeRetiredModels());
   }
 
@@ -88,6 +101,7 @@ class TranslationService extends GetxService {
   @override
   void onClose() {
     AsrService.translationBehind = null;
+    PlPlayerController.busyProbe = null;
     super.onClose();
   }
 
