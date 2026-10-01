@@ -5,6 +5,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/pages/common/publish/publish_route.dart';
 import 'package:PiliPlus/pages/common/reply_controller.dart';
 import 'package:PiliPlus/pages/video/reply_new/view.dart';
+import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -63,6 +64,19 @@ class VideoReplyReplyController extends ReplyController
   @override
   List<ReplyInfo>? getDataList(response) {
     return dialog != null ? response.replies : response.root.replies;
+  }
+
+  /// LibrePili: replies loaded here while their list is translated are
+  /// translated too (user 2026-10-01: "including comments loaded later").
+  @override
+  void handleListResponse(List<ReplyInfo> dataList) {
+    super.handleListResponse(dataList);
+    final first = firstFloor.value;
+    if (dataList.isEmpty && first == null) return;
+    CommentTranslator.forReply(first ?? dataList.first)?.add([
+      ?first,
+      ...dataList,
+    ]);
   }
 
   @override

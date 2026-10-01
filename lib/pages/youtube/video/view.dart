@@ -10,6 +10,7 @@ import 'dart:math' as math;
 
 import 'package:PiliPlus/common/skeleton/video_card_h.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
+import 'package:PiliPlus/common/widgets/comments/comment_translation.dart';
 import 'package:PiliPlus/common/widgets/video_intro/intro_metrics.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
@@ -1102,6 +1103,9 @@ class _YtVideoPageState extends State<YtVideoPage>
       Get.toNamed('/ytChannel', parameters: {'id': channelId});
     }
 
+    bool needs(CommentTranslator t) =>
+        t.needsText(comment.commentId, comment.content);
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1180,48 +1184,59 @@ class _YtVideoPageState extends State<YtVideoPage>
               // long-press opens 复制全部 / 自由复制, which is how the
               // bilibili item does copying. A SelectableText here would eat
               // both gestures.
-              Obx(() {
-                CommentTranslator.revision.value;
-                final translator = controller.commentTranslator;
-                final failed = translator.textFailed(comment.commentId);
-                return Text.rich(
-                  TextSpan(
+              // the translation first and the original under it, and the
+              // per-comment 翻译 button: the parts the bilibili item shares
+              // (comment_translation.dart)
+              CommentTranslatedText(
+                translator: controller.commentTranslator,
+                id: comment.commentId,
+                builder:
+                    (
+                      context, {
+                      required translated,
+                      required first,
+                      required style,
+                    }) => Text(
+                      (translated
+                              ? controller.commentTranslator.textFor(
+                                  comment.commentId,
+                                )
+                              : null) ??
+                          comment.content,
+                      style: style,
+                    ),
+              ),
+              if (comment.likeCountText != null ||
+                  CommentTranslateButton.shownFor(
+                    controller.commentTranslator,
+                    needs,
+                  ))
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
                     children: [
-                      TextSpan(
-                        text:
-                            translator.textFor(comment.commentId) ??
-                            comment.content,
-                      ),
-                      if (failed)
-                        TextSpan(
-                          text: '  未能翻译',
+                      if (comment.likeCountText case final likes?) ...[
+                        Icon(
+                          Icons.thumb_up_outlined,
+                          size: 14,
+                          color: theme.colorScheme.outline,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          likes,
                           style: TextStyle(
                             fontSize: 12,
                             color: theme.colorScheme.outline,
                           ),
                         ),
-                    ],
-                  ),
-                  style: const TextStyle(fontSize: 14, height: 1.75),
-                );
-              }),
-              if (comment.likeCountText case final likes?)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.thumb_up_outlined,
-                        size: 14,
-                        color: theme.colorScheme.outline,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        likes,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.outline,
-                        ),
+                        const SizedBox(width: 12),
+                      ],
+                      CommentTranslateButton(
+                        translator: controller.commentTranslator,
+                        id: comment.commentId,
+                        needs: needs,
+                        onToggle: (t) =>
+                            t.toggleText(comment.commentId, comment.content),
                       ),
                     ],
                   ),

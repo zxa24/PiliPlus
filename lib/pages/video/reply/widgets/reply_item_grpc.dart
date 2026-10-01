@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
+import 'package:PiliPlus/common/widgets/comments/comment_translation.dart';
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/dialog/report.dart';
@@ -338,54 +339,55 @@ class ReplyItemGrpc extends StatelessWidget {
           ),
         Padding(
           padding: padding,
-          // LibrePili: a comment translated on the device shows in place of
-          // its text (CommentTranslator), and changes as translations arrive
-          child: Obx(() {
-            CommentTranslator.revision.value;
-            final translator = CommentTranslator.forReply(replyItem);
-            final translated = translator?.contentFor(replyItem);
-            final failed = translator?.failedFor(replyItem) ?? false;
-            return TextMore.rich(
-              primary: colorScheme.primary,
-              style: const TextStyle(height: 1.75, fontSize: 14),
-              maxLines: replyLevel == 1 ? replyLengthLimit : null,
-              TextSpan(
-                children: [
-                  if (replyControl.isUpTop) ...[
-                    const WidgetSpan(
-                      alignment: .middle,
-                      child: PBadge(
-                        text: 'TOP',
-                        size: .small,
-                        isStack: false,
-                        type: .line_primary,
-                        fontSize: 9,
-                        textScaleFactor: 1,
+          // LibrePili: a comment translated on the device shows its
+          // translation first and its original under it — the layout both
+          // comment lists share (CommentTranslatedText)
+          child: CommentTranslatedText(
+            translator: CommentTranslator.forReply(replyItem),
+            id: CommentTranslator.idOf(replyItem),
+            builder:
+                (
+                  context, {
+                  required translated,
+                  required first,
+                  required style,
+                }) => TextMore.rich(
+                  primary: colorScheme.primary,
+                  style: style,
+                  maxLines: replyLevel == 1 ? replyLengthLimit : null,
+                  TextSpan(
+                    children: [
+                      if (first && replyControl.isUpTop) ...[
+                        const WidgetSpan(
+                          alignment: .middle,
+                          child: PBadge(
+                            text: 'TOP',
+                            size: .small,
+                            isStack: false,
+                            type: .line_primary,
+                            fontSize: 9,
+                            textScaleFactor: 1,
+                          ),
+                        ),
+                        const TextSpan(text: ' '),
+                      ],
+                      _buildMessage(
+                        context,
+                        colorScheme,
+                        (translated
+                                ? CommentTranslator.forReply(
+                                    replyItem,
+                                  )?.contentFor(replyItem)
+                                : null) ??
+                            (replyControl.showTranslation
+                                ? replyItem.translatedContent
+                                : replyItem.content),
+                        replyControl,
                       ),
-                    ),
-                    const TextSpan(text: ' '),
-                  ],
-                  _buildMessage(
-                    context,
-                    colorScheme,
-                    translated ??
-                        (replyControl.showTranslation
-                            ? replyItem.translatedContent
-                            : replyItem.content),
-                    replyControl,
+                    ],
                   ),
-                  if (failed)
-                    TextSpan(
-                      text: '  未能翻译',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colorScheme.outline,
-                      ),
-                    ),
-                ],
-              ),
-            );
-          }),
+                ),
+          ),
         ),
         if (replyItem.content.pictures.isNotEmpty) ...[
           Padding(
@@ -412,7 +414,12 @@ class ReplyItemGrpc extends StatelessWidget {
         if (replyLevel == 1 && replyItem.count > Int64.ZERO) ...[
           Padding(
             padding: const EdgeInsets.only(top: 5, bottom: 12),
-            child: replyItemRow(context, colorScheme, replyItem.replies),
+            // LibrePili: the preview rows show replies' translations too,
+            // and change as they arrive
+            child: Obx(() {
+              CommentTranslator.revision.value;
+              return replyItemRow(context, colorScheme, replyItem.replies);
+            }),
           ),
         ],
       ],
@@ -526,6 +533,9 @@ class ReplyItemGrpc extends StatelessWidget {
     final isLogin = Accounts.main.isLogin;
     // writing replies is also hidden by the hide-interaction switch
     final canReply = isLogin && !Pref.hideInteraction;
+    final translator = CommentTranslator.forReply(replyItem);
+    bool needs(CommentTranslator t) => t.needsReply(replyItem);
+    final onDevice = CommentTranslateButton.shownFor(translator, needs);
     return Row(
       children: [
         const SizedBox(width: 36),
@@ -553,8 +563,22 @@ class ReplyItemGrpc extends StatelessWidget {
             ),
           ),
         if (canReply) const SizedBox(width: 2),
-        if (replyControl.translationSwitch ==
-            .TRANSLATION_SWITCH_SHOW_TRANSLATION) ...[
+        // LibrePili: the on-device translation's button, shared with the
+        // YouTube comments. Where it is shown, bilibili's own 翻译 (its
+        // server's translation) is not: two buttons of the same name on one
+        // comment, doing different things, is one too many
+        if (onDevice) ...[
+          CommentTranslateButton(
+            translator: translator,
+            id: CommentTranslator.idOf(replyItem),
+            needs: needs,
+            onToggle: (t) => t.toggleReply(replyItem),
+          ),
+          const SizedBox(width: 2),
+        ],
+        if (!onDevice &&
+            replyControl.translationSwitch ==
+                .TRANSLATION_SWITCH_SHOW_TRANSLATION) ...[
           _buildTranslateBtn(
             context,
             colorScheme,

@@ -23,6 +23,8 @@ import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show Content, Emote, ReplyInfo;
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
+import 'package:PiliPlus/common/widgets/comments/comment_translation.dart';
+import 'package:PiliPlus/models/common/comment_translation_display.dart';
 import 'package:PiliPlus/services/translate/text_language.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
@@ -1123,6 +1125,17 @@ abstract final class SelfTest {
     }
     if (args.contains('--comment-translate-probe')) {
       await scenario('commentTranslateProbe', _commentTranslateProbe);
+    }
+    // the per-comment button and the bilingual layout, as screenshots
+    // (user 2026-10-01): `--comment-bilingual BILI_URL`,
+    // `--yt-comment-bilingual ID`, with `--shots DIR`
+    if (_arg(args, '--comment-bilingual') case final url?) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('commentBilingualBili', () => _commentBilingualBili(url));
+    }
+    if (_arg(args, '--yt-comment-bilingual') case final video?) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('commentBilingualYt', () => _commentBilingualYt(video));
     }
     if (_arg(args, '--net-probe') case final url?) {
       // the app's own sockets (Dart), to a host the player could not reach:
@@ -4071,6 +4084,178 @@ abstract final class SelfTest {
     };
   }
 
+  /// `--comment-bilingual`: a bilibili video's comments with the list's
+  /// switch on (bilingual), one comment turned back to its original by its
+  /// own button, then the switch off and that comment turned on alone.
+  static Future<Map<String, dynamic>> _commentBilingualBili(String url) async {
+    await PiliScheme.routePushFromUrl(url);
+    await Future.delayed(const Duration(seconds: 5));
+    final VideoDetailController controller;
+    try {
+      controller = Get.find<VideoDetailController>(
+        tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+      );
+    } catch (e) {
+      return {'pass': false, 'reason': 'the page never opened: $e'};
+    }
+    controller.tabCtr.animateTo(1);
+    final reply = Get.find<VideoReplyController>(tag: controller.heroTag);
+    if (reply.loadingState.value is Loading) unawaited(reply.queryData());
+    for (var i = 0; i < 80 && reply.loadingState.value is! Success; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    final state = reply.loadingState.value;
+    if (state is! Success<List<ReplyInfo>?>) {
+      return {'pass': false, 'reason': '$state'};
+    }
+    final list = state.response ?? const [];
+    final result = await _commentBilingual(
+      prefix: 'bili',
+      translator: reply.translator,
+      master: () => reply.translator.toggle(list),
+      ids: [for (final r in list) CommentTranslator.idOf(r)],
+    );
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+    return result;
+  }
+
+  /// [_commentBilingualBili] for a YouTube video.
+  static Future<Map<String, dynamic>> _commentBilingualYt(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 4));
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    await _tapText('评论');
+    controller.ensureCommentsStarted();
+    for (var i = 0; i < 80 && controller.comments.isEmpty; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    final translator = controller.commentTranslator;
+    final result = await _commentBilingual(
+      prefix: 'yt',
+      translator: translator,
+      master: () => translator.toggleTexts(controller.loadedCommentTexts),
+      ids: [for (final c in controller.comments) c.commentId],
+    );
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+    return result;
+  }
+
+  /// The three screens, the same way on both platforms: [master] is what
+  /// the list's 翻译 button does; each comment's own button is tapped.
+  static Future<Map<String, dynamic>> _commentBilingual({
+    required String prefix,
+    required CommentTranslator translator,
+    required VoidCallback master,
+    required List<String> ids,
+  }) async {
+    CommentTranslator.debugDisplay = CommentTranslationDisplay.bilingual;
+    try {
+      bool button(Element e, String id) => switch (e.widget) {
+        CommentTranslateButton(id: final i) => i == id,
+        _ => false,
+      };
+      String? target;
+      // the comment's button low in the view, so its text above it shows
+      Future<void> reveal() async {
+        final id = target;
+        final element = id == null ? null : _findElement((e) => button(e, id));
+        if (element != null) {
+          await Scrollable.ensureVisible(element, alignment: 0.75);
+        }
+        await Future.delayed(const Duration(milliseconds: 600));
+      }
+
+      master();
+      final clock = Stopwatch()..start();
+      while (translator.busy && clock.elapsed < const Duration(minutes: 4)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      final translated = ids.where(translator.showsTranslation).toList();
+      // the first translated comment that is built
+      for (final id in translated) {
+        final element = _findElement((e) => button(e, id));
+        if (element == null) continue;
+        await Scrollable.ensureVisible(element, alignment: 0.75);
+        target = id;
+        break;
+      }
+      await Future.delayed(const Duration(milliseconds: 800));
+      await reveal();
+      final masterOn = await _shot(
+        '${prefix}_1_master_on_bilingual',
+        whole: true,
+      );
+      final first = {
+        'master': translator.enabled.value,
+        'translated': translated.length,
+        'loaded': ids.length,
+        'ms': clock.elapsedMilliseconds,
+      };
+      if (target == null) {
+        return {
+          'pass': false,
+          'reason': 'no translated comment with a button on screen',
+          'masterOn': first,
+          'shots': [masterOn],
+        };
+      }
+      final id = target;
+      // one comment back to its original, by its own button
+      final tappedOff = await _tap((e) => button(e, id));
+      await Future.delayed(const Duration(milliseconds: 500));
+      await reveal();
+      final oneOff = await _shot('${prefix}_2_one_item_off', whole: true);
+      final second = {
+        'master': translator.enabled.value,
+        'shows': translator.shows(id),
+        'overrides': translator.overrides,
+      };
+      // the switch off, then that comment on alone
+      master();
+      await Future.delayed(const Duration(milliseconds: 800));
+      final tappedOn = await _tap((e) => button(e, id));
+      for (var i = 0; i < 120 && translator.pending(id); i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+      await reveal();
+      final oneOn = await _shot('${prefix}_3_master_off_one_on', whole: true);
+      final third = {
+        'master': translator.enabled.value,
+        'shows': translator.shows(id),
+        'showsTranslation': translator.showsTranslation(id),
+        'othersShown': translated
+            .where((e) => e != id && translator.shows(e))
+            .length,
+        'overrides': translator.overrides,
+      };
+      return {
+        'pass':
+            tappedOff &&
+            tappedOn &&
+            first['master'] == true &&
+            second['master'] == true &&
+            second['shows'] == false &&
+            third['master'] == false &&
+            third['showsTranslation'] == true &&
+            third['othersShown'] == 0,
+        'comment': id,
+        'masterOn': first,
+        'oneOff': second,
+        'masterOffOneOn': third,
+        'shots': [masterOn, oneOff, oneOn],
+      };
+    } finally {
+      CommentTranslator.debugDisplay = null;
+    }
+  }
+
   /// `--focus-probe`: see [_focusProbe]; also presses keys (see
   /// [_keyProbe]).
   static bool debugFocusProbe = false;
@@ -5371,7 +5556,9 @@ abstract final class SelfTest {
       'withPublished': page.videos.items
           .where((i) => i.publishedText != null)
           .length,
-      'withViews': page.videos.items.where((i) => i.viewCountText != null).length,
+      'withViews': page.videos.items
+          .where((i) => i.viewCountText != null)
+          .length,
       'firstItems': [
         for (final i in page.videos.items.take(3))
           {
@@ -5414,10 +5601,14 @@ abstract final class SelfTest {
       'firstRows': [
         for (final m in collectObjects(json, 'lockupViewModel').take(2))
           [
-            for (final v in collectObjects(m['metadata'], 'contentMetadataViewModel'))
+            for (final v in collectObjects(
+              m['metadata'],
+              'contentMetadataViewModel',
+            ))
               for (final r in (v['metadataRows'] as List?) ?? const [])
                 [
-                  for (final part in ((r as Map)['metadataParts'] as List?) ?? const [])
+                  for (final part
+                      in ((r as Map)['metadataParts'] as List?) ?? const [])
                     readText((part as Map)['text']),
                 ],
           ],
