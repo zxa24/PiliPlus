@@ -2763,7 +2763,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       debugOnRelease?.call(_read('time-pos'));
       final fast = playbackSpeed;
       final target = lastPlaybackSpeed;
-      switch (debugLongPressRelease) {
+      // `rampsmooth:300`: the ramp over 300 ms (1 s unsaid)
+      final release = debugLongPressRelease?.split(':');
+      switch (release?.first) {
         case 'ramp':
           // down in small steps: each leaves mpv a small A/V gap to take up
           // by resampling instead of the whole 3x buffer at once
@@ -2794,12 +2796,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           // no frames dropped meanwhile: the jump spread into a short
           // slowing down instead of one step
           const steps = 20;
+          final total = int.tryParse(release!.elementAtOrNull(1) ?? '') ?? 1000;
           _holdFrames();
           for (var i = 1; i < steps; i++) {
             if (longPressStatus.value) break;
             final rate = fast + (target - fast) * i / steps;
             await _videoPlayerController?.setRate(rate);
-            await Future.delayed(const Duration(milliseconds: 50));
+            await Future.delayed(Duration(milliseconds: total ~/ steps));
           }
           await setPlaybackSpeed(target);
           lastPlaybackSpeed = target;
