@@ -1,12 +1,14 @@
-import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/image/image_save.dart';
-import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+import 'package:PiliPlus/common/widgets/video_card/video_card_h_frame.dart';
 import 'package:PiliPlus/models_new/space/space_season_series/season.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:material_ui/material_ui.dart';
 
+/// LibrePili: on [VideoCardHFrame], the frame every horizontal card shares —
+/// the YouTube channel's playlist card is the same frame with YouTube's
+/// count badge.
 class SeasonSeriesCard extends StatelessWidget {
   const SeasonSeriesCard({
     super.key,
@@ -22,82 +24,25 @@ class SeasonSeriesCard extends StatelessWidget {
       title: item.meta!.name,
       cover: item.meta!.cover,
     );
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        onLongPress: onLongPress,
-        onSecondaryTap: PlatformUtils.isMobile ? null : onLongPress,
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Style.safeSpace,
-            vertical: 5,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AspectRatio(
-                aspectRatio: Style.aspectRatio,
-                child: LayoutBuilder(
-                  builder: (BuildContext context, BoxConstraints boxConstraints) {
-                    final double maxWidth = boxConstraints.maxWidth;
-                    final double maxHeight = boxConstraints.maxHeight;
-                    return Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        NetworkImgLayer(
-                          src: item.meta!.cover,
-                          width: maxWidth,
-                          height: maxHeight,
-                        ),
-                        PBadge(
-                          text:
-                              '${item.meta!.seasonId != null ? '合集' : '列表'}: ${item.meta!.total}',
-                          bottom: 6.0,
-                          right: 6.0,
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 10),
-              content(context),
-            ],
-          ),
+    return VideoCardHFrame(
+      cover: item.meta!.cover,
+      onLongPress: onLongPress,
+      onSecondaryTap: PlatformUtils.isMobile ? null : onLongPress,
+      onTap: onTap,
+      overlays: [
+        PBadge(
+          text:
+              '${item.meta!.seasonId != null ? '合集' : '列表'}: ${item.meta!.total}',
+          bottom: 6.0,
+          right: 6.0,
         ),
-      ),
-    );
-  }
-
-  Widget content(BuildContext context) {
-    final theme = Theme.of(context);
-    return Expanded(
-      child: Column(
+      ],
+      content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            item.meta!.name!,
-            textAlign: TextAlign.start,
-            style: TextStyle(
-              fontSize: theme.textTheme.bodyMedium!.fontSize,
-              height: 1.42,
-              letterSpacing: 0.3,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
+          VideoCardHTitle(item.meta!.name!),
           const Spacer(),
-          Text(
-            DateFormatUtils.dateFormat(item.meta!.ptime),
-            maxLines: 1,
-            style: TextStyle(
-              fontSize: 12,
-              height: 1,
-              color: theme.colorScheme.outline,
-              overflow: TextOverflow.clip,
-            ),
-          ),
+          VideoCardHLine(DateFormatUtils.dateFormat(item.meta!.ptime)),
           const Spacer(),
         ],
       ),

@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:PiliPlus/common/widgets/video_card/portrait_card_frame.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/button/more_btn.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
@@ -56,13 +57,7 @@ class _MemberHomeState extends State<MemberHome>
 
   late final gridDelegateAudio = Grid.videoCardHDelegate();
 
-  late final gridDelegatePgc = SliverGridDelegateWithExtentAndRatio(
-    mainAxisSpacing: Style.cardSpace,
-    crossAxisSpacing: Style.cardSpace,
-    maxCrossAxisExtent: Grid.smallCardWidth * 0.6,
-    childAspectRatio: 0.75,
-    mainAxisExtent: MediaQuery.textScalerOf(context).scale(52),
-  );
+late final gridDelegatePgc = PortraitCardFrame.gridDelegate(context);
 
   Widget _buildBody(LoadingState<SpaceData?> loadingState) {
     final isVertical = context.width < 600;

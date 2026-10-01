@@ -1,8 +1,6 @@
-import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
-import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
-import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/dynamics/result.dart';
+import 'package:PiliPlus/pages/common/common_list_page.dart';
 import 'package:PiliPlus/pages/dynamics/widgets/dynamic_panel.dart';
 import 'package:PiliPlus/pages/member_dynamics/controller.dart';
 import 'package:PiliPlus/utils/global_data.dart';
@@ -13,6 +11,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:waterfall_flow/waterfall_flow.dart'
     hide SliverWaterfallFlowDelegateWithMaxCrossAxisExtent;
 
+/// LibrePili: on [CommonListPageState], as the YouTube channel's 帖子 tab
+/// is; the feed's frame (waterfall or centred column, skeleton) is
+/// [DynMixin]'s on both.
 class MemberDynamicsPage extends StatefulWidget {
   const MemberDynamicsPage({super.key, this.mid});
 
@@ -22,24 +23,30 @@ class MemberDynamicsPage extends StatefulWidget {
   State<MemberDynamicsPage> createState() => _MemberDynamicsPageState();
 }
 
-class _MemberDynamicsPageState extends State<MemberDynamicsPage>
+class _MemberDynamicsPageState
+    extends
+        CommonListPageState<
+          MemberDynamicsPage,
+          DynamicsDataModel,
+          DynamicItemModel
+        >
     with AutomaticKeepAliveClientMixin, DynMixin {
-  late MemberDynamicsController _memberDynamicController;
-  late int mid;
+  late final int mid = widget.mid ?? int.parse(Get.parameters['mid']!);
+
+  @override
+  late final MemberDynamicsController controller = Get.put(
+    MemberDynamicsController(mid),
+    tag: Utils.makeHeroTag(mid),
+  );
 
   @override
   bool get wantKeepAlive => true;
 
   @override
-  void initState() {
-    super.initState();
-    mid = widget.mid ?? int.parse(Get.parameters['mid']!);
-    final String heroTag = Utils.makeHeroTag(mid);
-    _memberDynamicController = Get.put(
-      MemberDynamicsController(mid),
-      tag: heroTag,
-    );
-  }
+  bool get isClampingScrollPhysics => widget.mid != null;
+
+  @override
+  Widget wrapSliver(Widget sliver) => buildPage(sliver);
 
   @override
   Widget build(BuildContext context) {
@@ -53,64 +60,38 @@ class _MemberDynamicsPageState extends State<MemberDynamicsPage>
                 left: padding.left,
                 right: padding.right,
               ),
-              child: _buildBody(padding),
+              child: buildBody(context),
             ),
           )
-        : _buildBody(padding);
+        : buildBody(context);
   }
 
-  Widget _buildBody(EdgeInsets padding) => refreshIndicator(
-    isClampingScrollPhysics: widget.mid != null,
-    onRefresh: _memberDynamicController.onRefresh,
-    child: CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        SliverPadding(
-          padding: EdgeInsets.only(bottom: padding.bottom + 100),
-          sliver: buildPage(
-            Obx(
-              () => _buildContent(_memberDynamicController.loadingState.value),
-            ),
+  @override
+  Widget get buildLoading => dynSkeleton;
+
+  @override
+  Widget buildList(List<DynamicItemModel> list) =>
+      GlobalData().dynamicsWaterfallFlow
+      ? SliverWaterfallFlow(
+          gridDelegate: dynGridDelegate,
+          delegate: SliverChildBuilderDelegate(
+            (_, index) => _itemBuilder(list, index),
+            childCount: list.length,
           ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _buildContent(LoadingState<List<DynamicItemModel>?> loadingState) {
-    return switch (loadingState) {
-      Loading() => dynSkeleton,
-      Success(:final response) =>
-        response != null && response.isNotEmpty
-            ? GlobalData().dynamicsWaterfallFlow
-                  ? SliverWaterfallFlow(
-                      gridDelegate: dynGridDelegate,
-                      delegate: SliverChildBuilderDelegate(
-                        (_, index) => _itemBuilder(response, index),
-                        childCount: response.length,
-                      ),
-                    )
-                  : SliverList.builder(
-                      itemBuilder: (context, index) =>
-                          _itemBuilder(response, index),
-                      itemCount: response.length,
-                    )
-            : HttpError(onReload: _memberDynamicController.onReload),
-      Error(:final errMsg) => HttpError(
-        errMsg: errMsg,
-        onReload: _memberDynamicController.onReload,
-      ),
-    };
-  }
+        )
+      : SliverList.builder(
+          itemBuilder: (context, index) => _itemBuilder(list, index),
+          itemCount: list.length,
+        );
 
   Widget _itemBuilder(List<DynamicItemModel> list, int index) {
     if (index == list.length - 1) {
-      _memberDynamicController.onLoadMore();
+      controller.onLoadMore();
     }
     return DynamicPanel(
       item: list[index],
-      onRemove: _memberDynamicController.onRemove,
-      onSetTop: _memberDynamicController.onSetTop,
+      onRemove: controller.onRemove,
+      onSetTop: controller.onSetTop,
     );
   }
 }
