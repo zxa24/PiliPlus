@@ -2521,7 +2521,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
 
+    final from = _videoPlayerController?.state.rate ?? 1;
+    final before = double.tryParse(_read('time-pos'));
+    final asked = DateTime.now();
     await _videoPlayerController?.setRate(speed);
+    _watchSpeedJump(from, speed, before, asked, DateTime.now());
     _playbackSpeed.value = speed;
     if (danmakuController != null) {
       try {
@@ -2759,6 +2763,48 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
       }
     }
+  }
+
+  /// A speed change that moves the picture by more than the speeds account
+  /// for: letting go of 3x jumped 0.56 s ahead in 35 ms with no frame
+  /// counted as dropped (2026-10-01), which no counter shows. Read 0.5 s
+  /// after the change, against what [from] until it was made and [to]
+  /// after would have played.
+  void _watchSpeedJump(
+    double from,
+    double to,
+    double? before,
+    DateTime asked,
+    DateTime made,
+  ) {
+    if (before == null || isLive || !playerStatus.isPlaying) return;
+    // a seek or an open under way moves the playhead by itself
+    if (isBuffering.value || asked.isBefore(_smoothQuietUntil)) return;
+    var buffered = false;
+    final watch = isBuffering.listen((b) => buffered |= b);
+    Timer(const Duration(milliseconds: 500), () {
+      watch.cancel();
+      final after = double.tryParse(_read('time-pos'));
+      if (after == null ||
+          buffered ||
+          !playerStatus.isPlaying ||
+          isBuffering.value ||
+          DateTime.now().isBefore(_smoothQuietUntil)) {
+        return;
+      }
+      final now = DateTime.now();
+      double s(Duration d) => d.inMicroseconds / 1e6;
+      final expected =
+          s(made.difference(asked)) * from + s(now.difference(made)) * to;
+      final off = after - before - expected;
+      if (off.abs() < 0.15) return;
+      EventLog.add(
+        'player',
+        '${off > 0 ? '跳跃 +' : '停顿 '}'
+            '${off.abs().toStringAsFixed(2)} s: 倍速 ${from}x → ${to}x'
+            ' @${before.toStringAsFixed(1)}s',
+      );
+    });
   }
 
   /// How a long press lets go of its speed, for the self test to compare
