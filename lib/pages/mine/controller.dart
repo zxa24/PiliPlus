@@ -44,15 +44,18 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
   /// mode is not incognito.)
   static RxBool anonymity = (!LoginPolicy.loginMode).obs;
 
-  late final list = <({IconData icon, String title, VoidCallback onTap})>[
+  late final list =
+      <({IconData icon, String title, VoidCallback onTap, bool needsLogin})>[
     (
       icon: CustomIcons.folderDownloadOutline,
       title: '离线缓存',
+      needsLogin: false,
       onTap: () => Get.toNamed('/download'),
     ),
     (
       icon: CustomIcons.history,
       title: '观看记录',
+      needsLogin: false,
       // the local history needs no account (the account tab shows only
       // when one is in use)
       onTap: () => Get.toNamed('/history'),
@@ -60,6 +63,7 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
     (
       icon: CustomIcons.subscriptions_outlined,
       title: '我的订阅',
+      needsLogin: true,
       onTap: () {
         if (isLogin) {
           Get.toNamed('/subscription');
@@ -69,6 +73,7 @@ class MineController extends CommonDataController<FavFolderData, FavFolderData>
     (
       icon: CustomIcons.watch_later_outlined,
       title: '稍后再看',
+      needsLogin: true,
       onTap: () {
         if (isLogin) {
           Get.toNamed('/later');

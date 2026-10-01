@@ -106,8 +106,12 @@ class _MediaPageState extends CommonPageState<MinePage>
   }
 
   Widget _buildActions(Color primary) {
-    // LibrePili: history / subscriptions / watch-later need login
-    final list = controller.isLogin ? controller.list : controller.list.take(1);
+    // LibrePili: subscriptions / watch-later need login; the downloads and
+    // the history kept on this device do not (logged out, the history had
+    // no way in after it became local, 2026-10-01)
+    final list = controller.isLogin
+        ? controller.list
+        : controller.list.where((e) => !e.needsLogin);
     return Row(
       mainAxisAlignment: .spaceEvenly,
       children: list

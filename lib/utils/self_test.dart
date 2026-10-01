@@ -9,6 +9,7 @@ import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/pages/mine/view.dart';
 import 'package:PiliPlus/pages/rcmd/controller.dart';
 import 'package:PiliPlus/http/member.dart';
 import 'package:crypto/crypto.dart';
@@ -1154,6 +1155,10 @@ abstract final class SelfTest {
     // a pause past the play URLs' expiry (user 2026-10-01: paused 9.5 h, it
     // would not play again): `--renew-pause BILI_URL|yt:ID`, the URLs made
     // to expire `--expire-after` s after they are opened
+    if (args.contains('--mine-entries')) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('mineEntries', _mineEntries);
+    }
     if (_arg(args, '--broken-reopen') case final target?) {
       await scenario('brokenReopen', () => _brokenReopen(target));
     }
@@ -1660,6 +1665,34 @@ abstract final class SelfTest {
       'positionBefore': before,
       'timeline': timeline,
       'events': events,
+    };
+  }
+
+  /// `--mine-entries`: the buttons on 我的 as the viewer sees them (a new
+  /// profile is logged out), and that 观看记录 opens the history kept on
+  /// this device (user 2026-10-01: logged out, it had no way in).
+  static Future<Map<String, dynamic>> _mineEntries() async {
+    unawaited(Get.to(() => const MinePage(showBackBtn: true)));
+    await Future.delayed(const Duration(seconds: 3));
+    final shown = [
+      for (final title in const ['离线缓存', '观看记录', '我的订阅', '稍后再看'])
+        if (_findElement(_isText(title)) != null) title,
+    ];
+    final mine = await _shot('mine');
+    final tapped = await _tapText('观看记录');
+    await Future.delayed(const Duration(seconds: 3));
+    final route = Get.currentRoute;
+    final history = await _shot('history');
+    Get.back();
+    await Future.delayed(const Duration(milliseconds: 500));
+    Get.back();
+    return {
+      'pass': tapped && route == '/history' && !shown.contains('稍后再看'),
+      'loggedIn': Accounts.main.isLogin,
+      'shown': shown,
+      'tapped': tapped,
+      'route': route,
+      'shots': [mine, history],
     };
   }
 
