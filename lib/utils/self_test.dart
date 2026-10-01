@@ -1154,6 +1154,12 @@ abstract final class SelfTest {
     // a pause past the play URLs' expiry (user 2026-10-01: paused 9.5 h, it
     // would not play again): `--renew-pause BILI_URL|yt:ID`, the URLs made
     // to expire `--expire-after` s after they are opened
+    if (_arg(args, '--broken-reopen') case final target?) {
+      await scenario('brokenReopen', () => _brokenReopen(target));
+    }
+    if (_arg(args, '--subs-reopen') case final target?) {
+      await scenario('subsReopen', () => _subsReopen(target));
+    }
     if (_arg(args, '--renew-pause') case final target?) {
       await scenario(
         'renewPause',
@@ -1527,6 +1533,134 @@ abstract final class SelfTest {
     } finally {
       PlPlayerController.debugExpiresIn = null;
     }
+  }
+
+  /// `--subs-reopen BILI_URL`: a subtitle picked, then every way the player
+  /// reopens the video under it — is the subtitle still on mpv after each?
+  /// (user 2026-10-01: no subtitles after the stream was reopened)
+  static Future<Map<String, dynamic>> _subsReopen(String target) async {
+    final start = DateTime.now();
+    await PiliScheme.routePushFromUrl(target);
+    await Future.delayed(const Duration(seconds: 5));
+    final page = Get.find<VideoDetailController>(
+      tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+    );
+    for (var i = 0; i < 30 && !page.videoState.value; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    for (var i = 0; i < 15 && page.subtitles.isEmpty; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final player = page.plPlayerController;
+    String read(String name) {
+      try {
+        return player.videoPlayerController?.getProperty(name) ?? '';
+      } catch (_) {
+        return '';
+      }
+    }
+
+    Map<String, Object?> now(String step) => {
+      'step': step,
+      'at': player.position.value,
+      'sid': read('sid'),
+      'subTracks': read('track-list/count'),
+      'subText': read('sub-text'),
+      'pageIndex': page.vttSubtitlesIndex.value,
+    };
+
+    final steps = <Map<String, Object?>>[];
+    if (page.subtitles.isEmpty) {
+      return {'pass': false, 'reason': 'no subtitles on this video'};
+    }
+    await page.setSubtitle(1);
+    await player.play();
+    await Future.delayed(const Duration(seconds: 8));
+    steps.add(now('picked'));
+    final ways = <String, Future<void> Function()>{
+      'refreshPlayer': () async => player.refreshPlayer(),
+      'onReopen': () async => player.onReopen?.call(),
+      'onCdnFailover': () async => player.onCdnFailover?.call(),
+      'onSourceExpired': () async => player.onSourceExpired?.call(
+        Duration(seconds: player.position.value),
+      ),
+    };
+    for (final way in ways.entries) {
+      await way.value();
+      await Future.delayed(const Duration(seconds: 10));
+      if (!player.playerStatus.isPlaying) await player.play();
+      // what follows a reopen (a hand over to a faster host) settles too
+      await Future.delayed(const Duration(seconds: 10));
+      steps.add(now(way.key));
+    }
+    final lost = [
+      for (final s in steps)
+        if (s['sid'] == 'no' || s['sid'] == '') s['step'],
+    ];
+    return {
+      'pass': lost.isEmpty,
+      'lostAfter': lost,
+      'steps': steps,
+      'events': [
+        for (final (_, line) in EventLog.entries(since: start)) line,
+      ],
+    };
+  }
+
+  /// `--broken-reopen BILI_URL`: 20 s in, the page reopens on URLs every
+  /// host refuses (403, as past their expiry), with no other host to try.
+  /// Does the player then call it watched to the end — the heartbeat that
+  /// makes bilibili open it at the start? (user 2026-10-01: reopened after
+  /// a failure, it started over)
+  static Future<Map<String, dynamic>> _brokenReopen(String target) async {
+    final start = DateTime.now();
+    await PiliScheme.routePushFromUrl(target);
+    await Future.delayed(const Duration(seconds: 5));
+    final page = Get.find<VideoDetailController>(
+      tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+    );
+    for (var i = 0; i < 30 && !page.videoState.value; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final player = page.plPlayerController;
+    await player.play();
+    for (var i = 0; i < 40 && player.position.value < 20; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final before = player.position.value;
+    String broken(String url) =>
+        url.replaceAllMapped(RegExp(r'upsig=[0-9a-f]+'), (_) => 'upsig=0');
+    page
+      ..videoUrl = broken(page.videoUrl!)
+      ..audioUrl = page.audioUrl == null ? null : broken(page.audioUrl!);
+    PlPlayerController.debugDisableRecovery = true;
+    final timeline = <Map<String, Object?>>[];
+    try {
+      player.onReopen?.call();
+      for (var i = 0; i < 40; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        timeline.add({
+          's': i + 1,
+          'position': player.position.value,
+          'status': player.playerStatus.value.name,
+          'completed': player.videoPlayerController?.state.completed,
+        });
+      }
+    } finally {
+      PlPlayerController.debugDisableRecovery = false;
+    }
+    final events = [
+      for (final (_, line) in EventLog.entries(since: start)) line,
+    ];
+    final completedBeat = events.any((e) => e.contains('heartbeat: completed'));
+    return {
+      // a failure is not the end of the video
+      'pass': !completedBeat,
+      'completedHeartbeat': completedBeat,
+      'positionBefore': before,
+      'timeline': timeline,
+      'events': events,
+    };
   }
 
   static Future<Map<String, dynamic>> _hoverControls(String input) async {

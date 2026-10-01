@@ -176,6 +176,9 @@ class YtVideoController extends GetxController
     // or translation that was on screen, which is only handed over again
     // when it has something new, and a finished or stopped one never is
     final generated = captionIndex.value == -2 ? _generatedTrack : null;
+    // and a caption track the same: new streams after a long pause came
+    // back without the captions on screen (2026-10-01)
+    final caption = captionIndex.value;
     // the player is shared: the bilibili page sets its own
     plPlayerController.onSourceExpired = _renewStreams;
     await plPlayerController.setDataSource(
@@ -193,7 +196,9 @@ class YtVideoController extends GetxController
         _watchPlayback();
         stage.value = YtPageStage.ready;
         if (generated != null) {
-          plPlayerController.videoPlayerController?.setSubtitleTrack(generated);
+          plPlayerController.setSubtitle(generated);
+        } else if (caption >= 0) {
+          _showCaption(caption);
         }
       },
     );
@@ -237,7 +242,7 @@ class YtVideoController extends GetxController
     final player = plPlayerController.videoPlayerController;
     if (player == null) return;
     if (index < 0 || index >= captions.length) {
-      await player.setSubtitleTrack(SubtitleTrack.no());
+      await plPlayerController.setSubtitle(SubtitleTrack.no());
       captionIndex.value = -1;
       return;
     }
@@ -256,7 +261,7 @@ class YtVideoController extends GetxController
     }
     if (isClosed) return;
     final track = captions[index];
-    await player.setSubtitleTrack(
+    await plPlayerController.setSubtitle(
       SubtitleTrack(
         'memory://$content',
         track.name.isEmpty ? track.languageCode : track.name,
@@ -960,7 +965,7 @@ class YtVideoController extends GetxController
 
   void _showGeneratedTrack(SubtitleTrack track) {
     _generatedTrack = track;
-    plPlayerController.videoPlayerController?.setSubtitleTrack(track);
+    plPlayerController.setSubtitle(track);
     captionIndex.value = -2;
   }
 

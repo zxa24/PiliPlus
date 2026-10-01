@@ -704,6 +704,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }) async {
     try {
       _processing = true;
+      // another video: its page says which subtitle it shows (a reopen of
+      // the same one keeps it). Without ids (YouTube) the page sets it again
+      // on every open.
+      if (cid == null || cid != this.cid || bvid != _bvid) _subtitle = null;
       this.isLive = isLive;
       _videoType = videoType ?? VideoType.ugc;
       this.width = width;
@@ -1826,7 +1830,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         await setShader(null, next);
       }
       if (!await readyAt(target)) return false;
-      final subtitle = old.state.track.subtitle;
+      // the one kept for reopens: the old player's own state misses a track
+      // added again after a reopen (a hand over right after one went on
+      // without subtitles, 2026-10-01)
+      final subtitle = _subtitle ?? old.state.track.subtitle;
       if (subtitle.uri) await next.setSubtitleTrack(subtitle);
 
       // Where the first player is, and whether it is getting anywhere. The
@@ -2510,7 +2517,35 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _pendingSeek = null;
       if (pending != null && ready) seekTo(pending, isSeek: false);
       if (ready) _checkAv1Decoding(player);
+      if (ready) _restoreSubtitle(player);
     });
+  }
+
+  /// The subtitle the page shows, null for none: kept here so every reopen
+  /// of the video (a retry, a CDN switch, new play URLs, a stream fallen
+  /// behind) has it again. mpv drops an added track with the file, and a
+  /// track added before the file has loaded is refused — the user's copy
+  /// played on without subtitles after a reopen (2026-10-01).
+  SubtitleTrack? _subtitle;
+
+  /// Shows [track] (or none, [SubtitleTrack.no]) and keeps it for reopens.
+  Future<void> setSubtitle(SubtitleTrack track) async {
+    _subtitle = track.uri ? track : null;
+    await _videoPlayerController?.setSubtitleTrack(track);
+  }
+
+  void _restoreSubtitle(NativePlayer player) {
+    final track = _subtitle;
+    if (track == null) return;
+    final String sid;
+    try {
+      sid = player.getProperty('sid');
+    } catch (_) {
+      return;
+    }
+    if (sid.isNotEmpty && sid != 'no') return;
+    EventLog.add('player', 'subtitle lost with the reopen: added again');
+    player.setSubtitleTrack(track);
   }
 
   /// 设置倍速
@@ -3122,6 +3157,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             (durationInMilliseconds - positionInMilliseconds) <= 1000) {
           progress = -1;
         }
+        // -1 is "watched to the end": bilibili opens it at the start next
+        EventLog.add(
+          'player',
+          'heartbeat: completed, progress $progress at '
+              '${positionInMilliseconds ~/ 1000} s of '
+              '${durationInMilliseconds ~/ 1000} s',
+        );
         return send();
     }
     return null;
