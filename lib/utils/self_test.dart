@@ -27,6 +27,11 @@ import 'package:PiliPlus/services/translate/text_language.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
+import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+import 'package:PiliPlus/common/widgets/view_safe_area.dart';
+import 'package:PiliPlus/pages/member_contribute/controller.dart';
+import 'package:PiliPlus/pages/member_contribute/view.dart';
+import 'package:PiliPlus/pages/member_video/view.dart';
 import 'package:PiliPlus/models/common/subtitle_source.dart';
 import 'package:PiliPlus/models/common/video/source_type.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
@@ -49,6 +54,7 @@ import 'package:PiliPlus/pages/local/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
+import 'package:PiliPlus/pages/youtube/channel/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/widgets/post_card.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
@@ -127,6 +133,7 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart'
 import 'package:material_ui/material_ui.dart'
     show
         AlertDialog,
+        AppBar,
         IconButton,
         PopupMenuButton,
         Scaffold,
@@ -372,10 +379,26 @@ abstract final class SelfTest {
         // the first line alone said "a RenderFlex overflowed" and nothing else
         '${details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().substring(0, math.min(320, details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().length))}'
         '${where.isEmpty ? '' : ' @ $where'}'
-        '${(info ?? '').isEmpty ? '' : ' :: ${info!.replaceAll(RegExp(r'\s+'), ' ').trim()}'}',
+        '${(info ?? '').isEmpty ? '' : ' :: ${info!.replaceAll(RegExp(r'\s+'), ' ').trim()}'}'
+        // the frames that say whose code it was: an assertion inside the
+        // framework names no widget, and its first line names no file
+        '${_appFrames(details.stack)}',
       );
       previous?.call(details);
     };
+  }
+
+  /// Up to four stack frames from outside the Flutter framework.
+  static String _appFrames(StackTrace? stack) {
+    if (stack == null) return '';
+    final frames = stack
+        .toString()
+        .split('\n')
+        .where((l) => l.contains('package:') && !l.contains('package:flutter/'))
+        .take(4)
+        .map((l) => l.replaceAll(RegExp(r'\s+'), ' ').trim())
+        .toList();
+    return frames.isEmpty ? '' : ' ## ${frames.join(' | ')}';
   }
 
   // ------------------------------------------------------------ driving UI
@@ -3246,7 +3269,12 @@ abstract final class SelfTest {
       await WidgetsBinding.instance.endOfFrame;
       final view = WidgetsBinding.instance.renderViews.first;
       final layer = view.debugLayer! as OffsetLayer;
-      final image = await layer.toImage(Offset.zero & view.size);
+      // the root layer draws in physical pixels: bounds in logical ones cut
+      // a window at 125 % scaling down to its left 80 % (measured: a
+      // 1086-logical-wide page came out showing 869 of it)
+      final image = await layer.toImage(
+        Offset.zero & view.flutterView.physicalSize,
+      );
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       final file = File(path.join(dir, '$name.png'));
@@ -5550,16 +5578,22 @@ abstract final class SelfTest {
     required String bvid,
     required String channel,
     required String query,
+    String streamsChannel = 'UCknLrEdhRCp1aegoMqRaCZg',
   }) async {
     final shots = <String?>[];
     final missing = <String>[];
     final geometry = <String, Object?>{};
+    // how many UI errors had been raised when each shot was taken, so an
+    // error can be placed between two steps
+    final errorsAt = <String, int>{};
     Future<void> settle([int seconds = 5]) =>
         Future.delayed(Duration(seconds: seconds));
     Future<void> shot(String name) async {
       shots.add(await _shot(name));
       geometry[name] = _uiGeometry();
+      errorsAt[name] = uiErrors.length;
     }
+
     Future<bool> tapType(String type) =>
         _tap((e) => e.widget.runtimeType.toString() == type);
     Future<void> tab(String label, String name) async {
@@ -5591,7 +5625,9 @@ abstract final class SelfTest {
       await shot('${tag}_bili_search');
       await back();
 
-      unawaited(PiliScheme.routePushFromUrl('https://www.bilibili.com/video/$bvid'));
+      unawaited(
+        PiliScheme.routePushFromUrl('https://www.bilibili.com/video/$bvid'),
+      );
       await settle(8);
       await shot('${tag}_bili_video');
       await back();
@@ -5600,7 +5636,42 @@ abstract final class SelfTest {
       await settle(6);
       await shot('${tag}_bili_space');
       await tab('投稿', '${tag}_bili_space_contribute');
-      await tab('全部合集/列表', '${tag}_bili_space_seasons');
+      // a 合集 opened as SeasonSeriesPage opens one (the page a YouTube
+      // playlist is aligned with): by the first season among the 投稿
+      // sub-tabs, which every UP with a 合集 has, unlike the 全部合集/列表 tab
+      final contribute = _findElement((e) => e.widget is MemberContribute)
+          ?.widget as MemberContribute?;
+      final heroTag = contribute?.heroTag;
+      final season =
+          heroTag != null &&
+              Get.isRegistered<MemberContributeCtr>(tag: heroTag)
+          ? Get.find<MemberContributeCtr>(
+              tag: heroTag,
+            ).items?.where((i) => i.seasonId != null).firstOrNull
+          : null;
+      if (season != null) {
+        unawaited(
+          Get.to(
+            SimpleScaffold(
+              appBar: AppBar(title: Text(season.title ?? '')),
+              body: ViewSafeArea(
+                child: MemberVideo(
+                  type: ContributeType.season,
+                  heroTag: heroTag,
+                  mid: int.parse(mid),
+                  seasonId: season.seasonId,
+                  title: season.title,
+                ),
+              ),
+            ),
+          ),
+        );
+        await settle(6);
+        await shot('${tag}_bili_season_page');
+        await back();
+      } else {
+        missing.add('${tag}_bili_season_page');
+      }
       await tab('动态', '${tag}_bili_space_dynamic');
       await back();
 
@@ -5611,25 +5682,41 @@ abstract final class SelfTest {
       await shot('${tag}_yt_search');
       await back();
 
+      // tabs are chosen through the page's own tab controller: a tap on a
+      // label found by its text can land on a covered route's label of the
+      // same text (the home page has a 直播 tab)
+      Future<void> ytTab(String id, YtChannelTab t, String name) async {
+        final page = Get.isRegistered<YtChannelController>(tag: id)
+            ? Get.find<YtChannelController>(tag: id)
+            : null;
+        final index = page?.tabs.indexOf(t) ?? -1;
+        if (page == null || index < 0) {
+          missing.add(name);
+          return;
+        }
+        page.tabController?.animateTo(index);
+        await settle(5);
+        await shot(name);
+      }
+
       unawaited(Get.toNamed('/ytChannel', parameters: {'id': channel}));
       await settle(6);
       await shot('${tag}_yt_channel');
-      await tab('视频', '${tag}_yt_videos');
-      await tab('Shorts', '${tag}_yt_shorts');
-      await tab('直播', '${tag}_yt_streams');
-      await tab('帖子', '${tag}_yt_posts');
+      await ytTab(channel, YtChannelTab.videos, '${tag}_yt_videos');
+      await ytTab(channel, YtChannelTab.shorts, '${tag}_yt_shorts');
+      await ytTab(channel, YtChannelTab.posts, '${tag}_yt_posts');
       // opened as its own tap does, not by tapping its centre: that lands
       // on the image as often as not, and opens the image viewer
       if (_findElement((e) => e.widget is YtPostCard)?.widget
           case final YtPostCard card) {
         YtPostCard.open(card.post);
-        await settle(6);
+        await settle(8);
         await shot('${tag}_yt_post_detail');
         await back();
       } else {
         missing.add('${tag}_yt_post_detail');
       }
-      await tab('播放列表', '${tag}_yt_playlists');
+      await ytTab(channel, YtChannelTab.playlists, '${tag}_yt_playlists');
       if (await tapType('YtPlaylistCard')) {
         await settle(6);
         await shot('${tag}_yt_playlist');
@@ -5638,11 +5725,18 @@ abstract final class SelfTest {
         missing.add('${tag}_yt_playlist');
       }
       await back();
+
+      // 直播 needs a channel that streams
+      unawaited(Get.toNamed('/ytChannel', parameters: {'id': streamsChannel}));
+      await settle(6);
+      await ytTab(streamsChannel, YtChannelTab.streams, '${tag}_yt_streams');
+      await back();
     }
     return {
       'pass': !shots.any((s) => s == null || s.startsWith('failed')),
       'shots': shots,
       'missing': missing,
+      'errorsAt': errorsAt,
       'geometry': geometry,
     };
   }

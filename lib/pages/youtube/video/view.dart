@@ -174,7 +174,11 @@ class _YtVideoPageState extends State<YtVideoPage>
     // a bare GridView that showed 「暂无相关视频」 for all three.
     if (controller.related.isEmpty) {
       if (controller.relatedError.value case final error?) {
-        return HttpError(errMsg: error, onReload: controller.reloadRelated);
+        return HttpError(
+          isSliver: false,
+          errMsg: error,
+          onReload: controller.reloadRelated,
+        );
       }
       if (controller.relatedPending) {
         return GridView.builder(

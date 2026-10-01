@@ -33,8 +33,17 @@ import 'package:material_ui/material_ui.dart';
 class YtPostController extends GetxController with YtCommentsMixin {
   YtPostController(this.params, {this.postId, YtPost? post})
     : router = YtSourceRouter(YtDirectSource.create()) {
-    if (post != null) loadingState.value = Success(post);
+    if (post != null) {
+      loadingState.value = Success(post);
+      commentCount.value = post.commentCountText;
+    }
   }
+
+  /// The count on the 评论 tab. The list's post carries it on its reply
+  /// button; the detail page's copy of the post has no such button, so it
+  /// is kept from whichever had it rather than dropped when the detail
+  /// lands.
+  final commentCount = RxnString();
 
   /// The `FEpost_detail` params the post's links carry.
   final String params;
@@ -69,6 +78,7 @@ class YtPostController extends GetxController with YtCommentsMixin {
       return;
     }
     loadingState.value = Success(result.value!.post);
+    commentCount.value ??= result.value!.post.commentCountText;
     commentsToken = result.value!.commentsToken;
     ensureCommentsStarted();
   }
@@ -159,7 +169,7 @@ class _YtPostPageState extends State<YtPostPage>
   /// The 评论 tab bar, as bilibili's detail page draws its three.
   Widget _tabBar() {
     final theme = Theme.of(context);
-    final count = controller.loadingState.value.dataOrNull?.commentCountText;
+    final count = controller.commentCount.value;
     return SizedBox(
       height: 40,
       child: DynTabBar(

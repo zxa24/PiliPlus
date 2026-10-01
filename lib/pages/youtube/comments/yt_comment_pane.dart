@@ -57,7 +57,13 @@ class _YtCommentPaneState extends State<YtCommentPane> {
       if (error != null) {
         // a failed request used to empty into 「暂无评论」, which is what a
         // video with comments turned off says: the two were the same screen
-        return HttpError(errMsg: error, onReload: controller.retryComments);
+        // a box here, not the sliver HttpError is by default: as a sliver
+        // it threw the moment a comment request failed
+        return HttpError(
+          isSliver: false,
+          errMsg: error,
+          onReload: controller.retryComments,
+        );
       }
       if (controller.commentsPending) {
         return ListView(
@@ -455,6 +461,7 @@ class _YtCommentPaneState extends State<YtCommentPane> {
                 SizedBox(
                   height: 300,
                   child: HttpError(
+                    isSliver: false,
                     errMsg: error,
                     onReload: () => controller.refreshReplies(comment),
                   ),
