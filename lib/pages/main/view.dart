@@ -23,6 +23,7 @@ import 'package:PiliPlus/utils/extension/context_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/mobile_observer.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -183,13 +184,51 @@ class _MainAppState extends PopScopeState<MainApp>
   }
 
   @override
-  void onWindowClose() {
+  Future<void> onWindowClose() async {
+    // LibrePili: the first close asks what closing should do (user
+    // 2026-09-30), with a tray to go to and nothing chosen yet; the answer
+    // is kept as 退出时最小化 (其它设置). Not in a self test, whose
+    // instances are closed by scripts.
+    if (_mainController.showTrayIcon &&
+        !isSelfTestProfile &&
+        !_setting.containsKey(SettingBoxKey.minimizeOnExit)) {
+      final toTray = await _askOnFirstClose();
+      // dismissed: the window stays
+      if (toTray == null) return;
+      _setting.put(SettingBoxKey.minimizeOnExit, toTray);
+      _mainController.minimizeOnExit = toTray;
+    }
     if (_mainController.showTrayIcon && _mainController.minimizeOnExit) {
       _hide();
       _onHideWindow();
     } else {
       _onClose();
     }
+  }
+
+  /// true for the tray, false to quit, null when dismissed.
+  Future<bool?> _askOnFirstClose() {
+    if (!mounted) return Future.value(false);
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('关闭窗口时'),
+        content: const Text(
+          '最小化到托盘会让 LibrePili 继续在后台运行；退出则完全关闭。\n'
+          '选择会被记住，之后可在 设置 → 其它设置 → 退出时最小化 中修改。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('最小化到托盘'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('退出'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _onClose() async {
