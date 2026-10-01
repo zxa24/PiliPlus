@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
 import 'package:PiliPlus/common/widgets/dialog/report.dart';
 import 'package:PiliPlus/common/widgets/pendant_avatar.dart';
+import 'package:PiliPlus/common/widgets/space/dyn_card_frame.dart';
 import 'package:PiliPlus/common/widgets/translucent_row.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -72,10 +73,7 @@ class AuthorPanel extends StatelessWidget {
     if (pubTime != null) {
       pubTs = Text(
         '$pubTime${moduleAuthor.pubAction != null ? ' ${moduleAuthor.pubAction}' : ''}',
-        style: TextStyle(
-          color: theme.colorScheme.outline,
-          fontSize: theme.textTheme.labelSmall!.fontSize,
-        ),
+        style: DynAuthor.timeStyle(theme),
       );
       if (moduleAuthor.badgeText case final badgeText?) {
         pubTs = Row(
@@ -85,44 +83,39 @@ class AuthorPanel extends StatelessWidget {
             pubTs,
             Text(
               badgeText,
-              style: TextStyle(
+              style: DynAuthor.timeStyle(
+                theme,
                 color: theme.colorScheme.secondary,
-                fontSize: theme.textTheme.labelSmall!.fontSize,
               ),
             ),
           ],
         );
       }
     }
-    final children = [
-      PendantAvatar(
-        size: 40,
+    // LibrePili: the row's geometry and type are [DynAuthor]'s, shared with
+    // the YouTube post card
+    final children = DynAuthor.children(
+      avatar: PendantAvatar(
+        size: DynAuthor.avatarSize,
         moduleAuthor.face,
         pendantImage: moduleAuthor.pendant?.image,
       ),
-      Flexible(
-        child: Column(
-          crossAxisAlignment: .start,
-          children: [
-            Text(
-              moduleAuthor.name!,
-              maxLines: 1,
-              overflow: .ellipsis,
-              style: TextStyle(
-                color:
-                    moduleAuthor.vip != null &&
-                        moduleAuthor.vip!.status > 0 &&
-                        moduleAuthor.vip!.type == 2
-                    ? theme.colorScheme.vipColor
-                    : theme.colorScheme.onSurface,
-                fontSize: theme.textTheme.titleSmall!.fontSize,
-              ),
-            ),
-            ?pubTs,
-          ],
+      name: Text(
+        moduleAuthor.name!,
+        maxLines: 1,
+        overflow: .ellipsis,
+        style: DynAuthor.nameStyle(
+          theme,
+          color:
+              moduleAuthor.vip != null &&
+                  moduleAuthor.vip!.status > 0 &&
+                  moduleAuthor.vip!.type == 2
+              ? theme.colorScheme.vipColor
+              : null,
         ),
       ),
-    ];
+      time: pubTs,
+    );
     Widget header;
     if (moduleAuthor.type == 'AUTHOR_TYPE_NORMAL') {
       header = GestureDetector(
@@ -131,13 +124,13 @@ class AuthorPanel extends StatelessWidget {
           Get.toNamed('/member?mid=${moduleAuthor.mid}'),
         },
         child: TranslucentRow(
-          spacing: 10,
+          spacing: DynAuthor.spacing,
           extraWidth: 50,
           children: children,
         ),
       );
     } else {
-      header = Row(spacing: 10, children: children);
+      header = Row(spacing: DynAuthor.spacing, children: children);
     }
     Widget? moreBtn = isSave
         ? null

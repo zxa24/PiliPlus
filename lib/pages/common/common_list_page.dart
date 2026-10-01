@@ -49,19 +49,36 @@ abstract class CommonListPageState<S extends StatefulWidget, R, T>
   /// Room under the list for whatever floats over it.
   double get bottomPadding => 100;
 
+  /// True for a list inside a tab of a nested scroll view (a creator
+  /// page's tabs): the outer view owns the overscroll, and the refresh
+  /// indicator has to be told so.
+  bool get isClampingScrollPhysics => false;
+
+  ScrollPhysics get physics => const AlwaysScrollableScrollPhysics();
+
+  /// Wraps the list's sliver — a feed that centres itself on a wide window
+  /// ([DynMixin.buildPage]) does it here.
+  Widget wrapSliver(Widget sliver) => sliver;
+
   @override
-  Widget build(BuildContext context) => refreshIndicator(
+  Widget build(BuildContext context) => buildBody(context);
+
+  /// What [build] returns. Separate so a page that mixes in
+  /// [AutomaticKeepAliveClientMixin] — whose `build` must be called and
+  /// returns nothing usable — can call that and then return this.
+  Widget buildBody(BuildContext context) => refreshIndicator(
+    isClampingScrollPhysics: isClampingScrollPhysics,
     onRefresh: controller.onRefresh,
     child: CustomScrollView(
       controller: scrollController,
-      physics: const AlwaysScrollableScrollPhysics(),
+      physics: physics,
       slivers: [
         ?buildHeader(),
         SliverPadding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.viewPaddingOf(context).bottom + bottomPadding,
           ),
-          sliver: Obx(() => _body(controller.loadingState.value)),
+          sliver: wrapSliver(Obx(() => _body(controller.loadingState.value))),
         ),
       ],
     ),

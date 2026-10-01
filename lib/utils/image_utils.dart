@@ -209,7 +209,20 @@ abstract final class ImageUtils {
     r'(@(\d+[a-z]_?)*)(\..*)?$',
     caseSensitive: false,
   );
+  /// LibrePili: YouTube's image hosts. The resize suffix below is
+  /// bilibili's (`@80q.webp`); appended to a Google image URL it lands in
+  /// the size parameter (`=s160-c-k-no-rj@80q.webp`) and the request fails,
+  /// which is why every channel avatar, banner, post image and comment
+  /// avatar showed the placeholder while video thumbnails (whose suffix
+  /// falls into an ignored query value) happened to load.
+  static final _youTubeImageHost = RegExp(
+    r'^(https?:)?//[^/]*(ytimg\.com|ggpht\.com|googleusercontent\.com)/',
+  );
+
   static String thumbnailUrl(String? src, [int maxQuality = 1]) {
+    if (src != null && _youTubeImageHost.hasMatch(src)) {
+      return src.http2https;
+    }
     if (src != null && maxQuality != 100) {
       maxQuality = math.max(maxQuality, GlobalData().imgQuality);
       bool hasMatch = false;

@@ -5,8 +5,7 @@ import 'package:PiliPlus/common/widgets/image_viewer/hero.dart';
 import 'package:PiliPlus/common/widgets/pendant_avatar.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show tabBarScrollPhysics;
-import 'package:PiliPlus/common/widgets/selection_text.dart';
-import 'package:PiliPlus/common/widgets/view_safe_area.dart';
+import 'package:PiliPlus/common/widgets/space/space_header.dart';
 import 'package:PiliPlus/models/common/image_preview_type.dart';
 import 'package:PiliPlus/models/common/member/user_info_type.dart';
 import 'package:PiliPlus/models/model_owner.dart';
@@ -20,7 +19,6 @@ import 'package:PiliPlus/models_new/space/space/top.dart';
 import 'package:PiliPlus/pages/fan/view.dart';
 import 'package:PiliPlus/pages/follow/view.dart';
 import 'package:PiliPlus/pages/follow_type/followed/view.dart';
-import 'package:PiliPlus/pages/member/widget/header_layout_widget.dart';
 import 'package:PiliPlus/pages/member/widget/medal_widget.dart';
 import 'package:PiliPlus/pages/member_guard/view.dart';
 import 'package:PiliPlus/pages/member_upower_rank/view.dart';
@@ -36,11 +34,9 @@ import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
-import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
-import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -76,24 +72,38 @@ class UserInfoCard extends StatelessWidget {
   final List<Owner>? guards;
   final Object? guardCount;
 
+  /// LibrePili: the card's arrangement and the type of its shared parts
+  /// are [SpaceHeaderCard]'s, which the YouTube channel header uses too.
+  /// What is passed in here is bilibili's own: level, vip, medal,
+  /// verification, charge and guard, followed-up, ban, promotion.
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isLight = colorScheme.isLight;
     final width = context.width;
-    final isPortrait = width < 600;
-    return ViewSafeArea(
-      top: !isPortrait,
-      child: isPortrait
-          ? _buildV(context, colorScheme, isLight, width)
-          : _buildH(context, colorScheme, isLight),
+    final imgUrls = images.collectionTopSimple?.top?.imgUrls;
+    return SpaceHeaderCard(
+      banner: imgUrls != null && imgUrls.isNotEmpty
+          ? _buildCollectionHeader(context, colorScheme, isLight, imgUrls, width)
+          : SpaceBanner(
+              url: (isLight
+                      ? images.imgUrl
+                      : images.nightImgurl.isNullOrEmpty
+                      ? images.imgUrl
+                      : images.nightImgurl)
+                  .http2https,
+            ),
+      avatar: _buildAvatar(colorScheme),
+      left: (isPortrait) =>
+          _buildLeft(context, colorScheme, isLight, isPortrait),
+      actions: _buildRight(colorScheme),
+      bottom: card.prInfo?.content?.isNotEmpty ?? false
+          ? buildPrInfo(context, colorScheme, isLight, card.prInfo!)
+          : null,
     );
   }
 
-  Widget _countWidget({
-    required ColorScheme colorScheme,
-    required UserInfoType type,
-  }) {
+  SpaceCount _count(UserInfoType type) {
     int? count;
     VoidCallback? onTap;
     switch (type) {
@@ -112,36 +122,12 @@ class UserInfoCard extends StatelessWidget {
       case UserInfoType.like:
         count = card.likes?.likeNum;
     }
-    void onShowCount() => SmartDialog.showToast(
-      '${type.title}: $count',
-      alignment: const Alignment(0.0, -0.8),
-    );
-    return GestureDetector(
-      behavior: .opaque,
+    return SpaceCount(
+      value: NumUtils.numFormat(count),
+      label: type.title,
+      alignment: type.alignment,
       onTap: onTap,
-      onLongPress: PlatformUtils.isMobile ? onShowCount : null,
-      onSecondaryTap: PlatformUtils.isDesktop ? onShowCount : null,
-      child: Align(
-        alignment: type.alignment,
-        widthFactor: 1.0,
-        child: Column(
-          mainAxisSize: .min,
-          children: [
-            Text(
-              NumUtils.numFormat(count),
-              style: const TextStyle(fontSize: 14),
-            ),
-            Text(
-              type.title,
-              style: TextStyle(
-                height: 1.2,
-                fontSize: 12,
-                color: colorScheme.outline,
-              ),
-            ),
-          ],
-        ),
-      ),
+      detail: '${type.title}: $count',
     );
   }
 
@@ -193,33 +179,13 @@ class UserInfoCard extends StatelessWidget {
         }
       }
     }
-    return Padding(
-      padding: const .only(left: 20, right: 20),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        crossAxisAlignment: .center,
-        children: [
-          GestureDetector(
-            onTap: () => Utils.copyText(card.name!),
-            child: Text(
-              card.name!,
-              strutStyle: const StrutStyle(
-                height: 1,
-                leading: 0,
-                fontSize: 17,
-                fontWeight: .bold,
-              ),
-              style: TextStyle(
-                height: 1,
-                fontSize: 17,
-                fontWeight: .bold,
-                color: (card.vip?.status ?? -1) > 0 && card.vip?.type == 2
-                    ? colorScheme.vipColor
-                    : null,
-              ),
-            ),
-          ),
+    return SpaceName(
+      name: card.name!,
+      onTap: () => Utils.copyText(card.name!),
+      color: (card.vip?.status ?? -1) > 0 && card.vip?.type == 2
+          ? colorScheme.vipColor
+          : null,
+      trailing: [
           BiliUtils.levelPicture(
             card.levelInfo!.currentLevel!,
             isSeniorMember: card.levelInfo?.identity == 2,
@@ -257,8 +223,7 @@ class UserInfoCard extends StatelessWidget {
           //     },
           //   ),
           ?liveMedal,
-        ],
-      ),
+      ],
     );
   }
 
@@ -310,29 +275,16 @@ class UserInfoCard extends StatelessWidget {
     );
   }
 
-  Widget _buildSign() {
-    return Padding(
-      padding: const .only(left: 20, top: 6, right: 20),
-      child: SelectionText(
-        card.sign!.trim().replaceAll(RegExp(r'\n{2,}'), '\n'),
-        style: const TextStyle(fontSize: 14),
-      ),
-    );
-  }
+  Widget _buildSign() => SpaceSign(card.sign!);
 
   Widget _buildExtraInfo(ColorScheme colorScheme) {
-    return Padding(
-      padding: const .only(left: 20, top: 6, right: 20),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 8,
-        crossAxisAlignment: .center,
+    return SpaceExtraLine(
         children: [
           GestureDetector(
             onTap: () => Utils.copyText(card.mid.toString()),
             child: Text(
               'UID: ${card.mid}',
-              style: TextStyle(fontSize: 12, color: colorScheme.outline),
+              style: SpaceExtraLine.style(colorScheme),
             ),
           ),
           ...?card.spaceTag?.map(
@@ -340,10 +292,7 @@ class UserInfoCard extends StatelessWidget {
               final hasUri = item.uri?.isNotEmpty ?? false;
               final child = Text(
                 item.title ?? '',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: hasUri ? colorScheme.secondary : colorScheme.outline,
-                ),
+                style: SpaceExtraLine.style(colorScheme, link: hasUri),
               );
               if (hasUri) {
                 return GestureDetector(
@@ -355,7 +304,6 @@ class UserInfoCard extends StatelessWidget {
             },
           ),
         ],
-      ),
     );
   }
 
@@ -395,126 +343,62 @@ class UserInfoCard extends StatelessWidget {
     );
   }
 
-  Column _buildRight(ColorScheme colorScheme) => Column(
-    spacing: 5,
-    mainAxisSize: .min,
-    children: [
-      Row(
-        children: UserInfoType.values
-            .map(
-              (e) => Expanded(
-                child: _countWidget(
-                  colorScheme: colorScheme,
-                  type: e,
-                ),
-              ),
-            )
-            .expand((child) sync* {
-              yield const SizedBox(
-                height: 15,
-                width: 1,
-                child: VerticalDivider(),
+  Widget _buildRight(ColorScheme colorScheme) => SpaceActions(
+    counts: UserInfoType.values.map(_count).toList(),
+    leading: [
+      // LibrePili: messaging needs login
+      if (!isOwner && Accounts.main.isLogin)
+        IconButton.outlined(
+          onPressed: () {
+            if (Accounts.main.isLogin) {
+              int mid = int.parse(card.mid!);
+              Get.toNamed(
+                '/whisperDetail',
+                arguments: {
+                  'talkerId': mid,
+                  'name': card.name,
+                  'face': card.face,
+                  'mid': mid,
+                  'isLive': live?.liveStatus == 1,
+                },
               );
-              yield child;
-            })
-            .skip(1)
-            .toList(),
-      ),
-      Row(
-        spacing: 10,
-        mainAxisSize: .min,
-        children: [
-          // LibrePili: messaging needs login
-          if (!isOwner && Accounts.main.isLogin)
-            IconButton.outlined(
-              onPressed: () {
-                if (Accounts.main.isLogin) {
-                  int mid = int.parse(card.mid!);
-                  Get.toNamed(
-                    '/whisperDetail',
-                    arguments: {
-                      'talkerId': mid,
-                      'name': card.name,
-                      'face': card.face,
-                      'mid': mid,
-                      'isLive': live?.liveStatus == 1,
-                    },
-                  );
-                }
-              },
-              icon: const Icon(Icons.mail_outline, size: 21),
-              style: ButtonStyle(
-                side: WidgetStatePropertyAll(
-                  BorderSide(
-                    width: 1.0,
-                    color: colorScheme.outline.withValues(alpha: 0.3),
-                  ),
-                ),
-                padding: const WidgetStatePropertyAll(.zero),
-                tapTargetSize: .shrinkWrap,
-                visualDensity: .compact,
+            }
+          },
+          icon: const Icon(Icons.mail_outline, size: 21),
+          style: ButtonStyle(
+            side: WidgetStatePropertyAll(
+              BorderSide(
+                width: 1.0,
+                color: colorScheme.outline.withValues(alpha: 0.3),
               ),
             ),
-          Expanded(
-            child: FilledButton.tonal(
-              onPressed: !isOwner && relation == -1 ? null : onFollow,
-              style: ButtonStyle(
-                padding: const WidgetStatePropertyAll(.zero),
-                backgroundColor: relation != 0
-                    ? WidgetStatePropertyAll(colorScheme.onInverseSurface)
-                    : null,
-                tapTargetSize: .padded,
-                visualDensity: const VisualDensity(vertical: -1.8),
-              ),
-              child: Text.rich(
-                style: relation != 0
-                    ? TextStyle(color: colorScheme.outline)
-                    : null,
-                TextSpan(
-                  children: [
-                    if (relation == -1) ...[
-                      WidgetSpan(
-                        alignment: .middle,
-                        child: Icon(
-                          Icons.block,
-                          size: 16,
-                          color: colorScheme.outline,
-                        ),
-                      ),
-                      const TextSpan(text: ' '),
-                    ] else if (relation != 0 && relation != 128) ...[
-                      WidgetSpan(
-                        alignment: .middle,
-                        child: Icon(
-                          Icons.sort,
-                          size: 16,
-                          color: colorScheme.outline,
-                        ),
-                      ),
-                      const TextSpan(text: ' '),
-                    ],
-                    TextSpan(
-                      text: isOwner
-                          ? '编辑资料'
-                          : switch (relation) {
-                              0 || -1 => '关注',
-                              1 => '悄悄关注',
-                              2 => '已关注',
-                              // 3 => '回关',
-                              4 || 6 => '已互关',
-                              128 => '移除黑名单',
-                              -10 => '特别关注', // 该状态码并不是官方状态码
-                              _ => relation.toString(),
-                            },
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            padding: const WidgetStatePropertyAll(.zero),
+            tapTargetSize: .shrinkWrap,
+            visualDensity: .compact,
           ),
-        ],
-      ),
+        ),
     ],
+    follow: SpaceFollowButton(
+      onPressed: !isOwner && relation == -1 ? null : onFollow,
+      followed: relation != 0,
+      icon: relation == -1
+          ? Icons.block
+          : relation != 0 && relation != 128
+          ? Icons.sort
+          : null,
+      label: isOwner
+          ? '编辑资料'
+          : switch (relation) {
+              0 || -1 => '关注',
+              1 => '悄悄关注',
+              2 => '已关注',
+              // 3 => '回关',
+              4 || 6 => '已互关',
+              128 => '移除黑名单',
+              -10 => '特别关注', // 该状态码并不是官方状态码
+              _ => relation.toString(),
+            },
+    ),
   );
 
   Widget _buildAvatar(ColorScheme scheme) {
@@ -534,54 +418,11 @@ class UserInfoCard extends StatelessWidget {
       ),
     );
     if (pendant == null || pendant.isEmpty) {
-      child = DecoratedBox(
-        decoration: BoxDecoration(
-          border: .all(width: 2, color: scheme.surface),
-          shape: .circle,
-        ),
-        child: Padding(padding: const .all(2), child: child),
-      );
+      child = SpaceAvatarRing(child: child);
     }
     return fromHero(
       tag: '${card.face}$hashCode',
       child: child,
-    );
-  }
-
-  Column _buildV(
-    BuildContext context,
-    ColorScheme scheme,
-    bool isLight,
-    double width,
-  ) {
-    final imgUrls = images.collectionTopSimple?.top?.imgUrls;
-    return Column(
-      mainAxisSize: .min,
-      crossAxisAlignment: .start,
-      children: [
-        HeaderLayoutWidget(
-          header: imgUrls != null && imgUrls.isNotEmpty
-              ? _buildCollectionHeader(context, scheme, isLight, imgUrls, width)
-              : _buildHeader(
-                  context,
-                  isLight,
-                  width,
-                  (isLight
-                          ? images.imgUrl
-                          : images.nightImgurl.isNullOrEmpty
-                          ? images.imgUrl
-                          : images.nightImgurl)
-                      .http2https,
-                ),
-          avatar: _buildAvatar(scheme),
-          actions: _buildRight(scheme),
-        ),
-        const SizedBox(height: 5),
-        ..._buildLeft(context, scheme, isLight, true),
-        if (card.prInfo?.content?.isNotEmpty ?? false)
-          buildPrInfo(context, scheme, isLight, card.prInfo!),
-        const SizedBox(height: 5),
-      ],
     );
   }
 
@@ -595,11 +436,8 @@ class UserInfoCard extends StatelessWidget {
     if (imgUrls.length == 1) {
       final img = imgUrls.first;
       final title = img.title;
-      Widget child = _buildHeader(
-        context,
-        isLight,
-        width,
-        img.header,
+      Widget child = SpaceBanner(
+        url: img.header,
         filter: false,
         fullCover: img.fullCover,
         alignment: Alignment(0.0, img.dy),
@@ -682,47 +520,6 @@ class UserInfoCard extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(
-    BuildContext context,
-    bool isLight,
-    double width,
-    String imgUrl, {
-    bool filter = true,
-    String? fullCover,
-    Alignment alignment = .center,
-  }) {
-    final img = fullCover ?? imgUrl;
-    return GestureDetector(
-      behavior: .opaque,
-      onTap: () => PageUtils.imageView(imgList: [SourceModel(url: img)]),
-      child: fromHero(
-        tag: img,
-        child: CachedNetworkImage(
-          fit: .cover,
-          alignment: alignment,
-          height: kHeaderHeight,
-          width: width,
-          memCacheWidth: width.cacheSize(context),
-          imageUrl: ImageUtils.thumbnailUrl(imgUrl),
-          placeholder: (_, _) =>
-              const SizedBox(width: .infinity, height: kHeaderHeight),
-          color: filter
-              ? isLight
-                    ? const Color(0x5DFFFFFF)
-                    : const Color(0x8D000000)
-              : null,
-          colorBlendMode: filter
-              ? isLight
-                    ? .lighten
-                    : .darken
-              : null,
-          fadeInDuration: const Duration(milliseconds: 120),
-          fadeOutDuration: const Duration(milliseconds: 120),
-        ),
-      ),
-    );
-  }
-
   Widget buildPrInfo(
     BuildContext context,
     ColorScheme colorScheme,
@@ -781,45 +578,6 @@ class UserInfoCard extends StatelessWidget {
     }
     return child;
   }
-
-  Column _buildH(BuildContext context, ColorScheme scheme, bool isLight) =>
-      Column(
-        mainAxisSize: .min,
-        crossAxisAlignment: .start,
-        children: [
-          // _buildHeader(context),
-          const SizedBox(height: kToolbarHeight),
-          Row(
-            children: [
-              const SizedBox(width: 20),
-              Padding(
-                padding: .only(
-                  top: 10,
-                  bottom: card.prInfo?.content?.isNotEmpty == true ? 0 : 10,
-                ),
-                child: _buildAvatar(scheme),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 5,
-                child: Column(
-                  mainAxisSize: .min,
-                  crossAxisAlignment: .start,
-                  children: [
-                    const SizedBox(height: 10),
-                    ..._buildLeft(context, scheme, isLight, false),
-                    const SizedBox(height: 5),
-                  ],
-                ),
-              ),
-              Expanded(flex: 3, child: _buildRight(scheme)),
-              const SizedBox(width: 20),
-            ],
-          ),
-          if (card.prInfo?.content?.isNotEmpty ?? false)
-            buildPrInfo(context, scheme, isLight, card.prInfo!),
-        ],
-      );
 
   Widget _buildChargeItem(
     ColorScheme colorScheme,

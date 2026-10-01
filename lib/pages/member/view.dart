@@ -4,12 +4,8 @@ import 'dart:math' as math;
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
 import 'package:PiliPlus/common/widgets/dialog/report_member.dart';
-import 'package:PiliPlus/common/widgets/dynamic_sliver_app_bar/dynamic_sliver_app_bar.dart';
 import 'package:PiliPlus/common/widgets/gesture/tap_gesture_recognizer.dart';
-import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
-import 'package:PiliPlus/common/widgets/scroll_behavior.dart'
-    show NoOverscrollIndicator;
-import 'package:PiliPlus/common/widgets/scroll_physics.dart' show tabBarView;
+import 'package:PiliPlus/common/widgets/space/space_shell.dart';
 import 'package:PiliPlus/http/live.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
@@ -43,7 +39,6 @@ import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
-import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
@@ -87,83 +82,47 @@ class _MemberPageState extends State<MemberPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context).colorScheme;
-    final padding = MediaQuery.viewPaddingOf(context);
     return Material(
       color: theme.surface,
       child: Obx(
         () => switch (_userController.loadingState.value) {
-          Loading() => m3eLoading,
-          Success(:final response) => ExtendedNestedScrollView(
-            onlyOneScrollInBody: true,
-            key: _userController.scrollKey,
-            scrollBehavior: const NoOverscrollIndicator(),
-            pinnedHeaderSliverHeightBuilder: () =>
-                kToolbarHeight + MediaQuery.viewPaddingOf(context).top,
-            headerSliverBuilder: (context, innerBoxIsScrolled) {
-              if (response != null) {
-                return [
-                  DynamicSliverAppBar.medium(
-                    actions: _actions(theme),
-                    title: Text(_userController.username ?? ''),
-                    flexibleSpace: Obx(
-                      () => UserInfoCard(
-                        isOwner:
-                            _userController.mid == _userController.account.mid,
-                        relation: _userController.relation.value,
-                        card: response.card!,
-                        images: response.images!,
-                        onFollow: () => _userController.onFollow(context),
-                        live: _userController.live,
-                        silence: _userController.silence,
-                        headerControllerBuilder: getHeaderController,
-                        showLiveMedalWall: _showLiveMedalWall,
-                        charges: _userController.charges,
-                        chargeCount: _userController.chargeCount,
-                        guards: _userController.guards,
-                        guardCount: _userController.guardCount,
-                      ),
+          Loading() => SpaceShell.loading,
+          // LibrePili: the frame is the shared one the YouTube channel page
+          // builds too (lib/common/widgets/space/space_shell.dart)
+          Success(:final response) => SpaceShell(
+            scrollKey: _userController.scrollKey,
+            title: Text(_userController.username ?? ''),
+            actions: _actions(theme),
+            onTitleTap: _userController.onReload,
+            header: response == null
+                ? null
+                : Obx(
+                    () => UserInfoCard(
+                      isOwner:
+                          _userController.mid == _userController.account.mid,
+                      relation: _userController.relation.value,
+                      card: response.card!,
+                      images: response.images!,
+                      onFollow: () => _userController.onFollow(context),
+                      live: _userController.live,
+                      silence: _userController.silence,
+                      headerControllerBuilder: getHeaderController,
+                      showLiveMedalWall: _showLiveMedalWall,
+                      charges: _userController.charges,
+                      chargeCount: _userController.chargeCount,
+                      guards: _userController.guards,
+                      guardCount: _userController.guardCount,
                     ),
                   ),
-                ];
-              }
-              return [
-                SliverAppBar(
-                  pinned: true,
-                  actions: _actions(theme),
-                  title: GestureDetector(
-                    onTap: _userController.onReload,
-                    behavior: HitTestBehavior.opaque,
-                    child: Text(_userController.username ?? ''),
-                  ),
-                ),
-              ];
-            },
-            body: _userController.tab2?.isNotEmpty == true
-                ? Padding(
-                    padding: .only(left: padding.left, right: padding.right),
-                    child: Column(
-                      children: [
-                        if ((_userController.tab2?.length ?? 0) > 1)
-                          SizedBox(
-                            height: 45,
-                            child: TabBar(
-                              controller: _userController.tabController,
-                              tabs: _userController.tabs,
-                              onTap: _userController.onTapTab,
-                              dividerColor: theme.outline.withValues(
-                                alpha: 0.2,
-                              ),
-                            ),
-                          ),
-                        Expanded(child: _buildBody),
-                      ],
-                    ),
-                  )
-                : scrollableError,
+            tabs: _userController.tabs,
+            tabController: _userController.tabController,
+            children: _userController.tab2?.isNotEmpty == true
+                ? _tabPages
+                : const [],
           ),
-          Error(:final errMsg) => scrollErrorWidget(
-            errMsg: errMsg,
-            onReload: _userController.onReload,
+          Error(:final errMsg) => SpaceShell.error(
+            errMsg,
+            _userController.onReload,
           ),
         },
       ),
@@ -570,10 +529,7 @@ class _MemberPageState extends State<MemberPage> {
     const SizedBox(width: 4),
   ];
 
-  Widget get _buildBody => tabBarView(
-    hitTestBehavior: .translucent,
-    controller: _userController.tabController,
-    children: _userController.tab2!.map((item) {
+  List<Widget> get _tabPages => _userController.tab2!.map((item) {
       return switch (item.param!) {
         'home' => MemberHome(heroTag: _heroTag),
         'dynamic' => MemberDynamicsPage(mid: _mid),
@@ -602,8 +558,7 @@ class _MemberPageState extends State<MemberPage> {
         ),
         _ => Center(child: Text(item.title ?? '')),
       };
-    }).toList(),
-  );
+    }).toList();
 
   String? _cacheFollowTime;
   Future<void> _showFollowTime() async {

@@ -445,6 +445,9 @@ class YtChannelInfo {
     this.subscriberText,
     this.videoCountText,
     this.description,
+    this.banner,
+    this.handle,
+    this.link,
   });
 
   final String channelId;
@@ -454,8 +457,22 @@ class YtChannelInfo {
   /// Left as YouTube's own localised string ("5.2M subscribers"): turning it
   /// into a number would be inventing precision it does not have.
   final String? subscriberText;
+
+  /// '391 个视频' — which counts the Shorts too (251 videos + 140 Shorts on
+  /// the channel it was measured on), so it is shown as YouTube's text and
+  /// never compared with the length of the 视频 tab.
   final String? videoCountText;
   final String? description;
+
+  /// The wide header image. Its own field because the avatar used to be
+  /// picked as "the largest image in the header", which is this.
+  final YtThumbnail? banner;
+
+  /// '@kurzgesagt'.
+  final String? handle;
+
+  /// The first external link under the description ('shop.kgs.link/cool').
+  final String? link;
 
   @override
   String toString() => 'YtChannelInfo($name, $subscriberText)';

@@ -1,5 +1,6 @@
 import 'package:PiliPlus/common/widgets/avatars.dart';
 import 'package:PiliPlus/common/widgets/image/image_save.dart';
+import 'package:PiliPlus/common/widgets/space/dyn_card_frame.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/dynamics/result.dart';
 import 'package:PiliPlus/pages/dynamics/widgets/action_panel.dart';
@@ -60,10 +61,11 @@ class DynamicPanel extends StatelessWidget {
 
     void showMore() => _imageSaveDialog(context, authorWidget.morePanel);
 
-    final child = Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        onTap:
+    // LibrePili: the band, the tap target and the author padding are
+    // [DynCardFrame]'s, which the YouTube post card uses too
+    return DynCardFrame(
+      band: !(isSave || (isDetail && !isDetailPortraitW)),
+      onTap:
             isDetail &&
                 !const {
                   'DYNAMIC_TYPE_AV',
@@ -79,14 +81,8 @@ class DynamicPanel extends StatelessWidget {
             : () => PageUtils.pushDynDetail(item),
         onLongPress: showMore,
         onSecondaryTap: PlatformUtils.isMobile ? null : showMore,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-              child: authorWidget,
-            ),
+        author: authorWidget,
+        children: [
             if (item.modules.moduleDispute case final moduleDispute?)
               _buildDispute(theme, moduleDispute),
             ...dynContent(
@@ -119,26 +115,7 @@ class DynamicPanel extends StatelessWidget {
               ],
             ] else if (!isSave)
               const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-    if (isSave || (isDetail && !isDetailPortraitW)) {
-      return child;
-    }
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            width: 8,
-            color: theme.dividerColor.withValues(alpha: 0.05),
-          ),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: child,
-      ),
+        ],
     );
   }
 

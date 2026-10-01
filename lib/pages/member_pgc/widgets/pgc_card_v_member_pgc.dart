@@ -1,12 +1,12 @@
-import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/image/image_save.dart';
-import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+import 'package:PiliPlus/common/widgets/video_card/portrait_card_frame.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:material_ui/material_ui.dart';
 
 // 视频卡片 - 垂直布局
+// LibrePili: on [PortraitCardFrame], which a YouTube channel's Shorts use too
 class PgcCardVMemberPgc extends StatelessWidget {
   const PgcCardVMemberPgc({
     super.key,
@@ -21,43 +21,12 @@ class PgcCardVMemberPgc extends StatelessWidget {
       title: item.title,
       cover: item.cover,
     );
-    return Card(
-      shape: const RoundedRectangleBorder(borderRadius: Style.mdRadius),
-      child: InkWell(
-        borderRadius: Style.mdRadius,
-        onTap: () => PageUtils.viewPgc(seasonId: item.param),
-        onLongPress: onLongPress,
-        onSecondaryTap: PlatformUtils.isMobile ? null : onLongPress,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AspectRatio(
-              aspectRatio: 0.75,
-              child: LayoutBuilder(
-                builder: (context, boxConstraints) {
-                  return NetworkImgLayer(
-                    src: item.cover,
-                    width: boxConstraints.maxWidth,
-                    height: boxConstraints.maxHeight,
-                  );
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 5, 0, 3),
-              child: Text(
-                item.title,
-                textAlign: TextAlign.start,
-                style: const TextStyle(
-                  letterSpacing: 0.3,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return PortraitCardFrame(
+      cover: item.cover,
+      title: item.title,
+      onTap: () => PageUtils.viewPgc(seasonId: item.param),
+      onLongPress: onLongPress,
+      onSecondaryTap: PlatformUtils.isMobile ? null : onLongPress,
     );
   }
 }

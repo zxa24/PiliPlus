@@ -1,3 +1,4 @@
+import 'package:PiliPlus/common/widgets/space/dyn_card_frame.dart';
 import 'package:PiliPlus/models/dynamics/result.dart';
 import 'package:PiliPlus/pages/dynamics_repost/view.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -23,11 +24,8 @@ class ActionPanel extends StatelessWidget {
     final forward = moduleStat.forward!;
     final comment = moduleStat.comment!;
     final like = moduleStat.like!;
-    final btnStyle = TextButton.styleFrom(
-      tapTargetSize: .padded,
-      padding: const EdgeInsets.symmetric(horizontal: 15),
-      foregroundColor: outline,
-    );
+    // LibrePili: shared with the YouTube post card's buttons
+    final btnStyle = DynAction.buttonStyle(theme.colorScheme);
     // LibrePili: repost / like need an account, the counts do not
     final isLogin = Accounts.main.isLogin;
     return Row(
@@ -55,7 +53,7 @@ class ActionPanel extends StatelessWidget {
                   ),
                   icon: Icon(
                     FontAwesomeIcons.shareFromSquare,
-                    size: 16,
+                    size: DynAction.iconSize,
                     color: outline,
                     semanticLabel: "转发",
                   ),
@@ -78,7 +76,7 @@ class ActionPanel extends StatelessWidget {
             ),
             icon: Icon(
               FontAwesomeIcons.comment,
-              size: 16,
+              size: DynAction.iconSize,
               color: outline,
               semanticLabel: "评论",
             ),
@@ -106,7 +104,7 @@ class ActionPanel extends StatelessWidget {
                 }
                 final likeIcon = Icon(
                   icon,
-                  size: 16,
+                  size: DynAction.iconSize,
                   color: color,
                   semanticLabel: label,
                 );

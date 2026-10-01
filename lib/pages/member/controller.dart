@@ -15,7 +15,6 @@ import 'package:PiliPlus/models_new/space/space/tab2.dart';
 import 'package:PiliPlus/pages/common/common_data_controller.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/accounts.dart';
-import 'package:PiliPlus/utils/extension/nested_scroll_ext.dart';
 import 'package:PiliPlus/utils/request_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -278,12 +277,6 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
       SmartDialog.showToast('移除成功');
     } else {
       res.toast();
-    }
-  }
-
-  void onTapTab(int value) {
-    if (tabController?.indexIsChanging == false) {
-      scrollKey.currentState?.animToTop();
     }
   }
 

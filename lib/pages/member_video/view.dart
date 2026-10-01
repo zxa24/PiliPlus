@@ -1,10 +1,9 @@
-import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show ReloadScrollPhysics;
-import 'package:PiliPlus/common/widgets/sliver/sliver_floating_header.dart';
+import 'package:PiliPlus/common/widgets/space/space_list_header.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
@@ -243,78 +242,20 @@ class _MemberVideoState extends State<MemberVideo>
     };
   }
 
+  /// LibrePili: the row is the shared [SpaceListHeader], which the YouTube
+  /// channel's video tabs and playlist page show too.
   Widget _buildHeader(ThemeData theme) {
-    return SliverFloatingHeaderWidget(
-      backgroundColor: theme.colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 2.5, 8, 2.5),
-        child: Row(
-          children: [
-            ?_buildCount(),
-            ?_buildEpisodeBtn(theme),
-            const Spacer(),
-            _buildSortBtn(theme),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget? _buildCount() {
     final count = _controller.count;
-    if (count != null) {
-      return Text(
-        '共$count视频',
-        style: const TextStyle(fontSize: 13),
-      );
-    }
-    return null;
-  }
-
-  Widget? _buildEpisodeBtn(ThemeData theme) {
     final episodicButton = _controller.episodicButton;
-    if (episodicButton?.uri?.isNotEmpty ?? false) {
-      return Padding(
-        padding: EdgeInsets.only(
-          left: _controller.count != null ? 6 : 0,
-        ),
-        child: TextButton.icon(
-          style: Style.buttonStyle,
-          onPressed: _controller.toViewPlayAll,
-          icon: Icon(
-            Icons.play_circle_outline_rounded,
-            size: 16,
-            color: theme.colorScheme.secondary,
-          ),
-          label: Text(
-            episodicButton?.text ?? '播放全部',
-            style: TextStyle(
-              fontSize: 13,
-              color: theme.colorScheme.secondary,
-            ),
-          ),
-        ),
-      );
-    }
-    return null;
-  }
-
-  Widget _buildSortBtn(ThemeData theme) {
-    return TextButton.icon(
-      style: Style.buttonStyle,
-      onPressed: _controller.queryBySort,
-      icon: Icon(
-        Icons.sort,
-        size: 16,
-        color: theme.colorScheme.secondary,
-      ),
-      label: Text(
-        _controller.isVideo ? _controller.order.label : _controller.sort.label,
-        style: TextStyle(
-          fontSize: 13,
-          color: theme.colorScheme.secondary,
-        ),
-      ),
+    final hasEpisodes = episodicButton?.uri?.isNotEmpty ?? false;
+    return SpaceListHeader(
+      count: count != null ? '共$count视频' : null,
+      playAllLabel: episodicButton?.text,
+      onPlayAll: hasEpisodes ? _controller.toViewPlayAll : null,
+      sortLabel: _controller.isVideo
+          ? _controller.order.label
+          : _controller.sort.label,
+      onSort: _controller.queryBySort,
     );
   }
 }
