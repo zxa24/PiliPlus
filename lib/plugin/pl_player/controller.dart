@@ -2788,6 +2788,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               'absolute+exact',
             ]);
           }
+        case 'rampsmooth':
+          // down in steps each re-timing the sound by less than a frame
+          // (20 x 0.1x over 1 s, ~0.025 s each with a 0.25 s buffer), with
+          // no frames dropped meanwhile: the jump spread into a short
+          // slowing down instead of one step
+          const steps = 20;
+          _holdFrames();
+          for (var i = 1; i < steps; i++) {
+            if (longPressStatus.value) break;
+            final rate = fast + (target - fast) * i / steps;
+            await _videoPlayerController?.setRate(rate);
+            await Future.delayed(const Duration(milliseconds: 50));
+          }
+          await setPlaybackSpeed(target);
+          lastPlaybackSpeed = target;
+          _releaseFrames();
         case 'seekfirst':
           // the seek throws the fast audio away before the speed changes,
           // so the change has none to re-time (with 'seek', the picture
