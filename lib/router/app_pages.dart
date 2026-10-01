@@ -1,4 +1,6 @@
 import 'package:PiliPlus/pages/youtube/channel/view.dart';
+import 'package:PiliPlus/pages/youtube/playlist/view.dart';
+import 'package:PiliPlus/pages/youtube/post/view.dart';
 import 'package:PiliPlus/pages/youtube/search/result.dart';
 import 'package:PiliPlus/pages/youtube/search/view.dart';
 import 'package:PiliPlus/pages/youtube/video/view.dart';
@@ -91,6 +93,8 @@ class Routes {
       page: () => const YtSearchResultPage(),
     ),
     GetPage(name: '/ytChannel', page: () => const YtChannelPageView()),
+    GetPage(name: '/ytPlaylist', page: () => const YtPlaylistPage()),
+    GetPage(name: '/ytPost', page: () => const YtPostPage()),
     //
     GetPage(name: '/webview', page: () => const WebviewPage()),
     // 设置

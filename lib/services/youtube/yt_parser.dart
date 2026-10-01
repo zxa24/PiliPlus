@@ -31,7 +31,13 @@ YtPage<YtSearchItem> parseSearchResults(Object? root) => YtPage(
 ///
 /// Reads the modern `lockupViewModel` and the legacy `compactVideoRenderer`,
 /// in that order, de-duplicated by video id.
-List<YtSearchItem> parseRelatedVideos(Object? root) {
+///
+/// [channel] is set by a channel's own list, whose lockups leave the
+/// channel out (see [_fromLockupViewModel]).
+List<YtSearchItem> parseRelatedVideos(
+  Object? root, {
+  ({String name, String id})? channel,
+}) {
   final seen = <String>{};
   final out = <YtSearchItem>[];
   void add(YtSearchItem? item) {
@@ -39,7 +45,7 @@ List<YtSearchItem> parseRelatedVideos(Object? root) {
   }
 
   for (final m in collectObjects(root, 'lockupViewModel')) {
-    add(_fromLockupViewModel(m));
+    add(_fromLockupViewModel(m, channel));
   }
   for (final m in collectObjects(root, 'compactVideoRenderer')) {
     add(_fromVideoRenderer(m));
@@ -250,7 +256,10 @@ bool _videoRendererIsLive(Map<String, dynamic> m) {
   return false;
 }
 
-YtSearchItem? _fromLockupViewModel(Map<String, dynamic> m) {
+YtSearchItem? _fromLockupViewModel(
+  Map<String, dynamic> m, [
+  ({String name, String id})? channel,
+]) {
   if (m['contentType'] != null &&
       m['contentType'] != 'LOCKUP_CONTENT_TYPE_VIDEO') {
     // Playlists, channels and shorts shelves use the same view model.
@@ -270,30 +279,66 @@ YtSearchItem? _fromLockupViewModel(Map<String, dynamic> m) {
           .whereType<Map>()
           .toList(growable: false);
 
-  // Row 0 is the channel; row 1 is "views · age". Not a contract, so each
-  // piece is read defensively and left null when absent.
-  final row0 = rows.isNotEmpty ? _metadataTexts(rows[0]) : const <String>[];
-  final row1 = rows.length > 1 ? _metadataTexts(rows[1]) : const <String>[];
+  // Rows are told apart by how many there are, because nothing in them says
+  // which is which (measured 2026-09-30: the channel part is a bare text, no
+  // endpoint). In search, related and on a playlist page there are two:
+  // the channel, then "views · age". On a channel's own tab there is one —
+  // "views · age" — and the channel is the page's. Reading that one row as
+  // the channel put the view count where the author goes and left the date
+  // out entirely.
+  //
+  // Without a channel from the page, one row is still read as the channel:
+  // that is what the measured contexts without one do, and guessing
+  // otherwise would change lists nobody has looked at.
+  final String author;
+  final List<String> stats;
+  if (channel != null && rows.length == 1) {
+    author = channel.name;
+    stats = _metadataTexts(rows.first);
+  } else {
+    final row0 = rows.isNotEmpty ? _metadataTexts(rows[0]) : const <String>[];
+    author = row0.isNotEmpty ? row0.first : (channel?.name ?? '');
+    stats = rows.length > 1 ? _metadataTexts(rows.last) : const <String>[];
+  }
 
-  final badge = _lockupBadgeText(m);
+  final badges = _lockupBadges(m);
+  final durationBadge = badges
+      .map((b) => b['text'])
+      .whereType<String>()
+      .map(parseClockDuration)
+      .nonNulls
+      .firstOrNull;
   return YtSearchItem(
     videoId: id,
     title: readText(meta['title']),
-    author: row0.isNotEmpty ? row0.first : '',
-    channelId: _browseIdIn(meta['image']),
-    thumbnails: mapList(
-      ((m['contentImage'] as Map?)?['thumbnailViewModel'] as Map?)?['image']
-              is Map
-          ? (((m['contentImage'] as Map)['thumbnailViewModel'] as Map)['image']
-                as Map)['sources']
-          : null,
-      YtThumbnail.fromJson,
-    ),
-    duration: parseClockDuration(badge),
-    viewCountText: row1.isNotEmpty ? row1.first : null,
-    publishedText: row1.length > 1 ? row1[1] : null,
-    isLive: badge != null && badge.toUpperCase() == 'LIVE',
+    author: author,
+    channelId: _browseIdIn(meta['image']) ?? channel?.id,
+    thumbnails: lockupThumbnails(m),
+    duration: durationBadge,
+    // a stream that is live now has one part: "288人正在观看"
+    viewCountText: stats.isNotEmpty ? stats.first : null,
+    publishedText: stats.length > 1 ? stats[1] : null,
+    isLive: badges.any(_isLiveBadge),
   );
+}
+
+/// The badge's *style*, not its text: the text is localised ('直播' under
+/// zh-CN), and comparing it with 'LIVE' found no live stream at all.
+bool _isLiveBadge(Map<String, dynamic> badge) =>
+    badge['badgeStyle'] == 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' ||
+    collectByKey(badge['icon'], 'imageName').contains('LIVE');
+
+List<Map<String, dynamic>> _lockupBadges(Map<String, dynamic> m) =>
+    collectObjects(m['contentImage'], 'thumbnailBadgeViewModel');
+
+/// The cover of a lockup: a video's `thumbnailViewModel`, or the primary
+/// thumbnail of a playlist's `collectionThumbnailViewModel` — the first
+/// `thumbnailViewModel` under `contentImage` either way.
+List<YtThumbnail> lockupThumbnails(Map<String, dynamic> m) {
+  final view = collectObjects(m['contentImage'], 'thumbnailViewModel')
+      .firstOrNull;
+  final image = view?['image'];
+  return mapList(image is Map ? image['sources'] : null, YtThumbnail.fromJson);
 }
 
 List<String> _metadataTexts(Map<dynamic, dynamic> row) => [
@@ -301,17 +346,6 @@ List<String> _metadataTexts(Map<dynamic, dynamic> row) => [
     if (part is Map && readText(part['text']).isNotEmpty)
       readText(part['text']),
 ];
-
-String? _lockupBadgeText(Map<String, dynamic> m) {
-  for (final b in collectObjects(
-    m['contentImage'],
-    'thumbnailBadgeViewModel',
-  )) {
-    final t = b['text'];
-    if (t is String && t.isNotEmpty) return t;
-  }
-  return null;
-}
 
 YtComment? _fromCommentEntityPayload(
   Map<String, dynamic> p,
@@ -379,56 +413,4 @@ String? _browseIdIn(Object? node) {
     if (id is String && id.isNotEmpty) return id;
   }
   return null;
-}
-
-
-/// The channel header of a `browse` response.
-///
-/// Reads `pageHeaderViewModel`, which is what a channel page carries today —
-/// measured on two channels; the older `c4TabbedHeaderRenderer` did not
-/// appear at all.
-YtChannelInfo? parseChannelInfo(Object? root, String channelId) {
-  final header = collectObjects(root, 'pageHeaderViewModel').firstOrNull;
-  if (header == null) return null;
-
-  // the title is not a plain text node here: `pageHeaderViewModel` nests it
-  // in a `dynamicTextViewModel`, so the first non-empty `content` under it is
-  // the channel name
-  final name = [
-    readText(header['title']).trim(),
-    for (final content in collectByKey(header['title'], 'content'))
-      if (content is String) content.trim(),
-  ].firstWhere((s) => s.isNotEmpty, orElse: () => '');
-
-  // the avatar is the largest source under the header's image blocks
-  final avatars = <YtThumbnail>[
-    for (final sources in collectByKey(header, 'sources'))
-      ...mapList(sources, YtThumbnail.fromJson),
-  ];
-
-  // "5.2M subscribers" and "1.2K videos" arrive as metadata rows
-  final rows = <String>[
-    for (final part in collectObjects(header, 'metadataParts'))
-      readText(part['text']).trim(),
-    for (final parts in collectByKey(header, 'metadataParts'))
-      if (parts is List)
-        for (final part in parts)
-          if (part is Map) readText(part['text']).trim(),
-  ]..removeWhere((s) => s.isEmpty);
-
-  String? pick(bool Function(String) test) {
-    for (final row in rows) {
-      if (test(row.toLowerCase())) return row;
-    }
-    return null;
-  }
-
-  return YtChannelInfo(
-    channelId: channelId,
-    name: name,
-    avatar: largestThumbnail(avatars),
-    subscriberText: pick((r) => r.contains('subscriber') || r.contains('订阅')),
-    videoCountText: pick((r) => r.contains('video') || r.contains('视频')),
-    description: readText(header['description']).trim(),
-  );
 }

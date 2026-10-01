@@ -24,6 +24,8 @@ export 'package:PiliPlus/services/youtube/direct_source.dart';
 export 'package:PiliPlus/services/youtube/innertube_client.dart';
 export 'package:PiliPlus/services/youtube/source_router.dart';
 export 'package:PiliPlus/services/youtube/video_source.dart';
+export 'package:PiliPlus/services/youtube/yt_channel_models.dart';
+export 'package:PiliPlus/services/youtube/yt_channel_parser.dart';
 export 'package:PiliPlus/services/youtube/yt_classifier.dart';
 export 'package:PiliPlus/services/youtube/yt_format_select.dart';
 export 'package:PiliPlus/services/youtube/yt_identity.dart';

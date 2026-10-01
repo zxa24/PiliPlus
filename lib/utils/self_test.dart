@@ -49,6 +49,7 @@ import 'package:PiliPlus/pages/local/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
+import 'package:PiliPlus/pages/youtube/channel/widgets/post_card.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
@@ -1045,6 +1046,26 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--yt-channel') case final channel?) {
       await scenario('youtubeChannel', () => _youtubeChannel(channel));
+    }
+    if (_arg(args, '--yt-playlist') case final playlist?) {
+      await scenario('youtubePlaylist', () => _youtubePlaylist(playlist));
+    }
+    if (_arg(args, '--yt-post-probe') case final channel?) {
+      await scenario('youtubePostProbe', () => _youtubePostProbe(channel));
+    }
+    // LibrePili (yt-channel-tabs): side-by-side screenshots of the bilibili
+    // space / lists and the YouTube channel, for the shared-component check
+    if (_arg(args, '--ui-shots') case final dir?) {
+      _shots = dir;
+      await scenario(
+        'uiShots',
+        () => _uiShots(
+          mid: _arg(args, '--shots-mid') ?? '946974',
+          bvid: _arg(args, '--shots-bv') ?? 'BV1GJ411x7h7',
+          channel: _arg(args, '--shots-yt') ?? 'UCsXVk37bltHxD1rDPwtNM8Q',
+          query: _arg(args, '--shots-query') ?? '黑洞',
+        ),
+      );
     }
     if (_arg(args, '--yt-search') case final query?) {
       await scenario('youtubeSearch', () => _youtubeSearch(query));
@@ -5215,122 +5236,415 @@ abstract final class SelfTest {
   /// LibrePili: can we list a channel's uploads? Subscriptions depend on it,
   /// and stage 1 never parsed a channel page — so this asks before any UI is
   /// built on the assumption.
+  /// `--yt-channel ID`: every tab the channel has, each paged to its end
+  /// (yt-channel-tabs plan §6). Pass: the tabs come from the response, the
+  /// 视频 tab's every item has a date and views, the avatar is not the
+  /// banner, every tab ends cleanly (a page with no token, not an error),
+  /// and — on Kurzgesagt — 视频 = 251 and Shorts = 140, which with the
+  /// uploads playlist's 391 (`--yt-playlist`) is the whole channel.
   static Future<Map<String, dynamic>> _youtubeChannel(String channelId) async {
     final source = YtDirectSource.create();
     final router = YtSourceRouter(source);
-    final result = await router.run(
-      (s) => (s as YtDirectSource).channelPage(channelId),
+    final first = await router.run(
+      (s) => (s as YtDirectSource).channelTab(channelId, YtChannelTab.videos),
     );
-    if (!result.ok || result.value == null) {
-      return {'pass': false, 'verdict': result.verdict.toString()};
+    if (!first.ok || first.value == null) {
+      return {'pass': false, 'verdict': first.verdict.toString()};
     }
-    final page = result.value!;
+    final page = first.value!;
     final info = page.info;
+    final tabs = <String, Object?>{};
+    var allEnded = true;
+    var videosDated = true;
+    for (final tab in YtChannelTab.values) {
+      if (!page.tabs.containsKey(tab)) continue;
+      final pages = <int>[];
+      final sample = <String>[];
+      var withPublished = 0;
+      var withViews = 0;
+      var live = 0;
+      String? error;
+      var next = tab == YtChannelTab.videos ? page : null;
+      if (next == null) {
+        final r = await router.run(
+          (s) => (s as YtDirectSource).channelTab(
+            channelId,
+            tab,
+            channelName: info?.name,
+          ),
+        );
+        if (r.ok && r.value != null) {
+          next = r.value!;
+        } else {
+          error = r.verdict.toString();
+        }
+      }
+      while (next != null) {
+        pages.add(next.items.length);
+        for (final item in next.items) {
+          if (sample.length < 3) sample.add('$item');
+          if (item case final YtSearchItem v) {
+            if (v.publishedText != null) withPublished++;
+            if (v.viewCountText != null) withViews++;
+            if (v.isLive) live++;
+          }
+        }
+        final token = next.continuation;
+        if (token == null || pages.length > 60) break;
+        final r = await router.run(
+          (s) => (s as YtDirectSource).channelTab(
+            channelId,
+            tab,
+            continuation: token,
+            channelName: info?.name,
+          ),
+        );
+        if (!r.ok || r.value == null) {
+          error = r.verdict.toString();
+          break;
+        }
+        next = r.value!;
+      }
+      final total = pages.fold(0, (a, b) => a + b);
+      allEnded &= error == null;
+      if (tab == YtChannelTab.videos) {
+        videosDated = withPublished == total && withViews == total;
+      }
+      tabs[tab.name] = {
+        'pages': pages,
+        'total': total,
+        if (tab == YtChannelTab.videos || tab == YtChannelTab.streams) ...{
+          'withPublished': withPublished,
+          'withViews': withViews,
+          'live': live,
+        },
+        'error': ?error,
+        'sample': sample,
+      };
+    }
+    // the sort chips, and that choosing one reloads the list
+    Map<String, Object?>? sort;
+    if (page.chips.length > 1) {
+      final chip = page.chips[1];
+      final r = await router.run(
+        (s) => (s as YtDirectSource).channelTab(
+          channelId,
+          YtChannelTab.videos,
+          continuation: chip.token,
+          channelName: info?.name,
+        ),
+      );
+      sort = {
+        'chips': [for (final c in page.chips) c.text],
+        'chosen': chip.text,
+        'items': r.value?.items.length,
+        'first': r.value?.items.firstOrNull?.toString(),
+        'error': r.ok ? null : r.verdict.toString(),
+      };
+    }
+    final avatarNotBanner =
+        info?.avatar != null && info?.avatar?.url != info?.banner?.url;
+    final kurzgesagt = channelId == 'UCsXVk37bltHxD1rDPwtNM8Q';
+    final videos = tabs['videos'] as Map?;
+    final shorts = tabs['shorts'] as Map?;
+    final counts =
+        !kurzgesagt || (videos?['total'] == 251 && shorts?['total'] == 140);
     return {
-      // the header is what the video response cannot give us
-      'pass': page.videos.items.isNotEmpty && info != null,
+      'pass':
+          info != null &&
+          tabs.isNotEmpty &&
+          allEnded &&
+          videosDated &&
+          avatarNotBanner &&
+          counts,
       'channelId': channelId,
-      'items': page.videos.items.length,
-      'hasContinuation': page.videos.continuation != null,
       // 'name' is the framework's key for the scenario; do not collide
       'channelName': info?.name,
-      'avatar': info?.avatar?.url != null,
+      'handle': info?.handle,
       'subscribers': info?.subscriberText,
       'videoCount': info?.videoCountText,
-      'first': page.videos.items.isEmpty
-          ? null
-          : '${page.videos.items.first.title} / ${page.videos.items.first.author}',
-      // what the list shows: dates and views per item, and how far paging
-      // goes (user 2026-09-30: list incomplete, no upload dates)
-      'withPublished': page.videos.items
-          .where((i) => i.publishedText != null)
-          .length,
-      'withViews': page.videos.items.where((i) => i.viewCountText != null).length,
-      'firstItems': [
-        for (final i in page.videos.items.take(3))
-          {
-            'title': i.title,
-            'author': i.author,
-            'views': i.viewCountText,
-            'published': i.publishedText,
-          },
-      ],
-      'raw': await _ytChannelRaw(source, channelId),
-      'pages': await _ytChannelPages(router, channelId, page.videos),
+      'avatar': info?.avatar?.toString(),
+      'banner': info?.banner?.toString(),
+      'avatarNotBanner': avatarNotBanner,
+      'link': info?.link,
+      'tabsListed': [for (final t in page.tabs.keys) t.name],
+      'tabs': tabs,
+      'sort': sort,
+      'expectedCounts': kurzgesagt ? '视频 251 + Shorts 140' : null,
     };
   }
 
-  /// The channel's first response as it comes: its tabs, and the metadata
-  /// rows of its first items, before any parsing decides what they are.
-  static Future<Map<String, Object?>> _ytChannelRaw(
-    YtDirectSource source,
-    String channelId,
-  ) async {
-    final response = await source.client.browse(
-      channelId,
-      params: 'EgZ2aWRlb3M%3D',
-    );
-    final json = response.json;
-    return {
-      'tabs': [
-        for (final t in collectObjects(json, 'tabRenderer'))
-          {
-            'title': t['title'],
-            'params': (t['endpoint'] as Map?)?['browseEndpoint'] is Map
-                ? ((t['endpoint'] as Map)['browseEndpoint'] as Map)['params']
-                : null,
-            'selected': t['selected'],
-          },
-      ],
-      'lockups': collectObjects(json, 'lockupViewModel').length,
-      'richItems': collectObjects(json, 'richItemRenderer').length,
-      'videoRenderers': collectObjects(json, 'videoRenderer').length,
-      'firstRows': [
-        for (final m in collectObjects(json, 'lockupViewModel').take(2))
-          [
-            for (final v in collectObjects(m['metadata'], 'contentMetadataViewModel'))
-              for (final r in (v['metadataRows'] as List?) ?? const [])
-                [
-                  for (final part in ((r as Map)['metadataParts'] as List?) ?? const [])
-                    readText((part as Map)['text']),
-                ],
-          ],
-      ],
-    };
-  }
-
-  /// Follows the continuation tokens for up to five pages: how many items
-  /// each brings, and where paging stops.
-  static Future<List<Object?>> _ytChannelPages(
-    YtSourceRouter router,
-    String channelId,
-    YtPage<YtSearchItem> first,
-  ) async {
-    final out = <Object?>[
-      {'items': first.items.length, 'next': first.continuation != null},
-    ];
-    var token = first.continuation;
-    for (var i = 0; i < 4 && token != null; i++) {
+  /// `--yt-playlist ID`: a playlist paged to its end. Pass: the total is the
+  /// header's 'N 个视频' (the uploads list `UUsX…` → 391).
+  static Future<Map<String, dynamic>> _youtubePlaylist(String playlistId) async {
+    final router = YtSourceRouter(YtDirectSource.create());
+    final pages = <int>[];
+    YtPlaylistInfo? info;
+    String? token;
+    String? error;
+    do {
+      final current = token;
       final r = await router.run(
-        (s) => (s as YtDirectSource).channelVideos(
-          channelId,
-          continuation: token,
+        (s) => (s as YtDirectSource).playlist(
+          playlistId,
+          continuation: current,
         ),
       );
       if (!r.ok || r.value == null) {
-        out.add({'error': r.verdict.toString()});
+        error = r.verdict.toString();
         break;
       }
-      out.add({
-        'items': r.value!.items.length,
-        'next': r.value!.continuation != null,
-        'withPublished': r.value!.items
-            .where((x) => x.publishedText != null)
-            .length,
-      });
-      token = r.value!.continuation;
+      info ??= r.value!.info;
+      pages.add(r.value!.videos.items.length);
+      token = r.value!.videos.continuation;
+    } while (token != null && pages.length < 60);
+    final total = pages.fold(0, (a, b) => a + b);
+    return {
+      'pass': error == null && info?.count != null && total == info!.count,
+      'playlistId': playlistId,
+      'title': info?.title,
+      'owner': info?.ownerName,
+      'countText': info?.countText,
+      'pages': pages,
+      'total': total,
+      'error': ?error,
+    };
+  }
+
+  /// `--yt-post-probe ID`: the channel's first post opened as its detail
+  /// page, and its comments paged twice and a thread's replies — through
+  /// `browse`, where a video's go through `next`.
+  static Future<Map<String, dynamic>> _youtubePostProbe(String channelId) async {
+    final router = YtSourceRouter(YtDirectSource.create());
+    final tab = await router.run(
+      (s) => (s as YtDirectSource).channelTab(channelId, YtChannelTab.posts),
+    );
+    final post = tab.value?.items.whereType<YtPost>().firstOrNull;
+    final params = post?.detailParams;
+    if (params == null) {
+      return {'pass': false, 'error': 'no post', 'verdict': '${tab.verdict}'};
     }
+    final detail = await router.run(
+      (s) => (s as YtDirectSource).postDetail(params),
+    );
+    final token = detail.value?.commentsToken;
+    if (token == null) {
+      return {'pass': false, 'error': 'no comments token', 'post': '$post'};
+    }
+    final page1 = await router.run(
+      (s) => (s as YtDirectSource).postComments(token),
+    );
+    final next = page1.value?.continuation;
+    final page2 = next == null
+        ? null
+        : await router.run((s) => (s as YtDirectSource).postComments(next));
+    final threaded = page1.value?.items.where((c) => c.hasReplies).firstOrNull;
+    final replies = threaded == null
+        ? null
+        : await router.run(
+            (s) => (s as YtDirectSource).postComments(threaded.replyToken!),
+          );
+    return {
+      'pass':
+          detail.value?.post.postId == post!.postId &&
+          (page1.value?.items.length ?? 0) > 0 &&
+          (page2 == null || (page2.value?.items.length ?? 0) > 0) &&
+          (replies == null || (replies.value?.items.length ?? 0) > 0),
+      'post': '$post',
+      'commentCount': post.commentCountText,
+      'page1': page1.value?.items.length,
+      'page2': page2?.value?.items.length,
+      'replies': replies?.value?.items.length,
+      'firstComment': page1.value?.items.firstOrNull?.toString(),
+    };
+  }
+
+  /// The bounds of the cards on screen and of the parts inside each, for
+  /// `--ui-shots`: numbers to compare two builds by, where a screenshot
+  /// would be compared by eye. Found by type *name*, so the same probe runs
+  /// on a build without the newer widgets. A part's rect is relative to its
+  /// card, so two cards at different scroll positions still compare.
+  static Map<String, Object?> _uiGeometry() {
+    const cards = {
+      'VideoCardH',
+      'VideoCardHMemberVideo',
+      'SeasonSeriesCard',
+      'YtVideoTile',
+      'YtPlaylistCard',
+      'DynamicPanel',
+      'YtPostCard',
+      'UserInfoCard',
+      'YtChannelHeader',
+      'PgcCardVMemberPgc',
+      'PortraitCardFrame',
+      'TabBar',
+      'SliverFloatingHeaderWidget',
+    };
+    const parts = {
+      'NetworkImgLayer',
+      'PBadge',
+      'StatWidget',
+      'VideoPopupMenu',
+      'Text',
+      'PendantAvatar',
+      'FilledButton',
+      'TextButton',
+      'Tab',
+      'VerticalDivider',
+      'CachedNetworkImage',
+    };
+    String fmt(Rect x) =>
+        '${x.left.toStringAsFixed(1)},${x.top.toStringAsFixed(1)} '
+        '${x.width.toStringAsFixed(1)}x${x.height.toStringAsFixed(1)}';
+    Rect? rectOf(Element e) {
+      final box = e.renderObject;
+      if (box is RenderBox && box.hasSize && box.attached) {
+        return box.localToGlobal(Offset.zero) & box.size;
+      }
+      return null;
+    }
+
+    final out = <String, List<Object?>>{};
+    void visit(Element e) {
+      final name = e.widget.runtimeType.toString();
+      if (cards.contains(name) && (out[name]?.length ?? 0) < 2) {
+        final rect = rectOf(e);
+        if (rect != null && rect.width > 0) {
+          final inner = <String>[];
+          void visitInner(Element c) {
+            final n = c.widget.runtimeType.toString();
+            if (parts.contains(n) && inner.length < 24) {
+              final r = rectOf(c);
+              if (r != null) {
+                final w = c.widget;
+                final label = w is Text
+                    ? '"${(w.data ?? w.textSpan?.toPlainText() ?? '').characters.take(8)}"'
+                    : '';
+                inner.add('$n$label ${fmt(r.shift(-rect.topLeft))}');
+              }
+            }
+            c.visitChildren(visitInner);
+          }
+
+          e.visitChildren(visitInner);
+          (out[name] ??= []).add({'rect': fmt(rect), 'parts': inner});
+        }
+      }
+      e.visitChildren(visit);
+    }
+
+    WidgetsBinding.instance.rootElement?.visitChildren(visit);
     return out;
+  }
+
+  /// `--ui-shots DIR`: the bilibili lists that share a card frame with
+  /// YouTube (search, related, the space's 投稿 / 动态 / 合集), and the
+  /// YouTube channel with each of its tabs, a playlist and a post, at one
+  /// wide and one narrow width. Run on a build before and after a change to
+  /// the shared components to see that both sides moved together.
+  ///
+  /// Widgets are found by type *name*, so the same probe also runs on a
+  /// build where a YouTube widget does not exist yet.
+  static Future<Map<String, dynamic>> _uiShots({
+    required String mid,
+    required String bvid,
+    required String channel,
+    required String query,
+  }) async {
+    final shots = <String?>[];
+    final missing = <String>[];
+    final geometry = <String, Object?>{};
+    Future<void> settle([int seconds = 5]) =>
+        Future.delayed(Duration(seconds: seconds));
+    Future<void> shot(String name) async {
+      shots.add(await _shot(name));
+      geometry[name] = _uiGeometry();
+    }
+    Future<bool> tapType(String type) =>
+        _tap((e) => e.widget.runtimeType.toString() == type);
+    Future<void> tab(String label, String name) async {
+      if (await _tapText(label)) {
+        await settle(4);
+        await shot(name);
+      } else {
+        missing.add(name);
+      }
+    }
+
+    Future<void> back() async {
+      Get.back();
+      await settle(1);
+    }
+
+    for (final (width, tag) in const [(1100.0, 'wide'), (420.0, 'narrow')]) {
+      await SelfTestWindow.setSize(Size(width, 900));
+      await settle(2);
+      await shot('${tag}_bili_home');
+
+      unawaited(
+        Get.toNamed(
+          '/searchResult',
+          parameters: {'keyword': query, 'tag': 'shots$tag'},
+        ),
+      );
+      await settle(6);
+      await shot('${tag}_bili_search');
+      await back();
+
+      unawaited(PiliScheme.routePushFromUrl('https://www.bilibili.com/video/$bvid'));
+      await settle(8);
+      await shot('${tag}_bili_video');
+      await back();
+
+      unawaited(Get.toNamed('/member?mid=$mid'));
+      await settle(6);
+      await shot('${tag}_bili_space');
+      await tab('投稿', '${tag}_bili_space_contribute');
+      await tab('全部合集/列表', '${tag}_bili_space_seasons');
+      await tab('动态', '${tag}_bili_space_dynamic');
+      await back();
+
+      unawaited(
+        Get.toNamed('/ytSearchResult', parameters: {'keyword': query}),
+      );
+      await settle(6);
+      await shot('${tag}_yt_search');
+      await back();
+
+      unawaited(Get.toNamed('/ytChannel', parameters: {'id': channel}));
+      await settle(6);
+      await shot('${tag}_yt_channel');
+      await tab('视频', '${tag}_yt_videos');
+      await tab('Shorts', '${tag}_yt_shorts');
+      await tab('直播', '${tag}_yt_streams');
+      await tab('帖子', '${tag}_yt_posts');
+      // opened as its own tap does, not by tapping its centre: that lands
+      // on the image as often as not, and opens the image viewer
+      if (_findElement((e) => e.widget is YtPostCard)?.widget
+          case final YtPostCard card) {
+        YtPostCard.open(card.post);
+        await settle(6);
+        await shot('${tag}_yt_post_detail');
+        await back();
+      } else {
+        missing.add('${tag}_yt_post_detail');
+      }
+      await tab('播放列表', '${tag}_yt_playlists');
+      if (await tapType('YtPlaylistCard')) {
+        await settle(6);
+        await shot('${tag}_yt_playlist');
+        await back();
+      } else {
+        missing.add('${tag}_yt_playlist');
+      }
+      await back();
+    }
+    return {
+      'pass': !shots.any((s) => s == null || s.startsWith('failed')),
+      'shots': shots,
+      'missing': missing,
+      'geometry': geometry,
+    };
   }
 
   /// LibrePili: switch to the YouTube platform, search, open a result.

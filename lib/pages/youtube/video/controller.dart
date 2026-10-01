@@ -23,8 +23,8 @@ import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
+import 'package:PiliPlus/pages/youtube/comments/yt_comments_controller.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
-import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
@@ -48,11 +48,14 @@ import 'package:media_kit/media_kit.dart' show SubtitleTrack;
 
 enum YtPageStage { loading, ready, failed }
 
-class YtVideoController extends GetxController implements SubtitleMenuHost {
+class YtVideoController extends GetxController
+    with YtCommentsMixin
+    implements SubtitleMenuHost {
   YtVideoController({required this.videoId, YouTubeVideoSource? source})
     : router = YtSourceRouter(source ?? YtDirectSource.create());
 
   final String videoId;
+  @override
   final YtSourceRouter router;
 
   final plPlayerController = PlPlayerController.getInstance();
@@ -71,9 +74,6 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
   @override
   void onInit() {
     super.onInit();
-    // comments loaded while translation is on are translated too
-    // (user 2026-09-25, 1A)
-    ever(comments, (_) => translateLoadedComments());
     _historyWorkers = [
       ever<int>(plPlayerController.position, (sec) {
         if (!_ownsPlayer) return;
@@ -427,30 +427,6 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
   // ------------------------------------------------ related and comments
 
   final related = <YtSearchItem>[].obs;
-  final comments = <YtComment>[].obs;
-  final commentsLoading = false.obs;
-
-  /// Null means "no more": either the video has comments off, or the last
-  /// page was the last one.
-  ///
-  /// Observable, because the list's footer reads it: while it was a plain
-  /// field, nothing told the footer's Obx to rebuild when a page turned out
-  /// to be the last one, and the trailing spinner had no reason to go away.
-  final _commentsToken = RxnString();
-  // observable: `commentsPending` is read inside an Obx, and a plain bool
-  // there is the same trap the continuation token was in
-  final _commentsStarted = false.obs;
-
-  /// Why the comments are not here, when they are not.
-  ///
-  /// Without it a failed request emptied into 「暂无评论」, which is what a
-  /// video with comments turned off says — the two were indistinguishable,
-  /// and since the attempt had already been marked as made, nothing ever
-  /// tried again.
-  final commentsError = RxnString();
-
-  bool get hasMoreComments => _commentsToken.value != null;
-
   /// Why the related shelf is not here, when it is not — and whether it is
   /// still on its way. Without these the shelf said 「暂无相关视频」 while
   /// loading and again when the request had failed: three states, one
@@ -479,7 +455,7 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     _relatedDone.value = true;
     relatedError.value = null;
     related.value = result.value!.related;
-    _commentsToken.value = result.value!.commentsToken;
+    commentsToken = result.value!.commentsToken;
     final info = result.value!.extra;
     if (!info.isEmpty) extra.value = info;
     // Comments start with the video rather than with the tab: the bilibili
@@ -493,157 +469,32 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
     ensureCommentsStarted();
   }
 
-  /// Fetches one page. The first call is made as soon as the token exists,
-  /// so the tab is already populated when it is opened.
-  Future<void> loadMoreComments() async {
-    final token = _commentsToken.value;
-    if (token == null || commentsLoading.value) return;
-    commentsLoading.value = true;
-    final result = await router.run(
-      (s) => (s as YtDirectSource).comments(token),
-    );
-    if (isClosed) return;
-    commentsLoading.value = false;
-    if (result.ok && result.value != null) {
-      comments.addAll(result.value!.items);
-      _commentsToken.value = result.value!.continuation;
-      commentsError.value = null;
-    } else {
-      // the token is kept: the page that failed is the page to retry
-      commentsError.value = _messageFor(result.verdict);
-    }
-  }
+  // the comment section itself is [YtCommentsMixin]'s, shared with a post's
 
-  void ensureCommentsStarted() {
-    // The latch must not close on an attempt that could not have worked.
-    // Opening the 评论 tab while the video is still loading called this
-    // before the token existed: it did nothing, marked the comments as
-    // started, and the call that arrives *with* the token then found the
-    // latch already closed — so the tab stayed empty for good.
-    if (_commentsStarted.value || _commentsToken.value == null) return;
-    _commentsStarted.value = true;
-    loadMoreComments();
-  }
+  @override
+  String get commentsKey => 'yt:$videoId';
 
-  /// True while there is nothing to show and nothing has failed: either a
-  /// page is in flight or the token it needs has not arrived yet. Both are
-  /// "wait", and neither is 「暂无评论」, which is what a video with
-  /// comments turned off says.
-  bool get commentsPending =>
-      comments.isEmpty &&
-      commentsError.value == null &&
-      (commentsLoading.value || !_commentsStarted.value);
+  @override
+  String commentsMessageFor(YtVerdict verdict) => _messageFor(verdict);
 
-  /// Retries the page that failed, without losing the ones that did not.
-  Future<void> retryComments() {
-    commentsError.value = null;
-    return loadMoreComments();
-  }
-
-  /// Pull to refresh: back to the first page, which means a fresh bootstrap
-  /// token — the one this page holds belongs to a position in a list that is
-  /// about to be thrown away.
-  Future<void> refreshComments() async {
-    if (commentsLoading.value) return;
-    commentsLoading.value = true;
+  @override
+  Future<YtRoutedResult<String?>> fetchCommentsBootstrap() async {
     final result = await router.run(
       (s) => (s as YtDirectSource).related(videoId),
     );
-    if (isClosed) {
-      return;
-    }
-    commentsLoading.value = false;
-    if (!result.ok || result.value == null) {
-      commentsError.value = _messageFor(result.verdict);
-      return;
-    }
-    comments.clear();
-    replies.clear();
-    repliesLoading.clear();
-    _moreReplies.clear();
-    commentsError.value = null;
-    _commentsToken.value = result.value!.commentsToken;
-    await loadMoreComments();
-  }
-
-  // ------------------------------------------------------------- replies
-  //
-  // A thread's replies are another page from the same endpoint, reached by
-  // the token that came with the comment. They are kept per comment rather
-  // than spliced into `comments`: a reply is not a comment that happens to
-  // be lower down, and the list has to be able to collapse again.
-
-  final replies = <String, RxList<YtComment>>{}.obs;
-  final repliesLoading = <String>{}.obs;
-  final _moreReplies = <String, String?>{};
-
-  bool hasMoreReplies(String commentId) => _moreReplies[commentId] != null;
-
-  /// Fetches the first page of a thread's replies so the list can show a
-  /// preview of them, the way the bilibili one does.
-  ///
-  /// YouTube sends no replies with the comments — only a token and a count —
-  /// so a preview is a request per thread. It is made when the row is built,
-  /// which is when it is about to be seen, rather than for all twenty at
-  /// once when the page opens.
-  void ensureRepliesPreview(YtComment comment) {
-    if (!comment.hasReplies) return;
-    final id = comment.commentId;
-    if (replies.containsKey(id) || repliesLoading.contains(id)) return;
-    // This is called from a row's build. Marking the thread as loading
-    // touches an observable, and doing that while the frame is being built
-    // is a change-during-build — the error lands in an unawaited future and
-    // vanishes, which is exactly what it did: no request, no entry, and
-    // nothing on screen to say why. It waits for the frame to end instead.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (isClosed) return;
-      if (replies.containsKey(id) || repliesLoading.contains(id)) return;
-      unawaited(_fetchReplies(id, comment.replyToken));
-    });
-  }
-
-  /// Pull to refresh inside a thread: back to its first page.
-  Future<void> refreshReplies(YtComment comment) async {
-    final id = comment.commentId;
-    if (repliesLoading.contains(id)) return;
-    replies
-      ..remove(id)
-      ..refresh();
-    _moreReplies.remove(id);
-    repliesError.remove(id);
-    await _fetchReplies(id, comment.replyToken);
-  }
-
-  /// Why a thread's replies are not here, when they are not. Keyed by
-  /// comment id, so one failed thread does not speak for the others.
-  final repliesError = <String, String>{}.obs;
-
-  Future<void> loadMoreReplies(String commentId) =>
-      _fetchReplies(commentId, _moreReplies[commentId]);
-
-  Future<void> _fetchReplies(String commentId, String? token) async {
-    if (token == null || repliesLoading.contains(commentId)) return;
-    repliesLoading.add(commentId);
-    final result = await router.run(
-      (s) => (s as YtDirectSource).comments(token),
+    return YtRoutedResult(
+      result.ok && result.value != null
+          ? YtResult.ok(result.value!.commentsToken)
+          : YtResult.failed(result.verdict),
+      result.source,
     );
-    if (isClosed) return;
-    repliesLoading.remove(commentId);
-    if (result.ok && result.value != null) {
-      (replies[commentId] ??= <YtComment>[].obs).addAll(result.value!.items);
-      translateLoadedComments();
-      replies.refresh();
-      _moreReplies[commentId] = result.value!.continuation;
-      repliesError.remove(commentId);
-    } else {
-      // an empty list rather than nothing: the thread is open and has to say
-      // something, and "nothing loaded" must not look like "not tried yet"
-      replies[commentId] ??= <YtComment>[].obs;
-      replies.refresh();
-      _moreReplies[commentId] = null;
-      repliesError[commentId] = _messageFor(result.verdict);
-    }
   }
+
+  @override
+  Future<YtResult<YtPage<YtComment>>> fetchCommentsPage(
+    YouTubeVideoSource source,
+    String token,
+  ) => (source as YtDirectSource).comments(token);
 
   // ------------------------------------------------- on-device transcription
 
@@ -1554,28 +1405,12 @@ class YtVideoController extends GetxController implements SubtitleMenuHost {
 
   YtStreamPair? get streams => _streams;
 
-  /// LibrePili: this video's on-device comment translation
-  /// (research/comment-translation-design-2026-09-25.md, E4).
-  late final commentTranslator = CommentTranslator.of('yt:$videoId');
-
-  /// The comments loaded, and the replies previewed, as the translator
-  /// takes them.
-  Iterable<(String, String)> get loadedCommentTexts => [
-    for (final c in comments) (c.commentId, c.content),
-    for (final list in replies.values)
-      for (final r in list) (r.commentId, r.content),
-  ];
-
-  void translateLoadedComments() =>
-      commentTranslator.addTexts(loadedCommentTexts);
-
   @override
   void onClose() {
     _saveHistory();
     for (final w in _historyWorkers) {
       w.dispose();
     }
-    CommentTranslator.release('yt:$videoId');
     _stopWatchingPlayback();
     // the gate coming down on the way out must not start the player again
     _releaseHold();

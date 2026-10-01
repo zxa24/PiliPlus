@@ -28,6 +28,8 @@ library;
 
 import 'package:PiliPlus/services/youtube/innertube_client.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
+import 'package:PiliPlus/services/youtube/yt_channel_models.dart';
+import 'package:PiliPlus/services/youtube/yt_channel_parser.dart';
 import 'package:PiliPlus/services/youtube/yt_classifier.dart';
 import 'package:PiliPlus/services/youtube/yt_format_select.dart';
 import 'package:PiliPlus/services/youtube/yt_identity.dart';
@@ -233,43 +235,190 @@ class YtDirectSource implements YouTubeVideoSource {
     );
   }
 
-  /// A channel's uploads.
+  /// The tab params each channel's response listed, so a tab opened after
+  /// the first is asked for with the params YouTube itself gave it rather
+  /// than with the hardcoded fallback.
+  final Map<String, Map<YtChannelTab, String>> _tabParams = {};
+
+  /// One page of one channel tab: the first when [continuation] is null.
   ///
-  /// Parsed with [parseRelatedVideos] rather than [parseSearchResults]: the
-  /// search parser follows the search response's fixed path, while a channel
-  /// tab nests the same `lockupViewModel` items somewhere else entirely.
-  /// Measured: the search parser found 0 items on a channel that the
-  /// tree-walking one read 47 from.
+  /// The first page also carries the header, the channel's tab list and,
+  /// on the 视频 / 直播 tabs, the sort chips.
+  ///
+  /// **Self-check.** The response says which tab it is showing. If that is
+  /// not the tab asked for — params that have rotted open the Home tab, and
+  /// the app used to show Home's shelf as "the uploads" — it asks once more
+  /// with the params this response lists for the tab. Still wrong is a
+  /// [YtCause.clientBroken] with the signal `channel-tab-mismatch`: a cause
+  /// on screen, not a wrong list.
+  ///
+  /// A tab the channel does not list at all (no 直播 on a channel that
+  /// never streamed) is an empty page carrying the tab list, so the page
+  /// can leave the tab out.
+  Future<YtResult<YtChannelTabPage>> channelTab(
+    String channelId,
+    YtChannelTab tab, {
+    String? continuation,
+    String? channelName,
+  }) async {
+    final context = channelName == null
+        ? null
+        : (name: channelName, id: channelId);
+    if (continuation != null) {
+      final r = await client.browseContinuation(continuation);
+      final verdict = classifyYtTransport(r);
+      if (verdict != null) return YtResult.failed(verdict);
+      return YtResult.ok(
+        YtChannelTabPage(
+          tab: tab,
+          items: _channelItems(r.json, tab, context),
+          continuation: listContinuationToken(r.json),
+          // a reload (a sort chip) answers with the chips again
+          chips: parseSortChips(r.json),
+        ),
+      );
+    }
+
+    final asked =
+        _tabParams[channelId]?[tab] ?? tab.fallbackParams;
+    var r = await client.browse(channelId, params: asked);
+    var verdict = classifyYtTransport(r);
+    if (verdict != null) return YtResult.failed(verdict);
+    var tabs = parseChannelTabs(r.json);
+    if (tabs.isNotEmpty) _tabParams[channelId] = tabs;
+
+    if (selectedChannelTab(r.json) != tab) {
+      final listed = tabs[tab];
+      if (listed == null) {
+        return YtResult.ok(
+          YtChannelTabPage(
+            tab: tab,
+            items: const [],
+            info: parseChannelInfo(r.json, channelId),
+            tabs: tabs,
+          ),
+        );
+      }
+      if (listed != asked) {
+        r = await client.browse(channelId, params: listed);
+        verdict = classifyYtTransport(r);
+        if (verdict != null) return YtResult.failed(verdict);
+        final again = parseChannelTabs(r.json);
+        if (again.isNotEmpty) tabs = _tabParams[channelId] = again;
+      }
+      if (selectedChannelTab(r.json) != tab) {
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.clientBroken,
+            'channel-tab-mismatch',
+            'asked for ${tab.suffix}, the response shows '
+                '${selectedChannelTab(r.json)?.suffix ?? 'another tab'}',
+          ),
+        );
+      }
+    }
+
+    final info = parseChannelInfo(r.json, channelId);
+    final named = context ?? (info == null ? null : (name: info.name, id: channelId));
+    return YtResult.ok(
+      YtChannelTabPage(
+        tab: tab,
+        items: _channelItems(r.json, tab, named),
+        continuation: listContinuationToken(r.json),
+        info: info,
+        tabs: tabs,
+        chips: parseSortChips(r.json),
+      ),
+    );
+  }
+
+  static List<Object> _channelItems(
+    Object? json,
+    YtChannelTab tab,
+    ({String name, String id})? channel,
+  ) => switch (tab) {
+    YtChannelTab.videos ||
+    YtChannelTab.streams => parseChannelVideos(json, channel: channel),
+    YtChannelTab.shorts => parseChannelShorts(json),
+    YtChannelTab.playlists => parseChannelPlaylists(json),
+    YtChannelTab.posts => parseChannelPosts(json),
+  };
+
+  /// A channel's uploads (its 视频 tab), for callers that want only the
+  /// list — the subscription feed.
   Future<YtResult<YtPage<YtSearchItem>>> channelVideos(
     String channelId, {
     String? continuation,
   }) async {
-    final result = await channelPage(channelId, continuation: continuation);
-    return result.ok
-        ? YtResult.ok(result.value!.videos)
-        : result.castFailure();
+    final result = await channelTab(
+      channelId,
+      YtChannelTab.videos,
+      continuation: continuation,
+    );
+    if (!result.ok) return result.castFailure();
+    final page = result.value!;
+    return YtResult.ok(
+      YtPage(page.items.whereType<YtSearchItem>().toList(), page.continuation),
+    );
   }
 
-  /// A channel's header and its uploads in one request.
-  Future<YtResult<YtChannelPage>> channelPage(
-    String channelId, {
+  /// One page of a playlist (`browse VL<id>`); the header with the first.
+  Future<YtResult<YtPlaylistPage>> playlist(
+    String playlistId, {
     String? continuation,
   }) async {
-    final response = continuation == null
-        // the channel's "Videos" tab
-        ? await client.browse(channelId, params: 'EgZ2aWRlb3M%3D')
+    final r = continuation == null
+        ? await client.browse('VL$playlistId')
         : await client.browseContinuation(continuation);
-    final verdict = classifyYtTransport(response);
+    final verdict = classifyYtTransport(r);
     if (verdict != null) return YtResult.failed(verdict);
-    return YtResult.ok(
-      YtChannelPage(
-        parseChannelInfo(response.json, channelId),
-        YtPage(
-          parseRelatedVideos(response.json),
-          pageContinuationToken(response.json),
+    final videos = parseChannelVideos(r.json);
+    final token = listContinuationToken(r.json);
+    if (continuation == null && videos.isEmpty && token == null) {
+      return const YtResult.failed(
+        YtVerdict(
+          YtCause.clientBroken,
+          'playlist-no-items',
+          'no lockupViewModel and no continuation in the playlist page',
         ),
+      );
+    }
+    return YtResult.ok(
+      YtPlaylistPage(
+        continuation == null ? parsePlaylistInfo(r.json, playlistId) : null,
+        YtPage(videos, token),
       ),
     );
+  }
+
+  /// A post with the token that loads its comments (`browse FEpost_detail`).
+  Future<YtResult<YtPostDetail>> postDetail(String params) async {
+    final r = await client.browse('FEpost_detail', params: params);
+    final verdict = classifyYtTransport(r);
+    if (verdict != null) return YtResult.failed(verdict);
+    final detail = parsePostDetail(r.json);
+    if (detail == null) {
+      return const YtResult.failed(
+        YtVerdict(
+          YtCause.clientBroken,
+          'post-no-item',
+          'no backstagePostRenderer in the post detail response',
+        ),
+      );
+    }
+    return YtResult.ok(detail);
+  }
+
+  /// One page of a post's comments, or of a thread's replies under a post.
+  ///
+  /// The same comment shapes as a video's, on the `browse` endpoint rather
+  /// than `next` (measured: the post page's tokens name `/browse`, and the
+  /// comments, replies and page 2 all came back through it).
+  Future<YtResult<YtPage<YtComment>>> postComments(String token) async {
+    final r = await client.browseContinuation(token);
+    final verdict = classifyYtTransport(r);
+    if (verdict != null) return YtResult.failed(verdict);
+    return YtResult.ok(parseComments(r.json));
   }
 
   /// One page of comments, from a token produced by [related] or by a previous
@@ -280,15 +429,6 @@ class YtDirectSource implements YouTubeVideoSource {
     if (verdict != null) return YtResult.failed(verdict);
     return YtResult.ok(parseComments(r.json));
   }
-}
-
-/// A channel page: its header (absent on a continuation) and one page of
-/// uploads.
-class YtChannelPage {
-  const YtChannelPage(this.info, this.videos);
-
-  final YtChannelInfo? info;
-  final YtPage<YtSearchItem> videos;
 }
 
 /// What a `next` call yields: the related shelf, and the door to the comments.
