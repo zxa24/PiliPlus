@@ -2725,6 +2725,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } else {
       // if (kDebugMode) debugPrint('$playbackSpeed');
       longPressStatus.value = val;
+      debugOnRelease?.call(_read('time-pos'));
       final fast = playbackSpeed;
       final target = lastPlaybackSpeed;
       switch (debugLongPressRelease) {
@@ -2741,9 +2742,30 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           await setPlaybackSpeed(target);
           lastPlaybackSpeed = target;
         case 'seek':
+          // where the picture is at the release, read from mpv before the
+          // speed changes (state.position lags and moves with the change)
+          final at = _read('time-pos');
           await setPlaybackSpeed(target);
-          final at = _videoPlayerController?.state.position;
-          if (at != null) await _videoPlayerController?.seek(at);
+          if (double.tryParse(at) != null) {
+            await _videoPlayerController?.command([
+              'seek',
+              at,
+              'absolute+exact',
+            ]);
+          }
+        case 'seekfirst':
+          // the seek throws the fast audio away before the speed changes,
+          // so the change has none to re-time (with 'seek', the picture
+          // shows the jump for a frame before the seek lands)
+          final at = _read('time-pos');
+          if (double.tryParse(at) != null) {
+            await _videoPlayerController?.command([
+              'seek',
+              at,
+              'absolute+exact',
+            ]);
+          }
+          await setPlaybackSpeed(target);
         case 'aoreload':
           // the audio made at the fast speed is thrown away with the output
           await setPlaybackSpeed(target);
@@ -2813,6 +2835,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// speed is back, and the picture dropped frames to catch up (13-14 on
   /// release, 2026-09-29).
   static String? debugLongPressRelease;
+
+  /// Self-test: called on a long-press release before the speed changes,
+  /// with mpv's time-pos then, so a probe knows exactly when and where.
+  static void Function(String timePos)? debugOnRelease;
 
   /// How far apart audio and picture may be on release for it to be taken
   /// up without drops. A Pixel 6 Pro held at 3x kept up about half the

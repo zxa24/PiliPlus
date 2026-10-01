@@ -4627,6 +4627,11 @@ abstract final class SelfTest {
         'delayedFrames': prop('vo-delayed-frame-count'),
       });
     });
+    // the release as the player sees it: when, and mpv's position before
+    // the speed changes
+    Map<String, Object?>? release;
+    PlPlayerController.debugOnRelease = (timePos) =>
+        release = {'ms': clock.elapsedMilliseconds, 'timePos': timePos};
     final holding = _press(
       LogicalKeyboardKey.arrowRight,
       PhysicalKeyboardKey.arrowRight,
@@ -4639,6 +4644,7 @@ abstract final class SelfTest {
     final released = pos();
     await Future.delayed(const Duration(milliseconds: 4000));
     sampler.cancel();
+    PlPlayerController.debugOnRelease = null;
     final afterRelease = pos();
     final rateAfter = player.videoPlayerController?.state.rate;
     final held = holdStart == null || released == null
@@ -4659,6 +4665,7 @@ abstract final class SelfTest {
         'movedInSecondAfterReleaseMs': sinceRelease,
         'jumpedOnRelease': sinceRelease != null && sinceRelease > 3000,
         'seekStepMs': player.fastForBackwardDuration.inMilliseconds,
+        'release': release,
         'samples': samples,
       },
       'focus': _focusChainNow().take(3).join(' > '),

@@ -10,6 +10,7 @@ import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:PiliPlus/common/widgets/scroll_behavior.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models/common/theme/theme_color_type.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/router/app_pages.dart';
 import 'package:PiliPlus/services/account_service.dart';
@@ -119,6 +120,12 @@ void main(List<String> args) async {
   isSelfTestProfile = SelfTest.isRequested(args);
   if (isSelfTestProfile) selfTestProfileDir = SelfTest.profileDir(args);
   if (isSelfTestProfile) selfTestSound = args.contains('--sound');
+  // a long-press release to try by ear, outside a self test too (user
+  // 2026-10-01: listen to ao-reload): `--longpress-release aoreload`
+  if (args.indexOf('--longpress-release') case final i
+      when i >= 0 && i + 1 < args.length) {
+    PlPlayerController.debugLongPressRelease = args[i + 1];
+  }
   // before anything that can fail: `--out` is read from the args alone, and
   // a caller must not see "no report + exit 0" as a pass
   if (isSelfTestProfile) SelfTest.markStarted(args);
