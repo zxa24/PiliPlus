@@ -2763,7 +2763,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       debugOnRelease?.call(_read('time-pos'));
       final fast = playbackSpeed;
       final target = lastPlaybackSpeed;
-      // `rampsmooth:300`: the ramp over 300 ms (1 s unsaid)
+      // `rampsmooth:300`: [_rampDown] over 300 ms (1 s unsaid)
       final release = debugLongPressRelease?.split(':');
       switch (release?.first) {
         case 'ramp':
@@ -2791,21 +2791,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             ]);
           }
         case 'rampsmooth':
-          // down in steps each re-timing the sound by less than a frame
-          // (20 x 0.1x over 1 s, ~0.025 s each with a 0.25 s buffer), with
-          // no frames dropped meanwhile: the jump spread into a short
-          // slowing down instead of one step
-          const steps = 20;
-          final total = int.tryParse(release!.elementAtOrNull(1) ?? '') ?? 1000;
+          final ms = int.tryParse(release!.elementAtOrNull(1) ?? '') ?? 1000;
+          await _rampDown(fast, target, Duration(milliseconds: ms));
+        case 'hold':
+          // the release before 2026-10-01: no frames dropped, one step down
           _holdFrames();
-          for (var i = 1; i < steps; i++) {
-            if (longPressStatus.value) break;
-            final rate = fast + (target - fast) * i / steps;
-            await _videoPlayerController?.setRate(rate);
-            await Future.delayed(Duration(milliseconds: total ~/ steps));
-          }
           await setPlaybackSpeed(target);
-          lastPlaybackSpeed = target;
           _releaseFrames();
         case 'seekfirst':
           // the seek throws the fast audio away before the speed changes,
@@ -2827,18 +2818,42 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         case 'now':
           await setPlaybackSpeed(target);
         default:
-          // in step on release: the gap the release itself makes is taken
-          // up without drops; far behind (a phone that could not decode 3x),
-          // only dropping catches up, as before
+          // in step on release: down over 100 ms (user 2026-10-01, by eye:
+          // 1 s felt sticky, one step jumped); far behind (a phone that could
+          // not decode 3x), only dropping catches up, as before
           if (_nearlyInStep()) {
-            _holdFrames();
-            await setPlaybackSpeed(target);
-            _releaseFrames();
+            await _rampDown(fast, target, const Duration(milliseconds: 100));
           } else {
             await setPlaybackSpeed(target);
           }
       }
     }
+  }
+
+  /// From [fast] down to [target] in 20 steps over [total], no frames
+  /// dropped meanwhile. mpv re-times the sound already in the output buffer
+  /// at the new speed, so one step from 3x to 1x moved the picture 0.33-0.46 s
+  /// at once (the jump the user saw, 2026-10-01); each 0.1x step moves it by
+  /// about a frame, the same whatever [total] (measured 50 ms to 1 s: biggest
+  /// step 0.04-0.09 s, no stall, no drops). A press again meanwhile takes
+  /// over: the speed it set is left as it is.
+  Future<void> _rampDown(double fast, double target, Duration total) async {
+    const steps = 20;
+    _holdFrames();
+    for (var i = 1; i < steps; i++) {
+      if (longPressStatus.value) {
+        _releaseFrames();
+        return;
+      }
+      await _videoPlayerController?.setRate(fast + (target - fast) * i / steps);
+      await Future.delayed(total ~/ steps);
+    }
+    if (longPressStatus.value) {
+      _releaseFrames();
+      return;
+    }
+    await setPlaybackSpeed(target);
+    _releaseFrames();
   }
 
   /// A speed change that moves the picture by more than the speeds account
@@ -2884,10 +2899,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   /// How a long press lets go of its speed, for the self test to compare
-  /// (`--longpress-release now|ramp|seek|aoreload`; unset, the app's own,
-  /// [_holdFrames]): the audio made at the fast speed plays out after the
-  /// speed is back, and the picture dropped frames to catch up (13-14 on
-  /// release, 2026-09-29).
+  /// and to try by ear (`--longpress-release now|hold|ramp|rampsmooth[:ms]|
+  /// seek|seekfirst|aoreload`; unset, the app's own, [_rampDown] over
+  /// 100 ms). See research/longpress-release-jump-2026-10-01.md.
   static String? debugLongPressRelease;
 
   /// Self-test: called on a long-press release before the speed changes,
