@@ -1151,6 +1151,18 @@ abstract final class SelfTest {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
       await scenario('openYouTube', () => _openYouTube(video, hold));
     }
+    // a pause past the play URLs' expiry (user 2026-10-01: paused 9.5 h, it
+    // would not play again): `--renew-pause BILI_URL|yt:ID`, the URLs made
+    // to expire `--expire-after` s after they are opened
+    if (_arg(args, '--renew-pause') case final target?) {
+      await scenario(
+        'renewPause',
+        () => _renewPause(
+          target,
+          int.tryParse(_arg(args, '--expire-after') ?? '') ?? 75,
+        ),
+      );
+    }
     if (_arg(args, '--yt') case final video?) {
       await scenario('youtube', () => _youtube(video));
     }
@@ -1438,6 +1450,85 @@ abstract final class SelfTest {
   /// genuine change — which is exactly the condition the defect needs to be
   /// absent. It also asserted on showControls, and that flag was never the
   /// thing that was wrong: the bar's own position is.
+  /// Plays [target] (a bilibili link, or `yt:ID`) a few seconds, pauses
+  /// past the URLs' expiry, plays again. Pass: new URLs were asked for, and
+  /// playback went on from where it was paused.
+  static Future<Map<String, dynamic>> _renewPause(
+    String target,
+    int expireAfter,
+  ) async {
+    PlPlayerController.debugExpiresIn = Duration(seconds: expireAfter);
+    final start = DateTime.now();
+    try {
+      final PlPlayerController player;
+      if (target.startsWith('yt:')) {
+        final videoId = target.substring(3);
+        unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+        await Future.delayed(const Duration(seconds: 4));
+        final page = Get.find<YtVideoController>(tag: videoId);
+        for (var i = 0; i < 30 && page.stage.value != .ready; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+        }
+        player = page.plPlayerController;
+      } else {
+        await PiliScheme.routePushFromUrl(target);
+        await Future.delayed(const Duration(seconds: 5));
+        final page = Get.find<VideoDetailController>(
+          tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+        );
+        for (var i = 0; i < 30 && !page.videoState.value; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+        }
+        player = page.plPlayerController;
+      }
+      final opened = DateTime.now();
+      await player.play();
+      for (var i = 0; i < 30 && player.position.value < 5; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+      await player.pause();
+      await Future.delayed(const Duration(seconds: 1));
+      final pausedAt = player.position.value;
+      // past the expiry, counted from the open
+      final left =
+          Duration(seconds: expireAfter + 5) -
+          DateTime.now().difference(opened);
+      if (left > Duration.zero) await Future.delayed(left);
+      final resumed = DateTime.now();
+      await player.play();
+      final timeline = <int>[];
+      for (var i = 0; i < 20; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        timeline.add(player.position.value);
+      }
+      final events = [
+        for (final (_, line) in EventLog.entries(since: start)) line,
+      ];
+      // the line comes in the same millisecond as the play: a little before
+      final renewed = EventLog.entries(
+        since: resumed.subtract(const Duration(seconds: 1)),
+      ).any((e) => e.$2.contains('play URLs expired'));
+      // the first second after the reopen may still read where it opened
+      final resumedFrom = timeline.firstWhere(
+        (p) => p > 0,
+        orElse: () => -1,
+      );
+      final went = timeline.last - resumedFrom;
+      return {
+        'pass': renewed && (resumedFrom - pausedAt).abs() <= 3 && went >= 10,
+        'renewed': renewed,
+        'resumedAt': resumed.toIso8601String(),
+        'pausedAt': pausedAt,
+        'resumedFrom': resumedFrom,
+        'advancedSeconds': went,
+        'timeline': timeline,
+        'events': events,
+      };
+    } finally {
+      PlPlayerController.debugExpiresIn = null;
+    }
+  }
+
   static Future<Map<String, dynamic>> _hoverControls(String input) async {
     final videoId = tryParseYouTubeVideoId(input) ?? input;
     unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
@@ -5711,7 +5802,9 @@ abstract final class SelfTest {
 
   /// `--yt-playlist ID`: a playlist paged to its end. Pass: the total is the
   /// header's 'N 个视频' (the uploads list `UUsX…` → 391).
-  static Future<Map<String, dynamic>> _youtubePlaylist(String playlistId) async {
+  static Future<Map<String, dynamic>> _youtubePlaylist(
+    String playlistId,
+  ) async {
     final router = YtSourceRouter(YtDirectSource.create());
     final pages = <int>[];
     YtPlaylistInfo? info;
@@ -5749,7 +5842,9 @@ abstract final class SelfTest {
   /// `--yt-post-probe ID`: the channel's first post opened as its detail
   /// page, and its comments paged twice and a thread's replies — through
   /// `browse`, where a video's go through `next`.
-  static Future<Map<String, dynamic>> _youtubePostProbe(String channelId) async {
+  static Future<Map<String, dynamic>> _youtubePostProbe(
+    String channelId,
+  ) async {
     final router = YtSourceRouter(YtDirectSource.create());
     final tab = await router.run(
       (s) => (s as YtDirectSource).channelTab(channelId, YtChannelTab.posts),
@@ -5946,12 +6041,12 @@ abstract final class SelfTest {
       // a 合集 opened as SeasonSeriesPage opens one (the page a YouTube
       // playlist is aligned with): by the first season among the 投稿
       // sub-tabs, which every UP with a 合集 has, unlike the 全部合集/列表 tab
-      final contribute = _findElement((e) => e.widget is MemberContribute)
-          ?.widget as MemberContribute?;
+      final contribute =
+          _findElement((e) => e.widget is MemberContribute)?.widget
+              as MemberContribute?;
       final heroTag = contribute?.heroTag;
       final season =
-          heroTag != null &&
-              Get.isRegistered<MemberContributeCtr>(tag: heroTag)
+          heroTag != null && Get.isRegistered<MemberContributeCtr>(tag: heroTag)
           ? Get.find<MemberContributeCtr>(
               tag: heroTag,
             ).items?.where((i) => i.seasonId != null).firstOrNull

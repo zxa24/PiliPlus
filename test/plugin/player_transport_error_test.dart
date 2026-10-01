@@ -1,4 +1,5 @@
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The classification that decides whether a player error gets a retry and a
@@ -144,6 +145,54 @@ void main() {
       expect(dry(null, 8.9), isFalse);
       expect(dry(10, null), isFalse);
       expect(dry(10.6, 8.93, null), isTrue);
+    });
+  });
+
+  group('when the play URLs expire', () {
+    final now = DateTime.fromMillisecondsSinceEpoch(1790000000 * 1000);
+    DateTime at(int s) => DateTime.fromMillisecondsSinceEpoch(s * 1000);
+    DateTime? expiry(String video, [String? audio]) =>
+        PlPlayerController.sourceExpiry(
+          NetworkSource(videoSource: video, audioSource: audio),
+          now,
+        );
+
+    test("bilibili's deadline and YouTube's expire, the sooner of two", () {
+      expect(
+        expiry(
+          'https://upos-sz-mirrorcos.bilivideo.com/v.m4s?e=x&deadline=1790007200&gen=playurlv3',
+          'https://upos-sz-mirrorcos.bilivideo.com/a.m4s?deadline=1790003600',
+        ),
+        at(1790003600),
+      );
+      expect(
+        expiry(
+          'https://rr1.googlevideo.com/videoplayback?expire=1790021600&ei=x',
+        ),
+        at(1790021600),
+      );
+      expect(
+        expiry(
+          'https://rr1.googlevideo.com/videoplayback/expire/1790021600/ei/x',
+        ),
+        at(1790021600),
+      );
+    });
+
+    test('none stated, a local file, or a clock already past it: unknown', () {
+      expect(expiry('https://example.com/v.m4s?e=1'), isNull);
+      // the clock is off, not the URL: asking again would never end
+      expect(
+        expiry('https://x.bilivideo.com/v.m4s?deadline=1789990000'),
+        isNull,
+      );
+      expect(
+        PlPlayerController.sourceExpiry(
+          FileSource(dir: 'd', isMp4: true, hasDashAudio: false, typeTag: 't'),
+          now,
+        ),
+        isNull,
+      );
     });
   });
 

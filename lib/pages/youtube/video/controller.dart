@@ -176,6 +176,8 @@ class YtVideoController extends GetxController
     // or translation that was on screen, which is only handed over again
     // when it has something new, and a finished or stopped one never is
     final generated = captionIndex.value == -2 ? _generatedTrack : null;
+    // the player is shared: the bilibili page sets its own
+    plPlayerController.onSourceExpired = _renewStreams;
     await plPlayerController.setDataSource(
       source,
       seekTo: seekTo,
@@ -312,6 +314,26 @@ class YtVideoController extends GetxController
     }
   }
 
+  /// The stream URLs expired (a long pause): new ones, at the height asked
+  /// for, opened at [at] — the same as a quality change does.
+  Future<void> _renewStreams(Duration at) async {
+    final streams = await router.run(
+      (s) => s.streams(
+        videoId,
+        preference: YtFormatPreference(maxHeight: maxHeight.value),
+      ),
+    );
+    if (isClosed) return;
+    if (streams.ok && streams.value != null) {
+      _streams = streams.value;
+      await _open(streams.value!, seekTo: at);
+      // the viewer pressed play on the expired ones
+      if (!isClosed) await plPlayerController.play();
+    } else {
+      _fail(streams.verdict);
+    }
+  }
+
   /// A single muxed stream for a TV: an adaptive video-only URL would cast
   /// without sound.
   String? get castUrl {
@@ -427,6 +449,7 @@ class YtVideoController extends GetxController
   // ------------------------------------------------ related and comments
 
   final related = <YtSearchItem>[].obs;
+
   /// Why the related shelf is not here, when it is not — and whether it is
   /// still on its way. Without these the shelf said 「暂无相关视频」 while
   /// loading and again when the request had failed: three states, one
@@ -1415,6 +1438,9 @@ class YtVideoController extends GetxController
     // the gate coming down on the way out must not start the player again
     _releaseHold();
     stopAsr(leaving: true);
+    if (plPlayerController.onSourceExpired == _renewStreams) {
+      plPlayerController.onSourceExpired = null;
+    }
     plPlayerController.dispose();
     super.onClose();
   }

@@ -599,7 +599,8 @@ class VideoDetailController extends GetxController
       ..onStreamCut = replaceCutStreams
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
-      ..onReopen = _reopenAtCurrentPosition;
+      ..onReopen = _reopenAtCurrentPosition
+      ..onSourceExpired = _renewPlayUrl;
     args = Get.arguments;
     videoType = args['videoType'];
     if (videoType == VideoType.pgc) {
@@ -1260,6 +1261,19 @@ class VideoDetailController extends GetxController
     playerInit();
   }
 
+  /// The play URLs expired (a long pause): asks bilibili for new ones and
+  /// reopens on them at [at], playing — the CDN backups came in the same
+  /// answer and expired with them.
+  Future<void> _renewPlayUrl(Duration at) async {
+    if (isFileSource || isClosed) return;
+    _autoPlay.value = true;
+    playedTime = at;
+    plPlayerController
+      ..isBuffering.value = false
+      ..buffered.value = 0;
+    await queryVideoUrl(fromReset: true);
+  }
+
   /// 更新画质、音质
   void updatePlayer() {
     final currentVideoQa = this.currentVideoQa.value;
@@ -1335,6 +1349,7 @@ class VideoDetailController extends GetxController
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
       ..onReopen = _reopenAtCurrentPosition
+      ..onSourceExpired = _renewPlayUrl
       ..streamBitrate = _streamBitrate;
     _loadingSource = true;
     await plPlayerController.setDataSource(
@@ -3375,6 +3390,9 @@ class VideoDetailController extends GetxController
     }
     if (plPlayerController.onReopen == _reopenAtCurrentPosition) {
       plPlayerController.onReopen = null;
+    }
+    if (plPlayerController.onSourceExpired == _renewPlayUrl) {
+      plPlayerController.onSourceExpired = null;
     }
     super.onClose();
   }

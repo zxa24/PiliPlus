@@ -711,6 +711,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _replacedVid = null;
       _externalVideo = _externalAudio = null;
       _replaced = false;
+      // the renewal's new source is here: its own autoplay must go through
+      _renewing = false;
+      _sourceExpiresAt = debugExpiresIn != null && dataSource is NetworkSource
+          ? DateTime.now().add(debugExpiresIn!)
+          : sourceExpiry(dataSource, DateTime.now());
       // measured on the streams of the part before
       _delivered.clear();
       _autoPlay = autoplay;
@@ -1100,8 +1105,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // a DASH pair is an edl:// list with the URLs inside (escaped by
     // length, so the first http one is read out rather than parsed whole)
     final host =
-        RegExp(r'https?://([^/;%:]+)').firstMatch(read('path'))?.group(1) ??
-        '';
+        RegExp(r'https?://([^/;%:]+)').firstMatch(read('path'))?.group(1) ?? '';
     final rate = player?.state.rate ?? 1;
     final paused = !(player?.state.playing ?? false);
     return '${paused ? 'paused' : 'playing'} ${position.value}/'
@@ -1260,6 +1264,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         }
         if (_isTransportFailure(event)) {
+          // past its expiry a URL answers 403 on every host: the user's
+          // copy, paused 9.5 h, tried the same URL and the next CDN's and
+          // stopped (2026-10-01)
+          if (_renewIfExpired(resumePosition)) return;
           final positionBefore = position.value;
           final epoch = videoControllerEpoch.value;
           EasyThrottle.throttle(
@@ -1334,6 +1342,82 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       case TransportRecovery.switchCdn:
         _switchCdn();
     }
+  }
+
+  /// Asked for new play URLs, and to reopen on them at the position given,
+  /// playing: the page's own request, which is the only thing that can make
+  /// them. Retrying or switching the CDN reuses URLs from the same answer,
+  /// which all expire together.
+  Future<void> Function(Duration at)? onSourceExpired;
+
+  /// When the current source's URLs stop being served, as they say
+  /// (bilibili's `deadline`, YouTube's `expire`); null when they do not say,
+  /// or once a renewal has been asked for.
+  DateTime? _sourceExpiresAt;
+
+  var _renewing = false;
+  DateTime? _renewedAt;
+
+  /// For the self-test (`--renew-pause`): every network source expires this
+  /// long after it is opened, whatever its URLs say. Nothing else sets it.
+  static Duration? debugExpiresIn;
+
+  /// How long before the stated expiry a URL counts as expired.
+  static const sourceExpiryMargin = Duration(minutes: 1);
+
+  /// When [source]'s URLs expire: the soonest one stated. A time already
+  /// past by this clock is the clock being off, not a URL — it is ignored,
+  /// so a wrong clock never asks for new URLs on every play.
+  @visibleForTesting
+  static DateTime? sourceExpiry(DataSource source, DateTime now) {
+    if (source is! NetworkSource) return null;
+    DateTime? soonest;
+    for (final url in [source.videoSource, ?source.audioSource]) {
+      for (final m in _expiryParam.allMatches(url)) {
+        final at = DateTime.fromMillisecondsSinceEpoch(
+          int.parse(m.group(1)!) * 1000,
+        );
+        if (!at.isAfter(now)) continue;
+        if (soonest == null || at.isBefore(soonest)) soonest = at;
+      }
+    }
+    return soonest;
+  }
+
+  static final _expiryParam = RegExp(
+    r'(?:[?&](?:deadline|expire)=|/expire/)(\d{9,11})',
+  );
+
+  /// Asks the page for new URLs at [at] when the current ones have expired;
+  /// true when it did (or is already doing so), and the caller is to leave
+  /// the player alone. Once per source: a renewal that fails leaves the
+  /// ordinary recovery to go on.
+  bool _renewIfExpired(Duration at) {
+    if (isLive || debugDisableRecovery) return false;
+    if (_renewing) return true;
+    final renew = onSourceExpired;
+    final expires = _sourceExpiresAt;
+    if (renew == null || expires == null || dataSource is! NetworkSource) {
+      return false;
+    }
+    final now = DateTime.now();
+    if (now.isBefore(expires.subtract(sourceExpiryMargin))) return false;
+    // new URLs that already count as expired (a lifetime shorter than the
+    // margin) would be renewed on the play that opens them, and so on
+    if (_renewedAt case final last?
+        when now.difference(last) < const Duration(minutes: 2)) {
+      return false;
+    }
+    _renewedAt = now;
+    _sourceExpiresAt = null;
+    _renewing = true;
+    EventLog.add(
+      'player',
+      'play URLs expired at ${expires.toIso8601String()}: '
+          'asking for new ones, at ${at.inSeconds} s',
+    );
+    renew(at).whenComplete(() => _renewing = false);
+    return true;
   }
 
   /// Byte offsets where a stream of the current source ended early.
@@ -1884,6 +1968,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (onCdnFailover?.call() ?? false) {
           _transportFailures = 0;
         } else {
+          if (kDebugMode) {
+            EventLog.add(
+              'player',
+              'no other CDN, from: '
+                  '${StackTrace.current.toString().split('\n').skip(1).take(4).join(' | ')}',
+            );
+          }
           FailureReport.show('视频无法播放', '所有线路都试过了，仍无法加载这个视频。');
         }
       },
@@ -1917,7 +2008,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// the cache ends ahead of it, and a seek or a slow link buffers instead.
   void _watchForDryTrack(NativePlayer player) {
     _dryWatch?.cancel();
-    _dryTicks = 0;
+    // a source opened mid-video reads its cache behind the playhead for a
+    // moment (measured: playhead 15.0 s, cache to 13.2 s, a reopen at 15 s
+    // that then played on) — what a recovery gets, every open gets
+    _dryTicks = -3;
     _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
       _watchHealth(player);
       _watchReplacedVideo(player);
@@ -1934,10 +2028,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         return;
       }
       final bool dry;
+      final double? pos, cacheEnd;
       try {
+        pos = double.tryParse(player.getProperty('time-pos'));
+        cacheEnd = double.tryParse(player.getProperty('demuxer-cache-time'));
         dry = trackRanDry(
-          position: double.tryParse(player.getProperty('time-pos')),
-          cacheEnd: double.tryParse(player.getProperty('demuxer-cache-time')),
+          position: pos,
+          cacheEnd: cacheEnd,
           duration: double.tryParse(player.getProperty('duration')),
         );
       } catch (_) {
@@ -1950,6 +2047,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       // one tick can be a seek landing between two property reads
       if (++_dryTicks < 2) return;
+      EventLog.add(
+        'player',
+        'a track ran dry: playhead $pos s, cache to $cacheEnd s',
+      );
       // mpv has already reconnected as often as it will: the same URL again
       // would only cost the viewer another stall
       _switchCdn();
@@ -2179,6 +2280,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
     _heartDuration = position.inSeconds;
+    // the seek would be a new request on an expired URL
+    if (_renewIfExpired(position)) return;
 
     Future<void> seek() async {
       if (isSeek) {
@@ -2314,6 +2417,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // await seekTo(Duration.zero);
       await seekTo(Duration.zero, isSeek: false);
     }
+    // a pause long enough for the URLs to expire: the page reopens on new
+    // ones, playing (the same once a seek has asked for them)
+    if (_renewIfExpired(resumePosition)) return;
 
     await _videoPlayerController?.play();
 
@@ -2516,7 +2622,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
     }
   }
-
 
   /// How a long press lets go of its speed, for the self test to compare
   /// (`--longpress-release now|ramp|seek|aoreload`; unset, the app's own,
