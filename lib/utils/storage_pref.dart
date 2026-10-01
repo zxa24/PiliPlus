@@ -1165,8 +1165,10 @@ abstract final class Pref {
     defaultValue: kFullScreenSCWidth,
   );
 
+  /// Closing the window quits by default (user 2026-09-30); minimising to
+  /// the tray instead is opt-in.
   static bool get minimizeOnExit =>
-      _setting.get(SettingBoxKey.minimizeOnExit, defaultValue: true);
+      _setting.get(SettingBoxKey.minimizeOnExit, defaultValue: false);
 
   static Size get windowSize {
     final List<double>? size = (_setting.get(SettingBoxKey.windowSize) as List?)

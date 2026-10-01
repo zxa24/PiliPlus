@@ -95,7 +95,7 @@ List<SettingsModel> get extraSettings => [
       title: '退出时最小化',
       leading: const Icon(Icons.exit_to_app),
       setKey: SettingBoxKey.minimizeOnExit,
-      defaultVal: true,
+      defaultVal: false,
       onChanged: (value) {
         try {
           Get.find<MainController>().minimizeOnExit = value;
