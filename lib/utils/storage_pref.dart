@@ -661,6 +661,9 @@ abstract final class Pref {
   static bool get ctlServer =>
       _setting.get(SettingBoxKey.ctlServer, defaultValue: false);
 
+  static bool get debugMode =>
+      _setting.get(SettingBoxKey.debugMode, defaultValue: false);
+
   static bool get showDecorate =>
       _setting.get(SettingBoxKey.showDecorate, defaultValue: true);
 

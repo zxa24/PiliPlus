@@ -30,6 +30,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/video_fit_type.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
+import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/service_locator.dart';
@@ -117,8 +118,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         'buffering at ${position.value} s (buffered to ${buffered.value} s'
             '${_replacing ? ', replacing streams' : ''})',
       );
+      // its fill, from now (a stall that receives nothing sends no buffer
+      // event to update it from)
+      if (DebugOverlay.on) _debugBuffering();
     } else if (!buffering && since != null) {
       _bufferingSince = null;
+      DebugOverlay.drop('buffering');
       final ms = DateTime.now().difference(since).inMilliseconds;
       EventLog.add(
         'player',
@@ -127,6 +132,29 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       );
     }
   }
+
+  /// 调试模式: a stall as it fills, one line changed in place — mpv's own
+  /// percentage of the cache it waits for, and how fast it arrives.
+  void _debugBuffering() => DebugOverlay.progress('buffering', 'player', () {
+    final player = _videoPlayerController;
+    String read(String name) {
+      if (player is! NativePlayer) return '?';
+      try {
+        return player.getProperty(name);
+      } catch (_) {
+        return '?';
+      }
+    }
+
+    final speed = int.tryParse(read('cache-speed'));
+    // empty until mpv has started filling its cache for the stall
+    final filled = int.tryParse(read('cache-buffering-state'));
+    return 'buffering at ${position.value} s: '
+        '${filled == null ? '' : '$filled%, '}'
+        'buffered to ${buffered.value} s'
+        '${speed == null ? '' : ', ${(speed * 8 / 1e6).toStringAsFixed(1)} Mbps'}';
+  });
+
   final RxInt seekPosition = RxInt(0);
   int get progress => isSeeking.value ? seekPosition.value : position.value;
 
@@ -1129,6 +1157,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       stream.duration.listen(updateDuration),
       stream.buffer.listen((Duration buffer) {
         buffered.value = buffer.inSeconds;
+        if (_bufferingSince != null && DebugOverlay.on) _debugBuffering();
       }),
       stream.buffering.listen((bool buffering) {
         _logBuffering(buffering);

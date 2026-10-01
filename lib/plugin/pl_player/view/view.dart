@@ -48,6 +48,7 @@ import 'package:PiliPlus/plugin/pl_player/widgets/app_bar_ani.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/backward_seek.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/bottom_control.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/debug_overlay_view.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/forward_seek.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/mpv_convert_webp.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/play_pause_btn.dart';
@@ -1594,6 +1595,14 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                 ),
               ),
             ),
+          ),
+        ),
+
+        // LibrePili: 调试模式, under the bars and lifted above them
+        Positioned.fill(
+          child: DebugOverlayView(
+            controlsShown: plPlayerController.showControls,
+            isFullScreen: isFullScreen,
           ),
         ),
 

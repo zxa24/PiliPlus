@@ -146,6 +146,8 @@ abstract final class SettingBoxKey {
       scanExplained = 'scanExplained',
       // LibrePili: the command-line reader of the app's state (CtlServer)
       ctlServer = 'ctlServer',
+      // LibrePili: the player's overlay of decisions (DebugOverlay)
+      debugMode = 'debugMode',
       showDecorate = 'showDynDecorate',
       showMedal = 'showMedal',
       enableLivePhoto = 'enableLivePhoto',

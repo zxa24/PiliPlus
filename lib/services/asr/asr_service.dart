@@ -33,6 +33,7 @@ import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/background_transfer.dart';
+import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -834,6 +835,7 @@ class AsrSession {
     _maybeSaveCache();
     _readPlayhead();
     _watchViewer();
+    if (DebugOverlay.on) _debugProgress();
     final winding = _windingDown;
     // a save waiting for the whole transcript lifts a wind-down, even one
     // that has stopped: the recogniser opens again for the next run
@@ -1017,6 +1019,18 @@ class AsrSession {
       );
     }
   }
+
+  /// 调试模式: how far the transcript reaches past the viewer, one line
+  /// changed in place (read when it is shown, not when asked for).
+  void _debugProgress() => DebugOverlay.progress('asr', 'asr', () {
+    final end = coveredEndOf(transcript.covered, _playhead);
+    final media = duration;
+    final run = _run;
+    return 'covered to ${end.toStringAsFixed(1)} s'
+        '${media == null ? '' : ' of ${media.toStringAsFixed(0)} s'}, '
+        'lead ${(end - _playhead).toStringAsFixed(1)} s, '
+        '${run == null ? 'no run' : 'run ${run.serial} ${run.paused ? 'paused' : 'at ${run.frontier.toStringAsFixed(1)} s'}'}';
+  });
 
   /// Where the run is against the viewer and the lead window, for the
   /// event log's pause and resume lines.

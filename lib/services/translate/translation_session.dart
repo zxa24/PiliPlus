@@ -17,6 +17,7 @@ import 'dart:async';
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
+import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/translate/llama_engine.dart';
 import 'package:PiliPlus/services/translate/text_language.dart';
@@ -578,6 +579,16 @@ class TranslationSession {
   void _watchViewer() {
     final now = position();
     _watchLead(now);
+    if (DebugOverlay.on) {
+      // 调试模式: how far the translation reaches past the viewer, in place
+      DebugOverlay.progress('translate', 'translate', () {
+        final at = position();
+        final settled = settledFrom(at);
+        return 'translated to ${settled.toStringAsFixed(1)} s, '
+            'lead ${(settled - at).toStringAsFixed(1)} s '
+            '(${state.value.stage.name})';
+      });
+    }
     TranslationUnit? here;
     for (final unit in units) {
       if (unit.from > now) break;

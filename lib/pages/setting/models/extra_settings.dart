@@ -31,6 +31,7 @@ import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/slider_dialog.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
+import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
@@ -386,6 +387,14 @@ List<SettingsModel> get extraSettings => [
     setKey: SettingBoxKey.ctlServer,
     defaultVal: false,
     onChanged: Ctl.apply,
+  ),
+  const SwitchModel(
+    title: '调试模式',
+    subtitle: '在播放器左下角滚动显示转录、翻译、线路卡顿等决策细节，每行停留 15 秒',
+    leading: Icon(Icons.bug_report_outlined),
+    setKey: SettingBoxKey.debugMode,
+    defaultVal: false,
+    onChanged: DebugOverlay.setEnabled,
   ),
   const SwitchModel(
     title: '记录搜索历史',

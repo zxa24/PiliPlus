@@ -8,6 +8,8 @@
 /// to say what was tried.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 abstract final class EventLog {
@@ -32,7 +34,17 @@ abstract final class EventLog {
       _times.removeAt(0);
     }
     if (kDebugMode) debugPrint(line);
+    // only built when someone listens: 调试模式 off, nothing more is done
+    if (_added.hasListener) _added.add((at: at, area: area, message: message));
   }
+
+  /// Not synchronous: a line added while a frame is being built must not
+  /// rebuild a listener (the debug overlay) in that same build.
+  static final _added = StreamController<EventLogEntry>.broadcast();
+
+  /// Each line as it is added, from when the listening starts (the debug
+  /// overlay, see DebugOverlay).
+  static Stream<EventLogEntry> get added => _added.stream;
 
   /// Oldest first.
   static List<String> get recent => List.unmodifiable(_lines);
@@ -44,3 +56,5 @@ abstract final class EventLog {
       if (since == null || _times[i].isAfter(since)) (_times[i], _lines[i]),
   ];
 }
+
+typedef EventLogEntry = ({DateTime at, String area, String message});

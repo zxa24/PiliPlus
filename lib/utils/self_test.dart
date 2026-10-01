@@ -53,6 +53,7 @@ import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
+import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/pages/history/local.dart';
 import 'package:PiliPlus/services/local_history.dart';
@@ -591,13 +592,19 @@ abstract final class SelfTest {
     debugCommentsFirst = args.contains('--comments-first');
     // a model file given directly (a phone test build has none installed:
     // its data is its own), for the translation probes
-    PlPlayerController.debugLongPressRelease = _arg(args, '--longpress-release');
+    PlPlayerController.debugLongPressRelease = _arg(
+      args,
+      '--longpress-release',
+    );
     probeSampleMs = int.tryParse(_arg(args, '--probe-sample-ms') ?? '') ?? 20;
     // mpv options on top of the app's, repeatable: `--mpv-opt audio-buffer=0.05`
     PlPlayerController.debugMpvOptions = {
       for (var i = 0; i < args.length - 1; i++)
         if (args[i] == '--mpv-opt' && args[i + 1].contains('='))
-          args[i + 1].split('=').first: args[i + 1].split('=').skip(1).join('='),
+          args[i + 1].split('=').first: args[i + 1]
+              .split('=')
+              .skip(1)
+              .join('='),
     };
     // weights repacked for the CPU (or not), whatever the platform's default
     if (_arg(args, '--translate-repack') case final repack?) {
@@ -866,6 +873,16 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--caption-compare') case final video?) {
       await scenario('captionCompare', () => _captionCompare(video));
+    }
+    // `--debug-overlay [--shots DIR]`: 调试模式 on in this profile for the
+    // scenarios that follow (`--open-bili URL`), its lines sampled and the
+    // app shot while they run; judged after them all
+    _OverlayWatch? overlayWatch;
+    if (args.contains('--debug-overlay')) {
+      await GStorage.setting.put(SettingBoxKey.debugMode, true);
+      DebugOverlay.setEnabled(true);
+      _shots ??= _arg(args, '--shots');
+      overlayWatch = _OverlayWatch()..start();
     }
     if (_arg(args, '--open-bili') case final url?) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 20;
@@ -1294,6 +1311,10 @@ abstract final class SelfTest {
           pcmOut: _arg(args, '--asr-pcm'),
         ),
       );
+    }
+
+    if (overlayWatch != null) {
+      await scenario('debugOverlay', overlayWatch.finish);
     }
 
     report
@@ -3218,14 +3239,18 @@ abstract final class SelfTest {
     };
   }
 
-  static Future<String?> _shot(String name) async {
+  static Future<String?> _shot(String name, {bool whole = false}) async {
     final dir = _shots;
     if (dir == null) return null;
     try {
       await WidgetsBinding.instance.endOfFrame;
       final view = WidgetsBinding.instance.renderViews.first;
       final layer = view.debugLayer! as OffsetLayer;
-      final image = await layer.toImage(Offset.zero & view.size);
+      // the root layer is in physical pixels: [view.size] (logical) is only
+      // the top-left of the window on a scaled screen; [whole] takes all of
+      // it (the others keep the size their earlier shots were compared at)
+      final size = whole ? view.flutterView.physicalSize : view.size;
+      final image = await layer.toImage(Offset.zero & size);
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       final file = File(path.join(dir, '$name.png'));
@@ -4096,7 +4121,11 @@ abstract final class SelfTest {
     final down = DateTime.now();
     handler(
       KeyMessage([
-        KeyDownEvent(physicalKey: physical, logicalKey: logical, timeStamp: now()),
+        KeyDownEvent(
+          physicalKey: physical,
+          logicalKey: logical,
+          timeStamp: now(),
+        ),
       ], null),
     );
     const repeatAfter = Duration(milliseconds: 500);
@@ -4119,7 +4148,11 @@ abstract final class SelfTest {
     }
     handler(
       KeyMessage([
-        KeyUpEvent(physicalKey: physical, logicalKey: logical, timeStamp: now()),
+        KeyUpEvent(
+          physicalKey: physical,
+          logicalKey: logical,
+          timeStamp: now(),
+        ),
       ], null),
     );
   }
@@ -7707,6 +7740,129 @@ abstract final class SelfTest {
       result['cleanedUp'] = !(mergedFile?.existsSync() ?? false);
     }
     return result;
+  }
+}
+
+/// 调试模式's overlay as a probe sees it (`--debug-overlay`): its lines once
+/// a second, a shot every few, and a line of its own counting up in place —
+/// whether anything else reports progress during the run or not.
+class _OverlayWatch {
+  final _samples = <Map<String, Object?>>[];
+  final _shots = <String?>[];
+  Timer? _timer;
+  var _ticks = 0;
+
+  /// Keys whose line changed while it stayed one line.
+  final _inPlace = <String>{};
+  final _lastText = <String, String>{};
+  var _maxLines = 0;
+  var _mpvNonErrors = 0;
+  var _eventLines = 0;
+
+  void start() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
+  void _tick() {
+    _ticks++;
+    // the probe's own line: 0..100 over 20 s, in place; then left alone,
+    // to go 15 s later
+    if (_ticks <= 20) {
+      final n = _ticks * 5;
+      DebugOverlay.progress('selftest', 'selftest', () => 'overlay probe $n%');
+    }
+    // the bars shown before a shot: the lines move up above them
+    if (_ticks == 11) PlPlayerController.instance?.controls = true;
+    if (_ticks == 42) unawaited(_menu());
+    final lines = DebugOverlay.model.lines;
+    if (lines.length > _maxLines) _maxLines = lines.length;
+    final byKey = <String, int>{};
+    var events = 0;
+    for (final line in lines) {
+      final key = line.key;
+      if (key == null) {
+        events++;
+        if (line.text.contains('[mpv]') &&
+            !line.text.contains('[mpv] error') &&
+            !line.text.contains('[mpv] fatal')) {
+          _mpvNonErrors++;
+        }
+        continue;
+      }
+      byKey[key] = (byKey[key] ?? 0) + 1;
+      final was = _lastText[key];
+      if (was != null && was != line.text) _inPlace.add(key);
+      _lastText[key] = line.text;
+    }
+    // a key on two lines at once would not be in place
+    _inPlace.removeWhere((key) => (byKey[key] ?? 0) > 1);
+    _eventLines = math.max(_eventLines, events);
+    _samples.add({
+      's': _ticks,
+      'lines': [for (final line in lines) line.text],
+    });
+    if (_ticks % 4 == 0 && _ticks <= 40) {
+      SelfTest._shot(
+        'debug_overlay_${_ticks.toString().padLeft(2, '0')}',
+      ).then(_shots.add);
+    }
+  }
+
+  /// 调试模式 in the player's ⋮ menu: off and on again from there, at once.
+  final _menuSteps = <String, Object?>{};
+  Future<void> _menu() async {
+    PlPlayerController.instance?.controls = true;
+    await Future.delayed(const Duration(milliseconds: 500));
+    _menuSteps['opened'] = await SelfTest._tapTooltip('更多设置');
+    // near the end of a long list: scrolled to, as a viewer would
+    // (a lazy list may not have built it yet: the list's end first)
+    final tile = SelfTest._findElement(SelfTest._isText('调试模式'));
+    _menuSteps['found'] = tile != null;
+    if (tile != null) {
+      final position = Scrollable.maybeOf(tile)?.position;
+      if (position != null) {
+        position.jumpTo(position.maxScrollExtent);
+        _menuSteps['scrolledTo'] = position.pixels.round();
+      }
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (tile.mounted) await Scrollable.ensureVisible(tile, alignment: 0.5);
+      await Future.delayed(const Duration(milliseconds: 700));
+    }
+    _menuSteps['shot'] = await SelfTest._shot(
+      'debug_overlay_menu',
+      whole: true,
+    );
+    _menuSteps['tappedOff'] = await SelfTest._tapText('调试模式');
+    _menuSteps['offAfter'] = !DebugOverlay.on;
+    _menuSteps['storedOff'] = !Pref.debugMode;
+    _menuSteps['tappedOn'] = await SelfTest._tapText('调试模式');
+    _menuSteps['onAfter'] = DebugOverlay.on;
+    _menuSteps['shotOn'] = await SelfTest._shot(
+      'debug_overlay_menu_on',
+      whole: true,
+    );
+    Get.back();
+  }
+
+  Future<Map<String, dynamic>> finish() async {
+    _timer?.cancel();
+    final shot = await SelfTest._shot('debug_overlay_end', whole: true);
+    return {
+      'pass':
+          _inPlace.contains('selftest') &&
+          _eventLines > 0 &&
+          _maxLines <= DebugOverlay.model.maxLines &&
+          _mpvNonErrors == 0 &&
+          _menuSteps['offAfter'] == true &&
+          _menuSteps['onAfter'] == true,
+      'menu': _menuSteps,
+      'updatedInPlace': _inPlace.toList(),
+      'mostEventLines': _eventLines,
+      'mostLines': _maxLines,
+      'mpvNonErrorLines': _mpvNonErrors,
+      'shots': [..._shots, shot],
+      'samples': _samples,
+    };
   }
 }
 
