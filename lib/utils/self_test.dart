@@ -1155,6 +1155,13 @@ abstract final class SelfTest {
     // a pause past the play URLs' expiry (user 2026-10-01: paused 9.5 h, it
     // would not play again): `--renew-pause BILI_URL|yt:ID`, the URLs made
     // to expire `--expire-after` s after they are opened
+    if (_arg(args, '--ux-tour') case final target?) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario(
+        'uxTour',
+        () => _uxTour(target, int.tryParse(_arg(args, '--seed') ?? '') ?? 1),
+      );
+    }
     if (args.contains('--mine-entries')) {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario('mineEntries', _mineEntries);
@@ -1694,6 +1701,217 @@ abstract final class SelfTest {
       'route': route,
       'shots': [mine, history],
     };
+  }
+
+  /// `--ux-tour BILI_URL|yt:ID [--seed N]`: watched the way a viewer
+  /// watches, with Chinese picked as the subtitle language (the user's
+  /// setting): played a while, 10 s on, played a while, 10 s back, played a
+  /// while, a jump past what is buffered, played a while — the seeks apart,
+  /// not one after another (user 2026-10-01). Every second: where playback
+  /// is, buffering, quality and host, the subtitle on mpv and its text, the
+  /// transcript and translation; for every seek, how long until playback
+  /// moves on and until a subtitle line shows. The event log comes with it.
+  static Future<Map<String, dynamic>> _uxTour(String target, int seed) async {
+    final rng = math.Random(seed);
+    final start = DateTime.now();
+    int ms() => DateTime.now().difference(start).inMilliseconds;
+    final choiceBefore = GStorage.setting.get(SettingBoxKey.subtitleChoice);
+    await GStorage.setting.put(SettingBoxKey.subtitleChoice, 'zh');
+    try {
+      final PlPlayerController player;
+      if (target.startsWith('yt:')) {
+        final id = target.substring(3);
+        unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+        await Future.delayed(const Duration(seconds: 4));
+        final page = Get.find<YtVideoController>(tag: id);
+        for (var i = 0; i < 40 && page.stage.value != .ready; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+        }
+        player = page.plPlayerController;
+      } else {
+        await PiliScheme.routePushFromUrl(target);
+        await Future.delayed(const Duration(seconds: 3));
+        final page = Get.find<VideoDetailController>(
+          tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+        );
+        for (var i = 0; i < 40 && !page.videoState.value; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+        }
+        player = page.plPlayerController;
+      }
+      String mpv(String name) {
+        try {
+          return player.videoPlayerController?.getProperty(name) ?? '';
+        } catch (_) {
+          return '';
+        }
+      }
+
+      // the first time the picture moves: what the viewer waits for
+      int? playingMs;
+      final startPos = player.position.value;
+      // how the open went: every change of status, buffering and position
+      final openStates = <String>[];
+      String? lastState;
+      var nudged = false;
+      for (var i = 0; i < 600 && playingMs == null; i++) {
+        final state =
+            '${player.playerStatus.value.name} buf=${player.isBuffering.value} pos=${mpv('time-pos')}';
+        if (state.split(' pos=').first != lastState?.split(' pos=').first) {
+          openStates.add('${ms()} ms $state');
+        }
+        lastState = state;
+        if (player.playerStatus.isPlaying &&
+            !player.isBuffering.value &&
+            (double.tryParse(mpv('time-pos')) ?? 0) > startPos + 0.5) {
+          playingMs = ms();
+        }
+        if (i == 100 && !player.playerStatus.isPlaying) {
+          nudged = true;
+          await player.play();
+        }
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      // what the viewer is looking at when nothing plays
+      final failedShot = playingMs == null ? await _shot('open-failed') : null;
+      final timeline = <Map<String, Object?>>[];
+      String? lastPage;
+      void sample() {
+        final status = Ctl.status();
+        final pages = status['pages'] as List? ?? const [];
+        final page = pages.isEmpty ? null : pages.first as Map;
+        final text = mpv('sub-text').trim();
+        final row = <String, Object?>{
+          't': ms() ~/ 1000,
+          'pos': player.position.value,
+          'buffering': player.isBuffering.value,
+          'bufferedTo': player.buffered.value,
+          'status': player.playerStatus.value.name,
+          'sid': mpv('sid'),
+          'sub': text.isEmpty
+              ? null
+              : text.length > 24
+              ? text.substring(0, 24)
+              : text,
+        };
+        // what changes rarely, only when it does
+        if (page != null) {
+          final onDevice = page['onDevice'];
+          final keep = <String, Object?>{
+            for (final k in const [
+              'quality',
+              'codec',
+              'videoHost',
+              'audioHost',
+              'subtitles',
+              'transcription',
+              'translation',
+            ])
+              k: page[k],
+            'onDevice': onDevice is Map
+                ? {
+                    for (final e in onDevice.entries)
+                      if (e.key != 'menu') e.key: e.value,
+                  }
+                : null,
+          };
+          final encoded = jsonEncode(keep);
+          if (encoded != lastPage) {
+            row['page'] = keep;
+            lastPage = encoded;
+          }
+        }
+        timeline.add(row);
+      }
+
+      Future<void> watch(int seconds) async {
+        for (var i = 0; i < seconds; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+          sample();
+        }
+      }
+
+      final seeks = <Map<String, Object?>>[];
+      Future<void> seek(String kind, int to) async {
+        final from = player.position.value;
+        final bufferedTo = player.buffered.value;
+        final at = ms();
+        // as the arrow keys and the progress bar seek (without waiting for
+        // a buffer update first)
+        await player.seekTo(Duration(seconds: to), isSeek: false);
+        int? movedMs;
+        int? subMs;
+        String? firstSub;
+        for (var i = 0; i < 300 && (movedMs == null || subMs == null); i++) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          final pos = double.tryParse(mpv('time-pos')) ?? -1;
+          if (movedMs == null &&
+              !player.isBuffering.value &&
+              player.playerStatus.isPlaying &&
+              pos > to + 0.3) {
+            movedMs = ms() - at;
+          }
+          final text = mpv('sub-text').trim();
+          if (subMs == null && text.isNotEmpty && (pos - to).abs() < 30) {
+            subMs = ms() - at;
+            firstSub = text.length > 24 ? text.substring(0, 24) : text;
+          }
+          if (i % 10 == 9) sample();
+        }
+        seeks.add({
+          'kind': kind,
+          'from': from,
+          'to': to,
+          'bufferedToBefore': bufferedTo,
+          'beyondBuffer': to > bufferedTo,
+          'msToMoving': movedMs,
+          'msToSubtitle': subMs,
+          'firstSub': firstSub,
+          'landedAt': player.position.value,
+        });
+      }
+
+      int between(int a, int b) => a + rng.nextInt(b - a + 1);
+      await watch(between(50, 80));
+      await seek('forward10', player.position.value + 10);
+      await watch(between(45, 70));
+      await seek('back10', math.max(0, player.position.value - 10));
+      await watch(between(45, 70));
+      // past what is buffered, well inside the video
+      final duration = player.duration.value;
+      final buffered = player.buffered.value;
+      final room = duration - 90 - buffered;
+      final far = room > 60
+          ? buffered + 60 + rng.nextInt(room - 60)
+          : math.max(buffered + 30, duration ~/ 2);
+      await seek('unbuffered', far);
+      await watch(60);
+      final events = [
+        for (final (_, line) in EventLog.entries(since: start)) line,
+      ];
+      return {
+        'pass':
+            playingMs != null && seeks.every((s) => s['msToMoving'] != null),
+        'target': target,
+        'seed': seed,
+        'duration': duration,
+        'msToPlaying': playingMs,
+        'failedShot': failedShot,
+        'openStates': openStates,
+        'playPressedByProbe': nudged,
+        'seeks': seeks,
+        'timeline': timeline,
+        'events': events,
+      };
+    } finally {
+      if (choiceBefore == null) {
+        await GStorage.setting.delete(SettingBoxKey.subtitleChoice);
+      } else {
+        await GStorage.setting.put(SettingBoxKey.subtitleChoice, choiceBefore);
+      }
+      Get.back();
+      await Future.delayed(const Duration(seconds: 2));
+    }
   }
 
   static Future<Map<String, dynamic>> _hoverControls(String input) async {
