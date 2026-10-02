@@ -170,6 +170,13 @@ class YtVideoController extends GetxController
       videoSource: pair.videoUrl,
       audioSource: pair.audioUrl,
     );
+    // the player's own autoplay calls a hook only the bilibili page sets:
+    // here it never played by itself (2026-10-01, it sat paused with the
+    // stream loaded). The first open follows 自动播放; a later one (another
+    // quality, new URLs) plays on if it was playing
+    final playAfter = _ownSource == null
+        ? Pref.autoPlayEnable
+        : plPlayerController.playerStatus.isPlaying;
     _ownSource = source;
     // mpv keeps an added subtitle track with the file it was added to: a new
     // one — a quality change, fresh streams — starts without the transcript
@@ -181,6 +188,18 @@ class YtVideoController extends GetxController
     final caption = captionIndex.value;
     // the player is shared: the bilibili page sets its own
     plPlayerController.onSourceExpired = _renewStreams;
+    // what the buffer is sized by: without it mpv got the 4 MiB setting, 5 s
+    // of a 1080p60 stream against the 30 s asked for, and every seek 10 s on
+    // waited (2026-10-01) — or the bitrate of the bilibili video before
+    int? rate(YtFormat? f) => f == null
+        ? null
+        : (f.averageBitrate ?? 0) > 0
+        ? f.averageBitrate
+        : (f.bitrate > 0 ? f.bitrate : null);
+    final videoRate = rate(pair.video);
+    plPlayerController.streamBitrate = videoRate == null
+        ? null
+        : videoRate + (rate(pair.audio) ?? 0);
     await plPlayerController.setDataSource(
       source,
       seekTo: seekTo,
@@ -200,6 +219,8 @@ class YtVideoController extends GetxController
         } else if (caption >= 0) {
           _showCaption(caption);
         }
+        // a loading gate up meanwhile pauses it again and plays on release
+        if (playAfter) plPlayerController.play();
       },
     );
     if (!isClosed) stage.value = YtPageStage.ready;

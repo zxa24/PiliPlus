@@ -50,6 +50,15 @@ void main() {
       );
     });
 
+    test('a seek the host failed moves to another CDN at once', () {
+      // the host dropped the connection on a seek into the file, and did
+      // it again on the reopen there (2026-10-01)
+      expect(
+        PlPlayerController.transportRecovery(0, seekFailed: true),
+        TransportRecovery.switchCdn,
+      );
+    });
+
     test('a second failure on the same host moves to another CDN', () {
       expect(
         PlPlayerController.transportRecovery(1),

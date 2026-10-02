@@ -1017,8 +1017,13 @@ abstract final class Pref {
   static double get bufferSize =>
       _setting.get(SettingBoxKey.bufferSize, defaultValue: 4.0);
 
-  static double get bufferSec =>
-      _setting.get(SettingBoxKey.bufferSec, defaultValue: 16.0);
+  /// LibrePili: 30 s ahead on a desktop (16 s before 2026-10-01): a seek
+  /// 10 s on often landed at the end of what was buffered and waited; a
+  /// phone keeps 16 s (memory, data).
+  static double get bufferSec => _setting.get(
+    SettingBoxKey.bufferSec,
+    defaultValue: PlatformUtils.isDesktop ? 30.0 : 16.0,
+  );
 
   /// How many bytes the player may buffer ahead for a stream of
   /// [bitsPerSecond]: the setting, or enough for [bufferSec] of the stream
@@ -1063,6 +1068,10 @@ abstract final class Pref {
     return {
       'cache': 'yes',
       'cache-secs': bufSec.toStringAsFixed(3),
+      // LibrePili: playback goes on after a stall with 2 s buffered, not
+      // mpv's 1 s: after a jump it went on, stalled, went on, stalled again
+      // within 7 s (2026-10-01)
+      'cache-pause-wait': '2',
       'demuxer-hysteresis-secs': (bufSec / 1.5).toStringAsFixed(3),
       'demuxer-max-bytes': bufSiz,
       'demuxer-max-back-bytes': bufSiz,

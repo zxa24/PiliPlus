@@ -726,6 +726,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           : sourceExpiry(dataSource, DateTime.now());
       // measured on the streams of the part before
       _delivered.clear();
+      _resumeAt = null;
+      // the first fill of a new source is not the network falling behind
+      _health.clear();
+      _healthRest = max(_healthRest, _afterSeekRest);
       _autoPlay = autoplay;
       // 初始化视频倍速
       // _playbackSpeed.value = speed;
@@ -1035,6 +1039,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       var media = ctr.current.last;
       EventLog.add('player', 'reopen at $resumePosition');
       if (!isLive) media = media.copyWith(start: resumePosition);
+      _resumeAt = null;
       return ctr.open(media, play: true).then((_) {
         _watchLoad(ctr);
       });
@@ -1365,6 +1370,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
       }),
       stream.error.listen((String event) {
+        if (event.startsWith('Seek failed')) _seekFailedAt = DateTime.now();
         if (dataSource is FileSource &&
             event.startsWith("Failed to open file")) {
           return;
@@ -1454,12 +1460,38 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _watchForDryTrack(player);
   }
 
+  /// When mpv last said a seek in the stream failed (see [_recoverTransport]).
+  DateTime? _seekFailedAt;
+
+  /// The last seek made, and when: where a reopen after it failed goes.
+  Duration? _seekTarget;
+  DateTime? _seekTargetAt;
+
+  /// Where the next open is to start, set by a recovery that knows better
+  /// than mpv's position; cleared by the open.
+  Duration? _resumeAt;
+
   /// Recovery goes on without a word; the viewer hears only when there is
   /// nothing left to try.
   void _recoverTransport() {
     // a replacement under way is the recovery
     if (_replacing) return;
-    switch (transportRecovery(_transportFailures++)) {
+    // a host that drops the connection on a seek into the file does it again
+    // on a reopen there: the user's copy and the tour both lost 10-20 s to
+    // the retry before another host played at once (`Seek failed (to N, size
+    // -40)` after a tls read error, 2026-10-01)
+    final seekFailed =
+        _seekFailedAt != null &&
+        DateTime.now().difference(_seekFailedAt!) < const Duration(seconds: 15);
+    _seekFailedAt = null;
+    // reopened where the viewer was going, not where mpv stood when the seek
+    // failed (it played on from near the start in the user's copy)
+    if (seekFailed &&
+        _seekTargetAt != null &&
+        DateTime.now().difference(_seekTargetAt!) < const Duration(seconds: 30)) {
+      _resumeAt = _seekTarget;
+    }
+    switch (transportRecovery(_transportFailures++, seekFailed: seekFailed)) {
       case TransportRecovery.retrySameUrl:
         // after a stream was replaced in place, mpv's own playlist still
         // names the one it replaced: reopening that undid the replacement
@@ -1946,6 +1978,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Seconds before playback health is judged again after acting on it.
   var _healthRest = 0;
 
+  /// Seconds of playback health not judged after a seek or an open: the
+  /// buffer filling again is not the network falling behind.
+  static const _afterSeekRest = 10;
+
   /// What the network delivered, bytes per second, in the seconds the
   /// buffer was filling (see [observedBytesPerSecond]).
   final _delivered = <double>[];
@@ -2349,8 +2385,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// The policy, kept apart from the stream plumbing so it can be tested.
   @visibleForTesting
-  static TransportRecovery transportRecovery(int previousFailures) =>
-      previousFailures == 0
+  static TransportRecovery transportRecovery(
+    int previousFailures, {
+    bool seekFailed = false,
+  }) => previousFailures == 0 && !seekFailed
       ? TransportRecovery.retrySameUrl
       : TransportRecovery.switchCdn;
 
@@ -2410,8 +2448,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (position < Duration.zero) {
       position = Duration.zero;
     }
-    // a seek empties the buffer on purpose: not a host falling behind
+    // a seek empties the buffer on purpose: not a host falling behind — nor
+    // is the wait for it to fill again (counted as a stall, it took a 1080P
+    // stream down to 360P seven seconds after a jump, 2026-10-01)
     _health.clear();
+    _healthRest = max(_healthRest, _afterSeekRest);
     // and a precise one drops frames on its way to the target
     _quietSmoothness();
     // mpv turns a seek down until it has the file, and the only trace was a
@@ -2425,6 +2466,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
     _heartDuration = position.inSeconds;
+    _seekTarget = position;
+    _seekTargetAt = DateTime.now();
     // the seek would be a new request on an expired URL
     if (_renewIfExpired(position)) return;
 
@@ -2456,6 +2499,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Where playback is, for opening again: mpv's own position reads 0 while
   /// a source is still opening, and a reopen from there started over.
   Duration get resumePosition {
+    if (_resumeAt case final at?) return at;
     final mpv = _videoPlayerController?.state.position ?? Duration.zero;
     return _loadWatch == null && mpv > Duration.zero
         ? mpv

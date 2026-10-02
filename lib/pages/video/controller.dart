@@ -1093,7 +1093,9 @@ class VideoDetailController extends GetxController
     if (VideoUtils.debugWrapVideoUrl != null) return;
     final video = videoUrl;
     if (video == null) return;
-    final candidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
+    final candidates = _withoutBroken(
+      VideoUtils.cdnCandidates(firstVideo.playUrls),
+    );
     if (candidates.length < 2) return;
     final part = cid.value;
     final speeds = await _measure(
@@ -1117,7 +1119,9 @@ class VideoDetailController extends GetxController
   Future<({String? video, String? audio})?> replaceSlowStreams() async {
     final video = videoUrl;
     if (isFileSource || video == null) return null;
-    final candidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
+    final candidates = _withoutBroken(
+      VideoUtils.cdnCandidates(firstVideo.playUrls),
+    );
     // long enough to be compared with the bitrate
     final speeds = await _measure(
       candidates.take(4).toList(),
@@ -1140,8 +1144,50 @@ class VideoDetailController extends GetxController
         }
       }
     }
+    // The host playing now is fast enough for the stream: what made the
+    // buffer run low was not its bandwidth (a seek, a burst). Kept once; slow
+    // again within [_slowKeptFor], a lower quality. Both hosts measured
+    // 10 Mbps for a 1080P stream, and it went down to 720P, then 480P, then
+    // 360P in four minutes (2026-10-01).
+    final current = _hostOf(video);
+    final now = DateTime.now();
+    if (current != null &&
+        CdnProbe.keepsUp(
+          speeds[current],
+          _streamBitrate,
+          margin: _keepsUpMargin,
+        ) &&
+        (_slowKeptAt == null || now.difference(_slowKeptAt!) > _slowKeptFor)) {
+      _slowKeptAt = now;
+      EventLog.add(
+        'player',
+        'stream slow, but $current keeps up '
+            '(${((speeds[current] ?? 0) * 8 / 1e6).toStringAsFixed(1)} Mbps for '
+            '${((_streamBitrate ?? 0) / 1e6).toStringAsFixed(1)} Mbps): quality kept',
+      );
+      return null;
+    }
     // no host keeps up: a lower quality does
     return _stepQuality(down: true, speeds: speeds);
+  }
+
+  /// A host measuring this many times the stream's bitrate is taken to keep
+  /// up: a 1 MB probe reads high (1.5x passed, and the stream then stalled).
+  static const _keepsUpMargin = 2.5;
+
+  /// After one slow spell kept at this quality, another within this long
+  /// steps down.
+  static const _slowKeptFor = Duration(minutes: 2);
+  DateTime? _slowKeptAt;
+
+  /// [urls] without those on a host that failed on this part (see
+  /// [_triedHosts]); all of them when every one has.
+  List<String> _withoutBroken(List<String> urls) {
+    final left = [
+      for (final url in urls)
+        if (!_triedHosts.contains(_hostOf(url))) url,
+    ];
+    return left.isEmpty ? urls : left;
   }
 
   /// There has been room to spare for a while (see
@@ -1199,7 +1245,7 @@ class VideoDetailController extends GetxController
       final bitrate = (item.bandWidth ?? 0) + (_currentAudio?.bandWidth ?? 0);
       if (!CdnProbe.keepsUp(speeds[best], bitrate, margin: 1.5)) return null;
     }
-    final candidates = VideoUtils.cdnCandidates(item.playUrls);
+    final candidates = _withoutBroken(VideoUtils.cdnCandidates(item.playUrls));
     final url =
         _onHost(candidates, best) ?? VideoUtils.getCdnUrl(item.playUrls);
     firstVideo = item;
@@ -3413,6 +3459,7 @@ class VideoDetailController extends GetxController
     videoUrl = null;
     audioUrl = null;
     _triedHosts.clear();
+    _slowKeptAt = null;
     _hostSpeeds.clear();
     _qualityChosen = false;
     _qualityCeiling = null;
