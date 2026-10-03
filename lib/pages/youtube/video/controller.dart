@@ -38,7 +38,9 @@ import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/cdn_probe.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart'
@@ -166,9 +168,21 @@ class YtVideoController extends GetxController
     // linkage this app exists to avoid. Google serves these URLs without any
     // of it (measured), so they are cleared for the duration.
     plPlayerController.videoPlayerController?.setMediaHeader();
+    var videoUrl = _videoUrlOf(pair);
+    var audioUrl = pair.audioUrl;
+    if (debugRefuseFirstOpen && _ownSource == null) {
+      // self-test: a URL YouTube refuses (403), as a fresh one once was
+      debugRefuseFirstOpen = false;
+      String spoil(String url) => url.replaceFirstMapped(
+        RegExp(r'expire=(\d+)'),
+        (m) => 'expire=${int.parse(m[1]!) + 1}',
+      );
+      videoUrl = spoil(videoUrl);
+      audioUrl = spoil(audioUrl);
+    }
     final source = NetworkSource(
-      videoSource: pair.videoUrl,
-      audioSource: pair.audioUrl,
+      videoSource: videoUrl,
+      audioSource: audioUrl,
     );
     // the player's own autoplay calls a hook only the bilibili page sets:
     // here it never played by itself (2026-10-01, it sat paused with the
@@ -186,20 +200,22 @@ class YtVideoController extends GetxController
     // and a caption track the same: new streams after a long pause came
     // back without the captions on screen (2026-10-01)
     final caption = captionIndex.value;
-    // the player is shared: the bilibili page sets its own
-    plPlayerController.onSourceExpired = _renewStreams;
+    // The player is shared: the bilibili page sets its own, and a bilibili
+    // page under this one left its hooks on it — a slow stream here would
+    // have asked that page for bilibili streams to put in place of these.
+    plPlayerController
+      ..onSourceExpired = _renewStreams
+      ..onStreamSlow = _streamSlow
+      ..onStreamRoomy = _streamRoomy
+      // one host per URL: a cut stream is new URLs, as a failover is
+      ..onStreamCut = null
+      ..onCdnFailover = _failover
+      ..onReopen = _reopenHere;
+    _heightCeiling ??= pair.video == null ? null : ytShortSide(pair.video!);
     // what the buffer is sized by: without it mpv got the 4 MiB setting, 5 s
     // of a 1080p60 stream against the 30 s asked for, and every seek 10 s on
     // waited (2026-10-01) — or the bitrate of the bilibili video before
-    int? rate(YtFormat? f) => f == null
-        ? null
-        : (f.averageBitrate ?? 0) > 0
-        ? f.averageBitrate
-        : (f.bitrate > 0 ? f.bitrate : null);
-    final videoRate = rate(pair.video);
-    plPlayerController.streamBitrate = videoRate == null
-        ? null
-        : videoRate + (rate(pair.audio) ?? 0);
+    plPlayerController.streamBitrate = _bitrateOf(pair);
     await plPlayerController.setDataSource(
       source,
       seekTo: seekTo,
@@ -242,6 +258,8 @@ class YtVideoController extends GetxController
     if (isClosed) return;
     stage.value = YtPageStage.failed;
     message.value = _messageFor(verdict);
+    // in the event log too: a page that failed said nothing there
+    EventLog.add('failure', 'youtube $videoId: $verdict');
     if (kDebugMode) debugPrint('youtube: $verdict');
   }
 
@@ -323,6 +341,8 @@ class YtVideoController extends GetxController
 
   Future<void> setMaxHeight(int height) async {
     if (maxHeight.value == height) return;
+    // the viewer's: nothing changes it by itself from now on
+    _heightChosen = true;
     maxHeight.value = height;
     final position = plPlayerController.videoPlayerController?.state.position;
     final streams = await router.run(
@@ -1434,6 +1454,118 @@ class YtVideoController extends GetxController
     }
   }
 
+  // ------------------------------------------- the player's hooks (see _open)
+
+  /// The viewer picked a height: nothing changes it by itself.
+  var _heightChosen = false;
+
+  /// The height the video opened at: stepping back up stops there.
+  int? _heightCeiling;
+
+  Future<({String? video, String? audio})?> _streamSlow() =>
+      _stepHeight(down: true);
+
+  Future<({String? video, String? audio})?> _streamRoomy() =>
+      _stepHeight(down: false);
+
+  /// One height down, or up to [_heightCeiling] when what the network has
+  /// delivered while playing keeps up with the higher stream with room to
+  /// spare — as the bilibili page steps its quality. YouTube played on a
+  /// throttled stream, three seconds then a 5-14 s stall, for good: nothing
+  /// here stepped down (2026-10-02).
+  Future<({String? video, String? audio})?> _stepHeight({
+    required bool down,
+  }) async {
+    if (_heightChosen || isClosed) return null;
+    final now = _streams?.video == null ? null : ytShortSide(_streams!.video!);
+    if (now == null) return null;
+    final heights = availableHeights;
+    int? next;
+    if (down) {
+      for (final h in heights) {
+        if (h < now) {
+          next = h;
+          break;
+        }
+      }
+    } else {
+      for (final h in heights.reversed) {
+        if (h > now && h <= (_heightCeiling ?? now)) {
+          next = h;
+          break;
+        }
+      }
+    }
+    if (next == null) return null;
+    final height = next;
+    final result = await router.run(
+      (s) =>
+          s.streams(videoId, preference: YtFormatPreference(maxHeight: height)),
+    );
+    final pair = result.value;
+    if (isClosed || !result.ok || pair == null) return null;
+    final bitrate = _bitrateOf(pair);
+    if (!down &&
+        !CdnProbe.keepsUp(
+          plPlayerController.observedBytesPerSecond,
+          bitrate,
+          margin: 1.5,
+        )) {
+      return null;
+    }
+    _streams = pair;
+    maxHeight.value = next;
+    plPlayerController.streamBitrate = bitrate;
+    EventLog.add('player', 'quality ${down ? 'down' : 'up'} to ${next}p');
+    return (video: _videoUrlOf(pair), audio: null);
+  }
+
+  /// Self-test: the first open gets URLs YouTube refuses (403).
+  static bool debugRefuseFirstOpen = false;
+
+  /// [pair]'s video URL, through the self-test's slow host when it has one
+  /// ([VideoUtils.debugWrapVideoUrl]).
+  static String _videoUrlOf(YtStreamPair pair) =>
+      VideoUtils.debugWrapVideoUrl?.call(pair.videoUrl) ?? pair.videoUrl;
+
+  /// Video and audio bitrate of [pair], bits per second; null when YouTube
+  /// did not say.
+  static int? _bitrateOf(YtStreamPair pair) {
+    int? rate(YtFormat? f) => f == null
+        ? null
+        : (f.averageBitrate ?? 0) > 0
+        ? f.averageBitrate
+        : (f.bitrate > 0 ? f.bitrate : null);
+    final video = rate(pair.video);
+    return video == null ? null : video + (rate(pair.audio) ?? 0);
+  }
+
+  DateTime? _failoverAt;
+
+  /// What the player asks for when the URLs will not serve: there is one
+  /// host per URL, so new URLs, where playback is — once every two minutes;
+  /// after that the player says 视频无法播放.
+  bool _failover() {
+    final now = DateTime.now();
+    if (isClosed ||
+        (_failoverAt != null &&
+            now.difference(_failoverAt!) < const Duration(minutes: 2))) {
+      return false;
+    }
+    _failoverAt = now;
+    final at = plPlayerController.resumePosition;
+    EventLog.add('player', 'youtube: new stream URLs at ${at.inSeconds} s');
+    _renewStreams(at);
+    return true;
+  }
+
+  /// Opens the streams played now again, where playback is.
+  void _reopenHere() {
+    final pair = _streams;
+    if (pair == null || isClosed) return;
+    _open(pair, seekTo: plPlayerController.resumePosition);
+  }
+
   /// Re-resolves the streams: a direct URL lasts about six hours and is bound
   /// to this network, so a resumed session needs new ones rather than a retry.
   Future<void> refreshStreams() async {
@@ -1465,7 +1597,12 @@ class YtVideoController extends GetxController
     _releaseHold();
     stopAsr(leaving: true);
     if (plPlayerController.onSourceExpired == _renewStreams) {
-      plPlayerController.onSourceExpired = null;
+      plPlayerController
+        ..onSourceExpired = null
+        ..onStreamSlow = null
+        ..onStreamRoomy = null
+        ..onCdnFailover = null
+        ..onReopen = null;
     }
     plPlayerController.dispose();
     super.onClose();

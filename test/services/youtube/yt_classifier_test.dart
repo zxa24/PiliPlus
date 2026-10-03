@@ -285,6 +285,35 @@ void main() {
       expect(v.signal, isNot(YtSignals.botCheckConfirmed));
     });
 
+    test('the bot wall in the language asked for is still the bot wall', () {
+      // measured 2026-10-03 with hl=zh: taken for the video being gone
+      for (final reason in const [
+        '请登录，以便我们确认你不是聊天机器人',
+        '請登入，以便我們確認你不是機器人',
+        'ログインして、ボットではないことを確認してください',
+        '로그인하여 봇이 아님을 확인하세요',
+      ]) {
+        final v = classifyYtPlayer(
+          syntheticPlayer(status: 'LOGIN_REQUIRED', reason: reason),
+        );
+        expect(v.cause, YtCause.ipBlocked, reason: reason);
+        expect(v.signal, YtSignals.botCheck, reason: reason);
+      }
+    });
+
+    test('the age gate in another language is not the bot wall', () {
+      for (final reason in const [
+        '请登录以确认你的年龄',
+        '請登入以確認你的年齡',
+        'ログインして年齢を確認してください',
+      ]) {
+        final v = classifyYtPlayer(
+          syntheticPlayer(status: 'LOGIN_REQUIRED', reason: reason),
+        );
+        expect(v.cause, isNot(YtCause.ipBlocked), reason: reason);
+      }
+    });
+
     test(
       'RECORDED wrong-identity "Video unavailable" is contentUnavailable '
       'but flagged suspect (videoDetails came back)',

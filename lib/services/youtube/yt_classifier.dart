@@ -187,7 +187,12 @@ YtVerdict classifyYtPlayer(YtResponse r) {
   // NewPipe's narrower test — reason.contains("a bot") — is the correct one.
   // We use it AND require the absence of "your age", so a future wording that
   // mentions both cannot be read as a block.
-  if (lower.contains('a bot') && !lower.contains('your age')) {
+  // The wall comes in the language asked for (`hl`): in Chinese it read
+  // 「请登录，以便我们确认你不是聊天机器人」 and was taken for the video being
+  // unavailable (2026-10-03). The same test in the languages the app asks
+  // in, each against its own word for age.
+  final bot = _botWords.any(lower.contains) && !_ageWords.any(lower.contains);
+  if (bot) {
     return YtVerdict(
       YtCause.ipBlocked,
       YtSignals.botCheck,
@@ -383,3 +388,10 @@ String _errorScreenText(Map<String, dynamic> ps) {
   walk(ps['errorScreen'], 0);
   return buf.toString().trim();
 }
+
+/// "a bot" in the languages YouTube is asked in (see the bot wall in
+/// [classifyYtPlayer]), lower-cased.
+const _botWords = ['a bot', '机器人', '機器人', 'ボット', '봇'];
+
+/// "your age", the age gate's wording, in the same languages.
+const _ageWords = ['your age', '年龄', '年齡', '年齢', '나이', '연령'];

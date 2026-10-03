@@ -1157,10 +1157,25 @@ abstract final class SelfTest {
     // to expire `--expire-after` s after they are opened
     if (_arg(args, '--ux-tour') case final target?) {
       _shots = _arg(args, '--shots') ?? _shots;
-      await scenario(
-        'uxTour',
-        () => _uxTour(target, int.tryParse(_arg(args, '--seed') ?? '') ?? 1),
-      );
+      // YouTube refusing the first URLs (403), as it once did
+      YtVideoController.debugRefuseFirstOpen = args.contains('--yt-refuse-first');
+      // a host slower than the stream plays (the video stream only)
+      _CuttingProxy? slow;
+      final kbps = int.tryParse(_arg(args, '--throttle-video-kbps') ?? '');
+      if (kbps != null) {
+        slow = _CuttingProxy(1 << 50, bytesPerSecond: kbps * 1000 ~/ 8);
+        await slow.start();
+        VideoUtils.debugWrapVideoUrl = slow.wrap;
+      }
+      try {
+        await scenario(
+          'uxTour',
+          () => _uxTour(target, int.tryParse(_arg(args, '--seed') ?? '') ?? 1),
+        );
+      } finally {
+        VideoUtils.debugWrapVideoUrl = null;
+        await slow?.close();
+      }
     }
     if (args.contains('--mine-entries')) {
       _shots = _arg(args, '--shots') ?? _shots;

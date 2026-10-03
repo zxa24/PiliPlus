@@ -727,6 +727,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // measured on the streams of the part before
       _delivered.clear();
       _resumeAt = null;
+      _seekFailedAt = _forbiddenAt = null;
+      // the source this was checking on is gone; the new one starts afresh
+      _recoveryCheck?.cancel();
+      _recoveryCheck = null;
       // the first fill of a new source is not the network falling behind
       _health.clear();
       _healthRest = max(_healthRest, _afterSeekRest);
@@ -1370,7 +1374,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
       }),
       stream.error.listen((String event) {
-        if (event.startsWith('Seek failed')) _seekFailedAt = DateTime.now();
+        final now = DateTime.now();
+        if (event.startsWith('Seek failed')) _seekFailedAt = now;
+        // a read that timed out right after a seek is the same failure in
+        // other words: cosov gave `tls: Unable to read from socket` and
+        // `error=Error number -138` 6 s after a jump, and the reopen on it
+        // cost 11 s in all (2026-10-02)
+        if ((event.startsWith('tls: Unable to read') ||
+                event.contains('Error number -138')) &&
+            _seekTargetAt != null &&
+            now.difference(_seekTargetAt!) < const Duration(seconds: 15)) {
+          _seekFailedAt = now;
+        }
+        if (event.contains('HTTP error 403')) _forbiddenAt = now;
         if (dataSource is FileSource &&
             event.startsWith("Failed to open file")) {
           return;
@@ -1406,13 +1422,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           // copy, paused 9.5 h, tried the same URL and the next CDN's and
           // stopped (2026-10-01)
           if (_renewIfExpired(resumePosition)) return;
+          // refused before its expiry (YouTube answered 403 to a fresh URL,
+          // and the same URL again on the reopen, 2026-10-02): new ones
+          if (_forbiddenAt != null &&
+              DateTime.now().difference(_forbiddenAt!) <
+                  const Duration(seconds: 15) &&
+              _renewIfExpired(resumePosition, refused: true)) {
+            return;
+          }
           final positionBefore = position.value;
           final epoch = videoControllerEpoch.value;
+          // a seek waiting on it: the viewer is looking at a still picture
+          final soon = _seekFailedAt != null;
           EasyThrottle.throttle(
             'controllerStream.error.listen',
             const Duration(milliseconds: 10000),
             () {
-              Future.delayed(const Duration(milliseconds: 3000), () {
+              Future.delayed(Duration(milliseconds: soon ? 1000 : 3000), () {
                 // the player that failed has been handed over from: what it
                 // lacked is what the new one was opened to bring (a check
                 // left over from the old one reopened the new one, 4 s)
@@ -1463,6 +1489,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// When mpv last said a seek in the stream failed (see [_recoverTransport]).
   DateTime? _seekFailedAt;
 
+  /// When a host last answered 403 (see [_renewIfExpired]).
+  DateTime? _forbiddenAt;
+
+  /// Looks again after a recovery step (see [_checkRecovery]).
+  Timer? _recoveryCheck;
+
   /// The last seek made, and when: where a reopen after it failed goes.
   Duration? _seekTarget;
   DateTime? _seekTargetAt;
@@ -1491,6 +1523,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         DateTime.now().difference(_seekTargetAt!) < const Duration(seconds: 30)) {
       _resumeAt = _seekTarget;
     }
+    _checkRecovery();
     switch (transportRecovery(_transportFailures++, seekFailed: seekFailed)) {
       case TransportRecovery.retrySameUrl:
         // after a stream was replaced in place, mpv's own playlist still
@@ -1506,6 +1539,29 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       case TransportRecovery.switchCdn:
         _switchCdn();
     }
+  }
+
+  /// 12 s after a recovery step: playback still not getting anywhere is
+  /// the next step (another host, new URLs, or 视频无法播放 when nothing is
+  /// left). A second failure inside the error throttle used to be dropped:
+  /// YouTube answered 403 twice, and the page sat loading for ever with no
+  /// word (2026-10-02).
+  void _checkRecovery() {
+    _recoveryCheck?.cancel();
+    final before = position.value;
+    final source = dataSource;
+    _recoveryCheck = Timer(const Duration(seconds: 12), () {
+      _recoveryCheck = null;
+      if (!identical(dataSource, source) || _replacing || _renewing) return;
+      if (!playerStatus.isPlaying) return;
+      final moved = position.value != before && !isBuffering.value;
+      if (moved) {
+        _transportFailures = 0;
+        return;
+      }
+      EventLog.add('player', 'still not playing 12 s after recovering: next');
+      _recoverTransport();
+    });
   }
 
   static final _underrun = RegExp('underrun', caseSensitive: false);
@@ -1562,16 +1618,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// true when it did (or is already doing so), and the caller is to leave
   /// the player alone. Once per source: a renewal that fails leaves the
   /// ordinary recovery to go on.
-  bool _renewIfExpired(Duration at) {
+  bool _renewIfExpired(Duration at, {bool refused = false}) {
     if (isLive || debugDisableRecovery) return false;
     if (_renewing) return true;
     final renew = onSourceExpired;
     final expires = _sourceExpiresAt;
-    if (renew == null || expires == null || dataSource is! NetworkSource) {
+    if (renew == null || dataSource is! NetworkSource) return false;
+    if (!refused && expires == null) return false;
+    final now = DateTime.now();
+    if (!refused && now.isBefore(expires!.subtract(sourceExpiryMargin))) {
       return false;
     }
-    final now = DateTime.now();
-    if (now.isBefore(expires.subtract(sourceExpiryMargin))) return false;
     // new URLs that already count as expired (a lifetime shorter than the
     // margin) would be renewed on the play that opens them, and so on
     if (_renewedAt case final last?
@@ -1580,11 +1637,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     _renewedAt = now;
     _sourceExpiresAt = null;
+    _forbiddenAt = null;
     _renewing = true;
     EventLog.add(
       'player',
-      'play URLs expired at ${expires.toIso8601String()}: '
-          'asking for new ones, at ${at.inSeconds} s',
+      refused
+          ? 'play URLs refused (403): asking for new ones, at ${at.inSeconds} s'
+          : 'play URLs expired at ${expires!.toIso8601String()}: '
+                'asking for new ones, at ${at.inSeconds} s',
     );
     renew(at).whenComplete(() => _renewing = false);
     return true;
@@ -3298,6 +3358,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     _playerCount = 0;
+    _recoveryCheck?.cancel();
+    _recoveryCheck = null;
     if (removeSafeArea) {
       showSystemBar();
     }
