@@ -234,9 +234,39 @@ class _YtVideoPageState extends State<YtVideoPage>
                     style: const TextStyle(color: Colors.white70),
                   ),
                   const SizedBox(height: 12),
-                  FilledButton.tonal(
-                    onPressed: controller.load,
-                    child: const Text('重试'),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonal(
+                        onPressed: controller.load,
+                        child: const Text('重试'),
+                      ),
+                      // YouTube refused this network: somewhere else to
+                      // watch it (user 2026-10-03)
+                      if (controller.blocked.value) ...[
+                        OutlinedButton.icon(
+                          onPressed: controller.openInBrowser,
+                          icon: const Icon(Icons.open_in_browser, size: 18),
+                          label: const Text('在浏览器中打开'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: controller.findingInvidious.value
+                              ? null
+                              : controller.openInInvidious,
+                          icon: controller.findingInvidious.value
+                              ? const SizedBox.square(
+                                  dimension: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.public, size: 18),
+                          label: const Text('在 Invidious 中打开'),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),

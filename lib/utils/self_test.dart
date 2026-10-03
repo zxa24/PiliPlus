@@ -72,6 +72,7 @@ import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
+import 'package:PiliPlus/services/youtube/invidious_instances.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
@@ -1177,6 +1178,10 @@ abstract final class SelfTest {
         await slow?.close();
       }
     }
+    if (_arg(args, '--yt-blocked-ui') case final id?) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('ytBlockedUi', () => _ytBlockedUi(id));
+    }
     if (args.contains('--mine-entries')) {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario('mineEntries', _mineEntries);
@@ -1927,6 +1932,40 @@ abstract final class SelfTest {
       Get.back();
       await Future.delayed(const Duration(seconds: 2));
     }
+  }
+
+  /// `--yt-blocked-ui ID`: with YouTube refusing this network, what the
+  /// page shows — the message, 在浏览器中打开 and 在 Invidious 中打开 — and
+  /// the instance the second would open. Nothing is opened in a browser.
+  static Future<Map<String, dynamic>> _ytBlockedUi(String id) async {
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+    await Future.delayed(const Duration(seconds: 3));
+    final page = Get.find<YtVideoController>(tag: id);
+    for (var i = 0; i < 60 && page.stage.value == .loading; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    await Future.delayed(const Duration(seconds: 1));
+    final shot = await _shot('yt-blocked');
+    final buttons = {
+      for (final label in const ['重试', '在浏览器中打开', '在 Invidious 中打开'])
+        label: _seesText(label),
+    };
+    final started = DateTime.now();
+    final instance = await InvidiousInstances.pick();
+    final pickMs = DateTime.now().difference(started).inMilliseconds;
+    Get.back();
+    return {
+      'pass': page.stage.value != .failed ||
+          !page.blocked.value ||
+          (buttons.values.every((b) => b) && instance != null),
+      'stage': page.stage.value.name,
+      'blocked': page.blocked.value,
+      'message': page.message.value,
+      'buttons': buttons,
+      'instance': instance,
+      'pickMs': pickMs,
+      'shot': shot,
+    };
   }
 
   static Future<Map<String, dynamic>> _hoverControls(String input) async {

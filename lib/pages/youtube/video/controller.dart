@@ -32,6 +32,7 @@ import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/services/youtube/invidious_instances.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_tracks.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
@@ -39,6 +40,7 @@ import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/cdn_probe.dart';
+import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -65,6 +67,13 @@ class YtVideoController extends GetxController
   final stage = YtPageStage.loading.obs;
   final detail = Rxn<YtVideoDetail>();
   final message = ''.obs;
+
+  /// The failure was YouTube refusing this network (its bot wall): the page
+  /// offers the browser and an Invidious instance instead.
+  final blocked = false.obs;
+
+  /// Looking for an Invidious instance that answers.
+  final findingInvidious = false.obs;
 
   /// Caption tracks offered by YouTube, plus the one currently shown.
   final captions = <YtCaptionTrack>[].obs;
@@ -130,6 +139,7 @@ class YtVideoController extends GetxController
   Future<void> load() async {
     stage.value = YtPageStage.loading;
     message.value = '';
+    blocked.value = false;
 
     final info = await router.run((s) => s.detail(videoId));
     if (isClosed) return;
@@ -249,7 +259,7 @@ class YtVideoController extends GetxController
   static String _messageFor(YtVerdict verdict) => switch (verdict.cause) {
     YtCause.ok => '',
     YtCause.contentUnavailable => '该视频无法播放（已删除、私有、年龄限制或地区限制）',
-    YtCause.ipBlocked => '当前网络被 YouTube 限流，可稍后重试或切换来源',
+    YtCause.ipBlocked => 'YouTube 暂时拒绝了当前网络，可稍后重试，或在浏览器、Invidious 中打开',
     YtCause.transient => '网络错误，请重试',
     YtCause.clientBroken => 'YouTube 接口已变化，应用需要更新（${verdict.signal}）',
   };
@@ -258,6 +268,7 @@ class YtVideoController extends GetxController
     if (isClosed) return;
     stage.value = YtPageStage.failed;
     message.value = _messageFor(verdict);
+    blocked.value = verdict.cause == YtCause.ipBlocked;
     // in the event log too: a page that failed said nothing there
     EventLog.add('failure', 'youtube $videoId: $verdict');
     if (kDebugMode) debugPrint('youtube: $verdict');
@@ -1580,6 +1591,27 @@ class YtVideoController extends GetxController
   }
 
   String? get shareUrl => 'https://www.youtube.com/watch?v=$videoId';
+
+  /// YouTube refused this network: the video in the browser, which has its
+  /// own network standing (user 2026-10-03).
+  void openInBrowser() => PageUtils.launchURL(shareUrl!);
+
+  /// …or on a public Invidious instance that answers now.
+  Future<void> openInInvidious() async {
+    if (findingInvidious.value) return;
+    findingInvidious.value = true;
+    try {
+      final instance = await InvidiousInstances.pick();
+      if (instance == null) {
+        SmartDialog.showToast('没有找到可用的 Invidious 实例');
+        return;
+      }
+      EventLog.add('youtube', 'opening $videoId on $instance');
+      await PageUtils.launchURL(InvidiousInstances.watchUrl(instance, videoId));
+    } finally {
+      findingInvidious.value = false;
+    }
+  }
 
   Duration? get position =>
       plPlayerController.videoPlayerController?.state.position;
