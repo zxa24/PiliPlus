@@ -355,7 +355,8 @@ class YtVideoController extends GetxController
     // the viewer's: nothing changes it by itself from now on
     _heightChosen = true;
     maxHeight.value = height;
-    final position = plPlayerController.videoPlayerController?.state.position;
+    // not mpv's own position: it reads 0 while a source is opening
+    final position = plPlayerController.resumePosition;
     final streams = await router.run(
       (s) => s.streams(
         videoId,

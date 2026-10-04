@@ -1129,6 +1129,13 @@ class VideoDetailController extends GetxController
       timeout: const Duration(seconds: 4),
     );
     if (videoUrl != video) return null;
+    // no host answered at all: the network, not the bandwidth — a lower
+    // quality helps nothing (it went down to 720P as the router lost the
+    // internet, and stayed there, 2026-10-03)
+    if (speeds.values.every((s) => s == null)) {
+      EventLog.add('player', 'stream slow, but no host answered: quality kept');
+      return null;
+    }
     // another host, where the host is left to Bilibili's list: a host chosen
     // in the settings is the viewer's
     if (VideoUtils.cdnService == CDNService.backupUrl && !debugNoHostSwitch) {
@@ -1325,7 +1332,8 @@ class VideoDetailController extends GetxController
     final currentVideoQa = this.currentVideoQa.value;
     if (currentVideoQa == null) return;
     _autoPlay.value = true;
-    playedTime = plPlayerController.videoPlayerController?.state.position;
+    // not mpv's own position: it reads 0 while a source is opening
+    playedTime = plPlayerController.resumePosition;
     plPlayerController
       ..isBuffering.value = false
       ..buffered.value = 0;

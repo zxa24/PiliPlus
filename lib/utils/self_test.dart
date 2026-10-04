@@ -198,6 +198,20 @@ final class _CuttingProxy {
   /// Bytes handed to the player, all requests together.
   var bytesSent = 0;
 
+  /// The network gone: every request and every transfer under way dropped.
+  bool get down => _down;
+  var _down = false;
+  final _open = <Socket>{};
+  set down(bool value) {
+    _down = value;
+    if (value) {
+      for (final socket in _open) {
+        socket.destroy();
+      }
+      _open.clear();
+    }
+  }
+
   /// The host the broken copy is on: the first one wrapped. A stream opened
   /// again from another host is whole, as it was in the case this copies.
   String? _host;
@@ -225,7 +239,7 @@ final class _CuttingProxy {
         ) ??
         0;
     requests.add('${request.method} range=$range');
-    if (upstream == null || from >= cutAt) {
+    if (upstream == null || from >= cutAt || _down) {
       final socket = await request.response.detachSocket(writeHeaders: false);
       socket.destroy();
       return;
@@ -249,6 +263,7 @@ final class _CuttingProxy {
         }
       }
       final socket = await response.detachSocket(writeHeaders: true);
+      _open.add(socket);
       var left = cutAt - from;
       final clock = Stopwatch()..start();
       var sent = 0;
@@ -278,6 +293,7 @@ final class _CuttingProxy {
       }
       await socket.flush();
       socket.destroy();
+      _open.remove(socket);
     } catch (_) {
       try {
         (await request.response.detachSocket(writeHeaders: false)).destroy();
@@ -1182,6 +1198,9 @@ abstract final class SelfTest {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario('ytBlockedUi', () => _ytBlockedUi(id));
     }
+    if (_arg(args, '--outage') case final target?) {
+      await scenario('outage', () => _outage(target));
+    }
     if (args.contains('--mine-entries')) {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario('mineEntries', _mineEntries);
@@ -1966,6 +1985,85 @@ abstract final class SelfTest {
       'pickMs': pickMs,
       'shot': shot,
     };
+  }
+
+  /// `--outage BILI_URL`: the network goes for 25 s, and the viewer seeks
+  /// past the buffer meanwhile (user 2026-10-03: the router lost the
+  /// internet, and the video never came back once it was back). The video
+  /// stream goes through a proxy that drops everything while "down"; the
+  /// player's reachability check asks the proxy. Passes when playback
+  /// carries on by itself at the seek's target once the network is back.
+  static Future<Map<String, dynamic>> _outage(String target) async {
+    final start = DateTime.now();
+    final proxy = _CuttingProxy(1 << 50, oneHost: false);
+    await proxy.start();
+    PlPlayerController.debugWrapAll = proxy.wrap;
+    PlPlayerController.debugReachable = () async => !proxy.down;
+    try {
+      await PiliScheme.routePushFromUrl(target);
+      await Future.delayed(const Duration(seconds: 3));
+      final page = Get.find<VideoDetailController>(
+        tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+      );
+      final player = page.plPlayerController;
+      for (var i = 0; i < 40 && !page.videoState.value; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+      if (!player.playerStatus.isPlaying) await player.play();
+      await Future.delayed(const Duration(seconds: 25));
+      final before = player.position.value;
+      final targetAt = before + 200;
+      final timeline = <Map<String, Object?>>[];
+      void sample(String phase) => timeline.add({
+        'phase': phase,
+        't': DateTime.now().difference(start).inSeconds,
+        'pos': player.position.value,
+        'buffering': player.isBuffering.value,
+        'status': player.playerStatus.value.name,
+      });
+      proxy.down = true;
+      final downAt = DateTime.now();
+      await Future.delayed(const Duration(seconds: 2));
+      await player.seekTo(Duration(seconds: targetAt), isSeek: false);
+      for (var i = 0; i < 23; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        sample('down');
+      }
+      proxy.down = false;
+      final upAt = DateTime.now();
+      int? resumedMs;
+      for (var i = 0; i < 45; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        sample('up');
+        if (resumedMs == null &&
+            player.playerStatus.isPlaying &&
+            !player.isBuffering.value &&
+            player.position.value > targetAt &&
+            player.position.value <= targetAt + 15) {
+          resumedMs = DateTime.now().difference(upAt).inMilliseconds;
+          break;
+        }
+      }
+      final events = [
+        for (final (_, line) in EventLog.entries(since: start)) line,
+      ];
+      Get.back();
+      return {
+        'pass': resumedMs != null,
+        'positionBefore': before,
+        'seekTarget': targetAt,
+        'downSeconds': upAt.difference(downAt).inSeconds,
+        'msToResumedAfterUp': resumedMs,
+        'finalPosition': player.position.value,
+        'waited': events.any((e) => e.contains('network unreachable')),
+        'timeline': timeline,
+        'events': events,
+      };
+    } finally {
+      PlPlayerController.debugReachable = null;
+      PlPlayerController.debugWrapAll = null;
+      await proxy.close();
+    }
   }
 
   static Future<Map<String, dynamic>> _hoverControls(String input) async {

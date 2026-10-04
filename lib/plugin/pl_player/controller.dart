@@ -1,6 +1,6 @@
 import 'dart:async' show StreamSubscription, Timer;
 import 'dart:convert' show ascii, jsonDecode, utf8;
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, Socket;
 import 'dart:math' show max, min;
 import 'dart:ui' as ui;
 
@@ -727,7 +727,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // measured on the streams of the part before
       _delivered.clear();
       _resumeAt = null;
+      _reopening = false;
       _seekFailedAt = _forbiddenAt = null;
+      // a new source: whatever was waiting for the network was for the old
+      _stopWaitingForNetwork();
       // the source this was checking on is gone; the new one starts afresh
       _recoveryCheck?.cancel();
       _recoveryCheck = null;
@@ -925,15 +928,25 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// The volume normalisation the current source was opened with.
   Volume? _openVolume;
 
+  /// Self-test: every stream URL mpv is handed goes through this (a
+  /// network that can be taken down for this build only).
+  static String Function(String url)? debugWrapAll;
+
+  static String _wrapAll(String url) =>
+      debugWrapAll != null && url.startsWith('http') ? debugWrapAll!(url) : url;
+
   /// The EDL mpv plays a separate video and audio stream from.
-  String _edl(String video, String audio) =>
-      'edl://'
+  String _edl(String video, String audio) {
+    video = _wrapAll(video);
+    audio = _wrapAll(audio);
+    return 'edl://'
       '!no_chapters;'
       // '!delay_open,media_type=video;'
       '%${isFileSource ? utf8.encode(video).length : video.length}%$video;'
       '!new_stream;!no_chapters;'
       // '!delay_open,media_type=audio;'
       '%${isFileSource ? utf8.encode(audio).length : audio.length}%$audio';
+  }
 
   /// The buffer for the source being opened: sized for its bitrate (see
   /// [Pref.bufferBytes]), which the page sets before it opens it.
@@ -1007,6 +1020,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       audioFilterExtras(volume, map: extras);
     }
+    video = _wrapAll(video);
 
     assert(!isLive || seekTo == null);
     // a seek made while this was being set up is where the viewer wants to
@@ -1017,6 +1031,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _pendingSeek = null;
     }
     _openedAt = seekTo;
+    // where it opens, after a pending seek had its say
+    _lastGood = seekTo;
+    // media_kit's open() emits position 0 before anything loads: not where
+    // the viewer is (the page took it as the place to resume from, and a
+    // local file left during the load saved 0 as its progress)
+    _reopening = true;
     try {
       await player.open(
         Media(
@@ -1027,6 +1047,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         play: false,
       );
     } catch (_) {
+      _reopening = false;
       // mpv never took the descriptor: close it here
       if (fd != null) await LocalDocuments.closeFd(fd);
       rethrow;
@@ -1044,9 +1065,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       EventLog.add('player', 'reopen at $resumePosition');
       if (!isLive) media = media.copyWith(start: resumePosition);
       _resumeAt = null;
-      return ctr.open(media, play: true).then((_) {
-        _watchLoad(ctr);
-      });
+      _reopening = true;
+      return ctr
+          .open(media, play: true)
+          .then((_) => _watchLoad(ctr))
+          .catchError((Object _) => _reopening = false);
     }
     return null;
   }
@@ -1318,7 +1341,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // playhead jumped back to the start and then on to where it was
         // going, on every reopen (a CDN switch, a retry, a resume) — and the
         // page kept 0 as the place to resume from, and the history heard it
-        if (_loadWatch != null) return;
+        if (_loadWatch != null || _reopening) return;
+        if (position > Duration.zero &&
+            playerStatus.isPlaying &&
+            !isBuffering.value) {
+          _lastGood = position;
+        }
         final posInSeconds = position.inSeconds;
 
         if (posInSeconds != this.position.value) {
@@ -1505,9 +1533,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// Recovery goes on without a word; the viewer hears only when there is
   /// nothing left to try.
-  void _recoverTransport() {
+  Future<void> _recoverTransport() async {
     // a replacement under way is the recovery
     if (_replacing) return;
+    // waiting for the network: nothing else to try until it is back
+    if (_networkWait != null) return;
+    // Every host failing at once is the network, not the hosts: the router
+    // lost the internet, the player tried the same host and then the other
+    // one within ten seconds, and then nothing — it sat at 0:00 for good
+    // once the network was back (2026-10-03).
+    final source = dataSource;
+    if (!await _reachable(source)) {
+      if (identical(dataSource, source)) _waitForNetwork();
+      return;
+    }
+    if (!identical(dataSource, source) || _replacing) return;
     // a host that drops the connection on a seek into the file does it again
     // on a reopen there: the user's copy and the tour both lost 10-20 s to
     // the retry before another host played at once (`Seek failed (to N, size
@@ -1541,6 +1581,95 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
+  /// Self-test: stands in for [_reachable] (a network that is down on
+  /// purpose for this build only).
+  static Future<bool> Function()? debugReachable;
+
+  Timer? _networkWait;
+  DateTime? _networkLostAt;
+
+  /// Whether the hosts of [source] can be reached at all: the stream's own
+  /// host or one of its platform's (never the other platform's: YouTube is
+  /// asked nothing of bilibili and the other way round). A TCP connect, 3 s
+  /// at most each.
+  static Future<bool> _reachable(DataSource source) async {
+    if (debugReachable case final reachable?) return reachable();
+    final hosts = <String>{};
+    if (source is NetworkSource) {
+      for (final url in [source.videoSource, ?source.audioSource]) {
+        final host = Uri.tryParse(url)?.host;
+        if (host != null && host.isNotEmpty && host != '127.0.0.1') {
+          hosts.add(host);
+        }
+      }
+    }
+    final youtube = hosts.any((h) => h.endsWith('googlevideo.com'));
+    hosts.add(youtube ? 'www.youtube.com' : 'api.bilibili.com');
+    final tries = [
+      for (final host in hosts)
+        Socket.connect(host, 443, timeout: const Duration(seconds: 3))
+            .then((socket) {
+              socket.destroy();
+              return true;
+            })
+            .catchError((Object _) => false),
+    ];
+    for (final ok in await Future.wait(tries)) {
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  /// No host answers: playback waits for the network, looking every 3 s,
+  /// and opens again where it was once it is back — new URLs first if they
+  /// expired meanwhile. Nothing is switched or stepped down while it waits.
+  void _waitForNetwork() {
+    if (_networkWait != null) return;
+    final at = resumePosition;
+    _networkLostAt = DateTime.now();
+    _recoveryCheck?.cancel();
+    _recoveryCheck = null;
+    EventLog.add('player', 'network unreachable: waiting, at ${at.inSeconds} s');
+    SmartDialog.showToast('网络已断开，恢复后自动继续');
+    final source = dataSource;
+    var looking = false;
+    _networkWait = Timer.periodic(const Duration(seconds: 3), (_) async {
+      if (looking) return;
+      looking = true;
+      try {
+        if (!identical(dataSource, source)) {
+          _stopWaitingForNetwork();
+          return;
+        }
+        if (!await _reachable(source)) return;
+        final lost = _networkLostAt;
+        _stopWaitingForNetwork();
+        EventLog.add(
+          'player',
+          'network back after '
+              '${lost == null ? '?' : DateTime.now().difference(lost).inSeconds} s: '
+              'opening again at ${at.inSeconds} s',
+        );
+        _transportFailures = 0;
+        _resumeAt = at;
+        if (_renewIfExpired(at)) return;
+        if (onReopen case final reopen?) {
+          reopen();
+        } else {
+          refreshPlayer();
+        }
+      } finally {
+        looking = false;
+      }
+    });
+  }
+
+  void _stopWaitingForNetwork() {
+    _networkWait?.cancel();
+    _networkWait = null;
+    _networkLostAt = null;
+  }
+
   /// 12 s after a recovery step: playback still not getting anywhere is
   /// the next step (another host, new URLs, or 视频无法播放 when nothing is
   /// left). A second failure inside the error throttle used to be dropped:
@@ -1553,6 +1682,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _recoveryCheck = Timer(const Duration(seconds: 12), () {
       _recoveryCheck = null;
       if (!identical(dataSource, source) || _replacing || _renewing) return;
+      if (_networkWait != null) return;
       if (!playerStatus.isPlaying) return;
       final moved = position.value != before && !isBuffering.value;
       if (moved) {
@@ -1738,6 +1868,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (url == null) continue;
         final wrap = debugWrapReplacedVideo;
         if (kind == 'video' && wrap != null) url = wrap(url);
+        url = _wrapAll(url);
         EventLog.add(
           'player',
           'stream $why: $kind -> ${Uri.tryParse(url)?.host} '
@@ -2072,6 +2203,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// minute left a 1080P stream six seconds of buffer to recover in.
   void _watchHealth(NativePlayer player) {
     if (onStreamSlow == null ||
+        _networkWait != null ||
         _replacing ||
         isLive ||
         dataSource is FileSource ||
@@ -2199,7 +2331,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     EasyThrottle.throttle(
       'PlPlayerController._switchCdn',
       const Duration(seconds: 3),
-      () {
+      () async {
+        // the network gone is not this host gone: switching then only uses
+        // up the hosts the network will need once it is back (2026-10-03)
+        final source = dataSource;
+        if (_networkWait != null) return;
+        if (!await _reachable(source)) {
+          if (identical(dataSource, source)) _waitForNetwork();
+          return;
+        }
+        if (!identical(dataSource, source)) return;
         // the new source takes a moment to fill the cache
         _dryTicks = -3;
         if (onCdnFailover?.call() ?? false) {
@@ -2476,7 +2617,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       event.startsWith('tcp: ffurl_read returned ') ||
       event.startsWith('tls: ') ||
       event.startsWith('https: ') ||
-      event.startsWith('stream: ');
+      event.startsWith('stream: ') ||
+      // the self-test's network through a local plain-http proxy
+      (debugWrapAll != null &&
+          (event.startsWith('Failed to open http://') ||
+              event.startsWith('Can not open external file http://') ||
+              event.startsWith('http: ')));
 
   @visibleForTesting
   static bool debugIsTransportFailure(String event) =>
@@ -2528,6 +2674,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _heartDuration = position.inSeconds;
     _seekTarget = position;
     _seekTargetAt = DateTime.now();
+    _lastGood = position;
     // the seek would be a new request on an expired URL
     if (_renewIfExpired(position)) return;
 
@@ -2561,10 +2708,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Duration get resumePosition {
     if (_resumeAt case final at?) return at;
     final mpv = _videoPlayerController?.state.position ?? Duration.zero;
-    return _loadWatch == null && mpv > Duration.zero
-        ? mpv
-        : _pendingSeek ?? Duration(seconds: position.value);
+    if (_loadWatch == null && !_reopening && mpv > Duration.zero) return mpv;
+    // opening, or failed: mpv's 0 is not where the viewer was. A failover
+    // read it after a reopen had failed and opened the video at 0 s
+    // (2026-10-03, the router lost the internet for a while)
+    return _pendingSeek ?? _lastGood ?? Duration(seconds: position.value);
   }
+
+  /// Where playback last really was: playing, not buffering, the file in —
+  /// or where the viewer last sought to, or where the source was opened.
+  /// What every reopen falls back on (see [resumePosition]).
+  Duration? _lastGood;
+
+  /// A reopen of the same file under way ([refreshPlayer]): mpv's position
+  /// reads 0 until the file is in, and is not to be taken.
+  var _reopening = false;
 
   /// A seek made before mpv had the file (see [seekTo]): the next open
   /// starts there, or it is made once the file is in.
@@ -2617,6 +2775,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       timer.cancel();
       _loadWatch = null;
+      _reopening = false;
       final pending = _pendingSeek;
       _pendingSeek = null;
       if (pending != null && ready) seekTo(pending, isSeek: false);
@@ -3360,6 +3519,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _playerCount = 0;
     _recoveryCheck?.cancel();
     _recoveryCheck = null;
+    _stopWaitingForNetwork();
     if (removeSafeArea) {
       showSystemBar();
     }
