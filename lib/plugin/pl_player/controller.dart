@@ -1,6 +1,6 @@
-import 'dart:async' show StreamSubscription, Timer;
+import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:convert' show ascii, jsonDecode, utf8;
-import 'dart:io' show Platform, Socket;
+import 'dart:io' show HttpClient, HttpHeaders, Platform, Socket;
 import 'dart:math' show max, min;
 import 'dart:ui' as ui;
 
@@ -1283,6 +1283,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _subscriptions = [
       /// playing
       stream.playing.listen((bool playing) {
+        _pausedAt = playing ? null : (_pausedAt ?? DateTime.now());
         if (playing) {
           _stopWakeLockTimer();
           WakelockPlus.enable();
@@ -2951,6 +2952,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // a pause long enough for the URLs to expire: the page reopens on new
     // ones, playing (the same once a seek has asked for them)
     if (_renewIfExpired(resumePosition)) return;
+    final paused = _pausedAt;
+    _pausedAt = null;
+    if (!isLive &&
+        paused != null &&
+        DateTime.now().difference(paused) >= longPause) {
+      unawaited(_checkStillServed(DateTime.now().difference(paused)));
+    }
 
     await _videoPlayerController?.play();
 
@@ -2960,8 +2968,77 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // screenManager.setOverlays(false);
   }
 
+  /// When playback was paused, by whatever means; null while playing.
+  DateTime? _pausedAt;
+
+  /// A pause this long has the play URLs checked as playback resumes (see
+  /// [_checkStillServed]). Settable for the self-test.
+  static Duration longPause = const Duration(minutes: 5);
+
+  /// Self-test: the URL [_checkStillServed] asks, in place of the real one
+  /// (a host that refuses it, without waiting hours for one to).
+  static String Function(String url)? debugCheckUrl;
+
+  /// After a long pause the URLs can be dead before their expiry (bilibili
+  /// binds them to the address they were given to, `oi=`, which a router
+  /// redialling changes), and mpv only finds out once the buffer has played
+  /// out and it has to read again. One byte of each, asked as playback
+  /// resumes: refused, new URLs at once, while the buffer still plays.
+  Future<void> _checkStillServed(Duration pausedFor) async {
+    final source = dataSource;
+    if (source is! NetworkSource) return;
+    final urls = [
+      for (final url in [source.videoSource, ?source.audioSource])
+        if (url.startsWith('http')) url,
+    ];
+    for (final url in urls) {
+      final status = await _statusOf(debugCheckUrl?.call(url) ?? url);
+      if (!identical(dataSource, source)) return;
+      if (status == 403 || status == 404 || status == 410) {
+        EventLog.add(
+          'player',
+          'after a ${pausedFor.inMinutes} min pause the play URLs answer '
+              '$status: asking for new ones',
+        );
+        _forbiddenAt = DateTime.now();
+        _renewIfExpired(resumePosition, refused: true);
+        return;
+      }
+    }
+  }
+
+  /// The HTTP status [url] answers a one-byte request with; null when it
+  /// does not answer (the network: see [_reachable]).
+  static Future<int?> _statusOf(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 5)
+      ..userAgent = BrowserUa.pc;
+    try {
+      final request = await client.getUrl(uri).timeout(
+        const Duration(seconds: 5),
+      );
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+      // bilibili's referer to bilibili's hosts only
+      if (!uri.host.endsWith('googlevideo.com')) {
+        request.headers.set(HttpHeaders.refererHeader, HttpString.baseUrl);
+      }
+      final response = await request.close().timeout(
+        const Duration(seconds: 5),
+      );
+      await response.drain<void>().catchError((_) {});
+      return response.statusCode;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// 暂停播放
   Future<void> pause({bool notify = true, bool isInterrupt = false}) async {
+    _pausedAt ??= DateTime.now();
     await _videoPlayerController?.pause();
     playerStatus.value = PlayerStatus.paused;
 
@@ -3326,12 +3403,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       durationInMilliseconds - positionInMilliseconds <= 50;
 
   // 双击播放、暂停
+  ///
+  /// Through [play] and [pause], not mpv's own toggle: that skipped the
+  /// expiry check, and after a long pause the buffer played out before mpv
+  /// reconnected and found the URLs dead (the user's copy, 2026-10-09).
+  /// The play/pause button, space, a click and a double tap all come here.
   Future<void> onDoubleTapCenter() async {
     if (!isLive && isCompleted) {
-      await videoPlayerController!.seek(Duration.zero);
-      videoPlayerController!.play();
+      await seekTo(Duration.zero, isSeek: false);
+      await play();
+    } else if (playerStatus.isPlaying) {
+      await pause();
     } else {
-      videoPlayerController!.playOrPause();
+      await play();
     }
   }
 

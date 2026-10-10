@@ -1240,6 +1240,8 @@ abstract final class SelfTest {
         () => _renewPause(
           target,
           int.tryParse(_arg(args, '--expire-after') ?? '') ?? 75,
+          toggle: args.contains('--resume-toggle'),
+          refused: args.contains('--check-refused'),
         ),
       );
     }
@@ -1533,11 +1535,24 @@ abstract final class SelfTest {
   /// Plays [target] (a bilibili link, or `yt:ID`) a few seconds, pauses
   /// past the URLs' expiry, plays again. Pass: new URLs were asked for, and
   /// playback went on from where it was paused.
+  /// [toggle]: paused and resumed the way the play/pause button and space
+  /// do. [refused]: the URLs do not expire; instead, after a pause counted
+  /// as long (10 s here), the one-byte check is answered 403 — a URL dead
+  /// before its expiry, as a changed address leaves it.
   static Future<Map<String, dynamic>> _renewPause(
     String target,
-    int expireAfter,
-  ) async {
-    PlPlayerController.debugExpiresIn = Duration(seconds: expireAfter);
+    int expireAfter, {
+    bool toggle = false,
+    bool refused = false,
+  }) async {
+    if (refused) {
+      PlPlayerController.longPause = const Duration(seconds: 10);
+      PlPlayerController.debugCheckUrl = (url) =>
+          url.replaceAllMapped(RegExp(r'upsig=[0-9a-f]+'), (_) => 'upsig=0');
+      expireAfter = 25;
+    } else {
+      PlPlayerController.debugExpiresIn = Duration(seconds: expireAfter);
+    }
     final start = DateTime.now();
     try {
       final PlPlayerController player;
@@ -1566,7 +1581,11 @@ abstract final class SelfTest {
       for (var i = 0; i < 30 && player.position.value < 5; i++) {
         await Future.delayed(const Duration(seconds: 1));
       }
-      await player.pause();
+      if (toggle) {
+        await player.onDoubleTapCenter();
+      } else {
+        await player.pause();
+      }
       await Future.delayed(const Duration(seconds: 1));
       final pausedAt = player.position.value;
       // past the expiry, counted from the open
@@ -1575,7 +1594,11 @@ abstract final class SelfTest {
           DateTime.now().difference(opened);
       if (left > Duration.zero) await Future.delayed(left);
       final resumed = DateTime.now();
-      await player.play();
+      if (toggle) {
+        await player.onDoubleTapCenter();
+      } else {
+        await player.play();
+      }
       final timeline = <int>[];
       for (var i = 0; i < 20; i++) {
         await Future.delayed(const Duration(seconds: 1));
@@ -1587,7 +1610,11 @@ abstract final class SelfTest {
       // the line comes in the same millisecond as the play: a little before
       final renewed = EventLog.entries(
         since: resumed.subtract(const Duration(seconds: 1)),
-      ).any((e) => e.$2.contains('play URLs expired'));
+      ).any(
+        (e) =>
+            e.$2.contains('play URLs expired') ||
+            e.$2.contains('pause the play URLs answer'),
+      );
       // the first second after the reopen may still read where it opened
       final resumedFrom = timeline.firstWhere(
         (p) => p > 0,
@@ -1606,6 +1633,8 @@ abstract final class SelfTest {
       };
     } finally {
       PlPlayerController.debugExpiresIn = null;
+      PlPlayerController.debugCheckUrl = null;
+      PlPlayerController.longPause = const Duration(minutes: 5);
     }
   }
 
