@@ -2294,11 +2294,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // 2026-10-09). Above the bitrate the buffer grows, however slowly.
     final delivered = observedBytesPerSecond;
     final rate = streamBitrate;
+    //
+    // Only with the buffer actually going down: held at its byte limit, it
+    // is topped up a trickle at a time, and what comes in reads about what
+    // is played — 1.6 Mbps of a healthy 1.7 Mbps stream, which stepped it
+    // down for nothing (2026-10-09).
     if (delivered != null &&
         rate != null &&
         rate > 0 &&
         delivered * 8 < rate &&
-        _health.last.cacheSeconds < target * 0.9) {
+        _health.last.cacheSeconds < target * 0.9 &&
+        bufferDraining(_health)) {
       EventLog.add(
         'player',
         'delivered ${(delivered * 8 / 1e6).toStringAsFixed(1)} Mbps for a '
@@ -2322,6 +2328,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // one look at the hosts per half minute at most
     _healthRest = 30;
     _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
+  }
+
+  /// Whether the buffer ahead has been going down over the last 6 seconds
+  /// of [samples]: down by more than a second in all, and in most of them.
+  @visibleForTesting
+  static bool bufferDraining(List<PlaybackHealth> samples) {
+    if (samples.length < 6) return false;
+    final recent = samples.sublist(samples.length - 6);
+    if (recent.first.cacheSeconds - recent.last.cacheSeconds < 1) return false;
+    var drops = 0;
+    for (var i = 1; i < recent.length; i++) {
+      if (recent[i].cacheSeconds < recent[i - 1].cacheSeconds) drops++;
+    }
+    return drops >= 3;
   }
 
   /// One second of playback with room to spare: not stalled, and at least
@@ -2434,6 +2454,25 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// nothing ever looked again. The playhead running ahead of the end of the
   /// cache, not buffering, is that state and no other: in normal playback
   /// the cache ends ahead of it, and a seek or a slow link buffers instead.
+  /// Runs [step] of the once-a-second watch, logging what it throws (once
+  /// per kind and message) instead of letting it end the tick.
+  void _guarded(String name, void Function() step) {
+    try {
+      step();
+    } catch (e, st) {
+      final line = '$name: $e';
+      if (_watchErrors.add(line)) {
+        EventLog.add(
+          'player',
+          'watch step failed, $line @ '
+              '${st.toString().split('\n').take(3).join(' | ')}',
+        );
+      }
+    }
+  }
+
+  final _watchErrors = <String>{};
+
   void _watchForDryTrack(NativePlayer player) {
     _dryWatch?.cancel();
     // a source opened mid-video reads its cache behind the playhead for a
@@ -2442,10 +2481,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _dryTicks = -3;
     _quietSmoothness(const Duration(seconds: 3));
     _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
-      _sampleSmoothness();
-      _watchHealth(player);
-      _watchReplacedVideo(player);
-      _rehome();
+      // each on its own: one that throws must not take the others with it
+      // for that tick
+      _guarded('smoothness', _sampleSmoothness);
+      _guarded('health', () => _watchHealth(player));
+      _guarded('replaced video', () => _watchReplacedVideo(player));
+      _guarded('rehome', _rehome);
       if (isLive ||
           dataSource is FileSource ||
           !playerStatus.isPlaying ||

@@ -30,6 +30,9 @@ abstract final class CdnProbe {
     int offset = 0,
     int length = 384 << 10,
     Duration timeout = const Duration(seconds: 3),
+    // bilibili's referer: not for another site's hosts (YouTube's must not
+    // learn which bilibili client is asking)
+    bool bilibili = true,
   }) async {
     final client = HttpClient()
       ..connectionTimeout = timeout
@@ -42,7 +45,7 @@ abstract final class CdnProbe {
     try {
       final request = await client.getUrl(Uri.parse(url));
       request.headers
-        ..set(HttpHeaders.refererHeader, HttpString.baseUrl)
+        ..set(HttpHeaders.refererHeader, bilibili ? HttpString.baseUrl : '')
         ..set(HttpHeaders.rangeHeader, 'bytes=$offset-${offset + length - 1}');
       final response = await request.close().timeout(timeout);
       if (response.statusCode != HttpStatus.partialContent &&

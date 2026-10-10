@@ -1477,6 +1477,10 @@ class YtVideoController extends GetxController
   /// When a slow spell was last let be (see [_stepHeight]).
   DateTime? _slowKeptAt;
 
+  /// When the height last went up by itself, and until when it may not again.
+  DateTime? _steppedUpAt;
+  DateTime? _noStepUpUntil;
+
   Future<({String? video, String? audio})?> _streamSlow() =>
       _stepHeight(down: true);
 
@@ -1492,6 +1496,11 @@ class YtVideoController extends GetxController
     required bool down,
   }) async {
     if (_heightChosen || isClosed) return null;
+    if (!down) {
+      if (_noStepUpUntil case final until? when DateTime.now().isBefore(until)) {
+        return null;
+      }
+    }
     // what came in while playing keeps up with the stream: the buffer ran
     // low for another reason (a seek, a burst) — kept once, as the bilibili
     // page does; slow again within 2 min, a step down
@@ -1542,18 +1551,34 @@ class YtVideoController extends GetxController
     final pair = result.value;
     if (isClosed || !result.ok || pair == null) return null;
     final bitrate = _bitrateOf(pair);
-    if (!down &&
-        !CdnProbe.keepsUp(
-          plPlayerController.observedBytesPerSecond,
-          bitrate,
-          margin: 1.5,
-        )) {
-      return null;
+    if (!down) {
+      // the host's burst on a fresh request, the line's capacity: what came
+      // in while playing never shows room for more (see the bilibili page's
+      // raiseQuality). No bilibili referer goes to googlevideo
+      final capacity = await CdnProbe.speed(
+        pair.videoUrl,
+        length: 1 << 20,
+        timeout: const Duration(seconds: 4),
+        bilibili: false,
+      );
+      if (isClosed || !CdnProbe.keepsUp(capacity, bitrate, margin: 1.5)) {
+        return null;
+      }
     }
     _streams = pair;
     maxHeight.value = next;
     plPlayerController.streamBitrate = bitrate;
     EventLog.add('player', 'quality ${down ? 'down' : 'up'} to ${next}p');
+    final stamp = DateTime.now();
+    if (!down) {
+      _steppedUpAt = stamp;
+    } else if (_steppedUpAt case final up?
+        when stamp.difference(up) < const Duration(minutes: 10)) {
+      // the step up stalled: not again for a while
+      _noStepUpUntil = stamp.add(const Duration(minutes: 10));
+      _steppedUpAt = null;
+      EventLog.add('player', 'the step up stalled: no step up for 10 min');
+    }
     return (video: _videoUrlOf(pair), audio: null);
   }
 

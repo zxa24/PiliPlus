@@ -1278,25 +1278,75 @@ class VideoDetailController extends GetxController
   /// room to spare (see [PlPlayerController.observedBytesPerSecond]) and it
   /// is not above the quality the video opened at. Not on a probe: 1 MB
   /// said a host was fast enough for 1080P, and it was not.
+  ///
+  /// Judged by what the host bursts on a fresh request — the line's
+  /// capacity: what came in while playing cannot say (the buffer sits at its
+  /// byte limit and is topped up a trickle at a time, and when measured it
+  /// read about 1.4x the current stream, never 1.5x the next; no quality
+  /// ever went back up, 2026-10-09). The player has asked only after 120 s
+  /// with no stall and room to spare; a step up that stalls within
+  /// [_stepUpTrial] is not tried again for [_stepUpBackoff] (user
+  /// 2026-10-09, A).
   Future<({String? video, String? audio})?> raiseQuality() async {
     _noteDelivered();
     final video = videoUrl;
     if (isFileSource || video == null || _qualityChosen) return null;
-    final delivered = plPlayerController.observedBytesPerSecond;
     final host = _hostOf(video);
-    if (delivered == null || host == null) {
-      EventLog.add('player', 'no step up: too little measured');
+    if (host == null) return null;
+    final now = DateTime.now();
+    if (_noStepUpUntil case final until? when now.isBefore(until)) {
+      EventLog.add(
+        'player',
+        'no step up: the last one stalled, not before '
+            '${until.toIso8601String().substring(11, 19)}',
+      );
       return null;
     }
-    final step = _stepQuality(down: false, speeds: {host: delivered});
+    final speeds = await _measure(
+      [video],
+      length: 1 << 20,
+      timeout: const Duration(seconds: 4),
+    );
+    if (videoUrl != video) return null;
+    final capacity = speeds[host];
+    if (capacity == null) {
+      EventLog.add('player', 'no step up: $host did not answer');
+      return null;
+    }
+    final step = _stepQuality(down: false, speeds: {host: capacity});
     if (step == null) {
       EventLog.add(
         'player',
-        'no step up: ${(delivered * 8 / 1e6).toStringAsFixed(1)} Mbps '
-            'delivered is not 1.5x the next quality, or it is the top one',
+        'no step up: $host bursts ${(capacity * 8 / 1e6).toStringAsFixed(1)} '
+            'Mbps, not 1.5x the next quality, or it is the top one',
+      );
+      return null;
+    }
+    _steppedUpAt = now;
+    return step;
+  }
+
+  /// When the quality last went up by itself, and until when it may not
+  /// again (see [raiseQuality]).
+  DateTime? _steppedUpAt;
+  DateTime? _noStepUpUntil;
+  static const _stepUpTrial = Duration(minutes: 10);
+  static const _stepUpBackoff = Duration(minutes: 10);
+
+  /// A step down: one soon after a step up says that step was too much.
+  void _noteStepDown() {
+    final up = _steppedUpAt;
+    if (up == null) return;
+    final now = DateTime.now();
+    if (now.difference(up) < _stepUpTrial) {
+      _noStepUpUntil = now.add(_stepUpBackoff);
+      EventLog.add(
+        'player',
+        'the step up ${now.difference(up).inSeconds} s ago stalled: '
+            'no step up for ${_stepUpBackoff.inMinutes} min',
       );
     }
-    return step;
+    _steppedUpAt = null;
   }
 
   /// For the self-test (`--no-host-switch`): as if no other host were
@@ -1347,6 +1397,7 @@ class VideoDetailController extends GetxController
     videoUrl = url;
     final quality = VideoQuality.fromCode(codes[next]);
     currentVideoQa.value = quality;
+    if (down) _noteStepDown();
     plPlayerController.streamBitrate = _streamBitrate;
     // not announced: the network is what it is, and this is the app
     // working around it
@@ -3557,6 +3608,7 @@ class VideoDetailController extends GetxController
     audioUrl = null;
     _triedHosts.clear();
     _slowKeptAt = null;
+    _steppedUpAt = _noStepUpUntil = null;
     _hostSpeeds.clear();
     _qualityChosen = false;
     _qualityCeiling = null;
