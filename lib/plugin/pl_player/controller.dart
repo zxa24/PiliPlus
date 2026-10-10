@@ -729,6 +729,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _resumeAt = null;
       _reopening = false;
       _seekFailedAt = _forbiddenAt = null;
+      _recheckOnPlay = false;
       // a new source: whatever was waiting for the network was for the old
       _stopWaitingForNetwork();
       // the source this was checking on is gone; the new one starts afresh
@@ -1489,6 +1490,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
                 // one is caught once the playhead passes the end of what
                 // arrived (see [_watchForDryTrack]).
                 if (position.value != positionBefore && !isBuffering.value) {
+                  return;
+                }
+                // Played to the end, or paused: standing still is not a
+                // stall. A connection the host closed after a 47 s video had
+                // ended was taken for one, and reopened it at 44 s
+                // (2026-10-09). Paused, it is looked at once playing again.
+                if (playerStatus.isCompleted ||
+                    (duration.value > 0 &&
+                        duration.value - position.value <= 2)) {
+                  return;
+                }
+                if (!playerStatus.isPlaying) {
+                  _recheckOnPlay = true;
                   return;
                 }
                 _recoverTransport();
@@ -2769,6 +2783,24 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _lastGood = position;
     // the seek would be a new request on an expired URL
     if (_renewIfExpired(position)) return;
+    // The video on a side track (a replacement): the main cache does not
+    // hold it, so a seek into what was buffered still waited 2.8 s
+    // (2026-10-09). A seek is a break anyway: the streams played now are
+    // opened again at its target, the video in the main stream.
+    if (_replacedVid != null &&
+        onReopen != null &&
+        !onlyPlayAudio.value &&
+        !debugDisableRecovery) {
+      EventLog.add(
+        'player',
+        'seek with the video on a side track: '
+            'opening again at ${position.inSeconds} s',
+      );
+      _replacedVid = null;
+      _resumeAt = position;
+      onReopen!();
+      return;
+    }
 
     Future<void> seek() async {
       if (isSeek) {
@@ -2954,6 +2986,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (_renewIfExpired(resumePosition)) return;
     final paused = _pausedAt;
     _pausedAt = null;
+    if (_recheckOnPlay) {
+      _recheckOnPlay = false;
+      _checkRecovery();
+    }
     if (!isLive &&
         paused != null &&
         DateTime.now().difference(paused) >= longPause) {
@@ -2970,6 +3006,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// When playback was paused, by whatever means; null while playing.
   DateTime? _pausedAt;
+
+  /// A transport failure came while paused: looked at once playing again
+  /// (see [_checkRecovery]).
+  var _recheckOnPlay = false;
 
   /// A pause this long has the play URLs checked as playback resumes (see
   /// [_checkStillServed]). Settable for the self-test.
