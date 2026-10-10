@@ -120,6 +120,7 @@ const ctlSettingKeys = [
   SettingBoxKey.audioOutput,
   SettingBoxKey.bufferSize,
   SettingBoxKey.bufferSec,
+  SettingBoxKey.backBufferSec,
   SettingBoxKey.av1Hardware,
   SettingBoxKey.av1Software,
   SettingBoxKey.hardwareDecoders,

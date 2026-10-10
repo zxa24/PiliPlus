@@ -1474,6 +1474,9 @@ class YtVideoController extends GetxController
   /// The height the video opened at: stepping back up stops there.
   int? _heightCeiling;
 
+  /// When a slow spell was last let be (see [_stepHeight]).
+  DateTime? _slowKeptAt;
+
   Future<({String? video, String? audio})?> _streamSlow() =>
       _stepHeight(down: true);
 
@@ -1489,6 +1492,28 @@ class YtVideoController extends GetxController
     required bool down,
   }) async {
     if (_heightChosen || isClosed) return null;
+    // what came in while playing keeps up with the stream: the buffer ran
+    // low for another reason (a seek, a burst) — kept once, as the bilibili
+    // page does; slow again within 2 min, a step down
+    if (down) {
+      final delivered = plPlayerController.observedBytesPerSecond;
+      final rate = _streams == null ? null : _bitrateOf(_streams!);
+      final at = DateTime.now();
+      if (delivered != null &&
+          rate != null &&
+          delivered * 8 >= rate &&
+          (_slowKeptAt == null ||
+              at.difference(_slowKeptAt!) > const Duration(minutes: 2))) {
+        _slowKeptAt = at;
+        EventLog.add(
+          'player',
+          'stream slow, but delivered '
+              '${(delivered * 8 / 1e6).toStringAsFixed(1)} Mbps for '
+              '${(rate / 1e6).toStringAsFixed(1)} Mbps: quality kept',
+        );
+        return null;
+      }
+    }
     final now = _streams?.video == null ? null : ytShortSide(_streams!.video!);
     if (now == null) return null;
     final heights = availableHeights;

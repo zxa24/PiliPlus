@@ -1056,6 +1056,36 @@ abstract final class Pref {
     return wanted < cap ? wanted : cap;
   }
 
+  /// LibrePili: how far back mpv keeps what it played, in seconds (user
+  /// 2026-10-09: two minutes on every platform). It used to keep as much as
+  /// it buffered ahead, about 37 s of 1080P: ten presses of ← from 425 s
+  /// waited 3.4, 2.3 and 3.4 s for streams it had just played.
+  static double get backBufferSec =>
+      _setting.get(SettingBoxKey.backBufferSec, defaultValue: 120.0);
+
+  /// Bytes for [backBufferSec] of a stream of [bitsPerSecond], a quarter to
+  /// spare, within a cap (a 4K stream would ask hundreds of MB); without the
+  /// bitrate, the 缓冲大小 setting.
+  static double backBufferBytes({int? bitsPerSecond}) => sizeBackBuffer(
+    setBytes: Pref.bufferSize * 0x100000,
+    seconds: backBufferSec,
+    bitsPerSecond: bitsPerSecond,
+    mobile: PlatformUtils.isMobile,
+  );
+
+  static double sizeBackBuffer({
+    required double setBytes,
+    required double seconds,
+    required int? bitsPerSecond,
+    required bool mobile,
+  }) {
+    if (seconds <= 0) return 0;
+    if (bitsPerSecond == null || bitsPerSecond <= 0) return setBytes;
+    final wanted = bitsPerSecond / 8 * seconds * 1.25;
+    final cap = (mobile ? 96 : 256) * 0x100000.toDouble();
+    return wanted < cap ? wanted : cap;
+  }
+
   static Map<String, String> initBuffer([
     double playbackSpeed = 1.0,
     int? bitsPerSecond,
@@ -1074,7 +1104,9 @@ abstract final class Pref {
       'cache-pause-wait': '2',
       'demuxer-hysteresis-secs': (bufSec / 1.5).toStringAsFixed(3),
       'demuxer-max-bytes': bufSiz,
-      'demuxer-max-back-bytes': bufSiz,
+      'demuxer-max-back-bytes': backBufferBytes(
+        bitsPerSecond: bitsPerSecond,
+      ).toStringAsFixed(0),
     };
   }
 

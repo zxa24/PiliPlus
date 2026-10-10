@@ -177,7 +177,12 @@ final class _CuttingProxy {
     this.bytesPerSecond,
     this.oneHost = true,
     this.throttleFor,
+    this.throttleAfter,
   });
+
+  /// [bytesPerSecond] only from this long after the start on: a network that
+  /// slows down once the buffer has filled.
+  final Duration? throttleAfter;
 
   /// How long [bytesPerSecond] holds from the start; after that the host is
   /// as fast as it is. Null: for good.
@@ -267,11 +272,15 @@ final class _CuttingProxy {
       var left = cutAt - from;
       final clock = Stopwatch()..start();
       var sent = 0;
+      Stopwatch? paced;
       await for (final chunk in answer) {
         if (bytesPerSecond case final rate?
-            when throttleFor == null || _since.elapsed < throttleFor!) {
+            when (throttleFor == null || _since.elapsed < throttleFor!) &&
+                (throttleAfter == null || _since.elapsed >= throttleAfter!)) {
+          // paced from when the throttle began on this connection
+          final pace = paced ??= Stopwatch()..start();
           final due = Duration(microseconds: sent * 1000000 ~/ rate);
-          if (due > clock.elapsed) await Future.delayed(due - clock.elapsed);
+          if (due > pace.elapsed) await Future.delayed(due - pace.elapsed);
           sent += chunk.length;
         }
         if (chunk.length >= left) {
@@ -947,6 +956,12 @@ abstract final class SelfTest {
           throttleFor: throttleFor == null
               ? null
               : Duration(seconds: throttleFor),
+          throttleAfter: switch (int.tryParse(
+            _arg(args, '--throttle-after') ?? '',
+          )) {
+            final after? => Duration(seconds: after),
+            null => null,
+          },
         );
         await cut.start();
         VideoUtils.debugWrapVideoUrl = cut.wrap;
@@ -1176,11 +1191,18 @@ abstract final class SelfTest {
       _shots = _arg(args, '--shots') ?? _shots;
       // YouTube refusing the first URLs (403), as it once did
       YtVideoController.debugRefuseFirstOpen = args.contains('--yt-refuse-first');
+      // the quality, not the host, is what is to change
+      VideoDetailController.debugNoHostSwitch = args.contains('--no-host-switch');
       // a host slower than the stream plays (the video stream only)
       _CuttingProxy? slow;
       final kbps = int.tryParse(_arg(args, '--throttle-video-kbps') ?? '');
       if (kbps != null) {
-        slow = _CuttingProxy(1 << 50, bytesPerSecond: kbps * 1000 ~/ 8);
+        final after = int.tryParse(_arg(args, '--throttle-after') ?? '');
+        slow = _CuttingProxy(
+          1 << 50,
+          bytesPerSecond: kbps * 1000 ~/ 8,
+          throttleAfter: after == null ? null : Duration(seconds: after),
+        );
         await slow.start();
         VideoUtils.debugWrapVideoUrl = slow.wrap;
       }
@@ -1191,6 +1213,7 @@ abstract final class SelfTest {
         );
       } finally {
         VideoUtils.debugWrapVideoUrl = null;
+        VideoDetailController.debugNoHostSwitch = false;
         await slow?.close();
       }
     }
@@ -1813,6 +1836,7 @@ abstract final class SelfTest {
       }
       // what the viewer is looking at when nothing plays
       final failedShot = playingMs == null ? await _shot('open-failed') : null;
+      final openBitrate = player.streamBitrate;
       final timeline = <Map<String, Object?>>[];
       String? lastPage;
       void sample() {
@@ -1935,6 +1959,7 @@ abstract final class SelfTest {
         'seed': seed,
         'duration': duration,
         'msToPlaying': playingMs,
+        'streamBitrateAtOpen': openBitrate,
         'failedShot': failedShot,
         'openStates': openStates,
         'playPressedByProbe': nudged,

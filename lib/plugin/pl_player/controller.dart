@@ -1850,6 +1850,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (reopen) _switchCdn(fallback: true);
         return;
       }
+      // measured on the streams being replaced: nothing to judge the new
+      // ones by (the page read it while deciding, above)
+      _delivered.clear();
       if (!debugNoHandover && await _handOver(urls, source, why: why)) {
         _cutAt.clear();
         _replaced = false;
@@ -2166,6 +2169,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// The buffer ahead, sampled once a second (see [QualityAdvisor]).
   final _health = <PlaybackHealth>[];
 
+  /// Debug builds: ticks of [_watchHealth], for a line every 30 of them.
+  var _healthTicks = 0;
+
   /// Seconds before playback health is judged again after acting on it.
   var _healthRest = 0;
 
@@ -2248,14 +2254,59 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } catch (_) {
       return;
     }
+    if (kDebugMode && ++_healthTicks % 30 == 0) {
+      String read(String name) {
+        try {
+          return player.getProperty(name);
+        } catch (_) {
+          return '?';
+        }
+      }
+
+      EventLog.add(
+        'player',
+        'health: cache ${cache.toStringAsFixed(1)} / ${target.toStringAsFixed(1)} s, '
+            'speed ${read('cache-speed')}, replaced ${_replacedVid ?? '-'}, '
+            'roomy $_roomyFor, ${_delivered.length} measured',
+      );
+    }
     _roomyFor = roomy(_health.last, target) ? _roomyFor + 1 : 0;
     if (_roomyFor >= roomyFor && onStreamRoomy != null) {
+      EventLog.add(
+        'player',
+        'room to spare for $roomyFor s: a step up? '
+            '(delivered ${observedBytesPerSecond == null ? '-' : '${(observedBytesPerSecond! * 8 / 1e6).toStringAsFixed(1)} Mbps'}, '
+            '${_delivered.length} s measured)',
+      );
       _roomyFor = 0;
       _health.clear();
-      _delivered.clear();
+      // _delivered stays: the page judges the step up by it (cleared here
+      // first, it always read nothing, and no quality ever went back up);
+      // a replacement clears it
       // a step up that did not work out is not tried again at once
       _healthRest = 60;
       _replaceStreams(onStreamRoomy!, why: 'roomy', reopen: false);
+      return;
+    }
+    // The network delivering less than the stream needs, while the buffer
+    // fills: it runs out sooner or later, so a lower quality now, while
+    // there is buffer to switch on — not once it is nearly gone (user
+    // 2026-10-09). Above the bitrate the buffer grows, however slowly.
+    final delivered = observedBytesPerSecond;
+    final rate = streamBitrate;
+    if (delivered != null &&
+        rate != null &&
+        rate > 0 &&
+        delivered * 8 < rate &&
+        _health.last.cacheSeconds < target * 0.9) {
+      EventLog.add(
+        'player',
+        'delivered ${(delivered * 8 / 1e6).toStringAsFixed(1)} Mbps for a '
+            '${(rate / 1e6).toStringAsFixed(1)} Mbps stream: stepping down early',
+      );
+      _health.clear();
+      _healthRest = 30;
+      _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
       return;
     }
     final advice = QualityAdvisor.advise(
@@ -2268,7 +2319,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     );
     if (advice != QualityAdvice.stepDown) return;
     _health.clear();
-    _delivered.clear();
     // one look at the hosts per half minute at most
     _healthRest = 30;
     _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);

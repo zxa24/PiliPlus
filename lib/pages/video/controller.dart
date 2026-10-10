@@ -1083,10 +1083,18 @@ class VideoDetailController extends GetxController
     return video + (_currentAudio?.bandWidth ?? 0);
   }
 
-  /// Picks the fastest host for the streams about to be played, before the
-  /// player opens them. Only when the host is left to Bilibili's list (the
-  /// default 备用URL): a host chosen in the settings is the viewer's.
-  /// Bounded so a slow answer cannot hold the video up for long.
+  /// Picks the host for the streams about to be played, before the player
+  /// opens them, without waiting: the one this session's playback delivered
+  /// the most on, else Bilibili's own order. Only when the host is left to
+  /// Bilibili's list (the default 备用URL): a host chosen in the settings is
+  /// the viewer's.
+  ///
+  /// It used to measure the hosts first, 384 KB within 1.5 s: every open
+  /// waited the 1.5 s, and the answer was wrong six times out of six — akam
+  /// answered nothing or 0.4 Mbps in time, and 10-14 Mbps once playing,
+  /// while cosov, picked, stalled (the user's copy, 2026-10-09). The
+  /// measurement is made after the open now, unhurried, for the switches
+  /// during playback.
   Future<void> _pickFastestHost() async {
     if (isFileSource || VideoUtils.cdnService != CDNService.backupUrl) return;
     // the self-test's broken copy is to be played, not measured away
@@ -1097,17 +1105,76 @@ class VideoDetailController extends GetxController
       VideoUtils.cdnCandidates(firstVideo.playUrls),
     );
     if (candidates.length < 2) return;
+    final current = _hostOf(video);
+    final known = <String, double?>{
+      for (final url in candidates)
+        if (_hostOf(url) case final host?
+            when _deliveredByHost.containsKey(host))
+          host: _deliveredByHost[host],
+    };
+    final best = CdnProbe.pick(known, current: current, keepRatio: 1 / 1.3);
+    if (best != null && best != current) {
+      videoUrl = _onHost(candidates, best) ?? video;
+      if (_currentAudio case final audio?) {
+        audioUrl = _onHost(audio.playUrls, best) ?? audioUrl;
+      }
+      EventLog.add(
+        'player',
+        'open on $best: delivered '
+            '${((known[best] ?? 0) * 8 / 1e6).toStringAsFixed(1)} Mbps this session',
+      );
+    }
+    // Measured right away, beside the open: a probe reads a host's opening
+    // burst, so it can say a host is too slow but never that it is fast
+    // enough. Opened on Bilibili's first host with nothing known, akam read
+    // 1.1 Mbps and stalled 14 s before the stream health moved off it
+    // (2026-10-09): a host that cannot even burst at 1.5x the stream, with
+    // another twice as fast, is left at once, while the video is young.
     final part = cid.value;
-    final speeds = await _measure(
-      candidates.take(4).toList(),
-      timeout: const Duration(milliseconds: 1500),
-    );
-    if (isClosed || cid.value != part || videoUrl != video) return;
-    final best = CdnProbe.pick(speeds, current: _hostOf(video));
-    if (best == null || best == _hostOf(video)) return;
-    videoUrl = _onHost(candidates, best) ?? video;
-    if (_currentAudio case final audio?) {
-      audioUrl = _onHost(audio.playUrls, best) ?? audioUrl;
+    final opened = videoUrl;
+    _measure(candidates.take(4).toList()).then((speeds) {
+      if (isClosed || cid.value != part || videoUrl != opened) return;
+      final host = _hostOf(opened);
+      final rate = _streamBitrate;
+      final now = host == null ? null : speeds[host];
+      final best = CdnProbe.pick(speeds);
+      if (best == null || best == host || rate == null) return;
+      final bestSpeed = speeds[best] ?? 0;
+      final tooSlow = now == null || now * 8 < rate * 1.5;
+      if (!tooSlow || bestSpeed < (now ?? 0) * 2) return;
+      if (plPlayerController.position.value > 15) return;
+      final url = _onHost(candidates, best);
+      if (url == null) return;
+      EventLog.add(
+        'player',
+        'opened on $host at '
+            '${now == null ? '-' : ((now * 8) / 1e6).toStringAsFixed(1)} Mbps '
+            'for ${(rate / 1e6).toStringAsFixed(1)} Mbps: moving to $best',
+      );
+      if (host != null) _triedHosts.add(host);
+      videoUrl = url;
+      if (_currentAudio case final audio?) {
+        audioUrl = _onHost(audio.playUrls, best) ?? audioUrl;
+      }
+      _reopenAtCurrentPosition();
+    });
+  }
+
+  /// What each host delivered while playing, this session: the player's
+  /// observed rate (see [PlPlayerController.observedBytesPerSecond]) when a
+  /// part is left or its streams are judged; 0 for a host that failed. What
+  /// an open picks its host by (see [_pickFastestHost]).
+  static final _deliveredByHost = <String, double>{};
+
+  void _noteDelivered() {
+    if (isFileSource) return;
+    if (_hostOf(videoUrl) case final host?) {
+      if (plPlayerController.observedBytesPerSecond case final speed?) {
+        _deliveredByHost[host] = speed;
+      }
+    }
+    for (final host in _triedHosts) {
+      _deliveredByHost[host] = 0;
     }
   }
 
@@ -1117,6 +1184,7 @@ class VideoDetailController extends GetxController
   /// the stream is moved to. Null when there is none — then only a lower
   /// quality would help.
   Future<({String? video, String? audio})?> replaceSlowStreams() async {
+    _noteDelivered();
     final video = videoUrl;
     if (isFileSource || video == null) return null;
     final candidates = _withoutBroken(
@@ -1156,31 +1224,38 @@ class VideoDetailController extends GetxController
     // again within [_slowKeptFor], a lower quality. Both hosts measured
     // 10 Mbps for a 1080P stream, and it went down to 720P, then 480P, then
     // 360P in four minutes (2026-10-01).
+    //
+    // Judged by what it delivered while playing when that is known: a 1 MB
+    // probe said cosov had 10.3 and 12.2 Mbps for 3.5 and 1.3 Mbps streams,
+    // and kept at that quality they stalled 8.9 and 3.3 s, 8.3 and 8.7 s
+    // more (the user's copy, 2026-10-09). The probe only when too little of
+    // the stream has come in to say.
     final current = _hostOf(video);
     final now = DateTime.now();
+    final delivered = plPlayerController.observedBytesPerSecond;
+    final rate = _streamBitrate;
+    final speed = delivered;
+    // Only what came in can say it keeps up: a probe reads a host's opening
+    // burst (akam: about 10 MB at 79 Mbps, then 5.8 Mbps, measured
+    // 2026-10-09), and kept on a 10.8 Mbps probe a stream stalled every
+    // 3-10 s for 70 s. Without enough measured, a lower quality.
+    final keepsUp = delivered != null && (rate == null || delivered * 8 >= rate);
     if (current != null &&
-        CdnProbe.keepsUp(
-          speeds[current],
-          _streamBitrate,
-          margin: _keepsUpMargin,
-        ) &&
+        keepsUp &&
         (_slowKeptAt == null || now.difference(_slowKeptAt!) > _slowKeptFor)) {
       _slowKeptAt = now;
       EventLog.add(
         'player',
         'stream slow, but $current keeps up '
-            '(${((speeds[current] ?? 0) * 8 / 1e6).toStringAsFixed(1)} Mbps for '
-            '${((_streamBitrate ?? 0) / 1e6).toStringAsFixed(1)} Mbps): quality kept',
+            '(delivered '
+            '${((speed ?? 0) * 8 / 1e6).toStringAsFixed(1)} Mbps for '
+            '${((rate ?? 0) / 1e6).toStringAsFixed(1)} Mbps): quality kept',
       );
       return null;
     }
     // no host keeps up: a lower quality does
     return _stepQuality(down: true, speeds: speeds);
   }
-
-  /// A host measuring this many times the stream's bitrate is taken to keep
-  /// up: a 1 MB probe reads high (1.5x passed, and the stream then stalled).
-  static const _keepsUpMargin = 2.5;
 
   /// After one slow spell kept at this quality, another within this long
   /// steps down.
@@ -1204,12 +1279,24 @@ class VideoDetailController extends GetxController
   /// is not above the quality the video opened at. Not on a probe: 1 MB
   /// said a host was fast enough for 1080P, and it was not.
   Future<({String? video, String? audio})?> raiseQuality() async {
+    _noteDelivered();
     final video = videoUrl;
     if (isFileSource || video == null || _qualityChosen) return null;
     final delivered = plPlayerController.observedBytesPerSecond;
     final host = _hostOf(video);
-    if (delivered == null || host == null) return null;
-    return _stepQuality(down: false, speeds: {host: delivered});
+    if (delivered == null || host == null) {
+      EventLog.add('player', 'no step up: too little measured');
+      return null;
+    }
+    final step = _stepQuality(down: false, speeds: {host: delivered});
+    if (step == null) {
+      EventLog.add(
+        'player',
+        'no step up: ${(delivered * 8 / 1e6).toStringAsFixed(1)} Mbps '
+            'delivered is not 1.5x the next quality, or it is the top one',
+      );
+    }
+    return step;
   }
 
   /// For the self-test (`--no-host-switch`): as if no other host were
@@ -3409,6 +3496,7 @@ class VideoDetailController extends GetxController
 
   @override
   void onClose() {
+    if (_ownsPlayer) _noteDelivered();
     _stopWatchingPlayback();
     if (_ownsPlayer || plPlayerController.processing) {
       plPlayerController.dropPendingSeek();
@@ -3464,6 +3552,7 @@ class VideoDetailController extends GetxController
     defaultST = null;
     // a seek made on the part being left is not one for the next
     plPlayerController.dropPendingSeek();
+    _noteDelivered();
     videoUrl = null;
     audioUrl = null;
     _triedHosts.clear();

@@ -149,7 +149,7 @@ List<SettingsModel> get videoSettings => [
     title: '缓冲大小',
     leading: const Icon(Icons.storage_outlined),
     getSubtitle: () =>
-        '当前：${Pref.bufferSize}MB。同时为前向和后向缓冲区大小。对于直播流，无后向缓冲大小，全部转给前向（此选项即mpv的--demuxer-max-bytes，--demuxer-max-back-bytes）',
+        '当前：${Pref.bufferSize}MB。前向缓冲区大小（不知道码率时也用作后向）。对于直播流，无后向缓冲大小，全部转给前向（此选项即mpv的--demuxer-max-bytes）',
     onTap: _showBufferSizeDialog,
   ),
   NormalModel(
@@ -158,6 +158,13 @@ List<SettingsModel> get videoSettings => [
     getSubtitle: () =>
         '当前：${Pref.bufferSec}s。实际缓冲为二者最小值。对于直播流，该选项无效（此选项即mpv的--cache-secs）',
     onTap: _showBufferSecDialog,
+  ),
+  NormalModel(
+    title: '后向缓冲时长',
+    leading: const Icon(Icons.history_toggle_off),
+    getSubtitle: () =>
+        '当前：${Pref.backBufferSec}s。已播放的部分保留多久，往回跳时不必重新下载；按视频码率换算成大小，手机最多 96MB、电脑最多 256MB（此选项即mpv的--demuxer-max-back-bytes）',
+    onTap: _showBackBufferSecDialog,
   ),
   NormalModel(
     title: '自动同步',
@@ -560,6 +567,16 @@ void _showBufferSizeDialog(BuildContext context, VoidCallback setState) =>
       defVal: Pref.bufferSize,
       title: '缓冲大小',
       suffix: 'MB',
+    );
+
+void _showBackBufferSecDialog(BuildContext context, VoidCallback setState) =>
+    _showDecimalDialog(
+      context,
+      setState,
+      key: SettingBoxKey.backBufferSec,
+      defVal: Pref.backBufferSec,
+      title: '后向缓冲时长',
+      suffix: 's',
     );
 
 void _showBufferSecDialog(BuildContext context, VoidCallback setState) =>

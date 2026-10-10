@@ -154,4 +154,54 @@ void main() {
       );
     });
   });
+
+  group('how far back the player keeps what it played', () {
+    const mib = 1048576.0;
+    test('two minutes of a 3.8 Mbps stream', () {
+      expect(
+        Pref.sizeBackBuffer(
+          setBytes: 4 * mib,
+          seconds: 120,
+          bitsPerSecond: 3800000,
+          mobile: false,
+        ),
+        closeTo(3800000 / 8 * 120 * 1.25, 1),
+      );
+    });
+
+    test('within the cap: 96 MB on a phone, 256 MB on a computer', () {
+      for (final (mobile, cap) in [(true, 96), (false, 256)]) {
+        expect(
+          Pref.sizeBackBuffer(
+            setBytes: 4 * mib,
+            seconds: 120,
+            bitsPerSecond: 40000000,
+            mobile: mobile,
+          ),
+          cap * mib,
+        );
+      }
+    });
+
+    test('the 缓冲大小 setting without a bitrate; nothing at 0 s', () {
+      expect(
+        Pref.sizeBackBuffer(
+          setBytes: 4 * mib,
+          seconds: 120,
+          bitsPerSecond: null,
+          mobile: false,
+        ),
+        4 * mib,
+      );
+      expect(
+        Pref.sizeBackBuffer(
+          setBytes: 4 * mib,
+          seconds: 0,
+          bitsPerSecond: 3800000,
+          mobile: false,
+        ),
+        0,
+      );
+    });
+  });
 }
