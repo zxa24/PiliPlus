@@ -1956,6 +1956,15 @@ class VideoDetailController extends GetxController
                 : LocalHistory.resumePoint(key, '${cid.value}') ?? 0,
           );
         }
+        // a resume point at or past the end plays nothing: from the start.
+        // The history had 53 s for a 14.7 s video — the previous video's
+        // position, saved under this one's name (the user's copy,
+        // 2026-10-12), and it opened straight at the end
+        final length = data.timeLength ?? 0;
+        if (length > 0 &&
+            (defaultST?.inMilliseconds ?? 0) >= length - 1000) {
+          defaultST = Duration.zero;
+        }
       }
 
       if (!isUgc && !fromReset && plPlayerController.enablePgcSkip) {
@@ -2651,6 +2660,9 @@ class VideoDetailController extends GetxController
   /// The player is one for the whole app, and still playing what this page
   /// gave it. The very source object, not its cid: every ordinary local file
   /// has cid 0, and another page opening another one would look like this.
+  /// See [_ownsPlayer]: for the page's own listeners.
+  bool get ownsPlayer => _ownsPlayer;
+
   bool get _ownsPlayer {
     final own = _ownSource;
     return own != null && identical(plPlayerController.dataSource, own);

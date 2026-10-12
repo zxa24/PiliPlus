@@ -186,6 +186,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   }
 
   void positionListener(Duration position) {
+    // the shared player still on the page before's video: its position is
+    // not this one's (53 s of the last video was saved as a 14.7 s video's
+    // resume point, and it opened at its end, 2026-10-12)
+    if (!videoDetailController.ownsPlayer) return;
     videoDetailController
       ..playedTime = position
       ..onLocalPosition(position)

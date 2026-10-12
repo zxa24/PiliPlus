@@ -1150,6 +1150,12 @@ abstract final class SelfTest {
     if (_arg(args, '--yt-search') case final query?) {
       await scenario('youtubeSearch', () => _youtubeSearch(query));
     }
+    // `--stacked-history A B`: B opened on top of A while A played at 50 s
+    if (_arg(args, '--stacked-history') case final first?) {
+      final i = args.indexOf('--stacked-history');
+      final second = i + 2 < args.length ? args[i + 2] : '';
+      await scenario('stackedHistory', () => _stackedHistory(first, second));
+    }
     if (_arg(args, '--history-probe') case final bili?) {
       // a fresh profile does not start the player on its own: without it
       // the bilibili page never opens a source to record
@@ -7137,6 +7143,65 @@ abstract final class SelfTest {
   /// Last, the 观看记录 page must list both with their platform marks.
   ///
   /// Clears the profile's local history first.
+  /// LibrePili: a video opened on top of another that is playing, the way
+  /// a related video is opened (user 2026-10-12: it opened at its end). The
+  /// shared player still reports the first video's position when the second
+  /// page attaches; that must not be saved as the second's, nor be where the
+  /// second starts.
+  static Future<Map<String, dynamic>> _stackedHistory(
+    String first,
+    String second,
+  ) async {
+    await LocalHistory.setPaused(false);
+    await LocalHistory.clear();
+    String url(String s) =>
+        s.startsWith('http') ? s : 'https://www.bilibili.com/video/$s';
+
+    Future<VideoDetailController?> top() async {
+      for (var i = 0; i < 120; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        try {
+          final page = Get.find<VideoDetailController>(
+            tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+          );
+          if (page.videoState.value) return page;
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    await PiliScheme.routePushFromUrl(url(first));
+    final a = await top();
+    if (a == null) return {'pass': false, 'reason': 'first page never opened'};
+    final player = a.plPlayerController;
+    await Future.delayed(const Duration(seconds: 3));
+    await player.play();
+    await player.seekTo(const Duration(seconds: 50), isSeek: false);
+    await player.play();
+    await Future.delayed(const Duration(seconds: 6));
+    final aAt = player.videoPlayerController?.state.position.inMilliseconds;
+
+    await PiliScheme.routePushFromUrl(url(second));
+    await Future.delayed(const Duration(seconds: 2));
+    final b = await top();
+    if (b == null || identical(b, a)) {
+      return {'pass': false, 'reason': 'second page never opened', 'aAt': aAt};
+    }
+    await Future.delayed(const Duration(seconds: 6));
+    final bAt = player.videoPlayerController?.state.position.inMilliseconds;
+    final bLength = b.data.timeLength ?? 0;
+    final entry = LocalHistory.get(LocalHistory.ugcKey(b.aid));
+    final saved = entry?.parts['${b.cid.value}']?.progress;
+    return {
+      'pass': bAt != null && bAt < bLength - 2000 && (saved == null || saved <= bLength),
+      'firstAt': aAt,
+      'secondAt': bAt,
+      'secondLength': bLength,
+      'secondSaved': saved,
+      'status': player.playerStatus.value.name,
+    };
+  }
+
   static Future<Map<String, dynamic>> _historyProbe(
     String bili, {
     required String yt,
