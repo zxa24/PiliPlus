@@ -1563,7 +1563,10 @@ class YtVideoController extends GetxController
     // page does; slow again within 2 min, a step down
     if (down) {
       final delivered = plPlayerController.observedBytesPerSecond;
-      final rate = _streams == null ? null : _bitrateOf(_streams!);
+      // at 3x, three times the bitrate (see PlPlayerController.atSpeed)
+      final rate = plPlayerController.atSpeed(
+        _streams == null ? null : _bitrateOf(_streams!),
+      );
       final at = DateTime.now();
       // not while the buffer falls a long way (see the bilibili page)
       if (delivered != null &&
@@ -1620,7 +1623,12 @@ class YtVideoController extends GetxController
         timeout: const Duration(seconds: 4),
         bilibili: false,
       );
-      if (isClosed || !CdnProbe.keepsUp(capacity, bitrate, margin: 1.5)) {
+      if (isClosed ||
+          !CdnProbe.keepsUp(
+            capacity,
+            plPlayerController.atSpeed(bitrate),
+            margin: 1.5,
+          )) {
         return null;
       }
     }

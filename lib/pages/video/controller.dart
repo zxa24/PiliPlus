@@ -1181,7 +1181,7 @@ class VideoDetailController extends GetxController
     _measure(candidates.take(4).toList()).then((speeds) {
       if (isClosed || cid.value != part || videoUrl != opened) return;
       final host = _hostOf(opened);
-      final rate = _streamBitrate;
+      final rate = plPlayerController.atSpeed(_streamBitrate);
       final now = host == null ? null : speeds[host];
       final best = CdnProbe.pick(speeds);
       if (best == null || best == host || rate == null) return;
@@ -1258,7 +1258,10 @@ class VideoDetailController extends GetxController
       final best = CdnProbe.pick(speeds, current: current, keepRatio: 1 / 1.3);
       if (best != null &&
           best != current &&
-          CdnProbe.keepsUp(speeds[best], _streamBitrate)) {
+          CdnProbe.keepsUp(
+            speeds[best],
+            plPlayerController.atSpeed(_streamBitrate),
+          )) {
         final newVideo = _onHost(candidates, best);
         if (newVideo != null) {
           _noteSlow(current);
@@ -1281,7 +1284,8 @@ class VideoDetailController extends GetxController
     final current = _hostOf(video);
     final now = DateTime.now();
     final delivered = plPlayerController.observedBytesPerSecond;
-    final rate = _streamBitrate;
+    // at 3x, three times the bitrate (see PlPlayerController.atSpeed)
+    final rate = plPlayerController.atSpeed(_streamBitrate);
     final speed = delivered;
     // Only what came in can say it keeps up: a probe reads a host's opening
     // burst (akam: about 10 MB at 79 Mbps, then 5.8 Mbps, measured
@@ -1498,7 +1502,13 @@ class VideoDetailController extends GetxController
         playing;
     if (!down) {
       final bitrate = (item.bandWidth ?? 0) + (_currentAudio?.bandWidth ?? 0);
-      if (!CdnProbe.keepsUp(speeds[best], bitrate, margin: 1.5)) return null;
+      if (!CdnProbe.keepsUp(
+        speeds[best],
+        plPlayerController.atSpeed(bitrate),
+        margin: 1.5,
+      )) {
+        return null;
+      }
     }
     final candidates = VideoUtils.cdnCandidates(item.playUrls);
     final url =

@@ -2129,6 +2129,44 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// audio), when the page knows it.
   int? streamBitrate;
 
+  /// What playing [bitsPerSecond] at the current speed takes: at 3x three
+  /// times the stream's bitrate. Everything that asks whether a host keeps
+  /// up asks it of this (user 2026-10-12: 3x is played often, and at 3x a
+  /// host delivering 1.2x the bitrate was judged to keep up).
+  int? atSpeed(int? bitsPerSecond) {
+    if (bitsPerSecond == null) return null;
+    final speed = playbackSpeed;
+    return speed > 1 ? (bitsPerSecond * speed).round() : bitsPerSecond;
+  }
+
+  /// [streamBitrate] at the current speed (see [atSpeed]).
+  int? get demandBitrate => atSpeed(streamBitrate);
+
+  /// The buffer resized for [speed] while playing: mpv's own options were
+  /// set for the speed the source was opened at, and 30 s of the stream is
+  /// 10 s at 3x — refilled only below 20 s of it, 6.7 s (2026-10-12).
+  void _resizeBuffer(double speed) {
+    final player = _videoPlayerController;
+    if (player is! NativePlayer || isLive) return;
+    try {
+      if (dataSource is FileSource) return;
+    } catch (_) {
+      return;
+    }
+    final options = Pref.initBuffer(speed, streamBitrate);
+    for (final MapEntry(:key, :value) in options.entries) {
+      if (key == 'cache') continue;
+      try {
+        player.setProperty(key, value);
+      } catch (_) {}
+    }
+    EventLog.add(
+      'player',
+      'buffer for ${speed}x: ${options['cache-secs']} s, '
+          '${(double.parse(options['demuxer-max-bytes']!) / 0x100000).toStringAsFixed(0)} MB',
+    );
+  }
+
   /// The buffer ahead, sampled once a second (see [QualityAdvisor]).
   final _health = <PlaybackHealth>[];
 
@@ -2196,9 +2234,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
     if (_health.length > 20) _health.removeAt(0);
+    // in seconds of the stream, which mpv holds speed times as many of
     final target = bufferTarget(
-      seconds: Pref.bufferSec,
-      bytes: Pref.bufferBytes(bitsPerSecond: streamBitrate),
+      seconds: Pref.bufferSec * max(1.0, playbackSpeed),
+      bytes: Pref.bufferBytes(
+        bitsPerSecond: streamBitrate,
+        playbackSpeed: max(1.0, playbackSpeed),
+      ),
       bitsPerSecond: streamBitrate,
     );
     _bufferFell = bufferFell(_health, target);
@@ -2269,7 +2311,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // there is buffer to switch on — not once it is nearly gone (user
     // 2026-10-09). Above the bitrate the buffer grows, however slowly.
     final delivered = observedBytesPerSecond;
-    final rate = streamBitrate;
+    final rate = demandBitrate;
     //
     // Only with the buffer actually going down: held at its byte limit, it
     // is topped up a trickle at a time, and what comes in reads about what
@@ -2809,6 +2851,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     await _videoPlayerController?.setRate(speed);
     _watchSpeedJump(from, speed, before, asked, DateTime.now());
     _playbackSpeed.value = speed;
+    _resizeBuffer(speed);
     if (danmakuController != null) {
       try {
         DanmakuOption currentOption = danmakuController!.option;

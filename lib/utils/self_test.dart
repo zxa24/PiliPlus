@@ -967,6 +967,8 @@ abstract final class SelfTest {
         VideoUtils.debugWrapVideoUrl = cut.wrap;
       }
       PlPlayerController.debugNoHandover = args.contains('--no-handover');
+      _rate = double.tryParse(_arg(args, '--rate') ?? '');
+      _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
       VideoDetailController.debugTriedHosts = {
         ...?_arg(args, '--tried-hosts')?.split(','),
       };
@@ -5537,6 +5539,9 @@ abstract final class SelfTest {
     }
   }
 
+  static double? _rate;
+  static int _rateAt = 5;
+
   static Future<Map<String, dynamic>> _openBili(
     String url,
     int holdSeconds, {
@@ -5623,6 +5628,15 @@ abstract final class SelfTest {
       (done) => log.add('== completed=$done'),
     );
     if (!autoplay) await player.play();
+    // `--rate 3 --rate-at 10`: the speed changed while playing, as a viewer
+    // changes it
+    if (_rate case final rate?) {
+      unawaited(() async {
+        await Future.delayed(Duration(seconds: _rateAt));
+        EventLog.add('selftest', 'speed to ${rate}x');
+        await player.setPlaybackSpeed(rate);
+      }());
+    }
     // Watched for a fixed stretch and sampled, rather than stopped at the
     // first sign of movement. The reported symptom is a stall a few seconds
     // in, and 1.5s of progress is indistinguishable from that — the earlier
