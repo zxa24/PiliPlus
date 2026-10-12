@@ -966,22 +966,6 @@ abstract final class SelfTest {
         await cut.start();
         VideoUtils.debugWrapVideoUrl = cut.wrap;
       }
-      // the stream a replacement brings in, slower than it plays: what the
-      // player cannot see once the video is an external track
-      _CuttingProxy? slowReplacement;
-      final replacedKbps = int.tryParse(
-        _arg(args, '--throttle-replaced-kbps') ?? '',
-      );
-      if (replacedKbps != null) {
-        slowReplacement = _CuttingProxy(
-          1 << 50,
-          bytesPerSecond: replacedKbps * 1000 ~/ 8,
-          oneHost: false,
-        );
-        await slowReplacement.start();
-        PlPlayerController.debugWrapReplacedVideo = slowReplacement.wrap;
-      }
-      PlPlayerController.debugNoVideoWatch = args.contains('--no-video-watch');
       PlPlayerController.debugNoHandover = args.contains('--no-handover');
       // started the way a viewer's page starts it, so what the page does
       // for playback (resuming after a CDN switch) is what is tested
@@ -1026,15 +1010,7 @@ abstract final class SelfTest {
         );
       } finally {
         VideoUtils.debugWrapVideoUrl = null;
-        PlPlayerController.debugWrapReplacedVideo = null;
-        PlPlayerController.debugNoVideoWatch = false;
         PlPlayerController.debugNoHandover = false;
-        if (slowReplacement != null) {
-          stderr.writeln(
-            'slow replacement: ${slowReplacement.requests.join(' | ')}',
-          );
-          await slowReplacement.close();
-        }
         if (cut != null) {
           stderr.writeln('cutting proxy: ${cut.requests.join(' | ')}');
           await cut.close();

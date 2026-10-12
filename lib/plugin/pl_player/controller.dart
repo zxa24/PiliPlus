@@ -1,5 +1,5 @@
 import 'dart:async' show StreamSubscription, Timer, unawaited;
-import 'dart:convert' show ascii, jsonDecode, utf8;
+import 'dart:convert' show ascii, utf8;
 import 'dart:io' show HttpClient, HttpHeaders, Platform, Socket;
 import 'dart:math' show max, min;
 import 'dart:ui' as ui;
@@ -714,9 +714,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.height = height;
       this.dataSource = dataSource;
       _cutAt.clear();
-      _replacedVid = null;
-      _externalVideo = _externalAudio = null;
-      _replaced = false;
+      _bufferFell = false;
       // what the source before lost is told as it ends
       _smooth.flush();
       // the renewal's new source is here: its own autoplay must go through
@@ -735,6 +733,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // the source this was checking on is gone; the new one starts afresh
       _recoveryCheck?.cancel();
       _recoveryCheck = null;
+      _failureCheck?.cancel();
+      _failureCheck = null;
       // the first fill of a new source is not the network falling behind
       _health.clear();
       _healthRest = max(_healthRest, _afterSeekRest);
@@ -1038,6 +1038,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // the viewer is (the page took it as the place to resume from, and a
     // local file left during the load saved 0 as its progress)
     _reopening = true;
+    _openStartedAt = DateTime.now();
     try {
       await player.open(
         Media(
@@ -1067,6 +1068,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (!isLive) media = media.copyWith(start: resumePosition);
       _resumeAt = null;
       _reopening = true;
+      _openStartedAt = DateTime.now();
       return ctr
           .open(media, play: true)
           .then((_) => _watchLoad(ctr))
@@ -1193,9 +1195,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (until.isAfter(_smoothQuietUntil)) _smoothQuietUntil = until;
   }
 
-  /// The video's frame rate, read with each sample, for Flutter's gaps.
-  double _videoFps = 0;
-
   /// One second of mpv for [_smooth].
   void _sampleSmoothness() {
     final player = _videoPlayerController;
@@ -1204,10 +1203,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final now = DateTime.now();
     final pos = double.tryParse(_read('time-pos'));
     final total = double.tryParse(_read('duration'));
-    _videoFps =
-        double.tryParse(_read('estimated-vf-fps')) ??
-        double.tryParse(_read('container-fps')) ??
-        _videoFps;
     _smooth.add(
       SmoothSample(
         at: now,
@@ -1229,30 +1224,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     );
   }
 
-  /// Flutter's frames, once for the app: the ones drawn while a video plays
-  /// go to the player's account; one that takes more than 100 ms anywhere
-  /// is a visible hitch of its own, and is logged as one.
+  /// Flutter's frames, once for the app: one that takes more than 100 ms is
+  /// a visible hitch, and is logged as one. Not the gaps between frames: a
+  /// video frame is a texture update, drawn with no frame timing (see
+  /// SmoothnessMonitor), so they read a smooth video as one frame a second.
   static void _watchFrames() {
     if (_framesWatched) return;
     _framesWatched = true;
-    int? lastEnd;
     SchedulerBinding.instance.addTimingsCallback((timings) {
-      final player = _instance;
-      final playing =
-          player != null &&
-          player.playerStatus.isPlaying &&
-          !player.isBuffering.value;
-      final gaps = <int>[];
       for (final t in timings) {
-        final end = t.timestampInMicroseconds(ui.FramePhase.rasterFinish);
-        if (playing && lastEnd != null) {
-          final gap = ((end - lastEnd!) / 1000).round();
-          // a second without a frame is nothing being drawn at all (the
-          // window hidden); a frame that itself takes that long is logged
-          // below as 界面卡
-          if (gap < 1000) gaps.add(gap);
-        }
-        lastEnd = end;
         final span = t.totalSpan.inMilliseconds;
         if (span > 100) {
           EventLog.add(
@@ -1262,12 +1242,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           );
         }
       }
-      if (!playing) {
-        lastEnd = null;
-        return;
-      }
-      if (DateTime.now().isBefore(player._smoothQuietUntil)) return;
-      player._smooth.addUiGaps(gaps, videoFps: player._videoFps);
     });
   }
 
@@ -1435,10 +1409,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
           return;
         }
+        // The streams an open let go of, closing: their errors come within
+        // a moment of it (0.1 s), and are not the new streams'. A cut
+        // stream's own last word, arriving as its replacement opened, was
+        // taken for a cut of the replacement, which answered fine, and the
+        // player then looked for another host (2026-10-12).
+        final closing =
+            _openStartedAt != null &&
+            now.difference(_openStartedAt!) < const Duration(milliseconds: 1500);
         // a copy that ends early ends there for every request: once the
         // reconnect mpv makes of itself has stopped at the same byte, the
         // host is changed at once, while what is buffered still plays
-        if (prematureEndAt(event) case final at?) {
+        if (prematureEndAt(event) case final at? when !closing) {
           // twice at one byte, or once after mpv's own reconnect found
           // nothing there (the size it expects is then unknown): the copy
           // ends there. A seek past the cut shows only the second kind
@@ -1448,6 +1430,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         }
         if (_isTransportFailure(event)) {
+          // The streams an open let go of, closing (`tls: Unable to read
+          // from socket`, `Immediate exit requested`, a premature end): not
+          // the new ones failing. Taken for that, every switch was reopened
+          // a second time 1-3 s later (2026-10-10, 2026-10-12); new streams
+          // that do fail go on failing, past this. A refusal (`HTTP error
+          // 403`) or `Failed to open` is the new stream's own answer.
+          if (closing &&
+              (event.startsWith('tls: ') ||
+                  event.contains('Immediate exit requested') ||
+                  prematureEndAt(event) != null)) {
+            return;
+          }
           // past its expiry a URL answers 403 on every host: the user's
           // copy, paused 9.5 h, tried the same URL and the next CDN's and
           // stopped (2026-10-01)
@@ -1473,6 +1467,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
                 // lacked is what the new one was opened to bring (a check
                 // left over from the old one reopened the new one, 4 s)
                 if (videoControllerEpoch.value != epoch) return;
+                // opened again since, by whatever saw the failure first (a
+                // cut stream's replacement): the failure was the old
+                // streams', and the reopen the answer to it — a second one
+                // came a second later (2026-10-12). Or the old streams
+                // closing, the open just begun. Either way not acted on now:
+                // the new streams are looked at in 12 s, as after any
+                // recovery, since the errors that follow this one within the
+                // throttle never get here
+                if (_openStartedAt case final at?
+                    when at.isAfter(
+                      now.subtract(const Duration(milliseconds: 1500)),
+                    )) {
+                  _checkRecovery();
+                  return;
+                }
                 // Not "nothing is arriving". A video is two streams, and one
                 // of them can be dead while the other is fully buffered — a
                 // 192 kbps audio track that the CDN cut off at 11 668 bytes
@@ -1581,16 +1590,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _checkRecovery();
     switch (transportRecovery(_transportFailures++, seekFailed: seekFailed)) {
       case TransportRecovery.retrySameUrl:
-        // after a stream was replaced in place, mpv's own playlist still
-        // names the one it replaced: reopening that undid the replacement
-        // (a throttled stream came back after a step down). The page opens
-        // what it plays now instead.
-        if (_replaced && onReopen != null) {
-          EventLog.add('player', 'reopen with the streams now played');
-          onReopen!();
-        } else {
-          refreshPlayer();
-        }
+        refreshPlayer();
       case TransportRecovery.switchCdn:
         _switchCdn();
     }
@@ -1803,39 +1803,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Null when there is nothing to put in place.
   Future<({String? video, String? audio})?> Function(int cutAt)? onStreamCut;
 
-  /// A stream of the current source was replaced in place (see
-  /// [_replaceStreams]).
-  var _replaced = false;
-
-  /// Reopens the page's current streams where playback is, for a retry once
-  /// one was replaced in place.
+  /// Reopens the page's current streams where playback is: a replacement
+  /// no second player could take over (see [_replaceStreams]), the network
+  /// back after a wait.
   VoidCallback? onReopen;
 
-  /// The video track put in place of one that was cut, for whatever selects
-  /// the video again ("听视频" off): `auto` would pick the cut one.
-  String? _replacedVid;
-
-  String get videoTrack => _replacedVid ?? 'auto';
+  /// A step up the page made (see [onStreamRoomy]) that no second player
+  /// could take over: the page puts back what it played before.
+  VoidCallback? onStepUpDropped;
 
   var _replacing = false;
 
-  /// Puts streams from another CDN in place of those cut short, without
-  /// stopping: what is buffered plays on while the new one opens, and the
-  /// picture moves over once it is there — no reopen, no loading spinner.
-  /// Probed on the same libmpv: the audio never restarted, the picture held
-  /// its last frame about 0.6 s. Anything short of that falls back to
-  /// reopening on the next CDN.
   /// For the self-test's control (`--no-recovery`): playback as it was
   /// before any recovery. Nothing else sets it.
   static bool debugDisableRecovery = false;
-
-  /// For the self-test (`--throttle-replaced-kbps`): a video URL put in
-  /// place by [_replaceStreams] passes through this. Nothing else sets it.
-  static String Function(String url)? debugWrapReplacedVideo;
-
-  /// For the self-test's control (`--no-video-watch`): no
-  /// [_watchReplacedVideo]. Nothing else sets it.
-  static bool debugNoVideoWatch = false;
 
   Future<void> _replaceCutStreams(int cutAt) => _replaceStreams(
     () async => await onStreamCut?.call(cutAt),
@@ -1843,10 +1824,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     reopen: true,
   );
 
-  /// Puts the streams [ask] names in place of the current ones (see
-  /// [_replaceCutStreams]). With [reopen], a stream that cannot be replaced
-  /// is reopened on the next CDN — it is broken; without, it is left as it
-  /// is — it only plays slower than it should.
+  /// Puts the streams [ask] names in place of the current ones: by a
+  /// handover to a second player (see [_handOver]), and where none can take
+  /// over, by opening them again where playback is ([onReopen]) — sound and
+  /// picture stop together for a moment. A step up ([why] `roomy`) is not
+  /// worth that stop: it is dropped instead ([onStepUpDropped]).
+  ///
+  /// Never as an extra track of the playing player (removed 2026-10-12,
+  /// user 1A). Outside the main stream the video was a track nothing could
+  /// watch: starving, it left the sound playing over a still picture — 8 s
+  /// and then 16 s more in the user's copy, and 25 s on another video, the
+  /// same day — and the cache, the speed and the stall all read the audio's.
+  ///
+  /// With [reopen], streams that cannot be replaced at all are reopened on
+  /// the next CDN — they are broken; without, they are left as they are —
+  /// they only play slower than they should.
   Future<void> _replaceStreams(
     Future<({String? video, String? audio})?> Function() ask, {
     required String why,
@@ -1870,74 +1862,27 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _delivered.clear();
       if (!debugNoHandover && await _handOver(urls, source, why: why)) {
         _cutAt.clear();
-        _replaced = false;
-        _replacedVid = null;
         _dryTicks = -3;
         // measured on the streams replaced
         _delivered.clear();
-        _externalVideo = _externalAudio = null;
         return;
       }
       if (!identical(dataSource, source) || player.disposed) return;
-      for (var (kind, url) in [
-        ('video', urls.video),
-        ('audio', urls.audio),
-      ]) {
-        if (url == null) continue;
-        final wrap = debugWrapReplacedVideo;
-        if (kind == 'video' && wrap != null) url = wrap(url);
-        url = _wrapAll(url);
-        EventLog.add(
-          'player',
-          'stream $why: $kind -> ${Uri.tryParse(url)?.host} '
-              'at ${player.state.position}',
-        );
-        await player.command(['$kind-add', url, 'auto']);
-        if (!identical(dataSource, source) || player.disposed) return;
-        final id = _externalTrack(player.getProperty('track-list'), kind, url);
-        if (id == null) {
-          if (reopen) _switchCdn(fallback: true);
-          return;
-        }
-        if (kind == 'video') {
-          _replacedVid = id;
-          _externalVideo = url;
-          if (!onlyPlayAudio.value) player.setProperty('vid', id);
-        } else {
-          _externalAudio = url;
-          player.setProperty('aid', id);
-        }
+      if (why == 'roomy') {
+        EventLog.add('player', 'step up dropped: no second player took over');
+        onStepUpDropped?.call();
+        return;
       }
-      // A newly selected external track is not positioned: mpv decodes it
-      // from its start up to the playhead, and at 400 s into a video the
-      // picture stood still for 10 s and then ran ahead of the sound by up
-      // to 6.8 s (probed on this libmpv). An exact seek to where playback is
-      // positions it; it stops sound and picture briefly, not more the
-      // further in (measured: 0.55 s at 1.6 s, 1.75 s at 400 s). Nothing gets the new track in place with the sound
-      // going on: a delay-open second track in the same EDL stopped
-      // playback for 5–6 s instead.
-      final here = double.tryParse(player.getProperty('time-pos'));
-      if (here != null) {
-        await player.command(['seek', '$here', 'absolute+exact']);
-        // the replacement is not done until playback is going again
-        // not for long: a starving new track holds everything up, and past
-        // this [_watchReplacedVideo] takes over
-        final until = DateTime.now().add(const Duration(seconds: 5));
-        while (DateTime.now().isBefore(until) &&
-            identical(dataSource, source) &&
-            !player.disposed) {
-          final now = double.tryParse(player.getProperty('time-pos'));
-          if (now != null && now > here + 0.2) break;
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-      }
+      final reopenHere = onReopen;
+      if (reopenHere == null) return;
+      EventLog.add(
+        'player',
+        'stream $why: no second player took over, opening the new streams '
+            'at ${resumePosition.inMilliseconds / 1000} s',
+      );
       _cutAt.clear();
-      _replaced = true;
-      _delivered.clear();
-      // settle before moving it into the main stream (see [_rehome])
-      _rehomeRest = 10;
-      // the cut stream's cache stays where it ended until mpv lets go of it
-      _dryTicks = -3;
+      _resumeAt = resumePosition;
+      reopenHere();
     } catch (_) {
       if (reopen && identical(dataSource, source)) _switchCdn(fallback: true);
     } finally {
@@ -1947,8 +1892,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
-  /// For the self-test's control (`--no-handover`): a replacement goes in
-  /// as an extra track of the playing player. Nothing else sets it.
+  /// For the self-test's control (`--no-handover`): a replacement goes the
+  /// way it goes when no second player is ready. Nothing else sets it.
   static bool debugNoHandover = false;
 
   /// How far ahead of playback a second player is made ready.
@@ -1982,8 +1927,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         _playerCount == 0) {
       return false;
     }
-    final video = urls.video ?? _externalVideo ?? _playingVideo;
-    final audio = urls.audio ?? _externalAudio ?? _playingAudio;
+    final video = urls.video ?? _playingVideo;
+    final audio = urls.audio ?? _playingAudio;
     if (video == null || audio == null) return false;
     double? read(NativePlayer p, String name) {
       try {
@@ -2158,6 +2103,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _startListeners(next);
     _transportFailures = 0;
     isBuffering.value = false;
+    // the buffer read from here on is the new player's, filling from little
+    _health.clear();
+    _healthRest = max(_healthRest, _afterSeekRest);
     videoControllerEpoch.value++;
     // the picture moves over on the next frame; the old one goes after it
     Future.delayed(const Duration(seconds: 1), old.dispose);
@@ -2253,14 +2201,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       bytes: Pref.bufferBytes(bitsPerSecond: streamBitrate),
       bitsPerSecond: streamBitrate,
     );
+    _bufferFell = bufferFell(_health, target);
     try {
       final speed = double.tryParse(player.getProperty('cache-speed'));
-      // filling: the network is what limits it. Not with the video on an
-      // external track: then all of this is the audio's (52 KB/s bursts,
-      // the buffer "ahead" the audio's too), and a step up would be judged
-      // on it
-      if (_replacedVid == null &&
-          speed != null &&
+      // filling: the network is what limits it
+      if (speed != null &&
           speed > 0 &&
           cache < target * 0.9) {
         _delivered.add(speed);
@@ -2281,7 +2226,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       EventLog.add(
         'player',
         'health: cache ${cache.toStringAsFixed(1)} / ${target.toStringAsFixed(1)} s, '
-            'speed ${read('cache-speed')}, replaced ${_replacedVid ?? '-'}, '
+            'speed ${read('cache-speed')}, '
             'roomy $_roomyFor, ${_delivered.length} measured',
       );
     }
@@ -2301,6 +2246,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // a step up that did not work out is not tried again at once
       _healthRest = 60;
       _replaceStreams(onStreamRoomy!, why: 'roomy', reopen: false);
+      return;
+    }
+    // The buffer falling a long way: whatever the network seemed to deliver,
+    // it is not keeping up. In the user's copy the cache fell from 29 s to
+    // 8 s in 25 s while what came in read 2.1 Mbps for a 1.8 Mbps stream —
+    // the seconds nothing came in are not counted there — and the page kept
+    // the quality until the buffer was gone (2026-10-10).
+    if (_bufferFell) {
+      EventLog.add(
+        'player',
+        'buffer fell to ${_health.last.cacheSeconds.toStringAsFixed(1)} s '
+            'of ${target.toStringAsFixed(1)} s: not keeping up',
+      );
+      _health.clear();
+      _healthRest = 30;
+      _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
       return;
     }
     // The network delivering less than the stream needs, while the buffer
@@ -2345,6 +2306,29 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
   }
 
+  /// The buffer ahead fell a long way at the last look (see [bufferFell]):
+  /// for the page, which then does not keep the quality on what the network
+  /// seemed to deliver.
+  bool get bufferFalling => _bufferFell;
+  var _bufferFell = false;
+
+  /// Whether the buffer ahead has fallen a long way over [samples] (the last
+  /// 20 s of playing): by a third of [targetSeconds] or more from its
+  /// highest, to half of it or less. mpv reads again once the buffer is down
+  /// to two thirds (`demuxer-hysteresis-secs`), so below that it has been
+  /// reading all the while and still lost ground; a healthy stream swings
+  /// between full and two thirds.
+  @visibleForTesting
+  static bool bufferFell(List<PlaybackHealth> samples, double targetSeconds) {
+    if (samples.length < 2 || targetSeconds <= 0) return false;
+    var highest = samples.first.cacheSeconds;
+    for (final sample in samples) {
+      highest = max(highest, sample.cacheSeconds);
+    }
+    final last = samples.last.cacheSeconds;
+    return highest - last >= targetSeconds / 3 && last <= targetSeconds / 2;
+  }
+
   /// Whether the buffer ahead has been going down over the last 6 seconds
   /// of [samples]: down by more than a second in all, and in most of them.
   @visibleForTesting
@@ -2383,28 +2367,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return fits < seconds ? fits : seconds;
   }
 
-  /// The id of the external [kind] track mpv opened from [url], in its
-  /// `track-list`.
-  @visibleForTesting
-  static String? externalTrack(String trackList, String kind, String url) =>
-      _externalTrack(trackList, kind, url);
-
-  static String? _externalTrack(String trackList, String kind, String url) {
-    try {
-      final tracks = jsonDecode(trackList);
-      if (tracks is! List) return null;
-      for (final track in tracks.reversed) {
-        if (track is Map &&
-            track['type'] == kind &&
-            track['external'] == true &&
-            track['external-filename'] == url) {
-          return '${track['id']}';
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
-
   /// [fallback]: from a replacement in place that did not work out. Any
   /// other switch waits while one is under way: it would reopen the source
   /// under it (the dry-track watchdog did, while the other hosts were still
@@ -2438,10 +2400,36 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
                   '${StackTrace.current.toString().split('\n').skip(1).take(4).join(' | ')}',
             );
           }
-          FailureReport.show('视频无法播放', '所有线路都试过了，仍无法加载这个视频。');
+          _reportFailureUnlessPlaying(source);
         }
       },
     );
+  }
+
+  Timer? _failureCheck;
+
+  /// 视频无法播放, said 15 s from now unless playback has gone on by then.
+  /// No host left to switch to is not playback lost: right after a reopen
+  /// the cache reads behind the playhead for a moment, the dry-track watch
+  /// asked for another host, and the viewer was told all of them had failed
+  /// three times while the video went on playing (the user's copy,
+  /// 2026-10-10).
+  void _reportFailureUnlessPlaying(DataSource source) {
+    if (_failureCheck != null) return;
+    final before = position.value;
+    EventLog.add(
+      'player',
+      'no other CDN: telling the viewer in 15 s unless playback goes on',
+    );
+    _failureCheck = Timer(const Duration(seconds: 15), () {
+      _failureCheck = null;
+      if (!identical(dataSource, source)) return;
+      if (position.value != before && !isBuffering.value) {
+        EventLog.add('player', 'playback went on: no failure shown');
+        return;
+      }
+      FailureReport.show('视频无法播放', '所有线路都试过了，仍无法加载这个视频。');
+    });
   }
 
   /// Where `Stream ends prematurely at N, should be M` says a stream ended.
@@ -2500,8 +2488,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // for that tick
       _guarded('smoothness', _sampleSmoothness);
       _guarded('health', () => _watchHealth(player));
-      _guarded('replaced video', () => _watchReplacedVideo(player));
-      _guarded('rehome', _rehome);
       if (isLive ||
           dataSource is FileSource ||
           !playerStatus.isPlaying ||
@@ -2541,135 +2527,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // would only cost the viewer another stall
       _switchCdn();
     });
-  }
-
-  /// The streams put in place as extra tracks by [_replaceStreams], while
-  /// they are.
-  String? _externalVideo;
-  String? _externalAudio;
-
-  /// Seconds until the next [_rehome] is tried.
-  var _rehomeRest = 0;
-
-  /// Moves streams put in place as extra tracks (when there was no room
-  /// for a handover) into the main stream of a second player, by a handover
-  /// to the same streams. As extra tracks nothing sees how they are doing:
-  /// the buffer and the speed read are the audio's, so a video starving
-  /// went unseen and a step back up was judged on the audio (it never came,
-  /// 250 s at 720P on a host that had recovered). Tried every 30 s until
-  /// it works; while it does not, [_watchReplacedVideo] keeps watch.
-  void _rehome() {
-    if (_replacedVid == null ||
-        _externalVideo == null ||
-        _replacing ||
-        debugDisableRecovery ||
-        debugNoHandover ||
-        onlyPlayAudio.value ||
-        !playerStatus.isPlaying) {
-      return;
-    }
-    if (_rehomeRest > 0) {
-      _rehomeRest--;
-      return;
-    }
-    _rehomeRest = 30;
-    final source = dataSource;
-    _replacing = true;
-    _handOver(
-          (video: _externalVideo, audio: _externalAudio),
-          source,
-          why: 'rehome',
-        )
-        .then((done) {
-          if (!done || !identical(dataSource, source)) return;
-          _replacedVid = null;
-          _replaced = false;
-          _externalVideo = _externalAudio = null;
-          _delivered.clear();
-          _dryTicks = -3;
-        })
-        .whenComplete(() {
-          _replacing = false;
-          isBuffering.value = _videoPlayerController?.state.buffering ?? false;
-        });
-  }
-
-  /// Seconds in a row the replaced video track has been behind the sound,
-  /// or playback has not moved.
-  var _videoBehindTicks = 0;
-
-  /// Where playback was at the last tick, to see it standing still.
-  double? _lastPicture;
-
-  /// Watches a video track put in place by [_replaceStreams], which nothing
-  /// else can see: `demuxer-cache-*` and `paused-for-cache` describe only
-  /// the main stream, the audio. Throttled to 40 kB/s (research/seamless-
-  /// stream-switch-2026-09-25.md), such a track left `paused-for-cache` at
-  /// `no` and the cache at 430 s while the sound played on and the picture
-  /// fell 11.4 s behind; in the app it was a 20 s crawl. While video plays,
-  /// `time-pos` follows the picture and `audio-pts` the sound, so the gap
-  /// between them is the one signal there is.
-  ///
-  /// Nor can it see playback standing still for such a track: the exact
-  /// seek of a replacement waits for the new video, and with that one
-  /// starving sound and picture both stood at 8.92 s to the end of the
-  /// test, `audio-pts` unset, nothing acting.
-  ///
-  /// Three seconds behind by more than [_videoBehindBy], or not moving:
-  /// the streams played now are reopened where the sound is, with the video
-  /// in the main stream again — where a slow host buffers visibly and the
-  /// health check can move it to a faster host or a lower quality.
-  void _watchReplacedVideo(NativePlayer player) {
-    if (_replacedVid == null ||
-        _replacing ||
-        onlyPlayAudio.value ||
-        !playerStatus.isPlaying ||
-        onReopen == null ||
-        debugDisableRecovery ||
-        debugNoVideoWatch) {
-      _videoBehindTicks = 0;
-      _lastPicture = null;
-      return;
-    }
-    final bool behind;
-    try {
-      final picture = double.tryParse(player.getProperty('time-pos'));
-      final still =
-          picture != null && _lastPicture != null && picture == _lastPicture;
-      _lastPicture = picture;
-      behind =
-          still ||
-          videoFellBehind(
-            audio: double.tryParse(player.getProperty('audio-pts')),
-            picture: picture,
-          );
-    } catch (_) {
-      // disposed between ticks
-      return;
-    }
-    if (!behind) {
-      _videoBehindTicks = 0;
-      return;
-    }
-    if (++_videoBehindTicks < 3) return;
-    _videoBehindTicks = 0;
-    _lastPicture = null;
-    EventLog.add('player', 'replaced video fell behind: reopen');
-    _replacedVid = null;
-    onReopen!();
-  }
-
-  static const _videoBehindBy = 1.0;
-
-  /// Whether the picture, at [picture] seconds, is more than
-  /// [_videoBehindBy] behind the sound at [audio].
-  @visibleForTesting
-  static bool videoFellBehind({
-    required double? audio,
-    required double? picture,
-  }) {
-    if (audio == null || picture == null) return false;
-    return audio - picture > _videoBehindBy;
   }
 
   /// Whether the playhead, in seconds, has run more than a second past the
@@ -2783,25 +2640,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _lastGood = position;
     // the seek would be a new request on an expired URL
     if (_renewIfExpired(position)) return;
-    // The video on a side track (a replacement): the main cache does not
-    // hold it, so a seek into what was buffered still waited 2.8 s
-    // (2026-10-09). A seek is a break anyway: the streams played now are
-    // opened again at its target, the video in the main stream.
-    if (_replacedVid != null &&
-        onReopen != null &&
-        !onlyPlayAudio.value &&
-        !debugDisableRecovery) {
-      EventLog.add(
-        'player',
-        'seek with the video on a side track: '
-            'opening again at ${position.inSeconds} s',
-      );
-      _replacedVid = null;
-      _resumeAt = position;
-      onReopen!();
-      return;
-    }
-
     Future<void> seek() async {
       if (isSeek) {
         /// 拖动进度条调节时，不等待第一帧，防止抖动
@@ -2847,6 +2685,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// A reopen of the same file under way ([refreshPlayer]): mpv's position
   /// reads 0 until the file is in, and is not to be taken.
   var _reopening = false;
+
+  /// When the last open began: the streams it let go of close with errors
+  /// of their own (see the error listener).
+  DateTime? _openStartedAt;
 
   /// A seek made before mpv had the file (see [seekTo]): the next open
   /// starts there, or it is made once the file is in.
@@ -3734,6 +3576,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _playerCount = 0;
     _recoveryCheck?.cancel();
     _recoveryCheck = null;
+    _failureCheck?.cancel();
+    _failureCheck = null;
     _stopWaitingForNetwork();
     if (removeSafeArea) {
       showSystemBar();

@@ -33,4 +33,34 @@ void main() {
   test('too few seconds to say', () {
     expect(PlPlayerController.bufferDraining(seconds([24, 22, 20])), isFalse);
   });
+
+  group('the buffer falling a long way, whatever came in', () {
+    bool fell(List<double> cache, [double target = 30]) =>
+        PlPlayerController.bufferFell(seconds(cache), target);
+
+    test('the user copy, 2026-10-10: 29 s to 15 s in 17 s', () {
+      expect(
+        fell([29, 28, 27, 27, 26, 24, 22, 22, 21, 20, 20, 19, 18, 17, 16, 15]),
+        isTrue,
+      );
+    });
+
+    test('a healthy stream swinging from full to where it refills', () {
+      // demuxer-hysteresis-secs: reading again at two thirds of 30 s
+      expect(fell([30, 28, 26, 24, 22, 20, 19.5, 21, 24, 27, 30]), isFalse);
+    });
+
+    test('low, but not fallen there: the start of a video filling', () {
+      expect(fell([2, 4, 6, 8, 10, 12]), isFalse);
+    });
+
+    test('fallen, but still above half of the target', () {
+      expect(fell([30, 25, 20, 16]), isFalse);
+    });
+
+    test('a smaller target, the phone default', () {
+      expect(fell([16, 14, 12, 10, 8], 16), isTrue);
+      expect(fell([16, 14, 12, 11, 12], 16), isFalse);
+    });
+  });
 }

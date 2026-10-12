@@ -1,16 +1,19 @@
 /// LibrePili: every stretch of playback that does not look smooth, as one
 /// line in the event log (user 2026-10-01: "所有被感知到的不流畅掉帧都被记录").
 ///
-/// Two layers can each lose frames the other cannot see:
-/// - mpv: a frame the decoder dropped, one the output dropped to keep up
-///   with the sound, one shown late, one shown at the wrong moment, the
-///   picture drifting from the sound, the playhead not moving at all;
-/// - Flutter, which draws mpv's frames: a frame mpv delivered on time and
-///   the app put on screen late, because a build or a raster ran long.
-/// The player samples mpv once a second and Flutter reports its frame
-/// timings; both land here, which merges the bad seconds into episodes and
-/// says which layer lost what. Buffering is logged where it happens (see
+/// What mpv loses: a frame the decoder dropped, one the output dropped to
+/// keep up with the sound, one shown late, one shown at the wrong moment,
+/// the picture drifting from the sound, the playhead not moving at all. The
+/// player samples mpv once a second; this merges the bad seconds into
+/// episodes. Buffering is logged where it happens (see
 /// PlPlayerController._logBuffering); here it only pauses the count.
+///
+/// Not Flutter's side: a video frame reaches the screen as a texture update,
+/// which the engine draws without a frame timing (`Rasterizer::
+/// DrawLastLayerTrees` never reports one; only `DoDraw` does). Counted from
+/// the timings, a video played smoothly with nothing else moving read as one
+/// frame a second — "界面漏", in every log, until 2026-10-12. A Flutter
+/// frame that itself runs long is logged by the player as 界面卡.
 ///
 /// Pure: no mpv, no Flutter, so the thresholds can be tested. The
 /// thresholds are what is usually visible; a screen recording compared
@@ -80,12 +83,6 @@ class SmoothEpisode {
   int delayed = 0;
   int mistimed = 0;
 
-  /// Video frames Flutter put on screen late or not at all.
-  int uiMissed = 0;
-
-  /// The longest gap between two frames Flutter drew, ms.
-  int longestGapMs = 0;
-
   /// The furthest the picture was from the sound, ms.
   int worstAvsyncMs = 0;
 
@@ -94,11 +91,10 @@ class SmoothEpisode {
   String describe() {
     final at = position == null ? '' : ' @${position!.toStringAsFixed(0)}s';
     final seconds = (length.inMilliseconds / 1000).toStringAsFixed(1);
-    final total = decoderDrops + outputDrops + delayed + mistimed + uiMissed;
+    final total = decoderDrops + outputDrops + delayed + mistimed;
     return '不流畅 $seconds s$at: $total 帧'
         ' (解码丢 $decoderDrops · 输出丢 $outputDrops · 晚到 $delayed'
-        ' · 时机错 $mistimed · 界面漏 $uiMissed)'
-        '${longestGapMs > 0 ? ' · 最长间隔 $longestGapMs ms' : ''}'
+        ' · 时机错 $mistimed)'
         '${worstAvsyncMs > 0 ? ' · 声画差 $worstAvsyncMs ms' : ''}'
         '${context.isEmpty ? '' : ' · $context'}';
   }
@@ -139,10 +135,6 @@ class SmoothnessMonitor {
   SmoothSample? _last;
   SmoothEpisode? _episode;
 
-  /// Flutter's account since the last sample: frames missed, longest gap.
-  int _uiMissed = 0;
-  int _uiGapMs = 0;
-
   /// Seconds the playhead has not moved.
   int _still = 0;
   bool _stuckLogged = false;
@@ -150,21 +142,6 @@ class SmoothnessMonitor {
 
   /// The episode under way, for the debug overlay.
   SmoothEpisode? get current => _episode;
-
-  /// Frames Flutter drew while a video played: [gapsMs] between one frame's
-  /// end and the next's, against the video's own frame interval.
-  void addUiGaps(Iterable<int> gapsMs, {required double videoFps}) {
-    if (videoFps <= 0) return;
-    final interval = 1000 / videoFps;
-    for (final gap in gapsMs) {
-      // half a frame of slack: a 24 fps video on a 60 Hz screen alternates
-      // 33 and 50 ms and is smooth as it can be
-      if (gap > interval * 1.5) {
-        _uiMissed += math.max(1, (gap / interval).round() - 1);
-      }
-      if (gap > _uiGapMs) _uiGapMs = gap;
-    }
-  }
 
   void add(SmoothSample s) {
     final last = _last;
@@ -176,8 +153,6 @@ class SmoothnessMonitor {
       _finish(s.at);
       _endStuck(s);
       _still = 0;
-      _uiMissed = 0;
-      _uiGapMs = 0;
       return;
     }
 
@@ -191,15 +166,11 @@ class SmoothnessMonitor {
     final output = delta(s.outputDrops, last.outputDrops);
     final delayed = delta(s.delayed, last.delayed);
     final mistimed = delta(s.mistimed, last.mistimed);
-    final ui = _uiMissed;
-    final gap = _uiGapMs;
-    _uiMissed = 0;
-    _uiGapMs = 0;
     final avsync = (s.avsync ?? 0).abs();
 
     _watchStuck(s, last);
 
-    final lost = decoder + output + delayed + mistimed + ui;
+    final lost = decoder + output + delayed + mistimed;
     final bad = lost >= badFramesPerSecond || avsync >= avsyncVisible;
     if (!bad) {
       _finish(s.at);
@@ -216,8 +187,6 @@ class SmoothnessMonitor {
       ..outputDrops += output
       ..delayed += delayed
       ..mistimed += mistimed
-      ..uiMissed += ui
-      ..longestGapMs = math.max(episode.longestGapMs, gap)
       ..worstAvsyncMs = math.max(
         episode.worstAvsyncMs,
         avsync >= avsyncVisible ? (avsync * 1000).round() : 0,
@@ -272,8 +241,6 @@ class SmoothnessMonitor {
     _last = null;
     _still = 0;
     _stuckLogged = false;
-    _uiMissed = 0;
-    _uiGapMs = 0;
   }
 
   String _safeContext() {

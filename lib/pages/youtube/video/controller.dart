@@ -220,7 +220,8 @@ class YtVideoController extends GetxController
       // one host per URL: a cut stream is new URLs, as a failover is
       ..onStreamCut = null
       ..onCdnFailover = _failover
-      ..onReopen = _reopenHere;
+      ..onReopen = _reopenHere
+      ..onStepUpDropped = _dropStepUp;
     _heightCeiling ??= pair.video == null ? null : ytShortSide(pair.video!);
     // what the buffer is sized by: without it mpv got the 4 MiB setting, 5 s
     // of a 1080p60 stream against the 30 s asked for, and every seek 10 s on
@@ -1495,6 +1496,7 @@ class YtVideoController extends GetxController
   Future<({String? video, String? audio})?> _stepHeight({
     required bool down,
   }) async {
+    if (!down) _undoStepUp = null;
     if (_heightChosen || isClosed) return null;
     if (!down) {
       if (_noStepUpUntil case final until? when DateTime.now().isBefore(until)) {
@@ -1508,9 +1510,11 @@ class YtVideoController extends GetxController
       final delivered = plPlayerController.observedBytesPerSecond;
       final rate = _streams == null ? null : _bitrateOf(_streams!);
       final at = DateTime.now();
+      // not while the buffer falls a long way (see the bilibili page)
       if (delivered != null &&
           rate != null &&
           delivered * 8 >= rate &&
+          !plPlayerController.bufferFalling &&
           (_slowKeptAt == null ||
               at.difference(_slowKeptAt!) > const Duration(minutes: 2))) {
         _slowKeptAt = at;
@@ -1565,6 +1569,19 @@ class YtVideoController extends GetxController
         return null;
       }
     }
+    if (!down) {
+      final before = (
+        streams: _streams,
+        height: maxHeight.value,
+        bitrate: plPlayerController.streamBitrate,
+      );
+      _undoStepUp = () {
+        _streams = before.streams;
+        maxHeight.value = before.height;
+        plPlayerController.streamBitrate = before.bitrate;
+        _steppedUpAt = null;
+      };
+    }
     _streams = pair;
     maxHeight.value = next;
     plPlayerController.streamBitrate = bitrate;
@@ -1580,6 +1597,15 @@ class YtVideoController extends GetxController
       EventLog.add('player', 'the step up stalled: no step up for 10 min');
     }
     return (video: _videoUrlOf(pair), audio: null);
+  }
+
+  /// Puts back what a step up changed, for one the player could not make
+  /// without a stop (see [PlPlayerController.onStepUpDropped]).
+  VoidCallback? _undoStepUp;
+
+  void _dropStepUp() {
+    _undoStepUp?.call();
+    _undoStepUp = null;
   }
 
   /// Self-test: the first open gets URLs YouTube refuses (403).
@@ -1685,7 +1711,8 @@ class YtVideoController extends GetxController
         ..onStreamSlow = null
         ..onStreamRoomy = null
         ..onCdnFailover = null
-        ..onReopen = null;
+        ..onReopen = null
+        ..onStepUpDropped = null;
     }
     plPlayerController.dispose();
     super.onClose();

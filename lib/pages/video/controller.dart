@@ -599,6 +599,7 @@ class VideoDetailController extends GetxController
       ..onStreamCut = replaceCutStreams
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
+      ..onStepUpDropped = _dropStepUp
       ..onReopen = _reopenAtCurrentPosition
       ..onSourceExpired = _renewPlayUrl;
     args = Get.arguments;
@@ -1112,7 +1113,11 @@ class VideoDetailController extends GetxController
             when _deliveredByHost.containsKey(host))
           host: _deliveredByHost[host],
     };
-    final best = CdnProbe.pick(known, current: current, keepRatio: 1 / 1.3);
+    var best = CdnProbe.pick(known, current: current, keepRatio: 1 / 1.3);
+    // nor on a host found too slow this session, while there is another
+    if ((best == null || best == current) && _avoided(current)) {
+      best = _hostOf(candidates.first);
+    }
     if (best != null && best != current) {
       videoUrl = _onHost(candidates, best) ?? video;
       if (_currentAudio case final audio?) {
@@ -1120,8 +1125,10 @@ class VideoDetailController extends GetxController
       }
       EventLog.add(
         'player',
-        'open on $best: delivered '
-            '${((known[best] ?? 0) * 8 / 1e6).toStringAsFixed(1)} Mbps this session',
+        known.containsKey(best)
+            ? 'open on $best: delivered '
+                  '${((known[best] ?? 0) * 8 / 1e6).toStringAsFixed(1)} Mbps this session'
+            : 'open on $best: $current was too slow lately',
       );
     }
     // Measured right away, beside the open: a probe reads a host's opening
@@ -1152,6 +1159,7 @@ class VideoDetailController extends GetxController
             'for ${(rate / 1e6).toStringAsFixed(1)} Mbps: moving to $best',
       );
       if (host != null) _triedHosts.add(host);
+      _noteSlow(host);
       videoUrl = url;
       if (_currentAudio case final audio?) {
         audioUrl = _onHost(audio.playUrls, best) ?? audioUrl;
@@ -1214,6 +1222,7 @@ class VideoDetailController extends GetxController
           CdnProbe.keepsUp(speeds[best], _streamBitrate)) {
         final newVideo = _onHost(candidates, best);
         if (newVideo != null) {
+          _noteSlow(current);
           videoUrl = newVideo;
           return (video: newVideo, audio: null);
         }
@@ -1239,7 +1248,14 @@ class VideoDetailController extends GetxController
     // burst (akam: about 10 MB at 79 Mbps, then 5.8 Mbps, measured
     // 2026-10-09), and kept on a 10.8 Mbps probe a stream stalled every
     // 3-10 s for 70 s. Without enough measured, a lower quality.
-    final keepsUp = delivered != null && (rate == null || delivered * 8 >= rate);
+    //
+    // Nor while the buffer is falling a long way: what came in is counted
+    // only in the seconds something did, and read 2.1 Mbps for a 1.8 Mbps
+    // stream while the buffer went from 29 s to nothing (2026-10-10).
+    final keepsUp =
+        delivered != null &&
+        (rate == null || delivered * 8 >= rate) &&
+        !plPlayerController.bufferFalling;
     if (current != null &&
         keepsUp &&
         (_slowKeptAt == null || now.difference(_slowKeptAt!) > _slowKeptFor)) {
@@ -1263,13 +1279,33 @@ class VideoDetailController extends GetxController
   DateTime? _slowKeptAt;
 
   /// [urls] without those on a host that failed on this part (see
-  /// [_triedHosts]); all of them when every one has.
+  /// [_triedHosts]) or was found too slow lately (see [_slowHosts]); all of
+  /// them when every one has.
   List<String> _withoutBroken(List<String> urls) {
     final left = [
       for (final url in urls)
-        if (!_triedHosts.contains(_hostOf(url))) url,
+        if (!_avoided(_hostOf(url))) url,
     ];
     return left.isEmpty ? urls : left;
+  }
+
+  /// Hosts found too slow for what they played this session, and when: not
+  /// gone back to for [_slowFor] on a probe's say-so. A probe reads a host's
+  /// opening burst: akam was left at the open for 2.4 Mbps against a 1.8
+  /// Mbps stream, and two minutes later a step down picked it again on a
+  /// 12.3 Mbps burst — the picture then stood still (2026-10-10).
+  static final _slowHosts = <String, DateTime>{};
+  static const _slowFor = Duration(minutes: 10);
+
+  static void _noteSlow(String? host) {
+    if (host != null) _slowHosts[host] = DateTime.now();
+  }
+
+  bool _avoided(String? host) {
+    if (host == null) return false;
+    if (_triedHosts.contains(host)) return true;
+    final at = _slowHosts[host];
+    return at != null && DateTime.now().difference(at) < _slowFor;
   }
 
   /// There has been room to spare for a while (see
@@ -1289,6 +1325,7 @@ class VideoDetailController extends GetxController
   /// 2026-10-09, A).
   Future<({String? video, String? audio})?> raiseQuality() async {
     _noteDelivered();
+    _undoStepUp = null;
     final video = videoUrl;
     if (isFileSource || video == null || _qualityChosen) return null;
     final host = _hostOf(video);
@@ -1313,6 +1350,12 @@ class VideoDetailController extends GetxController
       EventLog.add('player', 'no step up: $host did not answer');
       return null;
     }
+    final before = (
+      video: firstVideo,
+      url: videoUrl,
+      quality: currentVideoQa.value,
+      bitrate: plPlayerController.streamBitrate,
+    );
     final step = _stepQuality(down: false, speeds: {host: capacity});
     if (step == null) {
       EventLog.add(
@@ -1323,7 +1366,24 @@ class VideoDetailController extends GetxController
       return null;
     }
     _steppedUpAt = now;
+    _undoStepUp = () {
+      firstVideo = before.video;
+      _setVideoHeight();
+      videoUrl = before.url;
+      currentVideoQa.value = before.quality;
+      plPlayerController.streamBitrate = before.bitrate;
+      _steppedUpAt = null;
+    };
     return step;
+  }
+
+  /// Puts back what [raiseQuality] changed, for a step up the player could
+  /// not make without a stop (see [PlPlayerController.onStepUpDropped]).
+  VoidCallback? _undoStepUp;
+
+  void _dropStepUp() {
+    _undoStepUp?.call();
+    _undoStepUp = null;
   }
 
   /// When the quality last went up by itself, and until when it may not
@@ -1384,14 +1444,24 @@ class VideoDetailController extends GetxController
       if (ceiling != -1 && next < ceiling) return null;
     }
     final item = findVideoByQa(codes[next]);
-    final best = CdnProbe.pick(speeds);
+    final playing = _hostOf(videoUrl);
+    // the hosts measured, without those found too slow or broken (a burst
+    // says nothing of how a host keeps up); with none left, the one playing
+    final best =
+        CdnProbe.pick({
+          for (final e in speeds.entries)
+            if (!_avoided(e.key)) e.key: e.value,
+        }) ??
+        playing;
     if (!down) {
       final bitrate = (item.bandWidth ?? 0) + (_currentAudio?.bandWidth ?? 0);
       if (!CdnProbe.keepsUp(speeds[best], bitrate, margin: 1.5)) return null;
     }
-    final candidates = _withoutBroken(VideoUtils.cdnCandidates(item.playUrls));
+    final candidates = VideoUtils.cdnCandidates(item.playUrls);
     final url =
-        _onHost(candidates, best) ?? VideoUtils.getCdnUrl(item.playUrls);
+        _onHost(candidates, best) ??
+        _onHost(candidates, playing) ??
+        VideoUtils.getCdnUrl(item.playUrls);
     firstVideo = item;
     _setVideoHeight();
     videoUrl = url;
@@ -1540,6 +1610,7 @@ class VideoDetailController extends GetxController
       ..onStreamCut = replaceCutStreams
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
+      ..onStepUpDropped = _dropStepUp
       ..onReopen = _reopenAtCurrentPosition
       ..onSourceExpired = _renewPlayUrl
       ..streamBitrate = _streamBitrate;
@@ -3583,6 +3654,9 @@ class VideoDetailController extends GetxController
     }
     if (plPlayerController.onReopen == _reopenAtCurrentPosition) {
       plPlayerController.onReopen = null;
+    }
+    if (plPlayerController.onStepUpDropped == _dropStepUp) {
+      plPlayerController.onStepUpDropped = null;
     }
     if (plPlayerController.onSourceExpired == _renewPlayUrl) {
       plPlayerController.onSourceExpired = null;

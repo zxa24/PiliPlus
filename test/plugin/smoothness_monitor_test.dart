@@ -106,24 +106,6 @@ void main() {
     expect(lines, hasLength(1));
   });
 
-  test('Flutter drawing a video frame late is counted as 界面漏', () {
-    second(0);
-    // 30 fps: 33 ms apart; a 133 ms gap misses three
-    m.addUiGaps([33, 33, 133, 33], videoFps: 30);
-    second(1);
-    second(2);
-    expect(lines.single, contains('界面漏 3'));
-    expect(lines.single, contains('最长间隔 133 ms'));
-  });
-
-  test('24 fps on a 60 Hz screen is as smooth as it gets', () {
-    second(0);
-    m.addUiGaps([33, 50, 33, 50, 33, 50], videoFps: 24);
-    second(1);
-    second(2);
-    expect(lines, isEmpty);
-  });
-
   test('a playhead that does not move, playing and not buffering', () {
     second(0, position: 960);
     second(1, position: 960);
