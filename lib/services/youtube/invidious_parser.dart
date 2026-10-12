@@ -36,6 +36,7 @@ class InvidiousWatch {
     required this.duration,
     required this.isLive,
     required this.dashUrl,
+    required this.relayedDashUrl,
     required this.captions,
     this.viewCount,
   });
@@ -52,6 +53,10 @@ class InvidiousWatch {
   /// The manifest with googlevideo's own URLs (`local=true` taken out); null
   /// when the page offers none — a video the instance cannot play.
   final String? dashUrl;
+
+  /// The manifest as the page gives it (`local=true`): every stream through
+  /// the instance's companion.
+  final String? relayedDashUrl;
 
   /// `(label, url)` per caption track, in the page's order.
   final List<({String label, String url})> captions;
@@ -96,6 +101,7 @@ InvidiousWatch? parseInvidiousWatch(String html, String videoId) {
     isLive: video['live_now'] == true,
     viewCount: views == null ? null : int.tryParse(views.replaceAll(',', '')),
     dashUrl: dash == null ? null : withoutLocal(_unescape(dash)),
+    relayedDashUrl: dash == null ? null : _unescape(dash),
     captions: captions,
   );
 }
@@ -119,7 +125,7 @@ String withoutLocal(String url) => url
 /// stream came in at the line's speed, not a throttled trickle — measured
 /// 2026-10-12); the formats are marked so, so [YtFormat.isPlayable] does
 /// not take them for the undeciphered kind.
-List<YtFormat> parseInvidiousDash(String xml) {
+List<YtFormat> parseInvidiousDash(String xml, {Uri? base}) {
   final out = <YtFormat>[];
   for (final set in RegExp(
     r'<AdaptationSet([^>]*)>(.*?)</AdaptationSet>',
@@ -134,12 +140,12 @@ List<YtFormat> parseInvidiousDash(String xml) {
       dotAll: true,
     ).allMatches(set.group(2)!)) {
       final attrs = _attrs(rep.group(1)!);
-      final base = RegExp(
+      final baseUrl = RegExp(
         r'<BaseURL>([^<]*)</BaseURL>',
       ).firstMatch(rep.group(2)!)?.group(1);
       final id = attrs['id'];
-      if (base == null || id == null) continue;
-      final url = _unescape(base);
+      if (baseUrl == null || id == null) continue;
+      final url = _absolute(_unescape(baseUrl), base);
       if (id.endsWith('-drc')) continue;
       final itag = asInt(RegExp(r'^\d+').firstMatch(id)?.group(0));
       if (itag == null) continue;
@@ -188,21 +194,68 @@ List<YtFormat> parseInvidiousDash(String xml) {
 /// The page names a track only by its label (`English`, `English
 /// (auto-generated)`); [codes] — `label → languageCode` from the instance's
 /// `/api/v1/captions/<id>`, which still answers — fills the language in.
+///
+/// Where that list is refused (`invidious.tiekoetter.com`: 403), the label's
+/// language name is looked up instead ([invidiousLanguageOf]).
 List<YtCaptionTrack> invidiousCaptionTracks(
   InvidiousWatch watch, [
   Map<String, String> codes = const {},
+  Uri? base,
 ]) => [
-  for (final c in watch.captions)
-    YtCaptionTrack(
-      languageCode: codes[c.label] ?? '',
-      baseUrl: c.url,
-      vssId:
-          '${c.label.contains('(auto-generated)') ? 'a' : ''}.'
-          '${codes[c.label] ?? ''}',
-      name: c.label,
-      translatable: false,
-    ),
+  for (final c in watch.captions) _track(c, codes, base),
 ];
+
+YtCaptionTrack _track(
+  ({String label, String url}) c,
+  Map<String, String> codes,
+  Uri? base,
+) {
+  final code = codes[c.label] ?? invidiousLanguageOf(c.label) ?? '';
+  return YtCaptionTrack(
+    languageCode: code,
+    baseUrl: _absolute(c.url, base),
+    vssId: '${c.label.contains('(auto-generated)') ? 'a' : ''}.$code',
+    name: c.label,
+    translatable: false,
+  );
+}
+
+/// The language code for one of the English names Invidious labels caption
+/// tracks with (`German (Germany)`, `English (auto-generated)`): the name
+/// before any parenthesis; null for a name not in the table.
+String? invidiousLanguageOf(String label) {
+  final name = label.split(' (').first.trim().toLowerCase();
+  final region = RegExp(r'\(([^)]+)\)').firstMatch(label)?.group(1);
+  if (name == 'chinese') {
+    return switch (region) {
+      'Traditional' || 'Taiwan' || 'Hong Kong' => 'zh-Hant',
+      _ => 'zh-Hans',
+    };
+  }
+  return _languages[name];
+}
+
+const _languages = {
+  'afrikaans': 'af', 'albanian': 'sq', 'amharic': 'am', 'arabic': 'ar',
+  'armenian': 'hy', 'azerbaijani': 'az', 'bangla': 'bn', 'bengali': 'bn',
+  'basque': 'eu', 'belarusian': 'be', 'bosnian': 'bs', 'bulgarian': 'bg',
+  'burmese': 'my', 'catalan': 'ca', 'croatian': 'hr', 'czech': 'cs',
+  'danish': 'da', 'dutch': 'nl', 'english': 'en', 'estonian': 'et',
+  'filipino': 'fil', 'finnish': 'fi', 'french': 'fr', 'galician': 'gl',
+  'georgian': 'ka', 'german': 'de', 'greek': 'el', 'gujarati': 'gu',
+  'hebrew': 'iw', 'hindi': 'hi', 'hungarian': 'hu', 'icelandic': 'is',
+  'indonesian': 'id', 'irish': 'ga', 'italian': 'it', 'japanese': 'ja',
+  'kannada': 'kn', 'kazakh': 'kk', 'khmer': 'km', 'korean': 'ko',
+  'lao': 'lo', 'latvian': 'lv', 'lithuanian': 'lt', 'macedonian': 'mk',
+  'malay': 'ms', 'malayalam': 'ml', 'marathi': 'mr', 'mongolian': 'mn',
+  'nepali': 'ne', 'norwegian': 'no', 'persian': 'fa', 'polish': 'pl',
+  'portuguese': 'pt', 'punjabi': 'pa', 'romanian': 'ro', 'russian': 'ru',
+  'serbian': 'sr', 'sinhala': 'si', 'slovak': 'sk', 'slovenian': 'sl',
+  'spanish': 'es', 'swahili': 'sw', 'swedish': 'sv', 'tamil': 'ta',
+  'telugu': 'te', 'thai': 'th', 'turkish': 'tr', 'ukrainian': 'uk',
+  'urdu': 'ur', 'uzbek': 'uz', 'vietnamese': 'vi', 'welsh': 'cy',
+  'zulu': 'zu', 'cantonese': 'yue',
+};
 
 /// `label → languageCode` out of `/api/v1/captions/<id>`'s answer.
 Map<String, String> invidiousCaptionCodes(Object? json) {
@@ -240,6 +293,10 @@ DateTime? invidiousExpiry(List<YtFormat> formats) {
   }
   return null;
 }
+
+/// [url] against [base] when it is a path on the instance.
+String _absolute(String url, Uri? base) =>
+    base == null || url.startsWith('http') ? url : base.resolve(url).toString();
 
 Map<String, dynamic>? _jsonScript(String html, String id) {
   final m = RegExp(

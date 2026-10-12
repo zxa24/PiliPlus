@@ -46,6 +46,27 @@ abstract final class InvidiousInstances {
     return out;
   }
 
+  /// Every clearnet `https` instance in [json], in the list's order,
+  /// whatever its monitor says: the monitor checks something other than the
+  /// watch page the app plays from (2026-10-12: `invidious.f5.si` marked down
+  /// while its watch page served; `inv.nadeko.net` 99.7 % up with its API
+  /// off for everyone).
+  static List<String> allHttps(Object? json) {
+    if (json is! List) return const [];
+    final out = <String>[];
+    for (final entry in json) {
+      if (entry is! List || entry.length < 2) continue;
+      final info = entry[1];
+      if (info is! Map) continue;
+      final uri = info['uri'];
+      if (info['type'] != 'https' || uri is! String || !uri.startsWith('https://')) {
+        continue;
+      }
+      out.add(uri.endsWith('/') ? uri.substring(0, uri.length - 1) : uri);
+    }
+    return out;
+  }
+
   /// The first of the healthiest instances that answers within [timeout],
   /// kept for half an hour; null when none does or the list is out of reach.
   static Future<String?> pick({

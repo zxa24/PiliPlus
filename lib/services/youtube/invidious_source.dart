@@ -1,51 +1,110 @@
-/// LibrePili: `inv.nadeko.net` as a [YouTubeVideoSource] — the second source
-/// the router's fallback slot was left for, for when YouTube refuses this
-/// network (its bot wall on `player`).
+/// LibrePili: public Invidious instances as a [YouTubeVideoSource] — the
+/// second source the router's fallback slot was left for, for when YouTube
+/// refuses this network (its bot wall on `player`).
+///
+/// ## Which instances
+///
+/// Invidious' own registry (`api.invidious.io`, [InvidiousInstances]),
+/// fetched when first needed and every six hours: every clearnet `https`
+/// entry in its health order, whatever its monitor says (the monitor does not
+/// check the route used here). The one that served last is asked first. One
+/// that puts up a gate this cannot pass (a CAPTCHA, an unknown challenge) or
+/// answers with something that is not Invidious is set aside for six hours;
+/// one that fails otherwise, for ten minutes. Only when the registry is out
+/// of reach are [knownHosts] used — the three measured to work on
+/// 2026-10-12.
 ///
 /// ## What it asks, and of whom
 ///
-/// Per video, of the instance: its watch page (`/watch?v=`, the page its own
-/// player reads; `/api/v1/videos` answers `403 Endpoint disabled` for
-/// everyone) and the caption list (`/api/v1/captions/<id>`); of its
+/// Per video, of an instance: its watch page (`/watch?v=`, the page its own
+/// player reads; `/api/v1/videos` answers `403 Endpoint disabled` on every
+/// instance measured) and the caption list (`/api/v1/captions/<id>`); of its
 /// companion: the DASH manifest and the caption text. The video itself comes
 /// from googlevideo directly — the manifest is asked for without
 /// `local=true`, so none of it goes through the instance (see
-/// `invidious_parser.dart`).
+/// `invidious_parser.dart`). When an instance cannot serve a video, the
+/// next is asked: at most [triesPerVideo] per video.
 ///
-/// The watch page sits behind go-away (`go_away.dart`): a proof of work and
-/// a refresh, a few milliseconds of hashing, once a week — the same the
+/// The watch pages sit behind go-away (`inv.nadeko.net`, `go_away.dart`) or
+/// Anubis (`invidious.f5.si`, `invidious.tiekoetter.com`, `anubis.dart`):
+/// a proof of work, a few milliseconds of hashing, once a week — what the
 /// instance's own page has a browser do. One page per video opened, kept
-/// for the URLs' life, is what a browser on that page costs it, and less:
-/// the browser would stream the video through the instance as well.
+/// for the URLs' life, is what a browser on that page costs the instance,
+/// and less: the browser would stream the video through it as well.
 ///
 /// ## What it sends
 ///
 /// A plain [HttpClient] of its own, like [IoYtTransport]: nothing of
-/// bilibili's, a browser user agent, and go-away's own cookies back to the
-/// instance (in memory only). Only the bare video id leaves this file.
+/// bilibili's, a browser user agent, and the gates' own cookies back to the
+/// hosts that set them (in memory only). Only the bare video id leaves this
+/// file.
 library;
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:PiliPlus/services/youtube/anubis.dart';
 import 'package:PiliPlus/services/youtube/go_away.dart';
+import 'package:PiliPlus/services/youtube/invidious_instances.dart';
 import 'package:PiliPlus/services/youtube/invidious_parser.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_format_select.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
 import 'package:PiliPlus/services/youtube/yt_verdict.dart';
 
+/// One answer, read whole. Redirects are never followed: the gates' cookies
+/// arrive on the redirect, and a client that follows it sees only the last
+/// response's headers (measured on Anubis, 2026-09-20).
+class InvidiousAnswer {
+  const InvidiousAnswer(
+    this.status,
+    this.body, {
+    this.location,
+    this.cookies = const [],
+    this.error = '',
+  });
+
+  final int status;
+  final String body;
+  final String? location;
+  final List<Cookie> cookies;
+
+  /// Why there is no answer (status 0).
+  final String error;
+}
+
+/// How a request goes out: [IoInvidiousFetch] in the app, a script in tests.
+typedef InvidiousFetch =
+    Future<InvidiousAnswer> Function(
+      Uri uri, {
+      required String method,
+      required Map<String, String> headers,
+    });
+
 class YtInvidiousSource implements YouTubeVideoSource {
-  YtInvidiousSource({this.host = defaultHost});
+  YtInvidiousSource({
+    InvidiousFetch? fetch,
+    List<String>? hosts,
+    DateTime Function()? clock,
+    this.relayed = false,
+  }) : _fetch = fetch ?? IoInvidiousFetch().call,
+       _fixedHosts = hosts,
+       _now = clock ?? DateTime.now;
 
-  static const defaultHost = 'https://inv.nadeko.net';
-
-  /// The one the video pages share: go-away's cookie is earned once.
+  /// The one the video pages share: a gate's cookie is earned once.
   static final shared = YtInvidiousSource();
 
-  /// The page's own user agent: go-away binds its challenge to it, and turns
-  /// away the bare ones (curl's, an empty one — measured 2026-09-20).
+  /// Used only when the registry cannot be read: measured to serve the
+  /// watch-page route on 2026-10-12.
+  static const knownHosts = [
+    'https://inv.nadeko.net',
+    'https://invidious.f5.si',
+    'https://invidious.tiekoetter.com',
+  ];
+
+  /// The page's own user agent: the gates bind their challenge to it, and
+  /// turn away the bare ones (curl's, an empty one — measured 2026-09-20).
   static const userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
@@ -54,18 +113,36 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// change or a caption should not cost the instance another page.
   static const keep = Duration(minutes: 20);
 
-  final String host;
+  /// How many instances one video is asked of before giving up.
+  static const triesPerVideo = 4;
+
+  /// How long the registry's list is used before it is read again.
+  static const registryLasts = Duration(hours: 6);
 
   /// Where each request's outcome is written (the event log, from the
   /// video page): this file stays free of the app.
   static void Function(String line)? log;
 
-  final _client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 10)
-    ..userAgent = userAgent;
+  /// The streams through the instance's companion (`local=true`) rather
+  /// than from googlevideo directly.
+  final bool relayed;
 
-  /// go-away's cookies (and the instance's own), for [host] only.
-  final _cookies = <String, String>{};
+  final InvidiousFetch _fetch;
+  final List<String>? _fixedHosts;
+  final DateTime Function() _now;
+
+  List<String>? _registry;
+  DateTime? _registryAt;
+
+  /// The instance that served last: asked first.
+  String? _preferred;
+
+  /// Instances set aside, until when, and why.
+  final _benched = <String, ({DateTime until, String why})>{};
+
+  /// The gates' cookies: `(domain, name) → value`, with whether the domain
+  /// is the setting host alone.
+  final _cookies = <(String, String), ({String value, bool hostOnly})>{};
 
   final _resolved = <String, ({YtVideoDetail detail, DateTime until})>{};
   final _pending = <String, Future<YtResult<YtVideoDetail>>>{};
@@ -74,20 +151,22 @@ class YtInvidiousSource implements YouTubeVideoSource {
   String get id => 'invidious';
 
   @override
-  String get label => 'Invidious (${Uri.parse(host).host})';
+  String get label =>
+      'Invidious${_preferred == null ? '' : ' (${Uri.parse(_preferred!).host})'}';
 
-  void close() => _client.close(force: true);
+  /// The instance that served last, if any.
+  String? get preferredHost => _preferred;
 
   // ------------------------------------------------------------- the video
 
   @override
   Future<YtResult<YtVideoDetail>> detail(String videoId) {
     final kept = _resolved[videoId];
-    if (kept != null && DateTime.now().isBefore(kept.until)) {
+    if (kept != null && _now().isBefore(kept.until)) {
       return Future.value(YtResult.ok(kept.detail));
     }
-    // the page asks for the detail and then the streams: one page for both
-    // a block body: `=> _pending.remove(…)` would hand whenComplete this
+    // the page asks for the detail and then the streams: one walk for both.
+    // A block body: `=> _pending.remove(…)` would hand whenComplete this
     // very future to wait for, and it would never complete (2026-10-12)
     return _pending[videoId] ??= _resolve(videoId).whenComplete(() {
       _pending.remove(videoId);
@@ -95,7 +174,63 @@ class YtInvidiousSource implements YouTubeVideoSource {
   }
 
   Future<YtResult<YtVideoDetail>> _resolve(String videoId) async {
-    final page = await _watchPage(videoId);
+    final hosts = await _order();
+    if (hosts.isEmpty) {
+      return const YtResult.failed(
+        YtVerdict(
+          YtCause.transient,
+          'invidious:no-instance',
+          'every instance is set aside for now',
+        ),
+      );
+    }
+    YtVerdict? last;
+    var unavailable = 0;
+    var tried = 0;
+    for (final host in hosts) {
+      if (tried == triesPerVideo) break;
+      tried++;
+      final r = await _resolveOn(host, videoId);
+      if (r.ok) {
+        _preferred = host;
+        return r;
+      }
+      final verdict = r.verdict;
+      last = verdict;
+      log?.call('${Uri.parse(host).host}: $verdict');
+      switch (verdict.signal) {
+        // the same for every instance: no use asking the next
+        case 'invidious:live':
+          return r;
+        // this instance, this video (measured per video, 2026-09-20)
+        case 'invidious:no-player' || 'invidious:no-streams':
+          unavailable++;
+        // this video on this instance, for now: the next, nobody set aside
+        case 'invidious:cannot-load':
+          break;
+        default:
+          _bench(host, verdict);
+      }
+    }
+    if (unavailable == tried) {
+      // every instance asked found no such video
+      return YtResult.failed(last!);
+    }
+    return YtResult.failed(
+      YtVerdict(
+        YtCause.transient,
+        'invidious:no-instance-served',
+        '$tried asked; last: ${last ?? '-'}',
+      ),
+    );
+  }
+
+  /// One video on one instance.
+  Future<YtResult<YtVideoDetail>> _resolveOn(
+    String host,
+    String videoId,
+  ) async {
+    final page = await _watchPage(host, videoId);
     if (!page.ok) return page.castFailure();
     final watch = parseInvidiousWatch(page.value!, videoId);
     if (watch == null) {
@@ -116,8 +251,8 @@ class YtInvidiousSource implements YouTubeVideoSource {
         ),
       );
     }
-    final dashUrl = watch.dashUrl;
-    if (dashUrl == null) {
+    final dash = relayed ? watch.relayedDashUrl : watch.dashUrl;
+    if (dash == null) {
       return const YtResult.failed(
         YtVerdict(
           YtCause.contentUnavailable,
@@ -127,14 +262,16 @@ class YtInvidiousSource implements YouTubeVideoSource {
       );
     }
 
+    final base = Uri.parse(host);
     final (manifest, captionList) = await (
-      _get(Uri.parse(dashUrl), cookies: false),
-      _get(Uri.parse('$host/api/v1/captions/$videoId')),
+      _get(base.resolve(dash)),
+      _get(base.resolve('/api/v1/captions/$videoId')),
     ).wait;
     if (manifest.status != HttpStatus.ok || manifest.body.isEmpty) {
       return YtResult.failed(_verdictOf(manifest, 'manifest'));
     }
-    final formats = parseInvidiousDash(manifest.body);
+    // relative stream paths are the companion's, where the manifest is
+    final formats = parseInvidiousDash(manifest.body, base: base.resolve(dash));
     if (formats.isEmpty) {
       return const YtResult.failed(
         YtVerdict(
@@ -145,6 +282,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
       );
     }
 
+    // refused on some instances (tiekoetter: 403): the labels then
     Map<String, String> codes = const {};
     if (captionList.status == HttpStatus.ok && captionList.body.isNotEmpty) {
       try {
@@ -152,7 +290,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
       } catch (_) {}
     }
 
-    final now = DateTime.now();
+    final now = _now();
     final expiry = invidiousExpiry(formats);
     final lasts = expiry == null ? keep : expiry.difference(now);
     final detail = YtVideoDetail(
@@ -166,14 +304,12 @@ class YtInvidiousSource implements YouTubeVideoSource {
       isLive: false,
       thumbnails: invidiousThumbnails(videoId),
       formats: formats,
-      captionTracks: invidiousCaptionTracks(watch, codes),
+      captionTracks: invidiousCaptionTracks(watch, codes, base),
       expiresIn: lasts,
     );
     // kept until well before the URLs end
     final until = now.add(
-      lasts - const Duration(minutes: 30) < keep
-          ? lasts ~/ 2
-          : keep,
+      lasts - const Duration(minutes: 30) < keep ? lasts ~/ 2 : keep,
     );
     _resolved[videoId] = (detail: detail, until: until);
     return YtResult.ok(detail);
@@ -186,15 +322,15 @@ class YtInvidiousSource implements YouTubeVideoSource {
   }) async {
     final r = await detail(videoId);
     if (!r.ok) return r.castFailure();
-    final detail_ = r.value!;
-    final picked = selectYtFormats(detail_.formats, preference);
+    final resolved = r.value!;
+    final picked = selectYtFormats(resolved.formats, preference);
     if (picked == null) {
       return YtResult.failed(
         YtVerdict(
           YtCause.contentUnavailable,
           'invidious:no-playable-pair',
           'codecs offered: '
-              '${detail_.formats.map((f) => f.codecFamily).toSet().join(', ')}',
+              '${resolved.formats.map((f) => f.codecFamily).toSet().join(', ')}',
         ),
       );
     }
@@ -203,7 +339,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
         videoUrl: picked.video.url!,
         audioUrl: picked.audio.url!,
         sourceId: id,
-        expiresIn: detail_.expiresIn,
+        expiresIn: resolved.expiresIn,
         video: picked.video,
         audio: picked.audio,
       ),
@@ -239,12 +375,12 @@ class YtInvidiousSource implements YouTubeVideoSource {
       );
     }
     final uri = Uri.tryParse(track.baseUrl);
-    if (uri == null) {
+    if (uri == null || !uri.hasScheme) {
       return const YtResult.failed(
         YtVerdict(YtCause.clientBroken, 'invidious:caption-url'),
       );
     }
-    final r = await _get(uri, cookies: false);
+    final r = await _get(uri);
     if (r.status == HttpStatus.ok && r.body.trimLeft().startsWith('WEBVTT')) {
       return YtResult.ok(r.body);
     }
@@ -253,56 +389,224 @@ class YtInvidiousSource implements YouTubeVideoSource {
 
   @override
   Future<YtVerdict> probe() async {
-    final r = await _get(Uri.parse('$host/api/v1/stats'));
+    final hosts = await _order();
+    if (hosts.isEmpty) {
+      return const YtVerdict(YtCause.transient, 'invidious:no-instance');
+    }
+    final r = await _get(Uri.parse('${hosts.first}/api/v1/stats'));
     return r.status == HttpStatus.ok ? YtVerdict.ok : _verdictOf(r, 'stats');
+  }
+
+  // ------------------------------------------------------------- instances
+
+  /// The instances to ask, in order: the one that served last, then the
+  /// registry's health order; none that is set aside.
+  Future<List<String>> _order() async {
+    final now = _now();
+    _benched.removeWhere((_, b) => !now.isBefore(b.until));
+    final all = _fixedHosts ?? await _registryHosts();
+    final open = all.where((h) => !_benched.containsKey(h)).toList();
+    final first = _preferred;
+    if (first != null && open.remove(first)) open.insert(0, first);
+    return open;
+  }
+
+  Future<List<String>> _registryHosts() async {
+    final at = _registryAt;
+    if (_registry != null &&
+        at != null &&
+        _now().difference(at) < registryLasts) {
+      return _registry!;
+    }
+    final r = await _get(Uri.parse(InvidiousInstances.listUrl));
+    List<String> hosts = const [];
+    if (r.status == HttpStatus.ok) {
+      try {
+        hosts = InvidiousInstances.allHttps(jsonDecode(r.body));
+      } catch (_) {}
+    }
+    if (hosts.isEmpty) {
+      log?.call('the registry gave no instance (${r.status}): '
+          '${_registry == null ? 'the known ones' : 'the last list'}');
+      // tried again in ten minutes rather than six hours
+      _registryAt = _now().subtract(registryLasts - const Duration(minutes: 10));
+      return _registry ??= knownHosts;
+    }
+    log?.call('the registry: ${hosts.map((h) => Uri.parse(h).host).join(', ')}');
+    _registryAt = _now();
+    return _registry = hosts;
+  }
+
+  void _bench(String host, YtVerdict why) {
+    final long = why.signal.startsWith('invidious:gate') ||
+        why.signal.startsWith('invidious:not-invidious') ||
+        why.signal.endsWith(':moved');
+    final until = _now().add(
+      long ? const Duration(hours: 6) : const Duration(minutes: 10),
+    );
+    _benched[host] = (until: until, why: why.signal);
+    if (_preferred == host) _preferred = null;
+    log?.call('${Uri.parse(host).host} set aside '
+        '${long ? 'for 6 h' : 'for 10 min'}: ${why.signal}');
   }
 
   // ------------------------------------------------------------- the page
 
-  /// The watch page, through go-away's challenges when they are in the way.
-  Future<YtResult<String>> _watchPage(String videoId) async {
+  /// The watch page, through the gate in front of it.
+  Future<YtResult<String>> _watchPage(String host, String videoId) async {
+    final base = Uri.parse(host);
     var path = '/watch?v=${Uri.encodeQueryComponent(videoId)}';
     for (var step = 0; step < 5; step++) {
-      final r = await _get(Uri.parse('$host$path'));
-      if (r.status == HttpStatus.ok) return YtResult.ok(r.body);
-      if (r.status != 418 || !GoAway.isChallenge(r.body)) {
-        return YtResult.failed(_verdictOf(r, 'watch'));
-      }
-      if (GoAway.powScript(r.body) case final script?) {
-        final passed = await _passPow(script, '$host$path');
+      final page = base.resolve(path);
+      final r = await _get(page);
+
+      if (Anubis.parse(r.body) case final challenge?) {
+        final passed = await _passAnubis(host, challenge, page.toString());
         if (passed != null) return YtResult.failed(passed);
         continue;
       }
-      if (GoAway.refreshUrl(r.body) case final url?) {
-        final answer = await _get(Uri.parse(host).resolve(url));
-        final next = answer.location;
-        if (answer.status ~/ 100 != 3 || next == null) {
-          return YtResult.failed(_verdictOf(answer, 'go-away-refresh'));
+      if (r.status == 418 && GoAway.isChallenge(r.body)) {
+        if (GoAway.powScript(r.body) case final script?) {
+          final passed = await _passGoAwayPow(host, script, page.toString());
+          if (passed != null) return YtResult.failed(passed);
+          continue;
         }
-        // back to the watch page, with what go-away added to its query
-        final back = Uri.parse(host).resolve(next);
-        path = back.hasQuery ? '${back.path}?${back.query}' : back.path;
-        continue;
+        if (GoAway.refreshUrl(r.body) case final url?) {
+          final answer = await _get(base.resolve(url));
+          final next = answer.location;
+          if (answer.status ~/ 100 != 3 || next == null) {
+            return YtResult.failed(_verdictOf(answer, 'go-away-refresh'));
+          }
+          // back to the watch page, with what go-away added to its query
+          final back = base.resolve(next);
+          path = back.hasQuery ? '${back.path}?${back.query}' : back.path;
+          continue;
+        }
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.ipBlocked,
+            'invidious:gate:go-away:${GoAway.challengeName(r.body) ?? 'unknown'}',
+            'a challenge this client does not know',
+          ),
+        );
       }
-      return YtResult.failed(
-        YtVerdict(
-          YtCause.clientBroken,
-          'invidious:go-away:${GoAway.challengeName(r.body) ?? 'unknown'}',
-          'a challenge this client does not know',
-        ),
-      );
+      if (r.status == HttpStatus.ok) {
+        if (r.body.contains('id="player_data"')) return YtResult.ok(r.body);
+        // Invidious' own page without a player (a video it cannot show), or
+        // something else: a CAPTCHA (yt.chocolatemoo53.com, protokolla.fi),
+        // an antibot of the instance's own (yewtu.be)
+        return YtResult.failed(
+          _isInvidious(r.body)
+              ? const YtVerdict(
+                  YtCause.contentUnavailable,
+                  'invidious:no-player',
+                  'the watch page carries no player data',
+                )
+              : YtVerdict(
+                  YtCause.ipBlocked,
+                  'invidious:gate:${_titleOf(r.body)}',
+                  'a page this client cannot get past',
+                ),
+        );
+      }
+      if (r.status ~/ 100 == 3 && r.location != null) {
+        final to = base.resolve(r.location!);
+        // a check of the instance's own (nerdvpn.de's Gandalf), or moved
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.ipBlocked,
+            to.host == base.host
+                ? 'invidious:gate:${to.path}'
+                : 'invidious:${r.status}:moved',
+            'sent to $to',
+          ),
+        );
+      }
+      if (r.status >= 500 && _isInvidious(r.body)) {
+        // Invidious' own error page: this video, on this instance, now
+        // (tiekoetter 2026-10-12: "Can't load the video on this Invidious
+        // instance", while other videos played) — not the instance
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.transient,
+            'invidious:cannot-load',
+            _textOf(r.body),
+          ),
+        );
+      }
+      return YtResult.failed(_verdictOf(r, 'watch'));
     }
     return const YtResult.failed(
       YtVerdict(
-        YtCause.clientBroken,
-        'invidious:go-away-loop',
+        YtCause.ipBlocked,
+        'invidious:gate:loop',
         'still challenged after five steps',
       ),
     );
   }
 
-  /// One `js-pow-sha256`: null when passed, why when not.
-  Future<YtVerdict?> _passPow(String script, String page) async {
+  /// Invidious' own page: its stylesheets, and no CAPTCHA (the one on
+  /// yt.chocolatemoo53.com is titled "Invidious").
+  static bool _isInvidious(String html) =>
+      html.contains('href="/css/pure-min.css') &&
+      !html.toLowerCase().contains('captcha');
+
+  /// The page's words, for a log line.
+  static String _textOf(String html) {
+    final text = html
+        .replaceAll(RegExp(r'<(script|style)[^>]*>.*?</\1>', dotAll: true), ' ')
+        .replaceAll(RegExp(r'<[^>]*>'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return text.length > 120 ? text.substring(0, 120) : text;
+  }
+
+  static String _titleOf(String html) {
+    final t = RegExp(r'<title>\s*([^<]{0,60})').firstMatch(html)?.group(1);
+    return (t ?? 'untitled').trim();
+  }
+
+  /// One Anubis challenge: null when passed, why when not.
+  Future<YtVerdict?> _passAnubis(
+    String host,
+    AnubisChallenge challenge,
+    String page,
+  ) async {
+    if (!challenge.solvable) {
+      return YtVerdict(
+        YtCause.ipBlocked,
+        'invidious:gate:anubis:${challenge.algorithm}',
+        'an Anubis algorithm this client does not solve',
+      );
+    }
+    final watch = Stopwatch()..start();
+    final solution = Anubis.solve(challenge.randomData, challenge.difficulty);
+    if (solution == null) {
+      return YtVerdict(
+        YtCause.ipBlocked,
+        'invidious:gate:anubis-difficulty',
+        'difficulty ${challenge.difficulty} is past the budget',
+      );
+    }
+    final passed = await _get(
+      Anubis.passUrl(
+        host,
+        challenge,
+        solution: solution,
+        redirect: page,
+        elapsedMs: watch.elapsedMilliseconds + 1,
+      ),
+      referer: page,
+    );
+    return passed.status ~/ 100 == 3 ? null : _verdictOf(passed, 'anubis-pass');
+  }
+
+  /// One go-away `js-pow-sha256`: null when passed, why when not.
+  Future<YtVerdict?> _passGoAwayPow(
+    String host,
+    String script,
+    String page,
+  ) async {
     final base = Uri.parse(host);
     final js = await _get(base.resolve(script), referer: page);
     final challengeId = js.status == HttpStatus.ok ? GoAway.powId(js.body) : null;
@@ -325,8 +629,8 @@ class YtInvidiousSource implements YouTubeVideoSource {
     final token = GoAway.solve(data, target);
     if (token == null) {
       return YtVerdict(
-        YtCause.clientBroken,
-        'invidious:go-away-difficulty',
+        YtCause.ipBlocked,
+        'invidious:gate:go-away-difficulty',
         'no nonce within the budget (difficulty ${challenge?['difficulty']})',
       );
     }
@@ -344,92 +648,117 @@ class YtInvidiousSource implements YouTubeVideoSource {
           ),
       referer: page,
     );
-    return verified.status ~/ 100 == 3 ? null : _verdictOf(verified, 'go-away-verify');
+    return verified.status ~/ 100 == 3
+        ? null
+        : _verdictOf(verified, 'go-away-verify');
   }
 
   // ------------------------------------------------------------- transport
 
-  /// One request, redirects not followed: go-away's cookie arrives on the
-  /// redirect, and following it would see only the last response's headers
-  /// (measured on Anubis, 2026-09-20).
-  Future<_Answer> _get(
+  Future<InvidiousAnswer> _get(
     Uri uri, {
     String method = 'GET',
     String? referer,
-    bool cookies = true,
   }) async {
     final watch = Stopwatch()..start();
-    try {
-      final request = await _client
-          .openUrl(method, uri)
-          .timeout(const Duration(seconds: 15));
-      request
-        ..followRedirects = false
-        ..headers.set(HttpHeaders.acceptHeader, 'text/html,application/json,*/*')
-        ..headers.set(HttpHeaders.acceptLanguageHeader, 'en-US,en;q=0.9');
-      if (referer != null) request.headers.set(HttpHeaders.refererHeader, referer);
-      final ours = cookies && uri.host == Uri.parse(host).host;
-      if (ours && _cookies.isNotEmpty) {
-        request.headers.set(
-          HttpHeaders.cookieHeader,
-          _cookies.entries.map((e) => '${e.key}=${e.value}').join('; '),
-        );
+    final cookie = _cookieFor(uri.host);
+    final r = await _fetch(
+      uri,
+      method: method,
+      headers: {
+        HttpHeaders.userAgentHeader: userAgent,
+        HttpHeaders.acceptHeader: 'text/html,application/json,*/*',
+        HttpHeaders.acceptLanguageHeader: 'en-US,en;q=0.9',
+        HttpHeaders.refererHeader: ?referer,
+        HttpHeaders.cookieHeader: ?cookie,
+      },
+    );
+    _keepCookies(uri.host, r.cookies);
+    log?.call(
+      r.status == 0
+          ? '$method ${uri.host}${_short(uri.path)}: ${r.error}'
+          : '$method ${uri.host}${_short(uri.path)} -> ${r.status} '
+                '${r.body.length} B in ${watch.elapsedMilliseconds} ms',
+    );
+    return r;
+  }
+
+  String? _cookieFor(String host) {
+    final pairs = [
+      for (final MapEntry(key: (domain, name), :value) in _cookies.entries)
+        if (host == domain || (!value.hostOnly && host.endsWith('.$domain')))
+          '$name=${value.value}',
+    ];
+    return pairs.isEmpty ? null : pairs.join('; ');
+  }
+
+  void _keepCookies(String host, List<Cookie> cookies) {
+    for (final c in cookies) {
+      final set = c.domain;
+      final domain = set == null || set.isEmpty
+          ? host
+          : (set.startsWith('.') ? set.substring(1) : set);
+      // a host sets cookies for itself and its parents only
+      if (domain != host && !host.endsWith('.$domain')) continue;
+      final key = (domain, c.name);
+      if (c.value.isEmpty || c.maxAge == 0) {
+        _cookies.remove(key);
+      } else {
+        _cookies[key] = (value: c.value, hostOnly: set == null || set.isEmpty);
       }
-      if (method == 'POST') request.contentLength = 0;
-      final response = await request.close().timeout(
-        const Duration(seconds: 15),
-      );
-      if (ours) {
-        for (final c in response.cookies) {
-          if (c.value.isEmpty || c.maxAge == 0) {
-            _cookies.remove(c.name);
-          } else {
-            _cookies[c.name] = c.value;
-          }
-        }
-      }
-      final body = await utf8.decoder
-          .bind(response)
-          .join()
-          .timeout(const Duration(seconds: 20));
-      log?.call(
-        '$method ${uri.host}${_short(uri.path)} -> ${response.statusCode} '
-        '${body.length} B in ${watch.elapsedMilliseconds} ms',
-      );
-      return _Answer(
-        response.statusCode,
-        body,
-        response.headers.value(HttpHeaders.locationHeader),
-      );
-    } catch (e) {
-      log?.call('$method ${uri.host}${uri.path}: $e');
-      return _Answer(0, '', null, '$e');
     }
   }
 
   static String _short(String path) =>
       path.length > 60 ? '${path.substring(0, 60)}…' : path;
 
-  static YtVerdict _verdictOf(_Answer r, String what) => switch (r.status) {
-    0 => YtVerdict(YtCause.transient, 'invidious:$what:transport', r.error),
-    401 || 403 || 429 => YtVerdict(
-      YtCause.ipBlocked,
-      'invidious:$what:http-${r.status}',
-      r.body.length > 80 ? r.body.substring(0, 80) : r.body,
-    ),
-    _ => YtVerdict(
-      YtCause.transient,
-      'invidious:$what:http-${r.status}',
-      r.body.length > 80 ? r.body.substring(0, 80) : r.body,
-    ),
-  };
+  static YtVerdict _verdictOf(InvidiousAnswer r, String what) =>
+      switch (r.status) {
+        0 => YtVerdict(YtCause.transient, 'invidious:$what:transport', r.error),
+        401 || 403 || 429 => YtVerdict(
+          YtCause.ipBlocked,
+          'invidious:$what:http-${r.status}',
+          r.body.length > 80 ? r.body.substring(0, 80) : r.body,
+        ),
+        _ => YtVerdict(
+          YtCause.transient,
+          'invidious:$what:http-${r.status}',
+          r.body.length > 80 ? r.body.substring(0, 80) : r.body,
+        ),
+      };
 }
 
-class _Answer {
-  const _Answer(this.status, this.body, this.location, [this.error = '']);
+/// The app's [InvidiousFetch]: a bare [HttpClient], nothing of bilibili's.
+class IoInvidiousFetch {
+  final _client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
 
-  final int status;
-  final String body;
-  final String? location;
-  final String error;
+  Future<InvidiousAnswer> call(
+    Uri uri, {
+    required String method,
+    required Map<String, String> headers,
+  }) async {
+    try {
+      final request = await _client
+          .openUrl(method, uri)
+          .timeout(const Duration(seconds: 15));
+      request.followRedirects = false;
+      headers.forEach(request.headers.set);
+      if (method == 'POST') request.contentLength = 0;
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final body = await const Utf8Decoder(allowMalformed: true)
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 20));
+      return InvidiousAnswer(
+        response.statusCode,
+        body,
+        location: response.headers.value(HttpHeaders.locationHeader),
+        cookies: response.cookies,
+      );
+    } catch (e) {
+      return InvidiousAnswer(0, '', error: '$e');
+    }
+  }
 }

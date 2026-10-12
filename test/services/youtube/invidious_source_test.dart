@@ -123,7 +123,15 @@ void main() {
       ]);
       expect(tracks[0].isAutomatic, isFalse);
       expect(tracks[1].isAutomatic, isTrue);
-      expect(invidiousCaptionTracks(watch).first.languageCode, '');
+      // without the list (tiekoetter refuses it): from the labels
+      expect(invidiousCaptionTracks(watch).map((t) => t.languageCode), [
+        'en',
+        'en',
+        'de',
+        'ja',
+        'pt',
+        'es',
+      ]);
     });
   });
 

@@ -21,6 +21,7 @@
 library;
 
 export 'package:PiliPlus/services/youtube/direct_source.dart';
+export 'package:PiliPlus/services/youtube/anubis.dart';
 export 'package:PiliPlus/services/youtube/go_away.dart';
 export 'package:PiliPlus/services/youtube/innertube_client.dart';
 export 'package:PiliPlus/services/youtube/invidious_parser.dart';
