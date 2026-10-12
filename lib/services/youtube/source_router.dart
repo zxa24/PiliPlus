@@ -1,10 +1,9 @@
 /// The router, and the per-source health state that makes a fallback safe.
 ///
 /// Its ONLY job is to make sure a fall-through to another source happens for
-/// cause (b) — our IP is blocked — and for nothing else. The stage-1 fallback
-/// slot is **empty**: [YtSourceRouter.fallback] is null until an Invidious
-/// implementation exists. The routing rule is still live and still tested,
-/// because the rule is the deliverable; the second source is not.
+/// cause (b) — our IP is blocked — and for nothing else. The video pages put
+/// `inv.nadeko.net` ([YtInvidiousSource], 2026-10-12) in the fallback slot;
+/// every other page leaves it empty.
 ///
 /// ## The routing rule, cause by cause
 ///
@@ -38,6 +37,7 @@ library;
 import 'dart:async';
 
 import 'package:PiliPlus/services/youtube/video_source.dart';
+import 'package:PiliPlus/services/youtube/yt_classifier.dart' show YtSignals;
 import 'package:PiliPlus/services/youtube/yt_verdict.dart';
 
 /// How many consecutive suspect-(a) responses mean the client, not the videos.
@@ -161,7 +161,9 @@ class YtSourceRouter {
     this.mode = YtSourceMode.auto,
     DateTime Function()? clock,
     Future<void> Function(Duration)? sleep,
-  }) : _now = clock ?? DateTime.now,
+    Map<String, YtSourceHealth>? health,
+  }) : health = health ?? {},
+       _now = clock ?? DateTime.now,
        _sleep = sleep ?? _realSleep;
 
   static Future<void> _realSleep(Duration d) => Future<void>.delayed(d);
@@ -169,8 +171,8 @@ class YtSourceRouter {
   /// The primary source. Never null.
   final YouTubeVideoSource direct;
 
-  /// **The empty slot.** Stage 1 never sets this; an Invidious implementation
-  /// goes here and nothing else has to change.
+  /// The second source: [YtInvidiousSource] on the video pages, null
+  /// elsewhere (search, channels and comments are the direct source's calls).
   final YouTubeVideoSource? fallback;
 
   YtSourceMode mode;
@@ -178,7 +180,13 @@ class YtSourceRouter {
   final DateTime Function() _now;
   final Future<void> Function(Duration) _sleep;
 
-  final Map<String, YtSourceHealth> health = {};
+  /// Per source. Its own unless one is passed in: the video pages pass
+  /// [sharedHealth], so a cooldown found on one video holds on the next
+  /// rather than every page asking the walled source again first.
+  final Map<String, YtSourceHealth> health;
+
+  /// What the video pages share.
+  static final Map<String, YtSourceHealth> sharedHealth = {};
 
   /// Set while auto mode is serving from the fallback, so the UI can say so
   /// and the user can see it was not their choice. A silent switch is how a
@@ -263,7 +271,15 @@ class YtSourceRouter {
 
         case YtCause.ipBlocked:
           h.blockSignalStreak++;
-          if (h.blockSignalStreak < confirmBlockOnSecondSignal) {
+          // A bot wall the direct source has already asked about twice (the
+          // second time with a fresh visitorData) is confirmed as it comes:
+          // the 429 the two-signal rule is for came from one endpoint while
+          // the others answered, and that is not this. Waiting for a second
+          // one here failed the first video every page opened with.
+          final confirmed =
+              res.verdict.signal == YtSignals.botCheckConfirmed ||
+              h.blockSignalStreak >= confirmBlockOnSecondSignal;
+          if (!confirmed) {
             // One (b) condemns the call, not the source. Surface it; the next
             // call decides whether this was a scoped rate limit or a wall.
             return YtRoutedResult(res, source);

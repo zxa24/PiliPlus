@@ -1059,6 +1059,13 @@ abstract final class SelfTest {
     if (_arg(args, '--hover-controls') case final video?) {
       await scenario('hoverControls', () => _hoverControls(video));
     }
+    // `--yt-source invidious|direct`: the YouTube video pages from that
+    // source alone
+    YtVideoController.debugSourceMode = switch (_arg(args, '--yt-source')) {
+      'invidious' => YtSourceMode.fallbackOnly,
+      'direct' => YtSourceMode.directOnly,
+      _ => YtSourceMode.auto,
+    };
     if (_arg(args, '--yt-replies') case final video?) {
       await scenario('ytReplies', () => _ytReplies(video));
     }

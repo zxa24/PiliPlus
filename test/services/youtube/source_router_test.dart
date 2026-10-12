@@ -15,7 +15,11 @@ const _suspect = YtVerdict(
   'Video unavailable',
   true,
 );
-const _blocked = YtVerdict(
+/// The two-signal kind: one 429 was measured scoped to one endpoint.
+const _blocked = YtVerdict(YtCause.ipBlocked, 'http-429', 'explicit rate limit');
+
+/// The kind the direct source has already confirmed itself.
+const _walled = YtVerdict(
   YtCause.ipBlocked,
   YtSignals.botCheckConfirmed,
   'bot wall persisted across a freshly minted visitorData',
@@ -156,6 +160,34 @@ void main() {
         );
         expect(h.router.healthOf('direct').cooldownUntil, isNull);
         expect(h.router.healthOf('direct').blockSignalStreak, 1);
+      });
+
+      test('a bot wall confirmed by the source falls through at once', () async {
+        // 2026-10-12: waiting for a second one failed the first video of
+        // every page, each page having a router of its own
+        final h = _Harness(directScript: [_walled], fallbackScript: [_ok]);
+        final r = await h.call();
+        expect(r.ok, isTrue);
+        expect(r.source!.id, 'spy');
+        expect(
+          h.router.healthOf('direct').cooldownUntil,
+          h.now.add(const Duration(minutes: 5)),
+        );
+        // the cooldown holds: the next call goes to the fallback first
+        await h.call();
+        expect(h.direct.calls, 1);
+        expect(h.fallback!.calls, 2);
+      });
+
+      test('health passed in is shared between routers', () async {
+        final shared = <String, YtSourceHealth>{};
+        final direct = ScriptedYtSource('direct', [_walled]);
+        final spy = ScriptedYtSource('spy', [_ok]);
+        await YtSourceRouter(direct, fallback: spy, health: shared)
+            .run((s) => s.streams('dQw4w9WgXcQ'));
+        final second = YtSourceRouter(direct, fallback: spy, health: shared);
+        expect(second.sourceOrder().first.id, 'spy');
+        expect(YtSourceRouter(direct, fallback: spy).sourceOrder().first.id, 'direct');
       });
 
       test('a SECOND (b) sets the cooldown and falls through', () async {

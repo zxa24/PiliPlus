@@ -63,6 +63,11 @@ class YtFormat {
 
   factory YtFormat.fromJson(Map<String, dynamic> m) => YtFormat(m);
 
+  /// Set in [raw] when whoever resolved the URL already worked its `n=` out
+  /// (an Invidious companion does): the `n` there is not the throttling one
+  /// [hasThrottleParam] looks for.
+  static const nWorkedOut = 'librepili:nWorkedOut';
+
   /// The untouched entry, so a later stage can reach a field this model has
   /// not needed yet without a migration.
   final Map<String, dynamic> raw;
@@ -127,6 +132,7 @@ class YtFormat {
   bool get needsSignatureJs => url == null && signatureCipher != null;
 
   bool get hasThrottleParam {
+    if (raw[nWorkedOut] == true) return false;
     final u = url;
     if (u == null) return false;
     try {

@@ -1,12 +1,6 @@
-/// One interface, so that adding an Invidious-instance implementation later
-/// touches no caller.
-///
-/// Stage 1 ships exactly one implementation ([YtDirectSource]). The interface
-/// exists now because the *routing rule* is the deliverable, and a routing rule
-/// with one source is testable while a routing rule bolted on afterwards is
-/// not. `research/invidious-spike.md` describes the deferred second
-/// implementation; nothing here assumes anything about it beyond this
-/// interface.
+/// One interface, two implementations: [YtDirectSource] (InnerTube) and
+/// [YtInvidiousSource] (`inv.nadeko.net`'s watch page, 2026-10-12), which
+/// the video pages fall back to when YouTube refuses this network.
 library;
 
 import 'package:PiliPlus/services/youtube/yt_format_select.dart';
@@ -51,8 +45,8 @@ class YtStreamPair {
   String toString() => 'YtStreamPair(via $sourceId, expires in $expiresIn)';
 }
 
-/// Where video data comes from. Implemented by the direct InnerTube client
-/// now, and by an Invidious instance later.
+/// Where video data comes from: the direct InnerTube client, or an
+/// Invidious instance.
 abstract class YouTubeVideoSource {
   /// Stable id used as the key of the health state and in diagnostics.
   String get id;

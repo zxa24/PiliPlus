@@ -56,11 +56,37 @@ class YtVideoController extends GetxController
     with YtCommentsMixin
     implements SubtitleMenuHost {
   YtVideoController({required this.videoId, YouTubeVideoSource? source})
-    : router = YtSourceRouter(source ?? YtDirectSource.create());
+    : router = YtSourceRouter(source ?? YtDirectSource.create()) {
+    play = YtSourceRouter(
+      router.direct,
+      // a source passed in (a test's) is the only one
+      fallback: source == null ? YtInvidiousSource.shared : null,
+      mode: source == null ? debugSourceMode : YtSourceMode.directOnly,
+      health: source == null ? YtSourceRouter.sharedHealth : null,
+    );
+    YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
+  }
 
   final String videoId;
+
+  /// The direct source alone: related videos and comments, which only it
+  /// answers.
   @override
   final YtSourceRouter router;
+
+  /// The video, its streams and captions: the direct source, and
+  /// `inv.nadeko.net` when YouTube refuses this network.
+  late final YtSourceRouter play;
+
+  /// `--yt-source invidious|direct`: one source only.
+  static YtSourceMode debugSourceMode = YtSourceMode.auto;
+
+  /// Who served the video's detail: its captions are fetched from the same.
+  YouTubeVideoSource? _detailSource;
+
+  /// The viewer has been told once that YouTube refused this network and
+  /// the video came from Invidious.
+  static bool _toldFallback = false;
 
   final plPlayerController = PlPlayerController.getInstance();
 
@@ -141,18 +167,20 @@ class YtVideoController extends GetxController
     message.value = '';
     blocked.value = false;
 
-    final info = await router.run((s) => s.detail(videoId));
+    final info = await play.run((s) => s.detail(videoId));
     if (isClosed) return;
     if (!info.ok || info.value == null) {
       _fail(info.verdict);
       return;
     }
+    _detailSource = info.source;
+    _noteSource(info.source);
     detail.value = info.value;
     captions.value = info.value!.captionTracks;
     _refreshSubscribed();
     refreshFav();
 
-    final streams = await router.run((s) => s.streams(videoId));
+    final streams = await play.run((s) => s.streams(videoId));
     if (isClosed) return;
     if (!streams.ok || streams.value == null) {
       _fail(streams.verdict);
@@ -254,6 +282,32 @@ class YtVideoController extends GetxController
     _maybeAutoTranscribe();
   }
 
+  /// The source captions come from: the one that listed them.
+  YouTubeVideoSource get _captionsFrom => _detailSource ?? router.direct;
+
+  /// The URLs Invidious resolved for this video are not to be handed out
+  /// again: they are why new ones are asked for.
+  void _forgetResolved() {
+    if (_streams?.sourceId == YtInvidiousSource.shared.id) {
+      YtInvidiousSource.shared.forget(videoId);
+    }
+  }
+
+  /// In the event log which source served the video, and once on screen: a
+  /// switch nobody sees is how a broken client stays broken.
+  void _noteSource(YouTubeVideoSource? source) {
+    if (source == null || source.id == router.direct.id) return;
+    EventLog.add(
+      'youtube',
+      '$videoId from ${source.label}: '
+          '${play.activeOverrideReason ?? 'the direct source was not asked'}',
+    );
+    if (!_toldFallback) {
+      _toldFallback = true;
+      SmartDialog.showToast('YouTube 拒绝了当前网络，改由 ${source.label} 提供');
+    }
+  }
+
   /// The UI's reading of a verdict. Kept here rather than in the data layer,
   /// which stays free of presentation — and the diagnostic signal is appended
   /// so a report says which of the four causes fired.
@@ -301,7 +355,7 @@ class YtVideoController extends GetxController
     var content = _captionCache[index];
     if (content == null) {
       final track = captions[index];
-      final result = await router.run((s) => s.captionContent(track));
+      final result = await _captionsFrom.captionContent(track);
       if (!result.ok || result.value == null) {
         message.value = _messageFor(result.verdict);
         return;
@@ -358,7 +412,7 @@ class YtVideoController extends GetxController
     maxHeight.value = height;
     // not mpv's own position: it reads 0 while a source is opening
     final position = plPlayerController.resumePosition;
-    final streams = await router.run(
+    final streams = await play.run(
       (s) => s.streams(
         videoId,
         preference: YtFormatPreference(maxHeight: height),
@@ -376,7 +430,8 @@ class YtVideoController extends GetxController
   /// The stream URLs expired (a long pause): new ones, at the height asked
   /// for, opened at [at] — the same as a quality change does.
   Future<void> _renewStreams(Duration at) async {
-    final streams = await router.run(
+    _forgetResolved();
+    final streams = await play.run(
       (s) => s.streams(
         videoId,
         preference: YtFormatPreference(maxHeight: maxHeight.value),
@@ -1147,7 +1202,7 @@ class YtVideoController extends GetxController
     var content = _captionCache[index];
     if (content == null) {
       final stops = _translationStops;
-      final result = await router.run((s) => s.captionContent(captions[index]));
+      final result = await _captionsFrom.captionContent(captions[index]);
       // gone, or stopped while fetching: nothing more to do, and above all
       // no falling back to transcription
       if (isClosed) return true;
@@ -1548,7 +1603,7 @@ class YtVideoController extends GetxController
     }
     if (next == null) return null;
     final height = next;
-    final result = await router.run(
+    final result = await play.run(
       (s) =>
           s.streams(videoId, preference: YtFormatPreference(maxHeight: height)),
     );
@@ -1657,7 +1712,8 @@ class YtVideoController extends GetxController
   /// Re-resolves the streams: a direct URL lasts about six hours and is bound
   /// to this network, so a resumed session needs new ones rather than a retry.
   Future<void> refreshStreams() async {
-    final streams = await router.run((s) => s.streams(videoId));
+    _forgetResolved();
+    final streams = await play.run((s) => s.streams(videoId));
     if (isClosed) return;
     if (streams.ok && streams.value != null) {
       _streams = streams.value;
