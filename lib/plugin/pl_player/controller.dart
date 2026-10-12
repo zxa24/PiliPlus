@@ -21,6 +21,7 @@ import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/quality_advisor.dart';
+import 'package:PiliPlus/services/parallel_fetch.dart';
 import 'package:PiliPlus/plugin/pl_player/smoothness_monitor.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/double_tap_type.dart';
@@ -867,6 +868,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<Player> _initPlayer() async {
     assert(_videoPlayerController == null);
     assert(_videoController == null);
+    if (Pref.parallelFetch && !debugNoParallel && !_parallel.running) {
+      ParallelFetch.log ??= (line) => EventLog.add('fetch', line);
+      try {
+        await _parallel.start();
+      } catch (e) {
+        // the streams straight from the CDN, as before
+        EventLog.add('fetch', 'no parallel fetch: $e');
+      }
+    }
     final (player, controller) = await _newPlayer();
     _videoController = controller;
     _startListeners(player);
@@ -933,8 +943,31 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// network that can be taken down for this build only).
   static String Function(String url)? debugWrapAll;
 
-  static String _wrapAll(String url) =>
-      debugWrapAll != null && url.startsWith('http') ? debugWrapAll!(url) : url;
+  static String _wrapAll(String url) {
+    if (debugWrapAll != null && url.startsWith('http')) {
+      return debugWrapAll!(url);
+    }
+    // bilibili's streams through the parallel fetch (see [ParallelFetch])
+    if (!debugNoParallel &&
+        Pref.parallelFetch &&
+        ParallelFetch.isBilibili(url)) {
+      return _parallel.wrap(url) ?? url;
+    }
+    return url;
+  }
+
+  /// `--no-parallel`: the streams straight from the CDN, for comparison.
+  static bool debugNoParallel = false;
+
+  /// bilibili's streams, four pieces at a time (user 2026-10-12, 1A).
+  static final _parallel = ParallelFetch(
+    // what is kept of the pieces: less on a phone
+    cachedBytes: (Platform.isAndroid || Platform.isIOS ? 24 : 64) << 20,
+    headers: (_) => {
+      HttpHeaders.userAgentHeader: BrowserUa.pc,
+      HttpHeaders.refererHeader: HttpString.baseUrl,
+    },
+  );
 
   /// The EDL mpv plays a separate video and audio stream from.
   String _edl(String video, String audio) {
@@ -1160,8 +1193,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final cache = double.tryParse(_read('demuxer-cache-duration'));
     // a DASH pair is an edl:// list with the URLs inside (escaped by
     // length, so the first http one is read out rather than parsed whole)
+    final path = _read('path');
+    // through the parallel fetch, the host is the last part of the path
     final host =
-        RegExp(r'https?://([^/;%:]+)').firstMatch(_read('path'))?.group(1) ??
+        RegExp(r'127\.0\.0\.1:\d+/\d+/([^/;%:]+)').firstMatch(path)?.group(1) ??
+        RegExp(r'https?://([^/;%:]+)').firstMatch(path)?.group(1) ??
         '';
     final rate = _videoPlayerController?.state.rate ?? 1;
     return [

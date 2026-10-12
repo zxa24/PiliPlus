@@ -825,6 +825,11 @@ abstract final class Pref {
   static bool get disableAudioCDN =>
       _setting.get(SettingBoxKey.disableAudioCDN, defaultValue: false);
 
+  /// LibrePili: bilibili's streams over several connections at once (see
+  /// `ParallelFetch`); on by default (user 2026-10-12).
+  static bool get parallelFetch =>
+      _setting.get(SettingBoxKey.parallelFetch, defaultValue: true);
+
   static int get minDurationForRcmd =>
       _setting.get(SettingBoxKey.minDurationForRcmd, defaultValue: 0);
 

@@ -1,0 +1,309 @@
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:PiliPlus/services/parallel_fetch.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// The parallel fetch against an upstream on the loopback whose behaviour
+/// the test sets: the bytes, ranges, and the ways a CDN fails. No network.
+void main() {
+  final data = Uint8List.fromList(
+    List.generate(3 * 1024 * 1024 + 12345, (i) => (i * 31 + (i >> 9)) & 0xff),
+  );
+
+  late _Upstream upstream;
+  late ParallelFetch fetch;
+
+  setUp(() async {
+    upstream = _Upstream(data);
+    await upstream.start();
+    fetch = ParallelFetch(chunkBytes: 256 * 1024, aheadChunks: 8);
+    await fetch.start();
+  });
+
+  tearDown(() async {
+    await fetch.close();
+    await upstream.close();
+  });
+
+  Future<({int status, List<int> body, HttpHeaders headers, bool whole})> get(
+    String url, {
+    String? range,
+    String method = 'GET',
+  }) async {
+    final client = HttpClient();
+    try {
+      final request = await client.openUrl(method, Uri.parse(url));
+      if (range != null) request.headers.set(HttpHeaders.rangeHeader, range);
+      final response = await request.close();
+      final body = <int>[];
+      var whole = true;
+      try {
+        await for (final b in response) {
+          body.addAll(b);
+        }
+      } catch (_) {
+        whole = false;
+      }
+      return (
+        status: response.statusCode,
+        body: body,
+        headers: response.headers,
+        whole: whole,
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  test('the whole stream, byte for byte, from several requests at once', () async {
+    upstream.delay = const Duration(milliseconds: 60);
+    final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+    expect(r.status, HttpStatus.partialContent);
+    expect(r.body.length, data.length);
+    expect(r.body, data);
+    expect(r.headers.value(HttpHeaders.contentRangeHeader),
+        'bytes 0-${data.length - 1}/${data.length}');
+    expect(upstream.mostAtOnce, greaterThanOrEqualTo(3));
+    expect(upstream.mostAtOnce, lessThanOrEqualTo(4));
+  });
+
+  test('from the middle, as after a seek, and a closed range', () async {
+    final local = fetch.wrap(upstream.url)!;
+    final r = await get(local, range: 'bytes=1000000-');
+    expect(r.body, data.sublist(1000000));
+    final part = await get(local, range: 'bytes=300000-300099');
+    expect(part.body, data.sublist(300000, 300100));
+    expect(part.headers.contentLength, 100);
+  });
+
+  test('a piece that breaks off is asked for again from where it stopped', () async {
+    upstream.breakOnceAt = {600000, 2000000};
+    final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+    expect(r.body, data);
+    expect(r.whole, isTrue);
+  });
+
+  test('broken off again and again, each time further on: still whole', () async {
+    // akam closed connections every few seconds (2026-10-12)
+    upstream.breakOnceAt = {300000, 350000, 400000, 450000, 500000};
+    final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+    expect(r.body, data);
+  });
+
+  test('a seek starts where it asks, not at the piece boundary before', () async {
+    await get(fetch.wrap(upstream.url)!, range: 'bytes=300000-300099');
+    expect(upstream.ranges.first, startsWith('bytes=300000-'));
+  });
+
+  test('a seek is not queued behind the pieces of where playback was', () async {
+    upstream.delay = const Duration(seconds: 2);
+    final local = fetch.wrap(upstream.url)!;
+    final client = HttpClient();
+    // a reader at the start: four slow pieces under way
+    final playing = await client.getUrl(Uri.parse(local));
+    playing.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+    final playingAnswer = playing.close();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final watch = Stopwatch()..start();
+    final seek = await get(local, range: 'bytes=2500000-2500999');
+    expect(seek.body, data.sublist(2500000, 2501000));
+    // its own request at once: one delay, not one after the others
+    expect(watch.elapsed, lessThan(const Duration(milliseconds: 3500)));
+    (await playingAnswer).listen((_) {}, onError: (_) {});
+    client.close(force: true);
+  });
+
+  test('inside a piece still coming in: its own piece, at once', () async {
+    // the bytes before it come at the origin's pace (17 s, 2026-10-12)
+    upstream.bytesPerSecond = 100 * 1024;
+    final local = fetch.wrap(upstream.url)!;
+    final client = HttpClient();
+    final playing = await client.getUrl(Uri.parse(local));
+    playing.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+    final playingAnswer = playing.close();
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    final watch = Stopwatch()..start();
+    final seek = await get(local, range: 'bytes=200000-200999');
+    expect(seek.body, data.sublist(200000, 201000));
+    expect(watch.elapsed, lessThan(const Duration(milliseconds: 1200)));
+    expect(upstream.ranges, contains(startsWith('bytes=200000-')));
+    (await playingAnswer).listen((_) {}, onError: (_) {});
+    client.close(force: true);
+  });
+
+  test('a copy that ends early ends the answer at the same byte', () async {
+    // a cut copy on a CDN (akam, 2026-10-12): the player's own recovery
+    // reads "Stream ends prematurely at N"
+    upstream.cutAt = 1500000;
+    final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+    expect(r.body.length, 1500000);
+    expect(r.body, data.sublist(0, 1500000));
+    expect(r.whole, isFalse, reason: 'the content length promised more');
+  });
+
+  test('a refusal is passed on as it was: expired URLs answer 403', () async {
+    upstream.status = HttpStatus.forbidden;
+    final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+    expect(r.status, HttpStatus.forbidden);
+  });
+
+  test('HEAD: the size, no body', () async {
+    final r = await get(
+      fetch.wrap(upstream.url)!,
+      range: 'bytes=0-',
+      method: 'HEAD',
+    );
+    expect(r.status, HttpStatus.partialContent);
+    expect(r.body, isEmpty);
+    expect(r.headers.value(HttpHeaders.contentRangeHeader), endsWith('/${data.length}'));
+  });
+
+  test('past the end: 416', () async {
+    final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=${data.length}-');
+    expect(r.status, HttpStatus.requestedRangeNotSatisfiable);
+  });
+
+  test('what is kept stays within its bound', () async {
+    await fetch.close();
+    fetch = ParallelFetch(
+      chunkBytes: 256 * 1024,
+      aheadChunks: 4,
+      cachedBytes: 1024 * 1024,
+    );
+    await fetch.start();
+    final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+    expect(r.body, data);
+    expect(fetch.heldBytes, lessThanOrEqualTo(1024 * 1024 + 256 * 1024));
+  });
+
+  test('the same URL, the same stand-in; the upstream read back', () {
+    final a = fetch.wrap(upstream.url)!;
+    expect(fetch.wrap(upstream.url), a);
+    expect(fetch.upstreamOf(a), upstream.url);
+    expect(fetch.upstreamOf('https://x.example/y'), 'https://x.example/y');
+    expect(Uri.parse(a).pathSegments.last, '127.0.0.1');
+  });
+
+  test("bilibili's stream hosts only", () {
+    expect(
+      ParallelFetch.isBilibili(
+        'https://upos-sz-mirrorcosov.bilivideo.com/upgcxcode/1/2/3-1-30080.m4s?e=x',
+      ),
+      isTrue,
+    );
+    expect(
+      ParallelFetch.isBilibili('https://upos-hz-mirrorakam.akamaized.net/upgcxcode/x.m4s'),
+      isTrue,
+    );
+    expect(
+      ParallelFetch.isBilibili('https://rr1---sn-x.googlevideo.com/videoplayback?id=1'),
+      isFalse,
+    );
+    expect(ParallelFetch.isBilibili('C:/videos/a.mp4'), isFalse);
+  });
+}
+
+/// A CDN in miniature: ranges, a delay per request, and its failures.
+class _Upstream {
+  _Upstream(this.data);
+
+  final Uint8List data;
+  late HttpServer _server;
+
+  Duration delay = Duration.zero;
+
+  /// Each of these bytes breaks the first request that reaches it.
+  Set<int> breakOnceAt = {};
+
+  /// The copy ends here, and asked for past it answers 503.
+  int? cutAt;
+
+  /// Every request answered with this.
+  int? status;
+
+  /// Each answer trickles out no faster than this.
+  int? bytesPerSecond;
+
+  /// The Range of every request, in order.
+  final ranges = <String>[];
+
+  var _atOnce = 0;
+  var mostAtOnce = 0;
+
+  String get url =>
+      'http://127.0.0.1:${_server.port}/upgcxcode/1/2/3-1-30080.m4s?e=x';
+
+  Future<void> start() async {
+    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _server.listen(_serve);
+  }
+
+  Future<void> close() => _server.close(force: true);
+
+  Future<void> _serve(HttpRequest request) async {
+    _atOnce++;
+    mostAtOnce = max(mostAtOnce, _atOnce);
+    try {
+      await Future<void>.delayed(delay);
+      final response = request.response;
+      if (status case final s?) {
+        response.statusCode = s;
+        await response.close();
+        return;
+      }
+      ranges.add(request.headers.value(HttpHeaders.rangeHeader) ?? '');
+      final m = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(
+        request.headers.value(HttpHeaders.rangeHeader) ?? '',
+      );
+      final from = m == null ? 0 : int.parse(m.group(1)!);
+      final to = m == null || m.group(2)!.isEmpty
+          ? data.length - 1
+          : min(int.parse(m.group(2)!), data.length - 1);
+      final cut = cutAt;
+      if (cut != null && from >= cut) {
+        response.statusCode = HttpStatus.serviceUnavailable;
+        await response.close();
+        return;
+      }
+      response
+        ..statusCode = HttpStatus.partialContent
+        ..contentLength = to - from + 1
+        ..headers.set(HttpHeaders.contentRangeHeader, 'bytes $from-$to/${data.length}')
+        ..headers.contentType = ContentType('video', 'mp4');
+      final socket = await response.detachSocket(writeHeaders: true);
+      var end = to + 1;
+      if (cut != null && cut < end) end = cut;
+      for (final b in breakOnceAt.toList()) {
+        if (b > from && b < end) {
+          breakOnceAt.remove(b);
+          end = b;
+          break;
+        }
+      }
+      try {
+        if (bytesPerSecond case final rate?) {
+          const step = 8192;
+          for (var at = from; at < end; at += step) {
+            socket.add(Uint8List.sublistView(data, at, min(at + step, end)));
+            await socket.flush();
+            await Future<void>.delayed(
+              Duration(microseconds: step * 1000000 ~/ rate),
+            );
+          }
+        } else {
+          socket.add(Uint8List.sublistView(data, from, end));
+          await socket.flush();
+        }
+      } catch (_) {
+        // the fetch hung up first (a HEAD, a close)
+      }
+      socket.destroy();
+    } catch (_) {
+      // the fetch closed first (a test's end)
+    } finally {
+      _atOnce--;
+    }
+  }
+}

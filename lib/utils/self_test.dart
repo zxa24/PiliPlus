@@ -967,6 +967,7 @@ abstract final class SelfTest {
         VideoUtils.debugWrapVideoUrl = cut.wrap;
       }
       PlPlayerController.debugNoHandover = args.contains('--no-handover');
+      PlPlayerController.debugNoParallel = args.contains('--no-parallel');
       _rate = double.tryParse(_arg(args, '--rate') ?? '');
       _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
       VideoDetailController.debugTriedHosts = {

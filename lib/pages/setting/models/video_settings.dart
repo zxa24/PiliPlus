@@ -75,6 +75,13 @@ List<SettingsModel> get videoSettings => [
     setKey: SettingBoxKey.cdnSpeedTest,
     defaultVal: true,
   ),
+  const SwitchModel(
+    title: '多线程加载',
+    subtitle: 'B 站视频同时用 4 个连接分段加载，冷门视频缓冲更快；异常时可关闭',
+    leading: Icon(Icons.call_split),
+    setKey: SettingBoxKey.parallelFetch,
+    defaultVal: true,
+  ),
   SwitchModel(
     title: '音频不跟随 CDN 设置',
     subtitle: '直接采用备用 URL，可解决部分视频无声',
