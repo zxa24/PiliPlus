@@ -2424,7 +2424,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _failureCheck = Timer(const Duration(seconds: 15), () {
       _failureCheck = null;
       if (!identical(dataSource, source)) return;
-      if (position.value != before && !isBuffering.value) {
+      // the position alone is not playback: with the video track dry it
+      // follows the sound, over a picture that does not move (2026-10-12)
+      if (position.value != before && !isBuffering.value && !_dryNow()) {
         EventLog.add('player', 'playback went on: no failure shown');
         return;
       }
@@ -2527,6 +2529,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // would only cost the viewer another stall
       _switchCdn();
     });
+  }
+
+  /// Whether a track is dry now (see [trackRanDry]); false when it cannot
+  /// be read.
+  bool _dryNow() {
+    final player = _videoPlayerController;
+    if (player is! NativePlayer) return false;
+    try {
+      return trackRanDry(
+        position: double.tryParse(player.getProperty('time-pos')),
+        cacheEnd: double.tryParse(player.getProperty('demuxer-cache-time')),
+        duration: double.tryParse(player.getProperty('duration')),
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Whether the playhead, in seconds, has run more than a second past the

@@ -967,15 +967,23 @@ abstract final class SelfTest {
         VideoUtils.debugWrapVideoUrl = cut.wrap;
       }
       PlPlayerController.debugNoHandover = args.contains('--no-handover');
+      VideoDetailController.debugTriedHosts = {
+        ...?_arg(args, '--tried-hosts')?.split(','),
+      };
       // started the way a viewer's page starts it, so what the page does
       // for playback (resuming after a CDN switch) is what is tested
       final autoplay = args.contains('--autoplay');
+      // `--video-qa 16`: the quality opened with (360P), as a viewer's
+      // default quality setting would have it
+      final videoQa = int.tryParse(_arg(args, '--video-qa') ?? '');
+      if (videoQa != null) PlPlayerController.getInstance().cacheVideoQa = videoQa;
       // `default`: no preference saved, as for someone who never set one
       final codecsDefault = codecs == 'default';
       final overrides = <String, Object>{
         if (!codecsDefault) SettingBoxKey.preferCodecs: ?codecs?.split(','),
         // explicit either way: the default is on since 2026-09-29
         SettingBoxKey.autoPlayEnable: autoplay,
+        SettingBoxKey.defaultVideoQa: ?videoQa,
         // moving comments over a frozen picture would look like playback
         // to anything comparing frames
         if (args.contains('--no-danmaku'))

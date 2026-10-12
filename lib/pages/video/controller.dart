@@ -949,13 +949,15 @@ class VideoDetailController extends GetxController
   /// Returns false when there is nothing left to try.
   bool switchToNextCdn() {
     if (isFileSource) return false;
+    _triedHosts.addAll(debugTriedHosts);
     if (_hostOf(videoUrl) case final current?) _triedHosts.add(current);
     // the fastest measured first (see [_hostSpeeds]); those never measured
     // after them, in Bilibili's order
-    final left = _byMeasuredSpeed([
+    var left = _byMeasuredSpeed([
       for (final url in VideoUtils.cdnCandidates(firstVideo.playUrls))
         if (!_triedHosts.contains(_hostOf(url))) url,
     ]);
+    if (left.isEmpty) left = _triedAgain(current: _hostOf(videoUrl));
     if (left.isEmpty) return false;
 
     videoUrl = left.first;
@@ -1011,7 +1013,10 @@ class VideoDetailController extends GetxController
     }
     if (videoUrl != video || audioUrl != audio) return null;
     if (newVideo != null) {
-      if (_hostOf(video) case final cut?) _triedHosts.add(cut);
+      if (_hostOf(video) case final cut?) {
+        _triedHosts.add(cut);
+        _cutHosts.add(cut);
+      }
       videoUrl = newVideo;
     }
     if (newAudio != null) audioUrl = newAudio;
@@ -1020,6 +1025,40 @@ class VideoDetailController extends GetxController
 
   /// Hosts given up on for this part.
   final _triedHosts = <String>{};
+
+  /// Hosts whose copy of this part's streams was found cut short (see
+  /// [replaceCutStreams]): not asked again for it.
+  final _cutHosts = <String>{};
+
+  /// When each host was last gone back to by [_triedAgain].
+  final _retriedAt = <String, DateTime>{};
+
+  /// Hosts given up on earlier, once every host has been: a host left for
+  /// being slow, or for a dropped connection, minutes ago is not a broken
+  /// one. The user's copy, 2026-10-12: cosov was left at 2 s for a timeout,
+  /// akam's copy then ended at 10.9 MB at 170 s, and with both "tried" the
+  /// picture stood still under the sound for the three minutes that were
+  /// left. Not a host whose copy is cut, not the current one, and each at
+  /// most once a minute, so two failing hosts are not swapped back and forth.
+  List<String> _triedAgain({required String? current}) {
+    final now = DateTime.now();
+    final again = _byMeasuredSpeed([
+      for (final url in VideoUtils.cdnCandidates(firstVideo.playUrls))
+        if (_hostOf(url) case final host?
+            when host != current &&
+                !_cutHosts.contains(host) &&
+                (_retriedAt[host] == null ||
+                    now.difference(_retriedAt[host]!) >
+                        const Duration(minutes: 1)))
+          url,
+    ]);
+    if (again.isNotEmpty) {
+      final host = _hostOf(again.first)!;
+      _retriedAt[host] = now;
+      EventLog.add('player', 'every host tried: $host again');
+    }
+    return again;
+  }
 
   /// Bytes per second each host was last measured at, for this part (null
   /// for one that did not deliver).
@@ -1412,6 +1451,10 @@ class VideoDetailController extends GetxController
   /// For the self-test (`--no-host-switch`): as if no other host were
   /// faster, so that the quality is what changes. Nothing else sets it.
   static bool debugNoHostSwitch = false;
+
+  /// `--tried-hosts a,b`: hosts taken as already given up on for the part,
+  /// as after an earlier failover (the user's copy, 2026-10-12).
+  static Set<String> debugTriedHosts = const {};
 
   /// The viewer picked a quality: nothing changes it by itself for this
   /// part.
@@ -3681,6 +3724,8 @@ class VideoDetailController extends GetxController
     videoUrl = null;
     audioUrl = null;
     _triedHosts.clear();
+    _cutHosts.clear();
+    _retriedAt.clear();
     _slowKeptAt = null;
     _steppedUpAt = _noStepUpUntil = null;
     _hostSpeeds.clear();
