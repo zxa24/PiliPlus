@@ -63,4 +63,28 @@ void main() {
       expect(fell([16, 14, 12, 11, 12], 16), isFalse);
     });
   });
+
+  group('the rest of the video all in the buffer', () {
+    bool toEnd(double? position, double cache, double? duration) =>
+        PlPlayerController.bufferedToEnd(
+          position: position,
+          cacheSeconds: cache,
+          duration: duration,
+        );
+
+    test('the user copy, 2026-10-12: 14.1 s left at 788.9 s of 802 s', () {
+      expect(toEnd(788.9, 14.1, 802), isTrue);
+      expect(toEnd(138.2, 14.8, 151.5), isTrue);
+    });
+
+    test('the end not reached yet', () {
+      expect(toEnd(700, 14.1, 802), isFalse);
+    });
+
+    test('nothing known of where or how long', () {
+      expect(toEnd(null, 14.1, 802), isFalse);
+      expect(toEnd(788.9, 14.1, null), isFalse);
+      expect(toEnd(788.9, 14.1, 0), isFalse);
+    });
+  });
 }

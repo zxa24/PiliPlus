@@ -2261,6 +2261,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     try {
       cache = double.tryParse(player.getProperty('demuxer-cache-duration'));
       if (cache == null) return;
+      // Near the end the buffer can hold no more than what is left: it
+      // shrinks as the video ends, and read as falling behind it stepped
+      // the quality down in the last 15 s of three videos in a row — the
+      // handover a hitch, once a 16 s stall at 794 s of 802 (2026-10-12).
+      if (bufferedToEnd(
+        position: double.tryParse(player.getProperty('time-pos')),
+        cacheSeconds: cache,
+        duration: double.tryParse(player.getProperty('duration')),
+      )) {
+        _health.clear();
+        _bufferFell = false;
+        _roomyFor = 0;
+        return;
+      }
       _health.add((
         cacheSeconds: cache,
         stalled: player.getProperty('paused-for-cache') == 'yes',
@@ -2406,6 +2420,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final last = samples.last.cacheSeconds;
     return highest - last >= targetSeconds / 3 && last <= targetSeconds / 2;
   }
+
+  /// Whether everything up to the end of the video is in the buffer: the
+  /// network has nothing left to keep up with.
+  @visibleForTesting
+  static bool bufferedToEnd({
+    required double? position,
+    required double cacheSeconds,
+    required double? duration,
+  }) =>
+      position != null &&
+      duration != null &&
+      duration > 0 &&
+      position + cacheSeconds >= duration - 1;
 
   /// Whether the buffer ahead has been going down over the last 6 seconds
   /// of [samples]: down by more than a second in all, and in most of them.
