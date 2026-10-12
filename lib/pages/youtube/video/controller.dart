@@ -300,7 +300,7 @@ class YtVideoController extends GetxController
     EventLog.add(
       'youtube',
       '$videoId from ${source.label}: '
-          '${play.activeOverrideReason ?? 'the direct source was not asked'}',
+          '${play.mode == YtSourceMode.fallbackOnly ? 'the only source asked' : play.activeOverrideReason ?? 'the direct source was not asked'}',
     );
     if (!_toldFallback) {
       _toldFallback = true;

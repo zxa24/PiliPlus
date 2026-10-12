@@ -14,6 +14,11 @@ void main() {
 
   final watch = fixture('watch_dQw4w9WgXcQ.html');
   final dash = fixture('dash_dQw4w9WgXcQ.mpd');
+  final relayedDash = fixture('dash_dQw4w9WgXcQ_relayed.mpd');
+  // where the recorded page's manifest is: the relayed streams' host
+  final companion = Uri.parse(
+    parseInvidiousWatch(watch, 'dQw4w9WgXcQ')!.relayedDashUrl!,
+  ).host;
   final captionList = fixture('captions_dQw4w9WgXcQ.json');
 
   group('Anubis', () {
@@ -204,6 +209,56 @@ void main() {
       expect(net.asked.where((u) => u.path == '/watch'), hasLength(1));
     });
 
+    group('googlevideo refusing this machine', () {
+      _Net refusing(int status) => _Net()
+        ..serveVideo('a.example', watch, dash, captionList)
+        ..on('*', '/companion/api/manifest/dash/', (q) => _page(
+          q.uri.queryParameters['local'] == 'true' ? relayedDash : dash,
+        ))
+        ..on('.googlevideo.com', '/videoplayback', (q) {
+          expect(q.headers[HttpHeaders.rangeHeader], 'bytes=0-1023');
+          // the refusal comes after ipbypass's redirect, as measured
+          return q.uri.queryParameters.containsKey('ipbypass')
+              ? InvidiousAnswer(status, '')
+              : const InvidiousAnswer(
+                  302,
+                  '',
+                  location: 'https://rr9---x.googlevideo.com/videoplayback?ipbypass=yes',
+                );
+        });
+
+      test('a 403: the streams through the companion', () async {
+        final net = refusing(403);
+        final r = await net.source(['https://a.example']).streams('dQw4w9WgXcQ');
+        expect(r.ok, isTrue);
+        final video = Uri.parse(r.value!.videoUrl);
+        expect(video.host, companion);
+        expect(video.path, '/companion/videoplayback');
+        expect(Uri.parse(r.value!.audioUrl).host, companion);
+        // one probe, its redirect followed
+        expect(net.asked.where((u) => u.host.endsWith('googlevideo.com')), hasLength(2));
+      });
+
+      test('served: the streams from googlevideo, the companion spared', () async {
+        final net = refusing(206);
+        final r = await net.source(['https://a.example']).streams('dQw4w9WgXcQ');
+        expect(Uri.parse(r.value!.videoUrl).host, endsWith('googlevideo.com'));
+        expect(
+          net.asked.where((u) => u.queryParameters['local'] == 'true'),
+          isEmpty,
+        );
+      });
+
+      test('always through the companion when asked to be', () async {
+        final net = refusing(206);
+        final r = await net
+            .source(['https://a.example'], relayed: true)
+            .streams('dQw4w9WgXcQ');
+        expect(Uri.parse(r.value!.videoUrl).host, companion);
+        expect(net.asked.where((u) => u.host.endsWith('googlevideo.com')), isEmpty);
+      });
+    });
+
     test('the registry read when no hosts are given, the known ones when '
         'it is out of reach', () async {
       final up = _Net()
@@ -250,14 +305,20 @@ class _Net {
     on('*', '/companion/api/manifest/dash/', (_) => _page(dash));
   }
 
-  YtInvidiousSource source(List<String>? hosts) => YtInvidiousSource(
+  YtInvidiousSource source(List<String>? hosts, {bool relayed = false}) =>
+      YtInvidiousSource(
     hosts: hosts,
+    relayed: relayed,
     fetch: (uri, {required method, required headers}) async {
       final request = (uri: uri, method: method, headers: headers);
       requests.add(request);
       _asked.add(uri);
       for (final MapEntry(key: (host, path), value: answer) in _routes.entries) {
-        if ((host == uri.host || host == '*') && uri.path.startsWith(path)) {
+        final hostMatches =
+            host == uri.host ||
+            host == '*' ||
+            (host.startsWith('.') && uri.host.endsWith(host));
+        if (hostMatches && uri.path.startsWith(path)) {
           return answer(request);
         }
       }

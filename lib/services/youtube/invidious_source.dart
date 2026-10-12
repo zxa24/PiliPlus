@@ -19,18 +19,22 @@
 /// Per video, of an instance: its watch page (`/watch?v=`, the page its own
 /// player reads; `/api/v1/videos` answers `403 Endpoint disabled` on every
 /// instance measured) and the caption list (`/api/v1/captions/<id>`); of its
-/// companion: the DASH manifest and the caption text. The video itself comes
-/// from googlevideo directly — the manifest is asked for without
-/// `local=true`, so none of it goes through the instance (see
-/// `invidious_parser.dart`). When an instance cannot serve a video, the
-/// next is asked: at most [triesPerVideo] per video.
+/// companion: the DASH manifest and the caption text. The video comes from
+/// googlevideo directly where googlevideo serves this machine the
+/// instance's URLs — found out with a few bytes of the audio — and through
+/// the companion (`local=true`) where it refuses them, which was 9 videos of
+/// 10 measured (2026-10-12; Rick Astley the one served). When an instance
+/// cannot serve a video, the next is asked: at most [triesPerVideo] per
+/// video.
 ///
 /// The watch pages sit behind go-away (`inv.nadeko.net`, `go_away.dart`) or
 /// Anubis (`invidious.f5.si`, `invidious.tiekoetter.com`, `anubis.dart`):
 /// a proof of work, a few milliseconds of hashing, once a week — what the
 /// instance's own page has a browser do. One page per video opened, kept
-/// for the URLs' life, is what a browser on that page costs the instance,
-/// and less: the browser would stream the video through it as well.
+/// for the URLs' life, and the video through its companion only when
+/// googlevideo will not hand it over directly: what a browser on that page
+/// costs the instance, or less (its player streams through the companion
+/// every time).
 ///
 /// ## What it sends
 ///
@@ -123,8 +127,9 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// video page): this file stays free of the app.
   static void Function(String line)? log;
 
-  /// The streams through the instance's companion (`local=true`) rather
-  /// than from googlevideo directly.
+  /// The streams always through the instance's companion (`local=true`).
+  /// Off, they come from googlevideo directly wherever it serves this
+  /// machine, and through the companion only for a video it refuses.
   final bool relayed;
 
   final InvidiousFetch _fetch;
@@ -263,23 +268,26 @@ class YtInvidiousSource implements YouTubeVideoSource {
     }
 
     final base = Uri.parse(host);
-    final (manifest, captionList) = await (
-      _get(base.resolve(dash)),
+    final (listed, captionList) = await (
+      _formatsFrom(base.resolve(dash)),
       _get(base.resolve('/api/v1/captions/$videoId')),
     ).wait;
-    if (manifest.status != HttpStatus.ok || manifest.body.isEmpty) {
-      return YtResult.failed(_verdictOf(manifest, 'manifest'));
-    }
-    // relative stream paths are the companion's, where the manifest is
-    final formats = parseInvidiousDash(manifest.body, base: base.resolve(dash));
-    if (formats.isEmpty) {
-      return const YtResult.failed(
-        YtVerdict(
-          YtCause.transient,
-          'invidious:empty-manifest',
-          'the manifest lists no stream',
-        ),
-      );
+    if (!listed.ok) return listed.castFailure();
+    var formats = listed.value!;
+
+    // googlevideo serves the instance's URLs to this machine for few videos
+    // (1 in 10, 2026-10-12): asked once with a few bytes, and through the
+    // companion only when it refuses
+    final relayedDash = watch.relayedDashUrl;
+    if (!relayed && relayedDash != null && relayedDash != dash) {
+      final probe = selectYtAudioFormat(formats)?.url;
+      if (probe != null && await _refusedHere(probe)) {
+        final through = await _formatsFrom(base.resolve(relayedDash));
+        if (!through.ok) return through.castFailure();
+        formats = through.value!;
+        log?.call('$videoId: googlevideo refuses it here, '
+            'through ${base.resolve(relayedDash).host}');
+      }
     }
 
     // refused on some instances (tiekoetter: 403): the labels then
@@ -313,6 +321,48 @@ class YtInvidiousSource implements YouTubeVideoSource {
     );
     _resolved[videoId] = (detail: detail, until: until);
     return YtResult.ok(detail);
+  }
+
+  /// The formats of the manifest at [manifest]. Relative stream paths are
+  /// the companion's, where the manifest is.
+  Future<YtResult<List<YtFormat>>> _formatsFrom(Uri manifest) async {
+    final r = await _get(manifest);
+    if (r.status != HttpStatus.ok || r.body.isEmpty) {
+      return YtResult.failed(_verdictOf(r, 'manifest'));
+    }
+    final formats = parseInvidiousDash(r.body, base: manifest);
+    if (formats.isEmpty) {
+      return const YtResult.failed(
+        YtVerdict(
+          YtCause.transient,
+          'invidious:empty-manifest',
+          'the manifest lists no stream',
+        ),
+      );
+    }
+    return YtResult.ok(formats);
+  }
+
+  /// Whether googlevideo refuses [url] to this machine: a few bytes asked
+  /// for, its redirects followed (the refusal comes after `ipbypass=yes`'s).
+  /// Anything but a 403 leaves it to the player.
+  Future<bool> _refusedHere(String url) async {
+    var uri = Uri.parse(url);
+    for (var hop = 0; hop < 4; hop++) {
+      final r = await _fetch(
+        uri,
+        method: 'GET',
+        headers: {
+          HttpHeaders.userAgentHeader: userAgent,
+          HttpHeaders.rangeHeader: 'bytes=0-1023',
+        },
+      );
+      log?.call('probe ${uri.host} -> ${r.status}');
+      final next = r.location;
+      if (r.status ~/ 100 != 3 || next == null) return r.status == 403;
+      uri = uri.resolve(next);
+    }
+    return false;
   }
 
   @override
