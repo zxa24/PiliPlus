@@ -57,6 +57,7 @@ import 'package:PiliPlus/pages/local/feed.dart';
 import 'package:PiliPlus/pages/local/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
+import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/controller.dart';
@@ -819,7 +820,12 @@ abstract final class SelfTest {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario(
         'openOffline',
-        () => _openOffline(hold, tab: tab, play: args.contains('--play')),
+        () => _openOffline(
+          hold,
+          tab: tab,
+          play: args.contains('--play'),
+          replyDetail: args.contains('--reply-detail'),
+        ),
       );
     }
     if (_arg(args, '--download') case final bvid?) {
@@ -8984,6 +8990,7 @@ abstract final class SelfTest {
     int hold, {
     int? tab,
     bool play = false,
+    bool replyDetail = false,
   }) async {
     const heroTag = 'selftest_offline';
     final service = Get.find<DownloadService>();
@@ -9041,6 +9048,26 @@ abstract final class SelfTest {
     final detail = Get.find<VideoDetailController>(tag: heroTag);
     final intro = Get.find<LocalIntroController>(tag: heroTag).intro.value;
     final shot = await _shot('offline');
+    // the first comment shown, opened as a tap on it would (评论详情)
+    String? detailShot;
+    var comments = 0;
+    if (replyDetail) {
+      ReplyItemGrpc? first;
+      void visit(Element e) {
+        if (e.widget case final ReplyItemGrpc w) {
+          comments++;
+          first ??= w;
+        }
+        e.visitChildren(visit);
+      }
+
+      WidgetsBinding.instance.rootElement?.visitChildren(visit);
+      if (first case final w?) {
+        w.replyReply?.call(w.replyItem, null);
+        await Future.delayed(const Duration(seconds: 3));
+        detailShot = await _shot('offline_detail');
+      }
+    }
     return {
       'pass': true,
       'title': entry.showTitle,
@@ -9056,6 +9083,10 @@ abstract final class SelfTest {
           'staff': intro.view.staff?.length ?? 0,
         },
       'shot': ?shot,
+      if (replyDetail) ...{
+        'commentWidgets': comments,
+        'detailShot': detailShot,
+      },
       'subtitles': [for (final s in detail.subtitles) s.lan],
       'subtitleIndex': detail.vttSubtitlesIndex.value,
       'extras': extras,

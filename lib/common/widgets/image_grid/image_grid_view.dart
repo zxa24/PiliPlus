@@ -84,7 +84,12 @@ class ImageGridView extends StatelessWidget {
       (item) {
         bool isLive = item.isLivePhoto;
         return SourceModel(
-          sourceType: isLive ? .livePhoto : .networkImage,
+          // LibrePili: a picture saved with a download
+          sourceType: isLive
+              ? .livePhoto
+              : ImageUtils.isLocalFile(item.url)
+              ? .fileImage
+              : .networkImage,
           url: item.url,
           liveUrl: isLive ? item.liveUrl : null,
           width: isLive ? item.width.toInt() : null,

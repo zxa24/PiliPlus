@@ -1,18 +1,33 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
+import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
+import 'package:PiliPlus/common/widgets/simple_colored_box.dart';
+import 'package:PiliPlus/common/widgets/sliver/sliver_floating_header.dart';
+import 'package:PiliPlus/pages/video/reply/local_comments.dart';
+import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
+import 'package:easy_debounce/easy_throttle.dart';
+import 'package:fixnum/fixnum.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 
 /// LibrePili: read-only comments saved with a download
-/// (`<base>.comments.json`, format `librepili-comments-1`). Fully offline:
-/// no avatars, pictures and emotes come from the files saved with it.
+/// (`<base>.comments.json`). Fully offline. A file of format 2 has each
+/// comment as bilibili sent it: shown with the online comment's widget
+/// (ReplyItemGrpc, read-only), its avatar, pictures and emotes the copies
+/// saved with it ([LocalComments]). One of format 1 has the plain words
+/// only, shown as plainly as they are.
 class LocalReplyPanel extends StatefulWidget {
-  const LocalReplyPanel({super.key, required this.path});
+  const LocalReplyPanel({super.key, required this.path, this.heroTag});
 
   final String path;
+
+  /// The video page's, for a time in a comment to seek its player.
+  final String? heroTag;
 
   @override
   State<LocalReplyPanel> createState() => _LocalReplyPanelState();
@@ -43,6 +58,10 @@ class _LocalReplyPanelState extends State<LocalReplyPanel>
           return const Center(child: CircularProgressIndicator());
         }
         final data = snapshot.data!;
+        if (LocalComments.parse(data, p.dirname(widget.path))
+            case final local?) {
+          return _LocalCommentList(local: local, heroTag: widget.heroTag);
+        }
         final comments = (data['comments'] as List).cast<Map>();
         final fetched = DateTime.tryParse('${data['fetchedAt']}');
         return ListView.builder(
@@ -69,6 +88,176 @@ class _LocalReplyPanelState extends State<LocalReplyPanel>
           },
         );
       },
+    );
+  }
+}
+
+String _date(DateTime at) =>
+    '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')}';
+
+/// The online list, of what was saved.
+class _LocalCommentList extends StatelessWidget {
+  const _LocalCommentList({required this.local, required this.heroTag});
+
+  final LocalComments local;
+  final String? heroTag;
+
+  void _open(BuildContext context, LocalComment comment) {
+    EasyThrottle.throttle('replyReply', const Duration(milliseconds: 500), () {
+      Widget panel(BuildContext context) => _LocalReplyDetail(
+        comment: comment,
+        upMid: local.upMid,
+        heroTag: heroTag,
+      );
+      // as the online list: over the comments, in the page's own scaffold
+      if (MiniScaffold.maybeOf(context) case final scaffold?) {
+        scaffold.showBottomSheet(constraints: const BoxConstraints(), panel);
+      } else {
+        showModalBottomSheet<void>(
+          context: context,
+          useSafeArea: true,
+          isScrollControlled: true,
+          builder: panel,
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final comments = local.comments;
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
+    final fetchedAt = local.fetchedAt;
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      key: const PageStorageKey(_LocalCommentList),
+      slivers: [
+        SliverFloatingHeaderWidget(
+          backgroundColor: colorScheme.surface,
+          child: Padding(
+            padding: const .fromLTRB(12, 2.5, 12, 2.5),
+            child: SizedBox(
+              height: 32,
+              child: Row(
+                children: [
+                  const Text('热门评论', style: TextStyle(fontSize: 13)),
+                  const Spacer(),
+                  Text(
+                    '下载时保存的 ${comments.length} 条'
+                    '${fetchedAt == null ? '' : '（${_date(fetchedAt)}）'}',
+                    style: TextStyle(fontSize: 12, color: colorScheme.outline),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SliverList.builder(
+          itemCount: comments.length + 1,
+          itemBuilder: (context, index) {
+            if (index == comments.length) {
+              return CommentChrome.pagingFooter(
+                theme,
+                isEnd: true,
+                margin: .only(bottom: bottom),
+              );
+            }
+            final comment = comments[index];
+            return ReplyItemGrpc(
+              replyItem: comment.root,
+              replyLevel: 1,
+              readOnly: true,
+              upMid: local.upMid,
+              getTag: heroTag == null ? null : () => heroTag,
+              replyReply: (_, _) => _open(context, comment),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// 评论详情 of a saved comment: it, then the replies saved with it.
+class _LocalReplyDetail extends StatelessWidget {
+  const _LocalReplyDetail({
+    required this.comment,
+    required this.upMid,
+    required this.heroTag,
+  });
+
+  final LocalComment comment;
+  final Int64? upMid;
+  final String? heroTag;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final root = comment.root;
+    final replies = comment.replies;
+    final total = math.max(root.count.toInt(), replies.length);
+    final getTag = heroTag == null ? null : () => heroTag;
+    return SimpleColoredBox(
+      color: theme.canvasColor,
+      child: Column(
+        children: [
+          CommentChrome.panelHeader(theme, title: '评论详情'),
+          Expanded(
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: ReplyItemGrpc(
+                    replyItem: root,
+                    replyLevel: 2,
+                    needDivider: false,
+                    readOnly: true,
+                    upMid: upMid,
+                    getTag: getTag,
+                  ),
+                ),
+                SliverToBoxAdapter(child: CommentChrome.thickDivider(theme)),
+                SliverToBoxAdapter(
+                  child: CommentChrome.countLine(
+                    '相关回复共${NumUtils.numFormat(total)}条',
+                    trailing: replies.length < total
+                        ? Text(
+                            '已保存 ${replies.length} 条',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.outline,
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+                SliverList.builder(
+                  itemCount: replies.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == replies.length) {
+                      return CommentChrome.pagingFooter(
+                        theme,
+                        isEnd: true,
+                        margin: .only(
+                          bottom: MediaQuery.viewPaddingOf(context).bottom,
+                        ),
+                      );
+                    }
+                    return ReplyItemGrpc(
+                      replyItem: replies[index],
+                      replyLevel: 2,
+                      readOnly: true,
+                      upMid: upMid,
+                      getTag: getTag,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

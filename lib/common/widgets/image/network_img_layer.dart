@@ -1,3 +1,5 @@
+import 'dart:io' show File;
+
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
@@ -69,6 +71,23 @@ class NetworkImgLayer extends StatelessWidget {
       memCacheWidth = width.cacheSize(context);
     } else {
       memCacheHeight = height.cacheSize(context);
+    }
+    // LibrePili: a copy saved with a download, read from the disk
+    if (ImageUtils.isLocalFile(src)) {
+      return Image.file(
+        File(src!),
+        width: width,
+        height: height,
+        cacheWidth: memCacheWidth,
+        cacheHeight: memCacheHeight,
+        fit: fit,
+        alignment: alignment,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (_, _, _) =>
+            _placeholder(context, isEmote: isEmote, isAvatar: isAvatar),
+        colorBlendMode: reduce ? BlendMode.modulate : null,
+        color: reduce ? reduceLuxColor : null,
+      );
     }
     return CachedNetworkImage(
       imageUrl: ImageUtils.thumbnailUrl(src, quality),

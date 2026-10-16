@@ -45,6 +45,7 @@ import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
+import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -58,6 +59,7 @@ import 'package:collection/collection.dart' show IterableExtension;
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:protobuf/protobuf.dart';
@@ -80,6 +82,7 @@ class ReplyItemGrpc extends StatelessWidget {
     this.onCheckReply,
     this.onToggleTop,
     this.jumpToDialogue,
+    this.readOnly = false,
   });
   final ReplyInfo replyItem;
   final int replyLevel;
@@ -94,6 +97,11 @@ class ReplyItemGrpc extends StatelessWidget {
   final ValueChanged<ReplyInfo>? onCheckReply;
   final ValueChanged<ReplyInfo>? onToggleTop;
   final VoidCallback? jumpToDialogue;
+
+  /// LibrePili: a comment saved with a download (LocalReplyPanel): shown as
+  /// online, but nothing on it reaches bilibili — no reply, like, server
+  /// translation, delete, report or top; the like count is plain text.
+  final bool readOnly;
 
   static final _voteRegExp = RegExp(r"^\{vote:\d+?\}$");
   static final _timeRegExp = RegExp(r'^(?:\d+[:：])?\d+[:：]\d+$');
@@ -510,7 +518,11 @@ class ReplyItemGrpc extends StatelessWidget {
     );
 
     Widget? dialogBtn;
-    if (replyLevel == 2 && needDivider && replyItem.id != replyItem.dialog) {
+    // read-only: the dialogue is not saved, there is nothing to open
+    if (!readOnly &&
+        replyLevel == 2 &&
+        needDivider &&
+        replyItem.id != replyItem.dialog) {
       dialogBtn = SizedBox(
         height: 32,
         child: TextButton(
@@ -519,7 +531,9 @@ class ReplyItemGrpc extends StatelessWidget {
           child: Text('查看对话', style: textStyle),
         ),
       );
-    } else if (replyLevel == 3 && replyItem.parent != replyItem.root) {
+    } else if (!readOnly &&
+        replyLevel == 3 &&
+        replyItem.parent != replyItem.root) {
       dialogBtn = SizedBox(
         height: 32,
         child: TextButton(
@@ -530,7 +544,7 @@ class ReplyItemGrpc extends StatelessWidget {
       );
     }
     // LibrePili: replying / liking need login; hidden when not logged in
-    final isLogin = Accounts.main.isLogin;
+    final isLogin = !readOnly && Accounts.main.isLogin;
     // writing replies is also hidden by the hide-interaction switch
     final canReply = isLogin && !Pref.hideInteraction;
     final translator = CommentTranslator.forReply(replyItem);
@@ -577,6 +591,7 @@ class ReplyItemGrpc extends StatelessWidget {
           const SizedBox(width: 2),
         ],
         if (!onDevice &&
+            !readOnly &&
             replyControl.translationSwitch ==
                 .TRANSLATION_SWITCH_SHOW_TRANSLATION) ...[
           _buildTranslateBtn(
@@ -598,7 +613,28 @@ class ReplyItemGrpc extends StatelessWidget {
         ],
         ?dialogBtn,
         const Spacer(),
-        if (isLogin) ZanButtonGrpc(replyItem: replyItem),
+        if (isLogin)
+          ZanButtonGrpc(replyItem: replyItem)
+        else if (readOnly)
+          Row(
+            spacing: 4,
+            children: [
+              Icon(
+                FontAwesomeIcons.thumbsUp,
+                size: 16,
+                color: colorScheme.outline,
+                semanticLabel: '点赞数',
+              ),
+              Text(
+                NumUtils.numFormat(replyItem.like.toInt()),
+                style: TextStyle(
+                  color: colorScheme.outline,
+                  fontSize: Theme.of(context).textTheme.labelSmall!.fontSize,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+          ),
         const SizedBox(width: 5),
       ],
     );
@@ -1047,7 +1083,8 @@ class ReplyItemGrpc extends StatelessWidget {
     required bool isSubReply,
   }) {
     late String message = item.content.message;
-    final ownerMid = Int64(Accounts.main.mid);
+    // read-only: no one is the owner, so none of the owner's entries show
+    final ownerMid = readOnly ? Int64.ZERO : Int64(Accounts.main.mid);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final errorColor = colorScheme.error;
@@ -1077,7 +1114,7 @@ class ReplyItemGrpc extends StatelessWidget {
               ),
             ),
           ),
-          if (kDebugMode && GStorage.reply != null) ...[
+          if (kDebugMode && !readOnly && GStorage.reply != null) ...[
             ListTile(
               onTap: () {
                 Get.back();
@@ -1126,7 +1163,7 @@ class ReplyItemGrpc extends StatelessWidget {
               ),
             ),
           ],
-          if (ownerMid == upMid || ownerMid == item.member.mid)
+          if (!readOnly && (ownerMid == upMid || ownerMid == item.member.mid))
             ListTile(
               onTap: () async {
                 Get.back();
@@ -1226,7 +1263,7 @@ class ReplyItemGrpc extends StatelessWidget {
               leading: Icon(Icons.error_outline, color: errorColor, size: 19),
               title: Text('举报', style: style.copyWith(color: errorColor)),
             ),
-          if (replyLevel == 1 && !isSubReply && ownerMid == upMid)
+          if (!readOnly && replyLevel == 1 && !isSubReply && ownerMid == upMid)
             ListTile(
               onTap: () {
                 Get.back();
@@ -1257,16 +1294,17 @@ class ReplyItemGrpc extends StatelessWidget {
             leading: const Icon(Icons.copy_outlined, size: 19),
             title: Text('自由复制', style: style),
           ),
-          ListTile(
-            onTap: () {
-              Get.back();
-              SavePanel.toSavePanel(upMid: upMid, item: item);
-            },
-            minLeadingWidth: 0,
-            leading: const Icon(Icons.save_alt, size: 19),
-            title: Text('保存评论', style: style),
-          ),
-          if (kDebugMode || item.mid == ownerMid)
+          if (!readOnly)
+            ListTile(
+              onTap: () {
+                Get.back();
+                SavePanel.toSavePanel(upMid: upMid, item: item);
+              },
+              minLeadingWidth: 0,
+              leading: const Icon(Icons.save_alt, size: 19),
+              title: Text('保存评论', style: style),
+            ),
+          if (!readOnly && (kDebugMode || item.mid == ownerMid))
             ListTile(
               onTap: () {
                 Get.back();

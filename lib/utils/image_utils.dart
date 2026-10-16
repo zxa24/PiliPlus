@@ -209,6 +209,7 @@ abstract final class ImageUtils {
     r'(@(\d+[a-z]_?)*)(\..*)?$',
     caseSensitive: false,
   );
+
   /// LibrePili: YouTube's image hosts. The resize suffix below is
   /// bilibili's (`@80q.webp`); appended to a Google image URL it lands in
   /// the size parameter (`=s160-c-k-no-rj@80q.webp`) and the request fails,
@@ -218,6 +219,16 @@ abstract final class ImageUtils {
   static final _youTubeImageHost = RegExp(
     r'^(https?:)?//[^/]*(ytimg\.com|ggpht\.com|googleusercontent\.com)/',
   );
+
+  /// LibrePili: an absolute path on this device rather than a URL — the
+  /// copies saved with a download (an offline comment's avatar, emotes and
+  /// pictures). `//host/…` is a URL without its scheme, not a path.
+  static bool isLocalFile(String? src) =>
+      src != null &&
+      !src.startsWith('//') &&
+      (src.startsWith('/') || _windowsPath.hasMatch(src));
+
+  static final _windowsPath = RegExp(r'^[A-Za-z]:[\\/]');
 
   static String thumbnailUrl(String? src, [int maxQuality = 1]) {
     if (src != null && _youTubeImageHost.hasMatch(src)) {

@@ -1908,7 +1908,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       videoDetailController.isFileSource
       ? switch (videoDetailController.localCommentsPath) {
           // keyed: reload when the offline playlist switches videos
-          final path? => LocalReplyPanel(key: ValueKey(path), path: path),
+          final path? => LocalReplyPanel(
+            key: ValueKey(path),
+            path: path,
+            heroTag: heroTag,
+          ),
           null => const SizedBox.shrink(),
         }
       : VideoReplyPanel(

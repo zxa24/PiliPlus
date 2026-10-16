@@ -354,9 +354,12 @@ abstract final class DownloadExtras {
     }
 
     final json = {
-      'format': 'librepili-comments-1',
+      // 2: 1 with `pb`, `files`, `avatarFile` and `upMid` (readers of 1
+      // read it as before)
+      'format': 'librepili-comments-2',
       'oid': oid,
       'bvid': entry.bvid,
+      'upMid': ?entry.ownerId,
       'title': entry.showTitle,
       'sort': 'hot',
       'fetchedAt': DateTime.now().toIso8601String(),
@@ -397,22 +400,43 @@ abstract final class DownloadExtras {
     return out;
   }
 
-  /// [images] saves the comment's pictures and emotes next to the video;
-  /// their paths (relative to the comments file) are recorded, so the
-  /// offline panel shows them without any network request.
+  /// [images] saves the comment's avatar (a thumbnail), pictures and emotes
+  /// next to the video; their paths (relative to the comments file) are
+  /// recorded, so the offline panel shows them without any network request.
+  ///
+  /// `pb` is the comment as bilibili sent it (ReplyInfo, base64), which the
+  /// offline panel shows with the online comment's own widget; `files` maps
+  /// the URLs in it to the saved copies. The other fields are the same
+  /// comment in plain words, for people and other tools.
   static Future<Map<String, Object?>> replyToJson(
     ReplyInfo r, [
     CommentImages? images,
   ]) async {
     final pictures = <String>[];
     final emotes = <String, String>{};
+    final files = <String, String>{};
+    String? avatar;
     if (images != null) {
+      Future<String?> keep(String url, {String? fetch}) async {
+        if (url.isEmpty) return null;
+        final local = await images.save(fetch ?? url);
+        if (local != null) files[url] = local;
+        return local;
+      }
+
+      final face = r.member.face;
+      // shown at 34 px: the original can be a few hundred KB
+      avatar = await keep(face, fetch: '${face.http2https}@96w_96h_1c.webp');
       for (final p in r.content.pictures) {
-        if (await images.save(p.imgSrc) case final local?) pictures.add(local);
+        if (await keep(p.imgSrc) case final local?) pictures.add(local);
       }
       for (final e in r.content.emotes.entries) {
-        if (await images.save(e.value.url) case final local?) {
-          emotes[e.key] = local;
+        if (await keep(e.value.url) case final local?) emotes[e.key] = local;
+      }
+      // the replies shown under it in the list: their emotes too
+      for (final c in r.replies) {
+        for (final e in c.content.emotes.values) {
+          await keep(e.url);
         }
       }
     }
@@ -427,6 +451,14 @@ abstract final class DownloadExtras {
       'replyCount': r.count.toInt(),
       if (pictures.isNotEmpty) 'pictures': pictures,
       if (emotes.isNotEmpty) 'emotes': emotes,
+      'avatarFile': ?avatar,
+      if (files.isNotEmpty) 'files': files,
+      'pb': base64Encode(
+        (r.deepCopy()
+              ..unknownFields.clear()
+              ..clearTrackInfo())
+            .writeToBuffer(),
+      ),
     };
   }
 
