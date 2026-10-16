@@ -976,12 +976,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     video = _wrapAll(video);
     audio = _wrapAll(audio);
     return 'edl://'
-      '!no_chapters;'
-      // '!delay_open,media_type=video;'
-      '%${isFileSource ? utf8.encode(video).length : video.length}%$video;'
-      '!new_stream;!no_chapters;'
-      // '!delay_open,media_type=audio;'
-      '%${isFileSource ? utf8.encode(audio).length : audio.length}%$audio';
+        '!no_chapters;'
+        // '!delay_open,media_type=video;'
+        '%${isFileSource ? utf8.encode(video).length : video.length}%$video;'
+        '!new_stream;!no_chapters;'
+        // '!delay_open,media_type=audio;'
+        '%${isFileSource ? utf8.encode(audio).length : audio.length}%$audio';
   }
 
   /// The buffer for the source being opened: sized for its bitrate (see
@@ -1454,7 +1454,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // player then looked for another host (2026-10-12).
         final closing =
             _openStartedAt != null &&
-            now.difference(_openStartedAt!) < const Duration(milliseconds: 1500);
+            now.difference(_openStartedAt!) <
+                const Duration(milliseconds: 1500);
         // a copy that ends early ends there for every request: once the
         // reconnect mpv makes of itself has stopped at the same byte, the
         // host is changed at once, while what is buffered still plays
@@ -1622,11 +1623,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // failed (it played on from near the start in the user's copy)
     if (seekFailed &&
         _seekTargetAt != null &&
-        DateTime.now().difference(_seekTargetAt!) < const Duration(seconds: 30)) {
+        DateTime.now().difference(_seekTargetAt!) <
+            const Duration(seconds: 30)) {
       _resumeAt = _seekTarget;
     }
     _checkRecovery();
-    switch (transportRecovery(_transportFailures++, seekFailed: seekFailed)) {
+    final recovery = transportRecovery(
+      _transportFailures++,
+      seekFailed: seekFailed,
+    );
+    EventLog.add('player', 'stream failed: ${recovery.name}');
+    switch (recovery) {
       case TransportRecovery.retrySameUrl:
         refreshPlayer();
       case TransportRecovery.switchCdn:
@@ -1682,7 +1689,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _networkLostAt = DateTime.now();
     _recoveryCheck?.cancel();
     _recoveryCheck = null;
-    EventLog.add('player', 'network unreachable: waiting, at ${at.inSeconds} s');
+    EventLog.add(
+      'player',
+      'network unreachable: waiting, at ${at.inSeconds} s',
+    );
     SmartDialog.showToast('网络已断开，恢复后自动继续');
     final source = dataSource;
     var looking = false;
@@ -2299,9 +2309,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     try {
       final speed = double.tryParse(player.getProperty('cache-speed'));
       // filling: the network is what limits it
-      if (speed != null &&
-          speed > 0 &&
-          cache < target * 0.9) {
+      if (speed != null && speed > 0 && cache < target * 0.9) {
         _delivered.add(speed);
         if (_delivered.length > roomyFor) _delivered.removeAt(0);
       }
@@ -2698,7 +2706,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// `tls: mbedtls_ssl_handshake returned -0x7280` over and over, no branch
   /// matched it, so there was neither a retry nor a word to the user — the
   /// error only existed in the log file.
-  static bool _isTransportFailure(String event) =>
+  static bool _isTransportFailure(String event, {bool? plainHttp}) =>
       event.startsWith('Failed to open https://') ||
       event.startsWith('Can not open external file https://') ||
       // tcp: ffurl_read returned 0xdfb9b0bb / 0xffffff99
@@ -2706,15 +2714,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       event.startsWith('tls: ') ||
       event.startsWith('https: ') ||
       event.startsWith('stream: ') ||
-      // the self-test's network through a local plain-http proxy
-      (debugWrapAll != null &&
+      // Streams read over plain http from the loopback: the self-test's
+      // proxy, and the parallel fetch standing in for bilibili's hosts. The
+      // user's copy timed out on its stand-in opening a video (`http: Error
+      // reading HTTP response: Error number -138`, `Failed to open
+      // http://127.0.0.1:…`) and sat at 0:00 for good, nothing retried
+      // (2026-10-16).
+      ((plainHttp ?? (debugWrapAll != null || _parallel.running)) &&
           (event.startsWith('Failed to open http://') ||
               event.startsWith('Can not open external file http://') ||
               event.startsWith('http: ')));
 
   @visibleForTesting
-  static bool debugIsTransportFailure(String event) =>
-      _isTransportFailure(event);
+  static bool debugIsTransportFailure(String event, {bool? plainHttp}) =>
+      _isTransportFailure(event, plainHttp: plainHttp);
 
   /// 移除事件监听
   void _removeListeners() {
@@ -3080,9 +3093,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       ..connectionTimeout = const Duration(seconds: 5)
       ..userAgent = BrowserUa.pc;
     try {
-      final request = await client.getUrl(uri).timeout(
-        const Duration(seconds: 5),
-      );
+      final request = await client
+          .getUrl(uri)
+          .timeout(
+            const Duration(seconds: 5),
+          );
       request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
       // bilibili's referer to bilibili's hosts only
       if (!uri.host.endsWith('googlevideo.com')) {

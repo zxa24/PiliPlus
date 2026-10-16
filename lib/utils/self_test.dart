@@ -157,6 +157,7 @@ import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
+import 'package:PiliPlus/services/parallel_fetch.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
 ///
@@ -968,6 +969,11 @@ abstract final class SelfTest {
       }
       PlPlayerController.debugNoHandover = args.contains('--no-handover');
       PlPlayerController.debugNoParallel = args.contains('--no-parallel');
+      // `--fetch-stall-first 8`: the parallel fetch answers the player's
+      // first request 8 s late (the player gives up after 5)
+      if (int.tryParse(_arg(args, '--fetch-stall-first') ?? '') case final s?) {
+        ParallelFetch.debugStallFirst = Duration(seconds: s);
+      }
       _rate = double.tryParse(_arg(args, '--rate') ?? '');
       _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
       _playAt = int.tryParse(_arg(args, '--play-at') ?? '');

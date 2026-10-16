@@ -84,6 +84,10 @@ class ParallelFetch {
 
   bool get running => _server != null;
 
+  /// Self-test: the first request from the player is answered this much
+  /// later (an upstream slow to give its first answer).
+  static Duration? debugStallFirst;
+
   Future<void> start() async {
     if (_server != null) return;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -146,6 +150,10 @@ class ParallelFetch {
       response.statusCode = HttpStatus.notFound;
       await response.close();
       return;
+    }
+    if (debugStallFirst case final stall?) {
+      debugStallFirst = null;
+      await Future<void>.delayed(stall);
     }
     final asked = _parseRange(request.headers.value(HttpHeaders.rangeHeader));
     final from = asked?.from ?? 0;
@@ -443,9 +451,11 @@ class ParallelFetch {
         return status;
       }
       if (status == HttpStatus.partialContent) {
-        final total = RegExp(r'/(\d+)$').firstMatch(
-          response.headers.value(HttpHeaders.contentRangeHeader) ?? '',
-        )?.group(1);
+        final total = RegExp(r'/(\d+)$')
+            .firstMatch(
+              response.headers.value(HttpHeaders.contentRangeHeader) ?? '',
+            )
+            ?.group(1);
         if (total != null && remote.size == null) {
           remote.size = int.parse(total);
           // the rest need not wait for this piece to finish
@@ -520,6 +530,7 @@ class _Remote {
   final Uri uri;
   int? size;
   String? contentType;
+
   /// Pieces by where they start.
   final chunks = SplayTreeMap<int, _Chunk>();
   final readers = <_Reader>{};
@@ -596,8 +607,7 @@ class _Chunk {
     notify();
   }
 
-  List<int> bytes(int from, int to) =>
-      Uint8List.sublistView(_data!, from, to);
+  List<int> bytes(int from, int to) => Uint8List.sublistView(_data!, from, to);
 
   /// Evicted: asked for again if it is read again.
   void drop() {

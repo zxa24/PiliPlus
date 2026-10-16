@@ -25,6 +25,29 @@ void main() {
     }
   });
 
+  group('the loopback over plain http', () {
+    const events = [
+      // the user's copy, 2026-10-16: the parallel fetch's stand-in
+      'http: Error reading HTTP response: Error number -138 occurred',
+      'Failed to open http://127.0.0.1:49249/10/upos-hz-mirrorakam.akamaized.net.',
+    ];
+
+    for (final event in events) {
+      test('retried while it is in use: $event', () {
+        expect(
+          PlPlayerController.debugIsTransportFailure(event, plainHttp: true),
+          isTrue,
+        );
+      });
+      test('left alone otherwise: $event', () {
+        expect(
+          PlPlayerController.debugIsTransportFailure(event, plainHttp: false),
+          isFalse,
+        );
+      });
+    }
+  });
+
   group('everything else is left alone', () {
     const notRetryable = [
       // a decoder problem fails again the same way; retrying is pointless
