@@ -67,6 +67,7 @@ import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/pages/history/local.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
@@ -824,6 +825,15 @@ abstract final class SelfTest {
       await scenario(
         'download',
         () => _download(bvid, qn, keep: args.contains('--keep')),
+      );
+    }
+    if (_arg(args, '--download-transcribe') case final bvid?) {
+      await scenario(
+        'downloadTranscribe',
+        () => _downloadTranscribe(
+          bvid,
+          yieldAt: double.tryParse(_arg(args, '--yield-at') ?? ''),
+        ),
       );
     }
     if (_arg(args, '--asr-download-files') case final bvid?) {
@@ -9201,6 +9211,104 @@ abstract final class SelfTest {
       }
     }
     return {'pass': steps.values.every((e) => e), 'steps': steps};
+  }
+
+  /// `--download-transcribe BV [--yield-at F]`: a finished download is
+  /// transcribed to its end in the background (DownloadTranscripts). The
+  /// video is downloaded (480P, kept); what the list would show is sampled
+  /// every second until its mark goes. With [yieldAt] (a fraction), a job of
+  /// another "page" is started there — on the same file under another key —
+  /// and stopped 8 s later: the background job is to give way, and go on
+  /// from where it was once it is let.
+  static Future<Map<String, dynamic>> _downloadTranscribe(
+    String bvid, {
+    double? yieldAt,
+  }) async {
+    final asr = AsrService.to;
+    if (!asr.modelsReady) return {'pass': false, 'reason': 'models missing'};
+    final downloaded = await _download(bvid, 32, keep: true);
+    if (downloaded['pass'] != true) {
+      return {
+        'pass': false,
+        'reason': 'download failed',
+        'download': downloaded,
+      };
+    }
+    final service = Get.find<DownloadService>();
+    final entry = service.downloadList.firstWhereOrNull(
+      (e) => e.bvid == bvid && e.isCompleted && e.mergedPath != null,
+    );
+    final merged = entry?.mergedPath;
+    if (entry == null || merged == null) {
+      return {'pass': false, 'reason': 'no finished download'};
+    }
+    final cid = entry.cid;
+    final transcripts = service.transcripts;
+    final clock = Stopwatch()..start();
+    final timeline = <String>[];
+    String? last;
+    var yielded = false;
+    AsrSession? other;
+    int? otherAt;
+    final deadline = DateTime.now().add(const Duration(minutes: 15));
+    while (DateTime.now().isBefore(deadline)) {
+      final label = transcriptLabel(
+        transcripts.stateOf(cid),
+        pending: entry.transcriptPending,
+      ).trim();
+      if (label != last) {
+        timeline.add('${clock.elapsedMilliseconds ~/ 100 / 10} s: $label');
+        last = label;
+      }
+      final fraction = transcripts.progress[cid] ?? 0;
+      if (yieldAt != null && !yielded && fraction >= yieldAt) {
+        yielded = true;
+        otherAt = clock.elapsedMilliseconds;
+        timeline.add('${otherAt ~/ 100 / 10} s: another job starts');
+        other = await asr.start(
+          key: 'selftest-other-page',
+          source: merged,
+          cache: SubtitleCacheKey.local(merged),
+        );
+      }
+      if (other != null &&
+          otherAt != null &&
+          clock.elapsedMilliseconds - otherAt > 8000) {
+        timeline.add('${clock.elapsedMilliseconds ~/ 100 / 10} s: it stops');
+        await asr.stop(only: other);
+        other = null;
+      }
+      if (!entry.transcriptPending && other == null) break;
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    await asr.cache.flush();
+    await TranscriptFiles.flush();
+    final onDisk = File(path.join(entry.entryDirPath, 'entry.json'));
+    final saved = onDisk.existsSync()
+        ? jsonDecode(onDisk.readAsStringSync()) as Map
+        : const {};
+    final events = [
+      for (final line in EventLog.recent)
+        if (line.contains('[asr]') &&
+            (line.contains('background') || line.contains('download $cid')))
+          line,
+    ];
+    final checks = {
+      'transcribed to the end': (transcripts.progress[cid] ?? 0) >= 1,
+      'the mark is gone': !entry.transcriptPending,
+      'and from entry.json': !saved.containsKey('transcript_pending'),
+      'the files are there': File(TranscriptFiles.srtPath(merged)).existsSync(),
+      'gave way': yieldAt == null || events.any((e) => e.contains('gave way')),
+      'nothing running': transcripts.running.value == null && !asr.hasJob,
+    };
+    return {
+      'pass': checks.values.every((v) => v),
+      'checks': checks,
+      'timeline': timeline,
+      'events': events,
+      'seconds': clock.elapsedMilliseconds / 1000,
+      'videoSeconds': entry.totalTimeMilli / 1000,
+    };
   }
 
   /// `--asr-download-files BV [--asr-stop-at S]`: a download's transcript

@@ -14,6 +14,7 @@ import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/downloading/view.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
@@ -340,14 +341,17 @@ class DetailItem extends StatelessWidget {
                       Positioned(
                         left: 0,
                         bottom: 0,
-                        child: Text(
-                          // segments kept apart: only the first part plays
-                          '${entry.mergedParts != null ? '分${entry.mergedParts!.length + 1}段  ' : ''}'
-                          '${CacheManager.formatSize(entry.totalBytes)}${entry.ownerName != null ? '  ${entry.ownerName}' : ''}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.6,
-                            color: outline,
+                        child: Obx(
+                          () => Text(
+                            // segments kept apart: only the first part plays
+                            '${entry.mergedParts != null ? '分${entry.mergedParts!.length + 1}段  ' : ''}'
+                            '${CacheManager.formatSize(entry.totalBytes)}${entry.ownerName != null ? '  ${entry.ownerName}' : ''}'
+                            '${transcriptLabel(downloadService.transcripts.stateOf(entry.cid), pending: entry.transcriptPending)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.6,
+                              color: outline,
+                            ),
                           ),
                         ),
                       ),

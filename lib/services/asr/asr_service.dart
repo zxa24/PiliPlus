@@ -1958,6 +1958,10 @@ class AsrService extends GetxService {
   /// Whether a job is running right now.
   bool get isBusy => _current?.isRunning ?? false;
 
+  /// Whether a page has a job, running, paused or done: the downloads'
+  /// background transcription waits for it to let go (DownloadTranscripts).
+  bool get hasJob => _current != null;
+
   /// Whether a job holds the recogniser's memory, running or paused.
   bool get holdsModels => _current?.holdsModels ?? false;
 

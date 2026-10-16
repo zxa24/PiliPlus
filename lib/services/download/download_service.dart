@@ -21,6 +21,7 @@ import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
+import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/danmaku_utils.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
@@ -82,6 +83,13 @@ class DownloadService extends GetxService {
 
   late Future<void> waitForInitialization;
 
+  /// Finished downloads transcribed to their end in the background, and
+  /// how far each has got.
+  late final transcripts = DownloadTranscripts(
+    entries: () => downloadList,
+    save: _updateBiliDownloadEntryJson,
+  );
+
   @override
   void onInit() {
     super.onInit();
@@ -92,14 +100,14 @@ class DownloadService extends GetxService {
   @override
   void onClose() {
     if (SubtitleCache.onSaved == _keepTranscript) SubtitleCache.onSaved = null;
+    transcripts.dispose();
     super.onClose();
   }
 
-  /// The transcript of a part kept by the subtitle cache, written beside
-  /// each finished download of that part (see [TranscriptFiles]), with the
-  /// subtitles, when those are saved.
+  /// The transcript of a part kept by the subtitle cache: how far it got,
+  /// for the list, and — with the subtitles, when those are saved — written
+  /// beside each finished download of that part (see [TranscriptFiles]).
   void _keepTranscript(SubtitleCacheEntry entry) {
-    if (!Pref.dlSaveSubtitle) return;
     final id = entry.key.id;
     if (!id.startsWith('bili:')) return;
     final cid = int.tryParse(id.substring(5));
@@ -108,7 +116,8 @@ class DownloadService extends GetxService {
       if (download.cid != cid || !download.isCompleted) continue;
       final merged = download.mergedPath;
       if (merged == null || !File(merged).existsSync()) continue;
-      unawaited(TranscriptFiles.write(entry, merged));
+      transcripts.kept(entry, download);
+      if (Pref.dlSaveSubtitle) unawaited(TranscriptFiles.write(entry, merged));
     }
   }
 
@@ -147,6 +156,8 @@ class DownloadService extends GetxService {
       }
     }
     downloadList.sort((a, b) => b.timeUpdateStamp.compareTo(a.timeUpdateStamp));
+    // how far the transcripts beside them got, then the ones still to do
+    unawaited(transcripts.readKnown().whenComplete(transcripts.kick));
   }
 
   @pragma('vm:notify-debugger-on-exception')
@@ -970,6 +981,8 @@ class DownloadService extends GetxService {
       // old one removed): nothing to record then
       if (Directory(entry.entryDirPath).existsSync()) {
         await _updateBiliDownloadEntryJson(entry);
+        // and then the transcript, to its end, in the background
+        unawaited(transcripts.finished(entry));
       }
       extrasQueue.remove(entry);
       flagNotifier.refresh();
@@ -986,6 +999,7 @@ class DownloadService extends GetxService {
   /// Stops the extras export of a deleted entry; a running one is awaited so
   /// it cannot write into (or recreate) a folder that is being removed.
   Future<void> _cancelExtras(int cid) async {
+    await transcripts.forget(cid);
     extrasQueue.removeWhere((e) => e.cid == cid);
     if (!_extrasJobs.containsKey(cid)) return;
     _extrasCancelled.add(cid);

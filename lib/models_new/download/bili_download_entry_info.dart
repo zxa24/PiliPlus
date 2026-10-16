@@ -56,6 +56,10 @@ class BiliDownloadEntryInfo with MultiSelectData {
   /// restart.
   bool extrasPending;
 
+  /// LibrePili: the video is complete, its transcript is not: transcribed
+  /// in the background (DownloadTranscripts), after a restart too.
+  bool transcriptPending;
+
   /// LibrePili: where this download stands over all of its parts. Not
   /// saved.
   late final progress = DownloadProgress();
@@ -196,6 +200,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     this.mergedPath,
     this.mergedParts,
     this.extrasPending = false,
+    this.transcriptPending = false,
   });
 
   factory BiliDownloadEntryInfo.fromJson(
@@ -238,6 +243,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     mergedPath: json['merged_path'] as String?,
     mergedParts: (json['merged_parts'] as List?)?.whereType<String>().toList(),
     extrasPending: json['extras_pending'] as bool? ?? false,
+    transcriptPending: json['transcript_pending'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -271,6 +277,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     'merged_path': ?mergedPath,
     'merged_parts': ?mergedParts,
     if (extrasPending) 'extras_pending': true,
+    if (transcriptPending) 'transcript_pending': true,
   };
 
   @override

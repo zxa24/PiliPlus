@@ -85,6 +85,7 @@ abstract final class SettingBoxKey {
       dlSaveDanmakuXml = 'dlSaveDanmakuXml',
       dlSaveDanmakuAss = 'dlSaveDanmakuAss',
       dlSaveSubtitle = 'dlSaveSubtitle',
+      dlTranscribe = 'dlTranscribe',
       dlSaveComments = 'dlSaveComments',
       dlSaveCover = 'dlSaveCover',
       dlCommentCount = 'dlCommentCount',

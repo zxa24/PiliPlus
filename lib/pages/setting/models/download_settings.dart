@@ -26,6 +26,15 @@ List<SettingsModel> get downloadSettings => [
     defaultVal: true,
   ),
   const SwitchModel(
+    title: '下载后自动转录',
+    subtitle:
+        '下载完成后在后台用本机转录补完整个视频，存为 .asr.srt；'
+        '只在没有其他转录、电脑或手机在充电时进行，需要已下载识别模型',
+    leading: Icon(Icons.record_voice_over_outlined),
+    setKey: SettingBoxKey.dlTranscribe,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '保存封面',
     leading: Icon(Icons.image_outlined),
     setKey: SettingBoxKey.dlSaveCover,

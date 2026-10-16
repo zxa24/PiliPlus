@@ -70,7 +70,8 @@ abstract final class DownloadExtras {
       final info = entry.toJson()
         ..remove('merged_path')
         ..remove('merged_parts')
-        ..remove('extras_pending');
+        ..remove('extras_pending')
+        ..remove('transcript_pending');
       await File(path.join(folder, infoName)).writeAsString(
         const JsonEncoder.withIndent(' ').convert(info),
       );

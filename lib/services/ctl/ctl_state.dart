@@ -142,6 +142,7 @@ const ctlSettingKeys = [
   SettingBoxKey.subtitleFontScale,
   SettingBoxKey.subtitleFontScaleFS,
   SettingBoxKey.dlSaveSubtitle,
+  SettingBoxKey.dlTranscribe,
   // transcription and translation
   SettingBoxKey.subtitleChoice,
   SettingBoxKey.subtitleSource,

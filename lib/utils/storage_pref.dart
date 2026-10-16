@@ -446,6 +446,11 @@ abstract final class Pref {
       _setting.get(SettingBoxKey.dlSaveDanmakuAss, defaultValue: true);
   static bool get dlSaveSubtitle =>
       _setting.get(SettingBoxKey.dlSaveSubtitle, defaultValue: true);
+
+  /// LibrePili: a finished download is transcribed to its end in the
+  /// background (DownloadTranscripts).
+  static bool get dlTranscribe =>
+      _setting.get(SettingBoxKey.dlTranscribe, defaultValue: true);
   static bool get dlSaveComments =>
       _setting.get(SettingBoxKey.dlSaveComments, defaultValue: true);
   static bool get dlSaveCover =>
