@@ -56,6 +56,7 @@ import 'package:PiliPlus/pages/local/favs.dart';
 import 'package:PiliPlus/pages/local/feed.dart';
 import 'package:PiliPlus/pages/local/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
+import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/controller.dart';
@@ -815,6 +816,7 @@ abstract final class SelfTest {
     if (args.contains('--open-offline')) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
       final tab = int.tryParse(_arg(args, '--tab') ?? '');
+      _shots = _arg(args, '--shots') ?? _shots;
       await scenario(
         'openOffline',
         () => _openOffline(hold, tab: tab, play: args.contains('--play')),
@@ -9037,9 +9039,23 @@ abstract final class SelfTest {
     // read only: getInstance() would raise the player count
     final player = PlPlayerController.instance;
     final detail = Get.find<VideoDetailController>(tag: heroTag);
+    final intro = Get.find<LocalIntroController>(tag: heroTag).intro.value;
+    final shot = await _shot('offline');
     return {
       'pass': true,
       'title': entry.showTitle,
+      'introPath': detail.localIntroPath,
+      if (intro != null)
+        'intro': {
+          'title': intro.view.title,
+          'owner': intro.card?.card?.name ?? intro.view.owner?.name,
+          'follower': intro.card?.follower,
+          'view': intro.view.stat?.view,
+          'tags': intro.tags.length,
+          'faces': intro.faces.length,
+          'staff': intro.view.staff?.length ?? 0,
+        },
+      'shot': ?shot,
       'subtitles': [for (final s in detail.subtitles) s.lan],
       'subtitleIndex': detail.vttSubtitlesIndex.value,
       'extras': extras,

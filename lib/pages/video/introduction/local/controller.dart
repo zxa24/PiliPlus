@@ -2,6 +2,7 @@ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/video/video_detail/stat_detail.dart';
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/download/controller.dart';
+import 'package:PiliPlus/pages/video/introduction/local/local_intro.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -39,6 +40,19 @@ class LocalIntroController extends CommonIntroController {
   bool get isShowOnlineTotal => false;
 
   late final Set<String> aidSet = {};
+
+  /// The playing video's intro as saved with its download: shown above the
+  /// list of downloads.
+  final intro = Rxn<LocalIntro>();
+
+  Future<void> _loadIntro() async {
+    final path = videoDetailCtr.localIntroPath;
+    intro.value = null;
+    if (path == null) return;
+    final read = await LocalIntro.read(path);
+    // another video may have started meanwhile
+    if (!isClosed && videoDetailCtr.localIntroPath == path) intro.value = read;
+  }
 
   @override
   void onClose() {
@@ -78,10 +92,12 @@ class LocalIntroController extends CommonIntroController {
     this.list.value = list;
     final index = list.indexWhere((e) => e.cid == currCid);
     this.index.value = index;
+    _loadIntro();
     if (PlatformUtils.isMobile) {
       onVideoDetailChange(list[index]);
     }
-    if (index != 0) {
+    // the intro is at the top: the list is not scrolled to the video then
+    if (index != 0 && videoDetailCtr.localIntroPath == null) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
         try {
           final state = videoDetailCtr.scrollKey.currentState;
@@ -150,6 +166,7 @@ class LocalIntroController extends CommonIntroController {
       ..args['dirPath'] = entry.entryDirPath
       ..initFileSource(entry, isInit: false)
       ..playerInit();
+    _loadIntro();
     videoDetail
       ..value.title = entry.showTitle
       ..refresh();

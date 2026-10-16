@@ -29,6 +29,7 @@ import 'package:PiliPlus/pages/episode_panel/view.dart';
 import 'package:PiliPlus/pages/video/ai_conclusion/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
+import 'package:PiliPlus/pages/video/introduction/local/intro_header.dart';
 import 'package:PiliPlus/pages/video/introduction/local/view.dart';
 import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/pgc/view.dart';
@@ -1663,6 +1664,28 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       physics: !needCtr ? platformAlwaysClampingPhysics : null,
       key: const PageStorageKey(CommonIntroController),
       slivers: [
+        // LibrePili: the intro saved with the download, as the online page
+        Obx(() {
+          final intro = localIntroController.intro.value;
+          if (intro == null) return const SliverToBoxAdapter();
+          return SliverMainAxisGroup(
+            slivers: [
+              LocalIntroHeader(
+                key: ValueKey(intro),
+                intro: intro,
+                heroTag: heroTag,
+              ),
+              SliverToBoxAdapter(
+                child: Divider(
+                  height: 1,
+                  indent: 12,
+                  endIndent: 12,
+                  color: colorScheme.outline.withValues(alpha: .08),
+                ),
+              ),
+            ],
+          );
+        }),
         SliverPadding(
           padding: EdgeInsets.only(top: 7, bottom: padding.bottom + 100),
           sliver: LocalIntroPanel(

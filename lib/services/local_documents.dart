@@ -150,7 +150,8 @@ abstract final class LocalDocuments {
   /// Picks the video of a folder (the largest video file, as on desktop)
   /// and the side files written next to it by a LibrePili download or by
   /// other tools: `librepili.json`, `cover.jpg`, `<base>.danmaku.xml` /
-  /// `<base>.xml`, `<base>.<lan>.srt`, `<base>.asr.json`, `<base>.comments.json` and its
+  /// `<base>.xml`, `<base>.<lan>.srt`, `<base>.asr.json`, `<base>.intro.json`,
+  /// `<base>.comments.json` and its
   /// `comments_images/` folder.
   static LocalFolderMatch? match(
     List<LocalDocument> children, {
@@ -167,6 +168,7 @@ abstract final class LocalDocuments {
         name == '$base${DownloadExtras.xmlSuffix}' ||
         name == '$base.xml' ||
         name == '$base${DownloadExtras.commentsSuffix}' ||
+        name == '$base${DownloadExtras.introSuffix}' ||
         name == '$base${TranscriptFiles.entrySuffix}' ||
         (name.startsWith('$base.') && name.endsWith('.srt'));
     final sideFiles = [

@@ -79,6 +79,7 @@ import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
+import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -191,6 +192,10 @@ class VideoDetailController extends GetxController
 
   /// LibrePili: comments saved with a download, if any.
   String? localCommentsPath;
+
+  /// LibrePili: the intro saved with a download (DownloadExtras.introSuffix),
+  /// when there is one.
+  String? localIntroPath;
 
   bool get showReply => isFileSource
       ? localCommentsPath != null
@@ -564,12 +569,16 @@ class VideoDetailController extends GetxController
       LocalPlayer.retain(_localMirror);
     }
     localCommentsPath = null;
+    localIntroPath = null;
     if (entry.mergedPath case final merged?) {
-      final file = path.join(
+      String beside(String suffix) => path.join(
         path.dirname(merged),
-        '${path.basenameWithoutExtension(merged)}.comments.json',
+        '${path.basenameWithoutExtension(merged)}$suffix',
       );
+      final file = beside(DownloadExtras.commentsSuffix);
       if (File(file).existsSync()) localCommentsPath = file;
+      final intro = beside(DownloadExtras.introSuffix);
+      if (File(intro).existsSync()) localIntroPath = intro;
     }
     firstVideo = VideoItem(
       id: entry.preferedVideoQuality,

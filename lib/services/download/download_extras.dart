@@ -6,6 +6,7 @@ import 'package:PiliPlus/grpc/bilibili/community/service/dm/v1.pb.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart';
 import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/grpc/reply.dart';
+import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
@@ -18,7 +19,9 @@ import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:crypto/crypto.dart' show md5;
+import 'package:dio/dio.dart' show Options, ResponseType;
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
@@ -27,12 +30,21 @@ import 'package:path/path.dart' as path;
 /// convention, `base` being the video file name without extension:
 /// `base.mp4`, `base.danmaku.xml`, `base.danmaku.ass`, `base.LANG.srt`,
 /// `base.asr.srt` and `base.asr.json` (the on-device transcript, see
-/// TranscriptFiles), `base.comments.json`, `cover.jpg`. Every part is best-effort: a failure
-/// never affects the video itself.
+/// TranscriptFiles), `base.comments.json`, `base.intro.json` (the intro
+/// page's data, see [introSuffix]), `cover.jpg`. Every part is best-effort:
+/// a failure never affects the video itself.
 abstract final class DownloadExtras {
   static const xmlSuffix = '.danmaku.xml';
   static const assSuffix = '.danmaku.ass';
   static const commentsSuffix = '.comments.json';
+
+  /// What the intro page shows of a video, as it was when downloaded
+  /// (format `librepili-intro-1`): bilibili's own answers kept as they came
+  /// — `view` (the video: title, description, numbers, staff), `tags`,
+  /// `card` (the uploader: name, followers, videos) — and `faces`, the
+  /// avatars as base64 by their URL, so the offline page shows them without
+  /// a request and the folder stays one file per kind.
+  static const introSuffix = '.intro.json';
   static const coverName = 'cover.jpg';
 
   /// The download record, so a folder opened later (local player / drag and
@@ -41,6 +53,7 @@ abstract final class DownloadExtras {
 
   /// The extras switched on, as [DownloadProgress.planExtras] counts them.
   static Map<String, int> plan() => DownloadProgress.extrasPlan(
+    intro: true,
     cover: Pref.dlSaveCover,
     danmaku: Pref.dlSaveDanmakuXml || Pref.dlSaveDanmakuAss,
     subtitles: Pref.dlSaveSubtitle,
@@ -88,6 +101,12 @@ abstract final class DownloadExtras {
         progress?.extrasDone(name);
       }
     }
+
+    // always: it is small, and without it the offline page has no intro
+    await step(
+      DownloadProgress.stepIntro,
+      () => _intro(entry, folder, base, check),
+    );
 
     if (Pref.dlSaveCover) {
       await step(DownloadProgress.stepCover, () async {
@@ -200,6 +219,75 @@ abstract final class DownloadExtras {
       if (kDebugMode) debugPrint('download extras transcript: $e');
     }
     return written;
+  }
+
+  // ---------------------------------------------------------------- intro
+
+  /// Writes `base.intro.json`. Bangumi episodes have a page of their own
+  /// (not this one): none for them yet.
+  static Future<String?> _intro(
+    BiliDownloadEntryInfo entry,
+    String folder,
+    String base,
+    void Function() check,
+  ) async {
+    if (entry.ep != null) return null;
+    final view = await _data(
+      Api.videoIntro,
+      await WbiSign.makSign({'bvid': entry.bvid}),
+    );
+    if (view is! Map<String, dynamic>) throw StateError('view: $view');
+    // the whole season's episodes: large, and not shown offline
+    view.remove('ugc_season');
+    check();
+    final tags = await _data(Api.videoTags, {
+      'bvid': entry.bvid,
+      'cid': entry.cid,
+    });
+    final mid = (view['owner'] as Map?)?['mid'];
+    final staff = (view['staff'] as List?)?.cast<Map>() ?? const [];
+    Object? card;
+    if (mid != null && staff.isEmpty) {
+      check();
+      card = await _data(Api.memberCardInfo, {'mid': mid, 'photo': false});
+    }
+    final faces = <String, String>{};
+    for (final url in {
+      if (card case {'card': {'face': final String face}}) face,
+      for (final s in staff)
+        if (s['face'] case final String face) face,
+    }) {
+      check();
+      try {
+        // a thumbnail: the original can be a few hundred KB, shown at 35 px
+        final res = await Request.dio.get<List<int>>(
+          '${url.http2https}@120w_120h_1c.webp',
+          options: Options(responseType: ResponseType.bytes),
+        );
+        if (res.data case final bytes?) faces[url] = base64Encode(bytes);
+      } catch (e) {
+        if (kDebugMode) debugPrint('download extras face $url: $e');
+      }
+    }
+    check();
+    await File(path.join(folder, '$base$introSuffix')).writeAsString(
+      jsonEncode({
+        'format': 'librepili-intro-1',
+        'fetchedAt': DateTime.now().toIso8601String(),
+        'view': view,
+        'tags': ?tags,
+        'card': ?card,
+        'faces': faces,
+      }),
+    );
+    return '${faces.length} faces';
+  }
+
+  /// The `data` of a bilibili API answer; null when it says no.
+  static Future<Object?> _data(String url, Map<String, dynamic> query) async {
+    final res = await Request().get(url, queryParameters: query);
+    if (res.data case {'code': 0, 'data': final data}) return data;
+    return null;
   }
 
   // ------------------------------------------------------------- comments

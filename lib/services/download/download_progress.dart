@@ -18,6 +18,7 @@ class DownloadProgress extends ChangeNotifier {
 
   // --------------------------------------------------------------- extras
 
+  static const stepIntro = 'intro';
   static const stepCover = 'cover';
   static const stepDanmaku = 'danmaku';
   static const stepSubtitles = 'subtitles';
@@ -28,6 +29,7 @@ class DownloadProgress extends ChangeNotifier {
   /// request (the comment lists wait 200 ms between pages and between a
   /// comment's reply pages), a comment with its pictures, a local copy.
   static const _unitSeconds = {
+    stepIntro: 0.5,
     stepCover: 0.05,
     stepDanmaku: 0.5,
     stepSubtitles: 0.4,
@@ -39,6 +41,7 @@ class DownloadProgress extends ChangeNotifier {
   static const commentsPerPage = 20;
 
   static String _stepName(String step) => switch (step) {
+    stepIntro => '保存简介',
     stepCover => '保存封面',
     stepDanmaku => '导出弹幕',
     stepSubtitles => '保存字幕',
@@ -68,11 +71,13 @@ class DownloadProgress extends ChangeNotifier {
   /// The plan for the extras switched on: comments as the pages of their
   /// list plus each comment (with its replies and pictures).
   static Map<String, int> extrasPlan({
+    bool intro = false,
     required bool cover,
     required bool danmaku,
     required bool subtitles,
     required int comments,
   }) => {
+    if (intro) stepIntro: 1,
     if (cover) stepCover: 1,
     if (danmaku) stepDanmaku: 1,
     if (subtitles) stepSubtitles: 2,
