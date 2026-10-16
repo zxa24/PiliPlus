@@ -26,6 +26,7 @@ class _DownloadingPageState extends State<DownloadingPage>
     with BaseMultiSelectMixin<BiliDownloadEntryInfo>, GridMixin {
   final _downloadService = Get.find<DownloadService>();
   late final _waitDownloadQueue = _downloadService.waitDownloadQueue;
+  late final _extrasQueue = _downloadService.extrasQueue;
   @override
   RxList<BiliDownloadEntryInfo> get list => _waitDownloadQueue;
   @override
@@ -67,11 +68,33 @@ class _DownloadingPageState extends State<DownloadingPage>
             slivers: [
               ViewSliverSafeArea(
                 sliver: Obx(() {
-                  if (_waitDownloadQueue.isNotEmpty) {
+                  final saving = _extrasQueue.toList();
+                  if (_waitDownloadQueue.isNotEmpty || saving.isNotEmpty) {
                     return SliverGrid.builder(
                       gridDelegate: gridDelegate,
-                      itemCount: _waitDownloadQueue.length,
+                      itemCount: _waitDownloadQueue.length + saving.length,
                       itemBuilder: (context, index) {
+                        // after the queue: videos already complete whose
+                        // comments etc. are being saved (not selectable,
+                        // the multi-select acts on the queue)
+                        if (index >= _waitDownloadQueue.length) {
+                          final entry =
+                              saving[index - _waitDownloadQueue.length];
+                          return DetailItem(
+                            entry: entry,
+                            downloadService: _downloadService,
+                            showTitle: true,
+                            onDelete: (deleteExported) =>
+                                _downloadService.deleteDownload(
+                                  entry: entry,
+                                  removeList: true,
+                                  deleteExported: deleteExported,
+                                ),
+                            controller: this,
+                            checked: false,
+                            onSelect: (_) {},
+                          );
+                        }
                         final entry = _waitDownloadQueue[index];
                         final isCurr = entry.cid == _downloadService.curCid;
                         return DetailItem(

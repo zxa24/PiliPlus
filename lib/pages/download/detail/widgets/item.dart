@@ -61,6 +61,8 @@ class DetailItem extends StatelessWidget {
     final cid = entry.source?.cid ?? entry.pageData?.cid;
     final canDel = onDelete != null;
     final enableMultiSelect = controller.enableMultiSelect.value;
+    // the video is complete, comments etc. are still being saved
+    final savingExtras = downloadService.isSavingExtras(entry);
     void onLongPress() => canDel && !enableMultiSelect
         ? showDialog(
             context: context,
@@ -334,7 +336,7 @@ class DetailItem extends StatelessWidget {
                         ],
                       ],
                     ),
-                    if (entry.isCompleted) ...[
+                    if (entry.isCompleted && !savingExtras) ...[
                       Positioned(
                         left: 0,
                         bottom: 0,
@@ -359,40 +361,39 @@ class DetailItem extends StatelessWidget {
                         left: 0,
                         right: 0,
                         bottom: 0,
-                        child: isCurr
+                        child: savingExtras
+                            ? RepaintBoundary(
+                                child: ListenableBuilder(
+                                  listenable: entry.progress,
+                                  builder: (_, _) => entryProgress(
+                                    theme,
+                                    entry,
+                                    active:
+                                        entry.status ==
+                                        DownloadStatus.savingExtras,
+                                  ),
+                                ),
+                              )
+                            : isCurr
                             ? RepaintBoundary(
                                 child: Obx(
                                   () {
                                     final curDownload =
                                         downloadService.curDownload.value;
                                     if (curDownload != null) {
-                                      final status = curDownload.status;
-                                      final color =
-                                          status != DownloadStatus.pause
-                                          ? theme.colorScheme.primary
-                                          : theme.colorScheme.outline;
-                                      return progressWidget(
-                                        statusMsg: status.message,
-                                        progressStr:
-                                            status ==
-                                                    DownloadStatus
-                                                        .downloading ||
-                                                status == DownloadStatus.pause
-                                            ? '${CacheManager.formatSize(curDownload.downloadedBytes)}/${CacheManager.formatSize(curDownload.totalBytes)}'
-                                            : '',
-                                        progress: curDownload.totalBytes == 0
-                                            ? 0
-                                            : curDownload.downloadedBytes /
-                                                  curDownload.totalBytes,
-                                        color: color,
-                                        highlightColor: theme.highlightColor,
+                                      return entryProgress(
+                                        theme,
+                                        curDownload,
+                                        active:
+                                            curDownload.status !=
+                                            DownloadStatus.pause,
                                       );
                                     }
-                                    return entryProgress(theme);
+                                    return entryProgress(theme, entry);
                                   },
                                 ),
                               )
-                            : entryProgress(theme),
+                            : entryProgress(theme, entry),
                       ),
                   ],
                 ),
@@ -404,17 +405,47 @@ class DetailItem extends StatelessWidget {
     );
   }
 
-  Widget entryProgress(ThemeData theme) => progressWidget(
-    statusMsg: entry.status.message,
-    progressStr: entry.totalBytes == 0
-        ? ''
-        : '${CacheManager.formatSize(entry.downloadedBytes)}/${CacheManager.formatSize(entry.totalBytes)}',
-    progress: entry.totalBytes == 0
-        ? 0
-        : entry.downloadedBytes / entry.totalBytes,
-    color: theme.colorScheme.outline,
-    highlightColor: theme.highlightColor,
-  );
+  /// One bar over every part of the download (danmaku, video, audio, the
+  /// merge, comments / subtitles ...), see [DownloadProgress]; the label says
+  /// which part is running, the bytes while the streams download.
+  Widget entryProgress(
+    ThemeData theme,
+    BiliDownloadEntryInfo entry, {
+    bool active = false,
+  }) {
+    final progress = entry.progress;
+    final status = entry.status;
+    final statusMsg = switch (status) {
+      DownloadStatus.getDanmaku when progress.danmakuTotal > 1 =>
+        '${status.message} ${progress.danmakuDone}/${progress.danmakuTotal}',
+      DownloadStatus.savingExtras => progress.extrasLabel ?? status.message,
+      _ => status.message,
+    };
+    final showBytes =
+        progress.mediaReceived > 0 &&
+        switch (status) {
+          DownloadStatus.downloading ||
+          DownloadStatus.audioDownloading ||
+          DownloadStatus.pause ||
+          DownloadStatus.wait ||
+          DownloadStatus.failDownload ||
+          DownloadStatus.failDownloadAudio => true,
+          _ => false,
+        };
+    final percent = '${(progress.value * 100).floor()}%';
+    return progressWidget(
+      statusMsg: statusMsg,
+      progressStr: showBytes
+          ? '${CacheManager.formatSize(progress.mediaReceived)}/'
+                '${CacheManager.formatSize(progress.mediaTotal)}  $percent'
+          : progress.value > 0
+          ? percent
+          : '',
+      progress: progress.value,
+      color: active ? theme.colorScheme.primary : theme.colorScheme.outline,
+      highlightColor: theme.highlightColor,
+    );
+  }
 
   Widget progressWidget({
     required String statusMsg,

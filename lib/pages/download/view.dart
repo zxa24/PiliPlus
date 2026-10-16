@@ -125,7 +125,12 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                       _downloadService.waitDownloadQueue.firstWhereOrNull(
                         (e) => e.cid == _downloadService.curCid,
                       ) ??
-                      _downloadService.waitDownloadQueue.firstOrNull;
+                      _downloadService.waitDownloadQueue.firstOrNull ??
+                      // complete videos whose comments etc. are being saved
+                      _downloadService.extrasQueue.firstOrNull;
+                  final count =
+                      _downloadService.waitDownloadQueue.length +
+                      _downloadService.extrasQueue.length;
                   if (entry != null) {
                     return SliverMainAxisGroup(
                       slivers: [
@@ -133,7 +138,7 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                           padding: const EdgeInsets.only(left: 12, bottom: 7),
                           sliver: SliverToBoxAdapter(
                             child: Text(
-                              '正在缓存 (${_downloadService.waitDownloadQueue.length})',
+                              '正在缓存 ($count)',
                             ),
                           ),
                         ),
@@ -163,7 +168,9 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                           padding: EdgeInsets.only(
                             left: 12,
                             bottom: 7,
-                            top: _downloadService.waitDownloadQueue.isEmpty
+                            top:
+                                _downloadService.waitDownloadQueue.isEmpty &&
+                                    _downloadService.extrasQueue.isEmpty
                                 ? 0
                                 : 7,
                           ),
@@ -204,7 +211,8 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                       ],
                     );
                   }
-                  if (_downloadService.waitDownloadQueue.isNotEmpty) {
+                  if (_downloadService.waitDownloadQueue.isNotEmpty ||
+                      _downloadService.extrasQueue.isNotEmpty) {
                     return const SliverToBoxAdapter();
                   }
                   return const HttpError();

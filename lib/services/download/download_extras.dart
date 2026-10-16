@@ -11,6 +11,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
+import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -34,14 +35,24 @@ abstract final class DownloadExtras {
   /// drop) restores title, ids and quality.
   static const infoName = 'librepili.json';
 
+  /// The extras switched on, as [DownloadProgress.planExtras] counts them.
+  static Map<String, int> plan() => DownloadProgress.extrasPlan(
+    cover: Pref.dlSaveCover,
+    danmaku: Pref.dlSaveDanmakuXml || Pref.dlSaveDanmakuAss,
+    subtitles: Pref.dlSaveSubtitle,
+    comments: Pref.dlSaveComments ? Pref.dlCommentCount : 0,
+  );
+
   /// Writes the enabled extras; returns what was written (for self tests).
   /// [cancelled] is polled between steps and requests: once it returns true
-  /// (the entry was deleted) nothing more is fetched or written.
+  /// (the entry was deleted) nothing more is fetched or written. [progress]
+  /// is told how far each step is.
   static Future<Map<String, Object?>> export({
     required BiliDownloadEntryInfo entry,
     required String folder,
     required String base,
     bool Function()? cancelled,
+    DownloadProgress? progress,
   }) async {
     final written = <String, Object?>{};
     void check() {
@@ -54,23 +65,27 @@ abstract final class DownloadExtras {
       // ([LocalPlayer]) resolves the video file locally anyway.
       final info = entry.toJson()
         ..remove('merged_path')
-        ..remove('merged_parts');
+        ..remove('merged_parts')
+        ..remove('extras_pending');
       await File(path.join(folder, infoName)).writeAsString(
         const JsonEncoder.withIndent(' ').convert(info),
       );
     } catch (_) {}
     Future<void> step(String name, Future<Object?> Function() body) async {
       if (cancelled?.call() ?? false) return;
+      progress?.extrasStart(name);
       try {
         written[name] = await body();
       } catch (e) {
         written[name] = 'error: $e';
         if (kDebugMode) debugPrint('download extras $name: $e');
+      } finally {
+        progress?.extrasDone(name);
       }
     }
 
     if (Pref.dlSaveCover) {
-      await step('cover', () async {
+      await step(DownloadProgress.stepCover, () async {
         final src = File(path.join(entry.entryDirPath, PathUtils.coverName));
         if (!src.existsSync()) return null;
         await src.copy(path.join(folder, coverName));
@@ -79,7 +94,7 @@ abstract final class DownloadExtras {
     }
 
     if (Pref.dlSaveDanmakuXml || Pref.dlSaveDanmakuAss) {
-      await step('danmaku', () async {
+      await step(DownloadProgress.stepDanmaku, () async {
         final pb = File(path.join(entry.entryDirPath, PathUtils.danmakuName));
         if (!pb.existsSync()) return null;
         final elems = DmSegMobileReply.fromBuffer(await pb.readAsBytes()).elems
@@ -100,11 +115,17 @@ abstract final class DownloadExtras {
     }
 
     if (Pref.dlSaveSubtitle) {
-      await step('subtitles', () => _subtitles(entry, folder, base, check));
+      await step(
+        DownloadProgress.stepSubtitles,
+        () => _subtitles(entry, folder, base, check, progress),
+      );
     }
 
     if (Pref.dlSaveComments) {
-      await step('comments', () => _comments(entry, folder, base, check));
+      await step(
+        DownloadProgress.stepComments,
+        () => _comments(entry, folder, base, check, progress),
+      );
     }
     return written;
   }
@@ -116,6 +137,7 @@ abstract final class DownloadExtras {
     String folder,
     String base,
     void Function() check,
+    DownloadProgress? progress,
   ) async {
     final res = await VideoHttp.playInfo(
       bvid: entry.bvid,
@@ -143,8 +165,14 @@ abstract final class DownloadExtras {
       }
     }
     final written = <String>[];
-    for (final s in subtitles) {
+    // the list, then one request per language
+    for (final (i, s) in subtitles.indexed) {
       check();
+      progress?.extras(
+        DownloadProgress.stepSubtitles,
+        1 + i,
+        1 + subtitles.length,
+      );
       final srt = await VideoHttp.getSubtitles(s.url, format: .srt);
       if (srt == null) continue;
       final name = '$base.${_safe(s.lan)}.srt';
@@ -161,6 +189,7 @@ abstract final class DownloadExtras {
     String folder,
     String base,
     void Function() check,
+    DownloadProgress? progress,
   ) async {
     final maxRoots = Pref.dlCommentCount;
     final maxReplies = Pref.dlReplyCount;
@@ -168,8 +197,15 @@ abstract final class DownloadExtras {
     final oid = entry.avid;
     final roots = <ReplyInfo>[];
     Int64? cursorNext;
+    var pages = 0;
+    final pagesPlanned = (maxRoots / DownloadProgress.commentsPerPage).ceil();
     while (roots.length < maxRoots) {
       check();
+      progress?.extras(
+        DownloadProgress.stepCommentList,
+        pages,
+        math.max(pagesPlanned, pages + 1),
+      );
       final res = await ReplyGrpc.mainList(
         oid: oid,
         mode: Mode.MAIN_LIST_HOT,
@@ -181,17 +217,20 @@ abstract final class DownloadExtras {
         break;
       }
       final page = res.response;
+      pages++;
       roots.addAll(page.replies);
       if (page.cursor.isEnd || page.replies.isEmpty) break;
       cursorNext = page.cursor.next;
       await Future.delayed(const Duration(milliseconds: 200));
     }
     if (roots.length > maxRoots) roots.removeRange(maxRoots, roots.length);
+    progress?.extrasDone(DownloadProgress.stepCommentList);
 
     final images = CommentImages(folder);
     final items = <Map<String, Object?>>[];
-    for (final root in roots) {
+    for (final (i, root) in roots.indexed) {
       check();
+      progress?.extras(DownloadProgress.stepComments, i, roots.length);
       var replies = root.replies.toList();
       final wanted = math.min(maxReplies, root.count.toInt());
       if (replies.length < wanted) {

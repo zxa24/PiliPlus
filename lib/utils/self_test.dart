@@ -980,7 +980,8 @@ abstract final class SelfTest {
       // `--video-qa 16`: the quality opened with (360P), as a viewer's
       // default quality setting would have it
       final videoQa = int.tryParse(_arg(args, '--video-qa') ?? '');
-      if (videoQa != null) PlPlayerController.getInstance().cacheVideoQa = videoQa;
+      if (videoQa != null)
+        PlPlayerController.getInstance().cacheVideoQa = videoQa;
       // `default`: no preference saved, as for someone who never set one
       final codecsDefault = codecs == 'default';
       final overrides = <String, Object>{
@@ -1191,9 +1192,13 @@ abstract final class SelfTest {
     if (_arg(args, '--ux-tour') case final target?) {
       _shots = _arg(args, '--shots') ?? _shots;
       // YouTube refusing the first URLs (403), as it once did
-      YtVideoController.debugRefuseFirstOpen = args.contains('--yt-refuse-first');
+      YtVideoController.debugRefuseFirstOpen = args.contains(
+        '--yt-refuse-first',
+      );
       // the quality, not the host, is what is to change
-      VideoDetailController.debugNoHostSwitch = args.contains('--no-host-switch');
+      VideoDetailController.debugNoHostSwitch = args.contains(
+        '--no-host-switch',
+      );
       // a host slower than the stream plays (the video stream only)
       _CuttingProxy? slow;
       final kbps = int.tryParse(_arg(args, '--throttle-video-kbps') ?? '');
@@ -1609,13 +1614,14 @@ abstract final class SelfTest {
         for (final (_, line) in EventLog.entries(since: start)) line,
       ];
       // the line comes in the same millisecond as the play: a little before
-      final renewed = EventLog.entries(
-        since: resumed.subtract(const Duration(seconds: 1)),
-      ).any(
-        (e) =>
-            e.$2.contains('play URLs expired') ||
-            e.$2.contains('pause the play URLs answer'),
-      );
+      final renewed =
+          EventLog.entries(
+            since: resumed.subtract(const Duration(seconds: 1)),
+          ).any(
+            (e) =>
+                e.$2.contains('play URLs expired') ||
+                e.$2.contains('pause the play URLs answer'),
+          );
       // the first second after the reopen may still read where it opened
       final resumedFrom = timeline.firstWhere(
         (p) => p > 0,
@@ -2029,7 +2035,8 @@ abstract final class SelfTest {
     final pickMs = DateTime.now().difference(started).inMilliseconds;
     Get.back();
     return {
-      'pass': page.stage.value != .failed ||
+      'pass':
+          page.stage.value != .failed ||
           !page.blocked.value ||
           (buttons.values.every((b) => b) && instance != null),
       'stage': page.stage.value.name,
@@ -7204,7 +7211,10 @@ abstract final class SelfTest {
     final entry = LocalHistory.get(LocalHistory.ugcKey(b.aid));
     final saved = entry?.parts['${b.cid.value}']?.progress;
     return {
-      'pass': bAt != null && bAt < bLength - 2000 && (saved == null || saved <= bLength),
+      'pass':
+          bAt != null &&
+          bAt < bLength - 2000 &&
+          (saved == null || saved <= bLength),
       'firstAt': aAt,
       'secondAt': bAt,
       'secondLength': bLength,
@@ -9209,10 +9219,40 @@ abstract final class SelfTest {
     service.downloadVideo(page, detail, null, quality);
 
     final statuses = <String>[];
+    // the one bar over all parts, sampled: [seconds, status, %, label]
+    final timeline = <List<Object?>>[];
+    final started = DateTime.now();
+    void sample() {
+      final e = [
+        ...service.waitDownloadQueue,
+        ...service.extrasQueue,
+        ...service.downloadList,
+      ].firstWhereOrNull((e) => e.cid == cid);
+      if (e == null) return;
+      final p = e.progress;
+      final row = [
+        DateTime.now().difference(started).inMilliseconds / 1000,
+        e.status.name,
+        (p.value * 1000).round() / 10,
+        p.extrasLabel ??
+            (p.mediaTotal > 0 ? '${p.mediaReceived}/${p.mediaTotal}' : null),
+        service.isSavingExtras(e),
+      ];
+      final last = timeline.lastOrNull;
+      // a row per change (not per tick)
+      if (last == null ||
+          last[1] != row[1] ||
+          last[2] != row[2] ||
+          last[3] != row[3]) {
+        timeline.add(row);
+      }
+    }
+
     final deadline = DateTime.now().add(const Duration(minutes: 15));
     BiliDownloadEntryInfo? done;
     while (DateTime.now().isBefore(deadline)) {
       await Future.delayed(const Duration(milliseconds: 500));
+      sample();
       final cur = service.curDownload.value;
       if (cur != null && cur.cid == cid) {
         final s = cur.status.name;
@@ -9234,9 +9274,26 @@ abstract final class SelfTest {
 
     // extras run after completion: let them finish so the folder report
     // includes them (deleting below would cancel them anyway)
-    await service
-        .extrasDone(cid)
-        ?.timeout(const Duration(minutes: 5), onTimeout: () {});
+    final savingAtCompletion = service.isSavingExtras(done);
+    final valueAtCompletion = done.progress.value;
+    final extras = service.extrasDone(cid);
+    if (extras != null) {
+      var finished = false;
+      unawaited(extras.whenComplete(() => finished = true));
+      final until = DateTime.now().add(const Duration(minutes: 5));
+      while (!finished && DateTime.now().isBefore(until)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        sample();
+      }
+    }
+    // the job's own completion (status, entry.json) runs right after
+    await Future.delayed(const Duration(milliseconds: 200));
+    sample();
+    final values = [for (final r in timeline) r[2] as double];
+    var monotonic = true;
+    for (var i = 1; i < values.length; i++) {
+      if (values[i] < values[i - 1]) monotonic = false;
+    }
     final merged = done.mergedPath;
     final mergedFile = merged == null ? null : File(merged);
     final streamDir = path.join(done.entryDirPath, done.streamTypeTag);
@@ -9263,6 +9320,18 @@ abstract final class SelfTest {
       'downloadedBytes': done.totalBytes,
       'streamLeftovers': leftovers,
       'entryJsonMergedPath': savedMergedPath,
+      'progress': {
+        'savingExtrasAtCompletion': savingAtCompletion,
+        'percentAtCompletion': (valueAtCompletion * 1000).round() / 10,
+        'savingExtrasAfter': service.isSavingExtras(done),
+        'final': (done.progress.value * 1000).round() / 10,
+        'monotonic': monotonic,
+        'extrasPendingSaved': entryJson.existsSync()
+            ? (jsonDecode(await entryJson.readAsString())
+                  as Map)['extras_pending']
+            : null,
+        'timeline': timeline,
+      },
       'entryDir': done.entryDirPath,
       // per-video folder contents (video + danmaku / subtitles / comments)
       if (merged != null)
@@ -9271,12 +9340,17 @@ abstract final class SelfTest {
             if (f is File) path.basename(f.path): f.lengthSync(),
         },
     };
+    final prog = result['progress'] as Map;
     result['pass'] =
         merged != null &&
         result['mergedExists'] == true &&
         (result['mergedBytes'] as int) > 0 &&
         leftovers.isEmpty &&
-        savedMergedPath == merged;
+        savedMergedPath == merged &&
+        prog['monotonic'] == true &&
+        prog['final'] == 100.0 &&
+        prog['savingExtrasAfter'] == false &&
+        prog['extrasPendingSaved'] == null;
 
     if (!keep) {
       await service.deleteDownload(

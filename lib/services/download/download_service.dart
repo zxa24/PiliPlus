@@ -55,14 +55,22 @@ class DownloadService extends GetxService {
   final waitDownloadQueue = RxList<BiliDownloadEntryInfo>();
   final downloadList = <BiliDownloadEntryInfo>[];
 
+  /// Entries whose video is complete (they are in [downloadList] too) while
+  /// their extras — comments, subtitles, ... — are still being saved: they
+  /// are listed as downloading until then.
+  final extrasQueue = RxList<BiliDownloadEntryInfo>();
+
+  bool isSavingExtras(BiliDownloadEntryInfo entry) =>
+      extrasQueue.any((e) => e.cid == entry.cid);
+
   int? _curCid;
   int? get curCid => _curCid;
   final curDownload = Rxn<BiliDownloadEntryInfo>();
   void _updateCurStatus(DownloadStatus status) {
-    if (curDownload.value != null) {
-      curDownload
-        ..value!.status = status
-        ..refresh();
+    if (curDownload.value case final entry?) {
+      entry.status = status;
+      curDownload.refresh();
+      entry.progress.statusChanged();
     }
   }
 
@@ -145,7 +153,12 @@ class DownloadService extends GetxService {
               ..entryDirPath = entryDir.path;
             if (entry.isCompleted) {
               result.add(entry);
+              // the app closed while they were being saved
+              if (entry.extrasPending) _resumeExtras(entry);
             } else {
+              entry.progress
+                ..planExtras(DownloadExtras.plan())
+                ..video(entry.downloadedBytes, entry.totalBytes);
               waitDownloadQueue.add(entry..status = DownloadStatus.wait);
             }
           } catch (e) {
@@ -412,10 +425,22 @@ class DownloadService extends GetxService {
           1,
         );
 
+        // the first segment alone, then the rest a few at a time
+        final rounds = 1 + ((seg - 1) / _maxDanmakuConcurrency).ceil();
+        var round = 0;
+        void reported() {
+          if (isUpdate) return;
+          entry.progress.danmaku(round, rounds);
+          curDownload.refresh();
+        }
+
+        reported();
         final danmaku = (await DmGrpc.dmSegMobile(
           cid: cid,
           segmentIndex: 1,
         )).data;
+        round++;
+        reported();
         for (var start = 2; start <= seg; start += _maxDanmakuConcurrency) {
           final end = start + _maxDanmakuConcurrency - 1;
           final responses = await Future.wait([
@@ -426,6 +451,8 @@ class DownloadService extends GetxService {
             danmaku.elems.addAll(response.data.elems);
           }
           responses.clear();
+          round++;
+          reported();
         }
         await danmakuFile.writeAsBytes(danmaku.writeToBuffer());
 
@@ -464,6 +491,12 @@ class DownloadService extends GetxService {
   }
 
   Future<void> _startDownload(BiliDownloadEntryInfo entry) async {
+    entry.progress
+      ..restart()
+      ..planExtras(DownloadExtras.plan())
+      // until the play URL tells: about 2 Mbps
+      ..mediaGuess = entry.totalTimeMilli * 250
+      ..video(entry.downloadedBytes, entry.totalBytes);
     try {
       // danmaku is optional: a failed fetch must not block the video (it
       // can be fetched again later with "update danmaku")
@@ -517,6 +550,18 @@ class DownloadService extends GetxService {
         return;
       }
 
+      entry.progress.mediaGuess = switch (mediaFileInfo) {
+        Type1(:final segmentList) => segmentList.fold(0, (s, e) => s + e.bytes),
+        // bits per second over the duration (dash: seconds)
+        Type2(:final duration, :final video, :final audio) =>
+          (video.first.bandwidth + (audio?.firstOrNull?.bandwidth ?? 0)) *
+              duration ~/
+              8,
+        _ => entry.progress.mediaGuess,
+      };
+      entry.progress.expectAudio =
+          mediaFileInfo is Type2 && (mediaFileInfo.audio?.isNotEmpty ?? false);
+
       switch (mediaFileInfo) {
         case Type1 mediaFileInfo:
           _startSegment(mediaFileInfo.segmentList, 0, videoDir.path);
@@ -538,7 +583,7 @@ class DownloadService extends GetxService {
               url: audio.first.baseUrl,
               backupUrls: audio.first.backupUrl ?? const [],
               path: path.join(videoDir.path, PathUtils.audioNameType2),
-              onReceiveProgress: null,
+              onReceiveProgress: _onAudioReceive,
               onDone: _onAudioDone,
             );
           }
@@ -668,7 +713,15 @@ class DownloadService extends GetxService {
       }
       entry
         ..downloadedBytes = progress
-        ..status = DownloadStatus.downloading;
+        ..status = DownloadStatus.downloading
+        ..progress.video(progress, total);
+      curDownload.refresh();
+    }
+  }
+
+  void _onAudioReceive(int progress, int total) {
+    if (curDownload.value case final entry?) {
+      entry.progress.audio(progress, total);
       curDownload.refresh();
     }
   }
@@ -688,6 +741,7 @@ class DownloadService extends GetxService {
       _updateCurStatus(_downloadManager?.status ?? DownloadStatus.pause);
       return;
     }
+    curDownload.value?.progress.videoDone();
 
     final status = switch (_audioDownloadManager?.status) {
       DownloadStatus.downloading => DownloadStatus.audioDownloading,
@@ -714,6 +768,7 @@ class DownloadService extends GetxService {
       lastError = 'audio: $error';
       debugPrint('download failed: $lastError');
     }
+    if (error == null) curDownload.value?.progress.audioDone();
     if (_downloadManager?.status == DownloadStatus.completed) {
       if (error == null) {
         _completeDownload();
@@ -742,6 +797,7 @@ class DownloadService extends GetxService {
     _updateCurStatus(DownloadStatus.merging);
     final (:output, :inputs, :damaged) = await _mergeDownload(entry);
     _mergingCids.remove(cid);
+    if (!damaged && output != null) entry.progress.mergeDone();
     final deleted = _mergeDeletedCids.remove(cid);
     if (deleted || !Directory(entry.entryDirPath).existsSync()) {
       // deleted while merging (the merge may have kept files open, so the
@@ -769,7 +825,9 @@ class DownloadService extends GetxService {
     // crash here cannot turn the entry back into an incomplete one)
     entry
       ..mergedParts = parts.length > 1 ? parts.sublist(1) : null
-      ..isCompleted = true;
+      ..isCompleted = true
+      // comments / subtitles etc. are saved after the video (see below)
+      ..extrasPending = output != null;
     await _updateBiliDownloadEntryJson(entry);
     if (output != null) {
       for (final input in inputs) {
@@ -782,6 +840,13 @@ class DownloadService extends GetxService {
       }
     }
     await _delStaleStreamDirs(entry);
+    // still listed as downloading while its extras are saved (added before
+    // it leaves the queue, so the list never shows it missing)
+    if (output != null) {
+      extrasQueue.add(entry..status = DownloadStatus.extrasWait);
+    } else {
+      entry.progress.complete();
+    }
     waitDownloadQueue.remove(entry);
     // the download folder can change while a merge runs (the merge is left
     // to finish): the list was re-read from the new root, so an entry of the
@@ -799,6 +864,23 @@ class DownloadService extends GetxService {
     // comments / subtitles etc. can take many requests: do not hold the
     // queue for them
     if (output != null) _queueExtras(entry, output);
+  }
+
+  /// Saves the extras of [entry] that an earlier run did not finish.
+  void _resumeExtras(BiliDownloadEntryInfo entry) {
+    final merged = entry.mergedPath;
+    if (_extrasJobs.containsKey(entry.cid)) return;
+    if (merged == null || !File(merged).existsSync()) {
+      // the video was moved or deleted: nothing to save them next to
+      _updateBiliDownloadEntryJson(entry..extrasPending = false);
+      return;
+    }
+    entry.progress
+      ..planExtras(DownloadExtras.plan())
+      ..video(1, 1)
+      ..mergeDone();
+    extrasQueue.add(entry..status = DownloadStatus.extrasWait);
+    _queueExtras(entry, merged);
   }
 
   /// Removes the stream folders of qualities this entry no longer uses.
@@ -837,18 +919,33 @@ class DownloadService extends GetxService {
     final job = _extrasQueue = _extrasQueue.then((_) async {
       if (_extrasCancelled.contains(cid)) return;
       _extrasRunningCid = cid;
+      entry.status = DownloadStatus.savingExtras;
+      extrasQueue.refresh();
       try {
         await DownloadExtras.export(
           entry: entry,
           folder: path.dirname(output),
           base: path.basenameWithoutExtension(output),
           cancelled: () => _extrasCancelled.contains(cid),
+          progress: entry.progress,
         );
       } catch (e) {
         if (kDebugMode) debugPrint('download extras: $e');
       } finally {
         _extrasRunningCid = null;
       }
+      if (_extrasCancelled.contains(cid)) return;
+      entry
+        ..extrasPending = false
+        ..status = DownloadStatus.completed
+        ..progress.complete();
+      // its folder may be gone meanwhile (download folder changed and the
+      // old one removed): nothing to record then
+      if (Directory(entry.entryDirPath).existsSync()) {
+        await _updateBiliDownloadEntryJson(entry);
+      }
+      extrasQueue.remove(entry);
+      flagNotifier.refresh();
     });
     _extrasJobs[cid] = job;
     job.whenComplete(() {
@@ -862,6 +959,7 @@ class DownloadService extends GetxService {
   /// Stops the extras export of a deleted entry; a running one is awaited so
   /// it cannot write into (or recreate) a folder that is being removed.
   Future<void> _cancelExtras(int cid) async {
+    extrasQueue.removeWhere((e) => e.cid == cid);
     if (!_extrasJobs.containsKey(cid)) return;
     _extrasCancelled.add(cid);
     if (_extrasRunningCid == cid) await _extrasJobs[cid];

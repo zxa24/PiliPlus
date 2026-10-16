@@ -3,6 +3,7 @@ import 'dart:io' show File;
 import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show MultiSelectData;
+import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -49,6 +50,15 @@ class BiliDownloadEntryInfo with MultiSelectData {
   /// only the first part, so the entry is complete on disk but not playable
   /// as one video.
   List<String>? mergedParts;
+
+  /// LibrePili: the video is complete, the extras next to it (comments,
+  /// subtitles, ...) are not saved yet; they are saved again after a
+  /// restart.
+  bool extrasPending;
+
+  /// LibrePili: where this download stands over all of its parts. Not
+  /// saved.
+  late final progress = DownloadProgress();
 
   /// LibrePili (Android local player): the video is played from this
   /// `content://` URI (system grant, not copied); [mergedPath] then names it
@@ -185,6 +195,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     this.ep,
     this.mergedPath,
     this.mergedParts,
+    this.extrasPending = false,
   });
 
   factory BiliDownloadEntryInfo.fromJson(
@@ -226,6 +237,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
         : null,
     mergedPath: json['merged_path'] as String?,
     mergedParts: (json['merged_parts'] as List?)?.whereType<String>().toList(),
+    extrasPending: json['extras_pending'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -258,6 +270,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
     'ep': ?ep?.toJson(),
     'merged_path': ?mergedPath,
     'merged_parts': ?mergedParts,
+    if (extrasPending) 'extras_pending': true,
   };
 
   @override
@@ -450,6 +463,9 @@ enum DownloadStatus {
   failMerge('合并音视频失败'),
   pause('暂停中'),
   wait('等待中'),
+  // LibrePili: the video is complete, the extras next to it are not
+  extrasWait('等待保存评论等'),
+  savingExtras('保存评论等'),
   ;
 
   final String message;

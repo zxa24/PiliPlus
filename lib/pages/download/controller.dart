@@ -45,6 +45,8 @@ class DownloadPageController extends GetxController
     }
     final list = <DownloadPageInfo>[];
     for (final entry in _downloadService.downloadList) {
+      // listed as downloading until its comments etc. are saved
+      if (_downloadService.isSavingExtras(entry)) continue;
       final pageId = entry.pageId;
       final page = list.firstWhereOrNull((e) => e.pageId == pageId);
       if (page != null) {
