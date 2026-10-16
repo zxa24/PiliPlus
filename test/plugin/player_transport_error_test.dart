@@ -1,4 +1,5 @@
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/dry_watch.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -131,7 +132,7 @@ void main() {
 
   group('a track that ran dry while playback goes on', () {
     bool dry(double? position, double? cacheEnd, [double? duration = 600]) =>
-        PlPlayerController.trackRanDry(
+        DryWatch.behind(
           position: position,
           cacheEnd: cacheEnd,
           duration: duration,

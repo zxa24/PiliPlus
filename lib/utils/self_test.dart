@@ -948,12 +948,15 @@ abstract final class SelfTest {
       _CuttingProxy? cut;
       final cutAt = int.tryParse(_arg(args, '--cut-video-at') ?? '');
       final kbps = int.tryParse(_arg(args, '--throttle-video-kbps') ?? '');
+      // `--throttle-all-hosts`
+      final allHosts = args.contains('--throttle-all-hosts');
       if (cutAt != null || kbps != null) {
         final at = cutAt ?? 1 << 50;
         final throttleFor = int.tryParse(_arg(args, '--throttle-for') ?? '');
         cut = _CuttingProxy(
           at,
           bytesPerSecond: kbps == null ? null : kbps * 1000 ~/ 8,
+          oneHost: !allHosts,
           throttleFor: throttleFor == null
               ? null
               : Duration(seconds: throttleFor),
@@ -965,7 +968,14 @@ abstract final class SelfTest {
           },
         );
         await cut.start();
-        VideoUtils.debugWrapVideoUrl = cut.wrap;
+        if (allHosts) {
+          // every stream of every host, the ones switched to included: the
+          // network rather than one CDN slow (the user's copy, 2026-10-16:
+          // 4.6 and 5.2 Mbps)
+          PlPlayerController.debugWrapAll = cut.wrap;
+        } else {
+          VideoUtils.debugWrapVideoUrl = cut.wrap;
+        }
       }
       PlPlayerController.debugNoHandover = args.contains('--no-handover');
       PlPlayerController.debugNoParallel = args.contains('--no-parallel');
@@ -1029,6 +1039,7 @@ abstract final class SelfTest {
         );
       } finally {
         VideoUtils.debugWrapVideoUrl = null;
+        PlPlayerController.debugWrapAll = null;
         PlPlayerController.debugNoHandover = false;
         if (cut != null) {
           stderr.writeln('cutting proxy: ${cut.requests.join(' | ')}');

@@ -20,6 +20,7 @@ import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/plugin/pl_player/dry_watch.dart';
 import 'package:PiliPlus/plugin/pl_player/quality_advisor.dart';
 import 'package:PiliPlus/services/parallel_fetch.dart';
 import 'package:PiliPlus/plugin/pl_player/smoothness_monitor.dart';
@@ -1910,7 +1911,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _delivered.clear();
       if (!debugNoHandover && await _handOver(urls, source, why: why)) {
         _cutAt.clear();
-        _dryTicks = -3;
+        _dry.grace();
         // measured on the streams replaced
         _delivered.clear();
         return;
@@ -1930,6 +1931,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       );
       _cutAt.clear();
       _resumeAt = resumePosition;
+      // the new streams take a moment to fill the cache, as after a switch:
+      // without it the watch took the streams of a step down at 159 s for a
+      // dry track 3 s later, and playback went on by itself (2026-10-16)
+      _dry.grace();
       reopenHere();
     } catch (_) {
       if (reopen && identical(dataSource, source)) _switchCdn(fallback: true);
@@ -2504,7 +2509,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
         if (!identical(dataSource, source)) return;
         // the new source takes a moment to fill the cache
-        _dryTicks = -3;
+        _dry.grace();
         if (onCdnFailover?.call() ?? false) {
           _transportFailures = 0;
         } else {
@@ -2561,9 +2566,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   Timer? _dryWatch;
 
-  /// Checks in a row the playhead has been past what arrived; below zero, a
-  /// grace period after a recovery was set off.
-  int _dryTicks = 0;
+  /// Whether the playhead has run past what arrived, or stands behind it
+  /// with nothing arriving.
+  final _dry = DryWatch();
 
   /// Catches a stream that stopped arriving while playback goes on without
   /// it. The case that put this here: a CDN whose copy of the video track
@@ -2598,7 +2603,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // a source opened mid-video reads its cache behind the playhead for a
     // moment (measured: playhead 15.0 s, cache to 13.2 s, a reopen at 15 s
     // that then played on) — what a recovery gets, every open gets
-    _dryTicks = -3;
+    _dry.grace();
     _quietSmoothness(const Duration(seconds: 3));
     _dryWatch = Timer.periodic(const Duration(seconds: 1), (_) {
       // each on its own: one that throws must not take the others with it
@@ -2609,19 +2614,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           dataSource is FileSource ||
           !playerStatus.isPlaying ||
           isBuffering.value) {
-        if (_dryTicks > 0) _dryTicks = 0;
+        _dry.skip();
         return;
       }
-      if (_dryTicks < 0) {
-        _dryTicks++;
-        return;
-      }
-      final bool dry;
+      final DryVerdict verdict;
       final double? pos, cacheEnd;
       try {
         pos = double.tryParse(player.getProperty('time-pos'));
         cacheEnd = double.tryParse(player.getProperty('demuxer-cache-time'));
-        dry = trackRanDry(
+        verdict = _dry.tick(
           position: pos,
           cacheEnd: cacheEnd,
           duration: double.tryParse(player.getProperty('duration')),
@@ -2630,29 +2631,46 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // disposed between ticks
         return;
       }
-      if (!dry) {
-        _dryTicks = 0;
-        return;
+      switch (verdict) {
+        case DryVerdict.fine:
+          return;
+        case DryVerdict.dry:
+          EventLog.add(
+            'player',
+            'a track ran dry: playhead $pos s, cache to $cacheEnd s',
+          );
+        case DryVerdict.stuck:
+          EventLog.add(
+            'player',
+            'nothing arriving for ${_dry.stuckSeconds} s: playhead $pos s, '
+                'cache to $cacheEnd s',
+          );
+        case DryVerdict.slow:
+          EventLog.add(
+            'player',
+            'standing ${_dry.slowSeconds} s behind the cache: playhead $pos s, '
+                'cache to $cacheEnd s',
+          );
+          // what arrives arrives too slowly: the page weighs the hosts and
+          // the quality, as for a buffer that will not keep up
+          if (onStreamSlow case final slow?) {
+            _replaceStreams(slow, why: 'slow', reopen: false);
+            return;
+          }
       }
-      // one tick can be a seek landing between two property reads
-      if (++_dryTicks < 2) return;
-      EventLog.add(
-        'player',
-        'a track ran dry: playhead $pos s, cache to $cacheEnd s',
-      );
       // mpv has already reconnected as often as it will: the same URL again
       // would only cost the viewer another stall
       _switchCdn();
     });
   }
 
-  /// Whether a track is dry now (see [trackRanDry]); false when it cannot
-  /// be read.
+  /// Whether the playhead is past what arrived now (see [DryWatch.behind]);
+  /// false when it cannot be read.
   bool _dryNow() {
     final player = _videoPlayerController;
     if (player is! NativePlayer) return false;
     try {
-      return trackRanDry(
+      return DryWatch.behind(
         position: double.tryParse(player.getProperty('time-pos')),
         cacheEnd: double.tryParse(player.getProperty('demuxer-cache-time')),
         duration: double.tryParse(player.getProperty('duration')),
@@ -2660,21 +2678,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } catch (_) {
       return false;
     }
-  }
-
-  /// Whether the playhead, in seconds, has run more than a second past the
-  /// end of what the cache holds, away from the end of the video.
-  @visibleForTesting
-  static bool trackRanDry({
-    required double? position,
-    required double? cacheEnd,
-    required double? duration,
-  }) {
-    if (position == null || cacheEnd == null) return false;
-    if (duration != null && duration > 0 && position >= duration - 2) {
-      return false;
-    }
-    return position > cacheEnd + 1;
   }
 
   /// Consecutive transport failures on the current source.
