@@ -184,7 +184,31 @@ final class _CuttingProxy {
     this.oneHost = true,
     this.throttleFor,
     this.throttleAfter,
+    this.hangAfter,
+    this.hangFor,
   });
+
+  /// From this long after the start on, the host stops answering without
+  /// hanging up: transfers under way send nothing more, new requests get no
+  /// reply — reads time out (mpv's `-138`), as on akamai in the user's copy
+  /// (2026-10-16, both tracks at once). For [hangFor], or for good.
+  final Duration? hangAfter;
+  final Duration? hangFor;
+
+  bool get _hanging {
+    final after = hangAfter;
+    if (after == null) return false;
+    final t = _since.elapsed;
+    return t >= after && (hangFor == null || t < after + hangFor!);
+  }
+
+  /// Until the host answers again (or for a minute at most).
+  Future<void> _whileHanging() async {
+    final until = _since.elapsed + const Duration(minutes: 1);
+    while (_hanging && _since.elapsed < until) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+  }
 
   /// [bytesPerSecond] only from this long after the start on: a network that
   /// slows down once the buffer has filled.
@@ -250,6 +274,14 @@ final class _CuttingProxy {
         ) ??
         0;
     requests.add('${request.method} range=$range');
+    if (_hanging) {
+      requests.add('  (no answer: hanging)');
+      await _whileHanging();
+      try {
+        (await request.response.detachSocket(writeHeaders: false)).destroy();
+      } catch (_) {}
+      return;
+    }
     if (upstream == null || from >= cutAt || _down) {
       final socket = await request.response.detachSocket(writeHeaders: false);
       socket.destroy();
@@ -280,6 +312,7 @@ final class _CuttingProxy {
       var sent = 0;
       Stopwatch? paced;
       await for (final chunk in answer) {
+        if (_hanging) await _whileHanging();
         if (bytesPerSecond case final rate?
             when (throttleFor == null || _since.elapsed < throttleFor!) &&
                 (throttleAfter == null || _since.elapsed >= throttleAfter!)) {
@@ -979,7 +1012,11 @@ abstract final class SelfTest {
       final kbps = int.tryParse(_arg(args, '--throttle-video-kbps') ?? '');
       // `--throttle-all-hosts`
       final allHosts = args.contains('--throttle-all-hosts');
-      if (cutAt != null || kbps != null) {
+      // `--hang-after S [--hang-for T]`: the first host stops answering S s
+      // in, both tracks (see _CuttingProxy.hangAfter)
+      final hangAfter = int.tryParse(_arg(args, '--hang-after') ?? '');
+      final hangFor = int.tryParse(_arg(args, '--hang-for') ?? '');
+      if (cutAt != null || kbps != null || hangAfter != null) {
         final at = cutAt ?? 1 << 50;
         final throttleFor = int.tryParse(_arg(args, '--throttle-for') ?? '');
         cut = _CuttingProxy(
@@ -995,9 +1032,17 @@ abstract final class SelfTest {
             final after? => Duration(seconds: after),
             null => null,
           },
+          hangAfter: hangAfter == null ? null : Duration(seconds: hangAfter),
+          hangFor: hangFor == null ? null : Duration(seconds: hangFor),
         );
         await cut.start();
-        if (allHosts) {
+        if (args.contains('--via-parallel')) {
+          // behind the parallel fetch, as the user's copy reads: the player
+          // talks to the fetch, the fetch to this proxy
+          final proxy = cut;
+          ParallelFetch.debugUpstream = (uri) =>
+              Uri.parse(proxy.wrap(uri.toString()));
+        } else if (allHosts || hangAfter != null) {
           // every stream of every host, the ones switched to included: the
           // network rather than one CDN slow (the user's copy, 2026-10-16:
           // 4.6 and 5.2 Mbps)
@@ -1008,6 +1053,7 @@ abstract final class SelfTest {
       }
       PlPlayerController.debugNoHandover = args.contains('--no-handover');
       PlPlayerController.debugNoParallel = args.contains('--no-parallel');
+      PlPlayerController.debugNoHealthSteps = args.contains('--no-health');
       // `--fetch-stall-first 8`: the parallel fetch answers the player's
       // first request 8 s late (the player gives up after 5)
       if (int.tryParse(_arg(args, '--fetch-stall-first') ?? '') case final s?) {
@@ -1070,6 +1116,8 @@ abstract final class SelfTest {
         VideoUtils.debugWrapVideoUrl = null;
         PlPlayerController.debugWrapAll = null;
         PlPlayerController.debugNoHandover = false;
+        PlPlayerController.debugNoHealthSteps = false;
+        ParallelFetch.debugUpstream = null;
         if (cut != null) {
           stderr.writeln('cutting proxy: ${cut.requests.join(' | ')}');
           await cut.close();

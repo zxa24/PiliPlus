@@ -140,6 +140,45 @@ void main() {
     expect(run(w, [(149, 146)]), [DryVerdict.stuck]);
   });
 
+  test('2026-10-16: standing at the very end of the cache, both tracks '
+      'stopped, is a wait: shown after two ticks, given up on when nothing '
+      'arrives', () {
+    // BV1CzpS6uEaf at 311.9 s: under half a second of cache, mpv playing
+    final w = DryWatch(stuckSeconds: 10);
+    final verdicts = <DryVerdict>[];
+    final waiting = <bool>[];
+    for (var i = 0; i < 11; i++) {
+      verdicts.add(w.tick(position: 311.9, cacheEnd: 312.2, duration: 981));
+      waiting.add(w.waiting);
+    }
+    expect(waiting.take(2), [false, true]);
+    expect(waiting.sublist(2, 10), everyElement(isTrue));
+    expect(verdicts.sublist(0, 10), everyElement(DryVerdict.fine));
+    expect(verdicts.last, DryVerdict.stuck);
+    // acted on: the count starts over
+    expect(w.waiting, isFalse);
+  });
+
+  test('a playhead standing with more than half a second ahead of it is not '
+      'waiting at the end', () {
+    final w = DryWatch();
+    for (var i = 0; i < 15; i++) {
+      expect(
+        w.tick(position: 100, cacheEnd: 100.6, duration: 981),
+        DryVerdict.fine,
+      );
+      expect(w.waiting, isFalse);
+    }
+  });
+
+  test('moving again ends the wait', () {
+    final w = DryWatch();
+    run(w, [(50, 50.2), (50, 50.2), (50, 50.2)]);
+    expect(w.waiting, isTrue);
+    run(w, [(51, 60)]);
+    expect(w.waiting, isFalse);
+  });
+
   test('ahead of the playhead, or at the end of the video, is fine', () {
     expect(DryWatch.behind(position: 10, cacheEnd: 30, duration: 60), isFalse);
     expect(DryWatch.behind(position: 10, cacheEnd: 9.5, duration: 60), isFalse);

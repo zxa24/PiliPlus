@@ -88,6 +88,10 @@ class ParallelFetch {
   /// later (an upstream slow to give its first answer).
   static Duration? debugStallFirst;
 
+  /// Self-test: where a request upstream really goes (the self-test's
+  /// proxy, standing between this and the host).
+  static Uri Function(Uri uri)? debugUpstream;
+
   Future<void> start() async {
     if (_server != null) return;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -436,7 +440,7 @@ class ParallelFetch {
   Future<int?> _get(_Remote remote, _Chunk chunk, int from, int to) async {
     try {
       final request = await _client
-          .getUrl(remote.uri)
+          .getUrl(debugUpstream?.call(remote.uri) ?? remote.uri)
           .timeout(const Duration(seconds: 10));
       request.followRedirects = true;
       _headers(remote.uri).forEach(request.headers.set);

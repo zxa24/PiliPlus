@@ -1382,6 +1382,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (_bufferingSince != null && DebugOverlay.on) _debugBuffering();
       }),
       stream.buffering.listen((bool buffering) {
+        // mpv buffering: the wait is its own now
+        if (buffering) _waitShown = false;
         _logBuffering(buffering);
         // a replacement in place holds the last frame rather than showing
         // the loading spinner over it (see [_replaceCutStreams])
@@ -2261,8 +2263,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// that delivers, only slower than the stream plays, is not something a
   /// failover ever looked at: Akamai dropping the connection every half
   /// minute left a 1080P stream six seconds of buffer to recover in.
+  /// For the self-test (`--no-health`): the buffer's health takes no step,
+  /// so what the dry-track watch does alone is seen.
+  static bool debugNoHealthSteps = false;
+
   void _watchHealth(NativePlayer player) {
-    if (onStreamSlow == null ||
+    if (debugNoHealthSteps ||
+        onStreamSlow == null ||
         _networkWait != null ||
         _replacing ||
         isLive ||
@@ -2570,6 +2577,32 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// with nothing arriving.
   final _dry = DryWatch();
 
+  /// [isBuffering] is set by the watch, not by mpv: the playhead standing at
+  /// the end of what arrived while mpv calls it playing ([DryWatch.waiting]).
+  /// Without it the picture froze with no sign of loading (2026-10-16).
+  bool _waitShown = false;
+
+  void _showWait(double? pos, double? cacheEnd) {
+    if (!_waitShown) {
+      _waitShown = true;
+      EventLog.add(
+        'player',
+        'waiting at the end of the cache: playhead $pos s, cache to '
+            '$cacheEnd s (mpv not buffering)',
+      );
+    }
+    if (!isBuffering.value) isBuffering.value = true;
+  }
+
+  /// The wait the watch showed is over (or is taken over by mpv's own, or
+  /// by a recovery): [isBuffering] goes back to what mpv says.
+  void _hideWait() {
+    if (!_waitShown) return;
+    _waitShown = false;
+    isBuffering.value =
+        !_replacing && (_videoPlayerController?.state.buffering ?? false);
+  }
+
   /// Catches a stream that stopped arriving while playback goes on without
   /// it. The case that put this here: a CDN whose copy of the video track
   /// ended after 1 MB (every request, at the same byte — the other hosts
@@ -2600,6 +2633,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   void _watchForDryTrack(NativePlayer player) {
     _dryWatch?.cancel();
+    _waitShown = false;
     // a source opened mid-video reads its cache behind the playhead for a
     // moment (measured: playhead 15.0 s, cache to 13.2 s, a reopen at 15 s
     // that then played on) — what a recovery gets, every open gets
@@ -2613,7 +2647,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (isLive ||
           dataSource is FileSource ||
           !playerStatus.isPlaying ||
-          isBuffering.value) {
+          // mpv's own buffering; the one this watch shows is judged on
+          (isBuffering.value && !_waitShown)) {
+        _hideWait();
         _dry.skip();
         return;
       }
@@ -2630,6 +2666,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       } catch (_) {
         // disposed between ticks
         return;
+      }
+      if (verdict == DryVerdict.fine && _dry.waiting) {
+        _showWait(pos, cacheEnd);
+      } else {
+        // moving again, or about to be acted on: the recovery shows its own
+        _hideWait();
       }
       switch (verdict) {
         case DryVerdict.fine:
@@ -2738,6 +2780,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _loadWatch = null;
     _dryWatch?.cancel();
     _dryWatch = null;
+    // whoever listens next sets isBuffering from mpv again
+    _waitShown = false;
     _subscriptions?.forEach((e) => e.cancel());
     _subscriptions?.clear();
     _subscriptions = null;

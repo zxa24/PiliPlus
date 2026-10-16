@@ -15,6 +15,14 @@
 /// [slowSeconds] (what arrives comes too slowly: on a host throttled to 0.3 s
 /// of video a second it stood 19 s, 2026-10-16 self-test).
 ///
+/// Standing still *at* the end of the cache is the same wait: both tracks of
+/// one host stopped together, so the playhead stops on the last frame there
+/// rather than running past it — and mpv went on calling it playing, not
+/// buffering (the user's copy, 2026-10-16, BV1CzpS6uEaf at 311.9 s on
+/// akamai: reads timing out, under half a second of cache, never acted on).
+/// [waiting] says so after [waitingAfter] ticks, for the page to show it is
+/// loading.
+///
 /// Pure: no mpv, so it can be tested.
 library;
 
@@ -36,6 +44,14 @@ enum DryVerdict {
 
 class DryWatch {
   DryWatch({this.stuckSeconds = 10, this.slowSeconds = 12});
+
+  /// How close to the end of the cache a playhead standing still counts as
+  /// waiting at it: the frame there is the last one that arrived.
+  static const atEndWithin = 0.5;
+
+  /// Ticks standing still at (or behind) the end of the cache before it is
+  /// shown as a load: a moment's hold is not one.
+  static const waitingAfter = 2;
 
   /// Ticks (seconds) with nothing arriving before a playhead standing still
   /// is given up on: mpv's own reconnect has had its go by then (it gives a
@@ -61,6 +77,10 @@ class DryWatch {
 
   /// Seconds standing still behind the cache, so far.
   int get standingTicks => _standingTicks;
+
+  /// Whether the playhead has stood at the end of what arrived long enough
+  /// to be waiting for more ([waitingAfter]).
+  bool get waiting => _standingTicks >= waitingAfter;
 
   /// The next [ticks] checks are not judged: a source opened mid-video reads
   /// its cache behind the playhead for a moment.
@@ -117,12 +137,13 @@ class DryWatch {
     // Standing still, any way short of the playhead is short: mpv waits for
     // the frame there. With the second's margin the dry track is given, a
     // cache that stopped at 148.1 s under a playhead at 149.0 s went
-    // unnoticed for 13 s (2026-10-16 self-test).
+    // unnoticed for 13 s (2026-10-16 self-test). Nor does the cache need to
+    // be short of it: one ending right at it has nothing more to play.
     if (!behind(
       position: position,
       cacheEnd: cacheEnd,
       duration: duration,
-      margin: 0,
+      margin: -atEndWithin,
     )) {
       _stuckTicks = 0;
       _standingTicks = 0;
