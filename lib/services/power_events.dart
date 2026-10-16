@@ -8,6 +8,11 @@
 /// going off is the first thing said, so it counts too; while a video plays
 /// the display stays on (wakelock), so off then means the lid, the power
 /// button or a sleep.
+///
+/// Waking is the display coming on, not the resume message: with modern
+/// standby Windows said "awake" one second after "going to sleep" and the
+/// computer slept on for another minute (2026-10-16), which brought the
+/// decoder back for the whole sleep.
 library;
 
 import 'dart:io' show Platform;
@@ -19,6 +24,10 @@ import 'package:flutter/services.dart';
 abstract final class PowerEvents {
   static const _channel = MethodChannel('librepili/power');
 
+  /// The display's last state said; the runner's registration says it at
+  /// once. Off, a resume is not a wake.
+  static var _displayOff = false;
+
   static void init() {
     if (!Platform.isWindows) return;
     _channel.setMethodCallHandler((call) async {
@@ -27,8 +36,11 @@ abstract final class PowerEvents {
           EventLog.add('power', 'going to sleep');
           await _before('sleep');
         case 'resume':
-          EventLog.add('power', 'awake');
-          _after('wake');
+          EventLog.add(
+            'power',
+            'awake${_displayOff ? ', the display still off: not yet' : ''}',
+          );
+          if (!_displayOff) _after('wake');
         case 'display':
           final state = call.arguments;
           EventLog.add(
@@ -41,8 +53,10 @@ abstract final class PowerEvents {
             }}',
           );
           if (state == 0) {
+            _displayOff = true;
             await _before('display off');
           } else if (state == 1) {
+            _displayOff = false;
             _after('display on');
           }
       }
