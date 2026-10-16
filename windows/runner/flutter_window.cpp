@@ -27,6 +27,11 @@ constexpr GUID kHevcMainProfile = {
 constexpr GUID kVp9Profile0 = {
     0x463707f8, 0xa1d0, 0x4585, {0x87, 0x6d, 0x83, 0xaa, 0x6d, 0x60, 0xb8, 0x9e}};
 
+// GUID_CONSOLE_DISPLAY_STATE, spelt out for the same reason: the display
+// going off (0), on (1) or dimmed (2).
+constexpr GUID kConsoleDisplayState = {
+    0x6fe69556, 0x704a, 0x47a0, {0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47}};
+
 // The decoder profiles the default GPU offers through D3D11 video, the path
 // mpv's d3d11va hardware decoding takes. Empty when there is no such GPU.
 std::vector<GUID> DecoderProfiles() {
@@ -136,6 +141,18 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  // A hardware decoder crossing a sleep hung in the GPU driver, and the
+  // whole app with it (2026-10-15): the player lets go of it first. With
+  // modern standby the display goes off before anything else is said.
+  power_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "librepili/power",
+          &flutter::StandardMethodCodec::GetInstance());
+  suspend_notify_ = ::RegisterSuspendResumeNotification(
+      GetHandle(), DEVICE_NOTIFY_WINDOW_HANDLE);
+  display_notify_ = ::RegisterPowerSettingNotification(
+      GetHandle(), &kConsoleDisplayState, DEVICE_NOTIFY_WINDOW_HANDLE);
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   // flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -151,6 +168,15 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (suspend_notify_) {
+    ::UnregisterSuspendResumeNotification(suspend_notify_);
+    suspend_notify_ = nullptr;
+  }
+  if (display_notify_) {
+    ::UnregisterPowerSettingNotification(display_notify_);
+    display_notify_ = nullptr;
+  }
+  power_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -176,6 +202,28 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_POWERBROADCAST:
+      if (power_channel_) {
+        if (wparam == PBT_APMSUSPEND) {
+          power_channel_->InvokeMethod("suspend", nullptr);
+        } else if (wparam == PBT_APMRESUMEAUTOMATIC ||
+                   wparam == PBT_APMRESUMESUSPEND) {
+          power_channel_->InvokeMethod("resume", nullptr);
+        } else if (wparam == PBT_POWERSETTINGCHANGE) {
+          const auto* setting =
+              reinterpret_cast<const POWERBROADCAST_SETTING*>(lparam);
+          if (setting && IsEqualGUID(setting->PowerSetting,
+                                     kConsoleDisplayState) &&
+              setting->DataLength >= sizeof(DWORD)) {
+            const DWORD state =
+                *reinterpret_cast<const DWORD*>(setting->Data);
+            power_channel_->InvokeMethod(
+                "display", std::make_unique<flutter::EncodableValue>(
+                               static_cast<int>(state)));
+          }
+        }
+      }
+      return TRUE;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

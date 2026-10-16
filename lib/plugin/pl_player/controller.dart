@@ -709,6 +709,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // the same one keeps it). Without ids (YouTube) the page sets it again
       // on every open.
       if (cid == null || cid != this.cid || bvid != _bvid) _subtitle = null;
+      // `vid` is an option as well: left off, the new file has no picture
+      _videoBack('a new source');
       this.isLive = isLive;
       _videoType = videoType ?? VideoType.ugc;
       this.width = width;
@@ -2947,6 +2949,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // await seekTo(Duration.zero);
       await seekTo(Duration.zero, isSeek: false);
     }
+    // a wake that was never told
+    _videoBack('play');
     // a pause long enough for the URLs to expire: the page reopens on new
     // ones, playing (the same once a seek has asked for them)
     if (_renewIfExpired(resumePosition)) return;
@@ -2968,6 +2972,60 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     playerStatus.value = PlayerStatus.playing;
     // screenManager.setOverlays(false);
+  }
+
+  /// Windows: the computer going to sleep, or its display off (with modern
+  /// standby the first thing said). Playback pauses and the video decoder
+  /// is let go of: a hardware decoder that crossed a sleep hung in the AMD
+  /// driver (`DecoderEndFrame` waiting forever, holding the D3D11 context),
+  /// the render thread and mpv's core waited on it, and the UI thread on
+  /// the core — the whole app frozen (2026-10-15). The audio stays, paused.
+  Future<void> beforeSleep(String why) async {
+    final player = _videoPlayerController;
+    if (player is! NativePlayer || _vidBeforeSleep != null) return;
+    final String vid;
+    try {
+      if (player.getProperty('vid') case '' || 'no') return;
+      // the option, not the track: `vid` sets both, and stays for the
+      // files after
+      vid = player.getProperty('options/vid');
+    } catch (_) {
+      return;
+    }
+    final wasPlaying = playerStatus.isPlaying;
+    if (wasPlaying) await pause();
+    try {
+      player.setProperty('vid', 'no');
+    } catch (_) {
+      return;
+    }
+    _vidBeforeSleep = vid;
+    EventLog.add(
+      'player',
+      '$why: ${wasPlaying ? 'paused, ' : ''}video decoder let go of',
+    );
+  }
+
+  /// Windows: awake, or the display on again (see [beforeSleep]). The
+  /// picture comes back where it was, still paused.
+  void afterSleep(String why) => _videoBack(why);
+
+  /// `options/vid` before [beforeSleep] switched the video off; null with
+  /// it on.
+  String? _vidBeforeSleep;
+
+  void _videoBack(String why) {
+    final vid = _vidBeforeSleep;
+    if (vid == null) return;
+    _vidBeforeSleep = null;
+    final player = _videoPlayerController;
+    if (player is! NativePlayer) return;
+    try {
+      player.setProperty('vid', vid);
+    } catch (_) {
+      return;
+    }
+    EventLog.add('player', '$why: video decoder back');
   }
 
   /// When playback was paused, by whatever means; null while playing.

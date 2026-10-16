@@ -24,6 +24,7 @@ import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/pages/setting/models/youtube_settings.dart';
 import 'package:PiliPlus/services/platform_service.dart';
+import 'package:PiliPlus/services/power_events.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
@@ -161,6 +162,8 @@ void main(List<String> args) async {
   OnDeviceModelGuard.install();
   // which codec a stream is chosen in (see CodecSupport); nothing waits on it
   unawaited(CodecSupport.check());
+  // the player lets go of its decoder before the computer sleeps
+  PowerEvents.init();
   // the command-line reader (设置 → 其它设置 → 允许命令行读取状态); off, it
   // only clears a ctl.json a crashed run left
   unawaited(Ctl.apply(Pref.ctlServer));

@@ -40,6 +40,13 @@ class FlutterWindow : public Win32Window {
   // focused (lib/utils/self_test_window.dart).
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       self_test_channel_;
+
+  // LibrePili: the computer going to sleep, waking, and its display going
+  // off and on, for the player (lib/services/power_events.dart).
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      power_channel_;
+  HPOWERNOTIFY suspend_notify_ = nullptr;
+  HPOWERNOTIFY display_notify_ = nullptr;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

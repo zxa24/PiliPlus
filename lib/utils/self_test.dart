@@ -970,6 +970,7 @@ abstract final class SelfTest {
       PlPlayerController.debugNoParallel = args.contains('--no-parallel');
       _rate = double.tryParse(_arg(args, '--rate') ?? '');
       _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
+      _playAt = int.tryParse(_arg(args, '--play-at') ?? '');
       VideoDetailController.debugTriedHosts = {
         ...?_arg(args, '--tried-hosts')?.split(','),
       };
@@ -5548,6 +5549,7 @@ abstract final class SelfTest {
 
   static double? _rate;
   static int _rateAt = 5;
+  static int? _playAt;
 
   static Future<Map<String, dynamic>> _openBili(
     String url,
@@ -5642,6 +5644,15 @@ abstract final class SelfTest {
         await Future.delayed(Duration(seconds: _rateAt));
         EventLog.add('selftest', 'speed to ${rate}x');
         await player.setPlaybackSpeed(rate);
+      }());
+    }
+    // `--play-at 32`: play pressed, as a viewer presses it (after a sleep
+    // posted to the window from outside: PlPlayerController.beforeSleep)
+    if (_playAt case final at?) {
+      unawaited(() async {
+        await Future.delayed(Duration(seconds: at));
+        EventLog.add('selftest', 'play pressed');
+        await player.play();
       }());
     }
     // Watched for a fixed stretch and sampled, rather than stopped at the
