@@ -432,6 +432,7 @@ class SubtitleCache {
     _entries[name] = entry;
     entry._store = this;
     if (entry.isEmpty) return _writes[name] ?? Future.value();
+    onSaved?.call(entry);
     final text = jsonEncode(entry.toJson());
     final write = (_writes[name] ?? Future.value()).then(
       (_) => _write(name, text),
@@ -443,6 +444,29 @@ class SubtitleCache {
       }),
     );
     return write;
+  }
+
+  /// Told of every entry kept, as it is kept: the downloads write a
+  /// finished download's transcript beside its video (TranscriptFiles).
+  static void Function(SubtitleCacheEntry entry)? onSaved;
+
+  /// Puts [kept] — the entry of the same part and recogniser, from beside a
+  /// downloaded video — in place of what the cache has, when it covers more
+  /// of the media. False when the cache's covers as much. Only while nothing
+  /// is transcribing that part: a session's transcript would not take it.
+  Future<bool> adopt(SubtitleCacheEntry kept) async {
+    final entry = await open(kept.key, kept.recogniser);
+    if (kept.coveredSeconds <= entry.coveredSeconds) return false;
+    entry
+      ..runs = kept.runs
+      ..mediaEnd = kept.mediaEnd ?? entry.mediaEnd
+      ..englishModel = kept.englishModel
+      ..englishFrom = kept.englishFrom;
+    for (final t in kept.translations.entries) {
+      entry.translations.putIfAbsent(t.key, () => t.value);
+    }
+    await save(entry);
+    return true;
   }
 
   Future<void> _write(String name, String text) async {

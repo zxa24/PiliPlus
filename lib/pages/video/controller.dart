@@ -67,6 +67,7 @@ import 'package:PiliPlus/services/asr/fill_export.dart';
 import 'package:PiliPlus/pages/video/widgets/fill_export_dialog.dart';
 import 'package:PiliPlus/utils/storage_utils.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
+import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
@@ -1730,8 +1731,31 @@ class VideoDetailController extends GetxController
     // publish landing mid-read would otherwise add its track at whatever
     // index the half-built list had reached, and the next file read into
     // that slot — or that track into a file's.
-    final saved = <({String lan, String text})>[];
+    final saved = <({String lan, String text, String? label})>[];
     final merged = entry.mergedPath;
+    // The transcript kept beside the video (TranscriptFiles) is the
+    // device's own: shown through a session, from the cache, where the
+    // recogniser is here — put back in the cache first when it knows less
+    // (cleared, or another device's folder). Without the recogniser its
+    // SRT is all there is to show.
+    final transcribes =
+        Get.isRegistered<AsrService>() && AsrService.to.modelsReady;
+    if (merged != null && transcribes && asrSession.value == null) {
+      try {
+        final kept = await TranscriptFiles.read(
+          merged,
+          _asrCacheKey,
+          AsrService.recogniserId,
+        );
+        if (kept != null && await AsrService.to.cache.adopt(kept)) {
+          EventLog.add(
+            'asr',
+            'transcript from beside the video: '
+                '${kept.coveredSeconds.toStringAsFixed(0)} s',
+          );
+        }
+      } catch (_) {}
+    }
     if (merged != null) {
       final dir = Directory(path.dirname(merged));
       final base = path.basenameWithoutExtension(merged);
@@ -1743,7 +1767,14 @@ class VideoDetailController extends GetxController
         for (final f in files) {
           final name = path.basename(f.path);
           final lan = name.substring(base.length + 1, name.length - 4);
-          saved.add((lan: lan, text: await f.readAsString()));
+          final transcript = name == '$base${TranscriptFiles.srtSuffix}';
+          if (transcript && transcribes) continue;
+          saved.add((
+            // not `asr`: that is the track the device is making
+            lan: transcript ? 'asr-file' : lan,
+            text: await f.readAsString(),
+            label: transcript ? '本机转录（已保存）' : null,
+          ));
         }
       }
     }
@@ -1763,9 +1794,9 @@ class VideoDetailController extends GetxController
     // [_restoreGeneratedTracks])
     _asrTrackIndex = null;
     _translationTrackIndex = null;
-    for (final (:lan, :text) in saved) {
+    for (final (:lan, :text, :label) in saved) {
       vttSubtitles[subtitles.length] = (isData: true, id: text);
-      subtitles.add(Subtitle(lan: lan, lanDoc: lan));
+      subtitles.add(Subtitle(lan: lan, lanDoc: label ?? lan));
     }
     _restoreGeneratedTracks(made);
     if (isClosed) return;
@@ -1961,8 +1992,7 @@ class VideoDetailController extends GetxController
         // position, saved under this one's name (the user's copy,
         // 2026-10-12), and it opened straight at the end
         final length = data.timeLength ?? 0;
-        if (length > 0 &&
-            (defaultST?.inMilliseconds ?? 0) >= length - 1000) {
+        if (length > 0 && (defaultST?.inMilliseconds ?? 0) >= length - 1000) {
           defaultST = Duration.zero;
         }
       }

@@ -11,7 +11,10 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -23,7 +26,8 @@ import 'package:path/path.dart' as path;
 /// LibrePili: extra files written next to a downloaded video. Folder
 /// convention, `base` being the video file name without extension:
 /// `base.mp4`, `base.danmaku.xml`, `base.danmaku.ass`, `base.LANG.srt`,
-/// `base.comments.json`, `cover.jpg`. Every part is best-effort: a failure
+/// `base.asr.srt` and `base.asr.json` (the on-device transcript, see
+/// TranscriptFiles), `base.comments.json`, `cover.jpg`. Every part is best-effort: a failure
 /// never affects the video itself.
 abstract final class DownloadExtras {
   static const xmlSuffix = '.danmaku.xml';
@@ -178,6 +182,21 @@ abstract final class DownloadExtras {
       final name = '$base.${_safe(s.lan)}.srt';
       await File(path.join(folder, name)).writeAsString(srt);
       written.add(name);
+    }
+    // what the device transcribed of this part before it was downloaded;
+    // what it transcribes later is written as the cache keeps it
+    // (DownloadService._keepTranscript)
+    try {
+      final video = entry.mergedPath ?? path.join(folder, '$base.mp4');
+      final kept = await SubtitleCache.instance.open(
+        SubtitleCacheKey.bilibili(entry.cid),
+        AsrService.recogniserId,
+      );
+      if (await TranscriptFiles.write(kept, video)) {
+        written.add('$base${TranscriptFiles.srtSuffix}');
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('download extras transcript: $e');
     }
     return written;
   }

@@ -65,6 +65,7 @@ import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/debug_overlay.dart';
+import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/pages/history/local.dart';
 import 'package:PiliPlus/services/local_history.dart';
@@ -91,6 +92,7 @@ import 'package:PiliPlus/services/asr/model_store.dart';
 import 'package:PiliPlus/services/model_bench/bench_advice.dart';
 import 'package:PiliPlus/services/model_bench/model_bench.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
+import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
@@ -822,6 +824,15 @@ abstract final class SelfTest {
       await scenario(
         'download',
         () => _download(bvid, qn, keep: args.contains('--keep')),
+      );
+    }
+    if (_arg(args, '--asr-download-files') case final bvid?) {
+      await scenario(
+        'asrDownloadFiles',
+        () => _asrDownloadFiles(
+          bvid,
+          stopAt: double.tryParse(_arg(args, '--asr-stop-at') ?? '') ?? 30,
+        ),
       );
     }
     if (_arg(args, '--dump-captions') case final video?) {
@@ -9190,6 +9201,129 @@ abstract final class SelfTest {
       }
     }
     return {'pass': steps.values.every((e) => e), 'steps': steps};
+  }
+
+  /// `--asr-download-files BV [--asr-stop-at S]`: a download's transcript
+  /// beside its video (TranscriptFiles). The video is downloaded (480P,
+  /// kept), then
+  /// 1. transcribed from its file, under its part's cache key, to [stopAt]
+  ///    s: the cache keeping it writes `base.asr.srt` and `base.asr.json`,
+  ///    the SRT the very text the session shows;
+  /// 2. the two files deleted and the extras saved again: written from what
+  ///    the cache has (a download of a part already transcribed);
+  /// 3. the cache cleared: the entry beside the video puts it back, all of
+  ///    it.
+  static Future<Map<String, dynamic>> _asrDownloadFiles(
+    String bvid, {
+    required double stopAt,
+  }) async {
+    final asr = AsrService.to;
+    if (!asr.modelsReady) return {'pass': false, 'reason': 'models missing'};
+    final downloaded = await _download(bvid, 32, keep: true);
+    if (downloaded['pass'] != true) {
+      return {
+        'pass': false,
+        'reason': 'download failed',
+        'download': downloaded,
+      };
+    }
+    final service = Get.find<DownloadService>();
+    final entry = service.downloadList.firstWhereOrNull(
+      (e) => e.bvid == bvid && e.isCompleted && e.mergedPath != null,
+    );
+    final merged = entry?.mergedPath;
+    if (entry == null || merged == null) {
+      return {'pass': false, 'reason': 'no finished download'};
+    }
+    final key = SubtitleCacheKey.bilibili(entry.cid);
+    final srt = File(TranscriptFiles.srtPath(merged));
+    final json = File(TranscriptFiles.entryPath(merged));
+    Future<bool> appear(File f) async {
+      for (var i = 0; i < 50 && !f.existsSync(); i++) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      return f.existsSync();
+    }
+
+    void delete() {
+      for (final f in [srt, json]) {
+        if (f.existsSync()) f.deleteSync();
+      }
+    }
+
+    // 1. transcribed after the download
+    await asr.cache.clear();
+    delete();
+    final session = await asr.start(
+      key: 'selftest-download-files',
+      source: merged,
+      cache: key,
+    );
+    final deadline = DateTime.now().add(const Duration(minutes: 10));
+    while (session.state.value.isBusy &&
+        session.transcript.coveredEnd(0) < stopAt &&
+        DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    final shown = session.forDisplay(session.cues).toSrt();
+    final covered = session.coveredSeconds;
+    await asr.keepCache();
+    await asr.stop(only: session);
+    final afterSession = await appear(srt) && await appear(json);
+    // what the cache kept last may be a moment behind what was shown:
+    // compared as the entry has it
+    final kept = await asr.cache.open(key, AsrService.recogniserId);
+    final keptSrt = TranscriptFiles.displayed(kept).toSrt();
+    final srtText = afterSession ? srt.readAsStringSync() : '';
+    // 2. a download of a part already transcribed
+    delete();
+    await DownloadExtras.export(
+      entry: entry,
+      folder: path.dirname(merged),
+      base: path.basenameWithoutExtension(merged),
+    );
+    final afterExport = srt.existsSync() && json.existsSync();
+    // 3. the cache gone
+    await asr.cache.clear();
+    final beside = await TranscriptFiles.read(
+      merged,
+      key,
+      AsrService.recogniserId,
+    );
+    final adopted = beside != null && await asr.cache.adopt(beside);
+    final restored = (await asr.cache.open(
+      key,
+      AsrService.recogniserId,
+    )).coveredSeconds;
+    // the adopted entry is written beside the video again: what is left
+    // once it is done
+    await asr.cache.flush();
+    await TranscriptFiles.flush();
+    final scratch = [
+      for (final f in Directory(path.dirname(merged)).listSync())
+        if (f.path.endsWith('.tmp')) path.basename(f.path),
+    ];
+    final checks = {
+      'no scratch file left': scratch.isEmpty,
+      'transcribed': covered > 0,
+      'written as the cache kept it': afterSession,
+      'the SRT is what the cache has, as shown': srtText == keptSrt,
+      'written from the cache by the extras': afterExport,
+      'put back in a cleared cache': adopted,
+      'all of it': (restored - kept.coveredSeconds).abs() < 0.01,
+    };
+    return {
+      'pass': checks.values.every((v) => v),
+      'checks': checks,
+      'covered': covered,
+      'keptCovered': kept.coveredSeconds,
+      'restored': restored,
+      'shownIsKept': shown == keptSrt,
+      'scratch': scratch,
+      'srtLines': '\n'.allMatches(srtText).length,
+      'srtHead': srtText.length > 400 ? srtText.substring(0, 400) : srtText,
+      'video': merged,
+    };
   }
 
   static Future<Map<String, dynamic>> _download(

@@ -17,6 +17,8 @@ import 'package:PiliPlus/models_new/pgc/pgc_info_model/result.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/episode.dart' as ugc;
 import 'package:PiliPlus/models_new/video/video_detail/page.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
+import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -28,6 +30,7 @@ import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/mp4_remux.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/permission_handler.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -83,6 +86,30 @@ class DownloadService extends GetxService {
   void onInit() {
     super.onInit();
     initDownloadList();
+    SubtitleCache.onSaved = _keepTranscript;
+  }
+
+  @override
+  void onClose() {
+    if (SubtitleCache.onSaved == _keepTranscript) SubtitleCache.onSaved = null;
+    super.onClose();
+  }
+
+  /// The transcript of a part kept by the subtitle cache, written beside
+  /// each finished download of that part (see [TranscriptFiles]), with the
+  /// subtitles, when those are saved.
+  void _keepTranscript(SubtitleCacheEntry entry) {
+    if (!Pref.dlSaveSubtitle) return;
+    final id = entry.key.id;
+    if (!id.startsWith('bili:')) return;
+    final cid = int.tryParse(id.substring(5));
+    if (cid == null) return;
+    for (final download in downloadList) {
+      if (download.cid != cid || !download.isCompleted) continue;
+      final merged = download.mergedPath;
+      if (merged == null || !File(merged).existsSync()) continue;
+      unawaited(TranscriptFiles.write(entry, merged));
+    }
   }
 
   void initDownloadList() {

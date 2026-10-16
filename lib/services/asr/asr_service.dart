@@ -31,6 +31,7 @@ import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_seams.dart';
+import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/debug_overlay.dart';
@@ -2003,6 +2004,8 @@ class AsrService extends GetxService {
   Future<void> keepCache() async {
     _current?._saveCache();
     await cache.flush();
+    // and what that wrote beside a downloaded video
+    await TranscriptFiles.flush();
   }
 
   /// What transcribes, as the subtitle cache tells one recogniser's text
