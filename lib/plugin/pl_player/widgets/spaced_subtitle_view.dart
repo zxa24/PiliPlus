@@ -48,6 +48,23 @@ class SpacedSubtitleView extends SubtitleView {
   /// picked 2 of 1, 2, 4 and 8, phones too). Self tests try others.
   static double supersample = 2;
 
+  /// Where a character the font lacks is looked for, in this order. Left to
+  /// the system, a `♪` was drawn from Yu Gothic, and SkParagraph then drew
+  /// every character Yu Gothic has from it too, for the rest of the
+  /// subtitle: 「直」「骨」 in Japanese forms beside 「这」 from YaHei
+  /// (2026-10-17, glyphs matched against each font). The Chinese faces of
+  /// each platform first, then a symbol font without CJK for the notes;
+  /// families a system lacks are passed over.
+  static const fontFallback = [
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Noto Sans CJK SC',
+    'Noto Sans SC',
+    'Source Han Sans SC',
+    'Segoe UI Symbol',
+  ];
+
   /// The size subtitles are drawn at in an area [height] tall (logical px):
   /// 40 at 1080, as the square root of the height, within 14–64, times
   /// [scale] (the 字体大小 setting). Fixed, a subtitle filled a tenth of a
@@ -143,7 +160,12 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
         (MediaQuery.devicePixelRatioOf(context) *
             SpacedSubtitleView.supersample);
     Widget text(TextStyle given) {
-      final style = _whole(_unbacked(given).copyWith(fontSize: em));
+      final style = _whole(
+        _unbacked(given).copyWith(
+          fontSize: em,
+          fontFamilyFallback: SpacedSubtitleView.fontFallback,
+        ),
+      );
       final drop =
           (SpacedSubtitleView.latinDrop * em / pixel).roundToDouble() *
           pixel /
