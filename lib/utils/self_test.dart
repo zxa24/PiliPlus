@@ -64,6 +64,7 @@ import 'package:PiliPlus/pages/youtube/channel/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/widgets/post_card.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/spaced_subtitle_view.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/services/debug_overlay.dart';
@@ -849,7 +850,16 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--sub-autospace') case final target?) {
       _shots = _arg(args, '--shots') ?? _shots;
-      await scenario('subAutospace', () => _subAutospace(target));
+      await scenario(
+        'subAutospace',
+        () => _subAutospace(
+          target,
+          tracking: [
+            for (final v in (_arg(args, '--cjk-tracking') ?? '').split(','))
+              ?double.tryParse(v),
+          ],
+        ),
+      );
     }
     if (args.contains('--open-offline')) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
@@ -9008,8 +9018,13 @@ abstract final class SelfTest {
 
   /// `--sub-autospace FILE --shots DIR`: a line of Chinese mixed with
   /// Latin letters and digits shown as a subtitle over FILE, with 中英文间距
-  /// on (`autospace_on.png`) and off (`autospace_off.png`).
-  static Future<Map<String, dynamic>> _subAutospace(String target) async {
+  /// on (`autospace_on.png`) and off (`autospace_off.png`); with
+  /// `--cjk-tracking 0,0.05,…`, on with each spacing between CJK characters
+  /// (`tracking_<v>.png`).
+  static Future<Map<String, dynamic>> _subAutospace(
+    String target, {
+    List<double> tracking = const [],
+  }) async {
     const heroTag = 'selftest_autospace';
     final dir = _shots;
     if (dir == null) return {'pass': false, 'reason': '--shots DIR needed'};
@@ -9036,6 +9051,17 @@ abstract final class SelfTest {
     player.subtitleAutospace.value = false;
     await Future.delayed(const Duration(milliseconds: 600));
     final off = await _shot('autospace_off');
+    final tracked = <String, String?>{};
+    final kept = SpacedSubtitleView.tracking;
+    for (final v in tracking) {
+      SpacedSubtitleView.tracking = v;
+      // a redraw: the switch is what the view listens to
+      player.subtitleAutospace.value = true;
+      await Future.delayed(const Duration(milliseconds: 400));
+      tracked['$v'] = await _shot('tracking_$v');
+      player.subtitleAutospace.value = false;
+    }
+    SpacedSubtitleView.tracking = kept;
     player.subtitleAutospace.value = was;
     final shown = player.videoPlayerController?.state.subtitle.toString();
     Get.back();
@@ -9045,6 +9071,7 @@ abstract final class SelfTest {
       'shown': shown,
       'on': on,
       'off': off,
+      'tracking': tracked,
     };
   }
 

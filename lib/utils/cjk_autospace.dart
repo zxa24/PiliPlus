@@ -10,6 +10,10 @@
 /// Only where they touch: a space already there, punctuation (，。%…) and
 /// full-width letters get none. Hangul is left out (Korean is written with
 /// spaces).
+///
+/// The same way, two CJK characters side by side can be set a little apart
+/// ([span]'s `tracking`; user 2026-10-17: 「cjk之间的调宽」) — Latin words
+/// keep their own spacing.
 library;
 
 import 'package:flutter/painting.dart';
@@ -41,6 +45,15 @@ abstract final class CjkAutospace {
       (c >= 0x370 && c <= 0x3FF) ||
       (c >= 0x400 && c <= 0x4FF);
 
+  /// Ideographs, kana, CJK punctuation and full-width forms: what
+  /// `tracking` sets apart.
+  static bool wide(int c) =>
+      ideograph(c) ||
+      (c >= 0x3000 && c <= 0x303F) ||
+      (c >= 0x3099 && c <= 0x30FF) ||
+      (c >= 0xFF00 && c <= 0xFF60) ||
+      (c >= 0xFFE0 && c <= 0xFFE6);
+
   /// Where the gaps go: for each, the UTF-16 range of the character it
   /// follows.
   static List<(int, int)> gaps(String text) {
@@ -62,21 +75,67 @@ abstract final class CjkAutospace {
     return out;
   }
 
-  /// [text] in [style], spaced where it should be.
-  static TextSpan span(String text, TextStyle style) {
-    final gaps = CjkAutospace.gaps(text);
-    if (gaps.isEmpty) return TextSpan(text: text, style: style);
-    final spacing = TextStyle(
-      letterSpacing: (style.letterSpacing ?? 0) + em * (style.fontSize ?? 14),
-    );
+  /// [text] in [style]: [em] between CJK and Latin letters or digits when
+  /// [autospace], [tracking] em between two CJK characters. Characters with
+  /// the same spacing after them are one span.
+  static TextSpan span(
+    String text,
+    TextStyle style, {
+    bool autospace = true,
+    double tracking = 0,
+  }) {
+    final size = style.fontSize ?? 14;
+    final base = style.letterSpacing ?? 0;
     final children = <TextSpan>[];
-    var at = 0;
-    for (final (start, end) in gaps) {
-      if (start > at) children.add(TextSpan(text: text.substring(at, start)));
-      children.add(TextSpan(text: text.substring(start, end), style: spacing));
-      at = end;
+    var runStart = 0;
+    var runExtra = 0.0;
+    void close(int end) {
+      if (end <= runStart) return;
+      final piece = text.substring(runStart, end);
+      children.add(
+        runExtra == 0
+            ? TextSpan(text: piece)
+            : TextSpan(
+                text: piece,
+                style: TextStyle(letterSpacing: base + runExtra * size),
+              ),
+      );
     }
-    if (at < text.length) children.add(TextSpan(text: text.substring(at)));
+
+    // the spacing after each character hangs on the one after it
+    var prev = -1;
+    var prevStart = 0;
+    var i = 0;
+    for (final c in text.runes) {
+      if (prev >= 0) {
+        final extra =
+            autospace &&
+                ((ideograph(prev) && alphanumeric(c)) ||
+                    (alphanumeric(prev) && ideograph(c)))
+            ? em
+            : wide(prev) && wide(c)
+            ? tracking
+            : 0.0;
+        if (extra != runExtra) {
+          close(prevStart);
+          runStart = prevStart;
+          runExtra = extra;
+        }
+      }
+      prev = c;
+      prevStart = i;
+      i += c > 0xFFFF ? 2 : 1;
+    }
+    // the last character: nothing after it
+    if (runExtra != 0) {
+      close(prevStart);
+      runStart = prevStart;
+      runExtra = 0;
+    }
+    close(text.length);
+    if (children.length == 1 && children.single.style == null) {
+      return TextSpan(text: text, style: style);
+    }
     return TextSpan(style: style, children: children);
   }
 }

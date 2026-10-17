@@ -91,6 +91,32 @@ void main() {
       expect(s.children, isNull);
     });
 
+    test('tracking: between two CJK characters only, not after the last '
+        'of them', () {
+      final s = CjkAutospace.span(
+        '中文。ab中',
+        style,
+        autospace: false,
+        tracking: 0.1,
+      );
+      expect(s.toPlainText(), '中文。ab中');
+      final pieces = [
+        for (final c in s.children!.cast<TextSpan>())
+          (c.text, c.style?.letterSpacing),
+      ];
+      // 中 文 。 apart (。 then a: none), ab and the last 中 as they were
+      expect(pieces, [('中文', 0.5 + 2), ('。ab中', null)]);
+    });
+
+    test('tracking and the gap together', () {
+      final s = CjkAutospace.span('中文A', style, tracking: 0.1);
+      final pieces = [
+        for (final c in s.children!.cast<TextSpan>())
+          (c.text, c.style?.letterSpacing),
+      ];
+      expect(pieces, [('中', 0.5 + 2), ('文', 0.5 + 2.5), ('A', null)]);
+    });
+
     test('the text is kept as it was', () {
       final s = CjkAutospace.span('用iPhone拍', style);
       expect(s.toPlainText(), '用iPhone拍');
