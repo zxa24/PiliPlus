@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:io';
-import 'dart:ui' as ui show ImageByteFormat;
+import 'dart:ui'
+    as ui
+    show FramePhase, FrameTiming, ImageByteFormat, PlatformDispatcher;
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
@@ -50,7 +52,9 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart'
     as bili_sub;
 import 'package:PiliPlus/pages/danmaku/controller.dart';
 import 'package:PiliPlus/pages/danmaku/view.dart' show PlDanmaku;
+import 'package:canvas_danmaku/base_danmaku_painter.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart' show DanmakuScreen;
+import 'package:canvas_danmaku/scroll_danmaku_painter.dart';
 import 'package:PiliPlus/common/widgets/video_card/video_card_h.dart';
 import 'package:PiliPlus/pages/local/favs.dart';
 import 'package:PiliPlus/pages/local/feed.dart';
@@ -139,6 +143,7 @@ import 'package:flutter/services.dart'
         PhysicalKeyboardKey,
         ServicesBinding;
 import 'package:flutter/rendering.dart' show OffsetLayer, TextureBox;
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart'
     show SmartDialog;
@@ -1093,6 +1098,8 @@ abstract final class SelfTest {
       _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
       _playAt = int.tryParse(_arg(args, '--play-at') ?? '');
       _pauseAt = int.tryParse(_arg(args, '--pause-at') ?? '');
+      _frameProbeAt = int.tryParse(_arg(args, '--frame-probe') ?? '');
+      BaseDanmakuPainter.debugLegacyMotion = args.contains('--danmaku-legacy');
       PlPlayerController.debugNoHeldPicture = args.contains('--no-hold');
       _shots = _arg(args, '--shots') ?? _shots;
       _switches = [
@@ -5694,6 +5701,128 @@ abstract final class SelfTest {
   static int? _playAt;
   static int? _pauseAt;
 
+  /// `--frame-probe S`: from S s on, 10 s of the frames the page drew (the
+  /// danmaku moving over the video): their intervals, build and raster
+  /// times, and the refresh rate Flutter reads for the display.
+  static int? _frameProbeAt;
+  static Map<String, Object?>? _frames;
+
+  static Future<void> _probeFrames() async {
+    final timings = <ui.FrameTiming>[];
+    void collect(List<ui.FrameTiming> t) => timings.addAll(t);
+    SchedulerBinding.instance.addTimingsCallback(collect);
+    ScrollDanmakuPainter.traceAnew();
+    // frames are drawn only when something asks: the danmaku ticker does
+    await Future.delayed(const Duration(seconds: 10));
+    SchedulerBinding.instance.removeTimingsCallback(collect);
+    // one danmaku's steps, in physical pixels: as computed, and as drawn —
+    // the old paint (nearest) drew each at the whole pixel nearest to it
+    final pairs = ScrollDanmakuPainter.debugTrace ?? const <double>[];
+    ScrollDanmakuPainter.debugTrace = null;
+    final xs = [for (var i = 0; i + 1 < pairs.length; i += 2) pairs[i]];
+    final ticks = [for (var i = 1; i < pairs.length; i += 2) pairs[i]];
+    final tickGaps = [
+      for (var i = 1; i < ticks.length; i++)
+        (ticks[i] - ticks[i - 1]).toStringAsFixed(2),
+    ];
+    final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
+    final computed = [
+      for (var i = 1; i < xs.length; i++) (xs[i - 1] - xs[i]) * dpr,
+    ];
+    final drawn = BaseDanmakuPainter.debugLegacyMotion
+        ? [
+            for (var i = 1; i < xs.length; i++)
+              ((xs[i - 1] * dpr).round() - (xs[i] * dpr).round()).toDouble(),
+          ]
+        : computed;
+    Map<String, Object> stepStats(List<double> v) {
+      if (v.isEmpty) return {'n': 0};
+      final mean = v.reduce((a, b) => a + b) / v.length;
+      final sd = math.sqrt(
+        v.map((x) => (x - mean) * (x - mean)).reduce((a, b) => a + b) /
+            v.length,
+      );
+      final counts = <String, int>{};
+      for (final x in v) {
+        final k = ((x * 2).round() / 2).toString();
+        counts[k] = (counts[k] ?? 0) + 1;
+      }
+      return {
+        'n': v.length,
+        'mean': mean.toStringAsFixed(3),
+        'sd': sd.toStringAsFixed(3),
+        'sdOfMean': (sd / mean).toStringAsFixed(3),
+        'byHalfPixel': counts,
+        'first': v.take(24).map((x) => x.toStringAsFixed(2)).toList(),
+      };
+    }
+
+    final vsync = [
+      for (final t in timings)
+        t.timestampInMicroseconds(ui.FramePhase.vsyncStart),
+    ]..sort();
+    final gaps = [
+      for (var i = 1; i < vsync.length; i++) (vsync[i] - vsync[i - 1]) / 1000,
+    ];
+    List<double> sorted(Iterable<double> v) => v.toList()..sort();
+    double pct(List<double> v, double q) =>
+        v.isEmpty ? 0 : v[((v.length - 1) * q).round()];
+    final build = sorted(
+      timings.map((t) => t.buildDuration.inMicroseconds / 1000),
+    );
+    final raster = sorted(
+      timings.map((t) => t.rasterDuration.inMicroseconds / 1000),
+    );
+    final g = sorted(gaps);
+    final histogram = <String, int>{};
+    for (final d in gaps) {
+      final key = d < 7
+          ? '<7'
+          : d < 10
+          ? '7-10'
+          : d < 14
+          ? '10-14'
+          : d < 19
+          ? '14-19'
+          : d < 26
+          ? '19-26'
+          : d < 40
+          ? '26-40'
+          : '40+';
+      histogram[key] = (histogram[key] ?? 0) + 1;
+    }
+    _frames = {
+      'legacyMotion': BaseDanmakuPainter.debugLegacyMotion,
+      'stepComputed': stepStats(computed),
+      'stepDrawn': stepStats(drawn),
+      'tickGapsMs': tickGaps.take(60).toList(),
+      'frames': timings.length,
+      'fps': (timings.length / 10).toStringAsFixed(1),
+      'refreshRates': [
+        for (final d in ui.PlatformDispatcher.instance.displays) d.refreshRate,
+      ],
+      'viewRefresh':
+          ui.PlatformDispatcher.instance.views.first.display.refreshRate,
+      'intervalMs': {
+        'p10': pct(g, 0.1),
+        'p50': pct(g, 0.5),
+        'p90': pct(g, 0.9),
+        'p99': pct(g, 0.99),
+      },
+      'intervalHistogram': histogram,
+      'buildMs': {
+        'p50': pct(build, 0.5),
+        'p90': pct(build, 0.9),
+        'max': build.isEmpty ? 0 : build.last,
+      },
+      'rasterMs': {
+        'p50': pct(raster, 0.5),
+        'p90': pct(raster, 0.9),
+        'max': raster.isEmpty ? 0 : raster.last,
+      },
+    };
+  }
+
   /// `--switch-at 8:reopen,16:cdn,24:quality,32:pause+cdn`: at each second,
   /// the same video opened again — a retry, the next host, another quality,
   /// paused first with `pause+` — with the video's area looked at every few
@@ -5939,6 +6068,12 @@ abstract final class SelfTest {
     }
     // `--pause-at 5`: pause pressed, as a viewer presses it (with
     // `--play-at`: what a stream cut short meanwhile does to a paused video)
+    if (_frameProbeAt case final at?) {
+      unawaited(() async {
+        await Future.delayed(Duration(seconds: at));
+        await _probeFrames();
+      }());
+    }
     if (_pauseAt case final at?) {
       unawaited(() async {
         await Future.delayed(Duration(seconds: at));
@@ -6180,6 +6315,7 @@ abstract final class SelfTest {
       },
       'seekLog': seekLog,
       'switchProbe': _blackProbe,
+      'frameProbe': _frames,
       'stateTimeline': states,
       'videoFile': Uri.tryParse(controller.videoUrl ?? '')?.pathSegments.last,
       'buffer': buffer,
