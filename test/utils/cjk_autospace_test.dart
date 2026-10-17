@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:PiliPlus/utils/cjk_autospace.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -95,6 +96,105 @@ void main() {
       // U+20BB7 𠮷
       expect(spaced('𠮷A'), ['𠮷']);
       expect(spaced('A𠮷'), ['A']);
+    });
+  });
+
+  group('a span tree', () {
+    const base = TextStyle(fontSize: 20);
+
+    /// (text, letterSpacing, recognizer) of each leaf, in order.
+    List<(String, double?, GestureRecognizer?)> leaves(
+      InlineSpan span, [
+      TextStyle style = base,
+    ]) {
+      final out = <(String, double?, GestureRecognizer?)>[];
+      void walk(InlineSpan s, TextStyle inherited) {
+        if (s is! TextSpan) {
+          out.add(('[w]', null, null));
+          return;
+        }
+        final own = s.style == null ? inherited : inherited.merge(s.style);
+        if (s.text case final t?) out.add((t, own.letterSpacing, s.recognizer));
+        for (final c in s.children ?? const <InlineSpan>[]) {
+          walk(c, own);
+        }
+      }
+
+      walk(span, style);
+      return out;
+    }
+
+    test('across spans, and a link split keeps its recognizer', () {
+      final tap = TapGestureRecognizer();
+      addTearDown(tap.dispose);
+      final spaced = CjkAutospace.spaceTree(
+        TextSpan(
+          children: [
+            const TextSpan(text: '我用'),
+            TextSpan(text: 'iPhone', recognizer: tap),
+            const TextSpan(text: '拍'),
+          ],
+        ),
+        base,
+      );
+      expect(spaced.toPlainText(), '我用iPhone拍');
+      expect(leaves(spaced), [
+        ('我', null, null),
+        ('用', 2.5, null),
+        ('iPhon', null, tap),
+        ('e', 2.5, tap),
+        ('拍', null, null),
+      ]);
+    });
+
+    test('an emote between parts them', () {
+      final root = TextSpan(
+        children: [
+          const TextSpan(text: '中'),
+          const WidgetSpan(child: SizedBox()),
+          const TextSpan(text: 'A'),
+        ],
+      );
+      expect(identical(CjkAutospace.spaceTree(root, base), root), isTrue);
+    });
+
+    test('a const span used twice is spaced at each place', () {
+      const han = TextSpan(text: '中');
+      final spaced = CjkAutospace.spaceTree(
+        const TextSpan(
+          children: [
+            han,
+            TextSpan(text: 'A'),
+            han,
+          ],
+        ),
+        base,
+      );
+      expect(leaves(spaced), [
+        ('中', 2.5, null),
+        ('A', 2.5, null),
+        ('中', null, null),
+      ]);
+    });
+
+    test('measured in the size each span is drawn at', () {
+      final spaced = CjkAutospace.spaceTree(
+        const TextSpan(
+          children: [
+            TextSpan(
+              text: '中A',
+              style: TextStyle(fontSize: 10, letterSpacing: 0.5),
+            ),
+          ],
+        ),
+        base,
+      );
+      expect(leaves(spaced), [('中', 0.5 + 1.25, null), ('A', 0.5, null)]);
+    });
+
+    test('no gap: the same span back', () {
+      const root = TextSpan(text: '中文 English，100%');
+      expect(identical(CjkAutospace.spaceTree(root, base), root), isTrue);
     });
   });
 

@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/image/image_save.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -158,7 +159,7 @@ class VideoCardV extends StatelessWidget {
           crossAxisAlignment: .start,
           children: [
             Expanded(
-              child: Text(
+              child: AutospaceText(
                 videoItem.title,
                 maxLines: 2,
                 overflow: .ellipsis,

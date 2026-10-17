@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
@@ -246,7 +247,7 @@ class _PgcIntroPageState extends State<PgcIntroPage> {
         spacing: 20,
         children: [
           Expanded(
-            child: Text(
+            child: AutospaceText(
               item.title!,
               style: const TextStyle(fontSize: 16),
               maxLines: 1,
@@ -366,7 +367,7 @@ class _PgcIntroPageState extends State<PgcIntroPage> {
           ),
           const SizedBox(height: 6),
         ],
-        Text(
+        AutospaceText(
           item.title!,
           style: const TextStyle(fontSize: 16),
         ),

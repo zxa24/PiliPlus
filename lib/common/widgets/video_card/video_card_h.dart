@@ -1,3 +1,4 @@
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/image/image_save.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/video_progress_indicator.dart';
@@ -103,7 +104,7 @@ class VideoCardH extends StatelessWidget {
       children: [
         if (videoItem.titleList?.isNotEmpty == true)
           Expanded(
-            child: Text.rich(
+            child: AutospaceText.rich(
               overflow: .ellipsis,
               maxLines: 2,
               TextSpan(

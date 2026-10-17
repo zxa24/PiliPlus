@@ -1,3 +1,4 @@
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/keep_alive_wrapper.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show tabBarScrollPhysics;
@@ -126,8 +127,12 @@ class _IntroDetailState extends State<PgcIntroPanel>
         bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
       ),
       children: [
-        SelectionText(
-          widget.item.title!,
+        SelectionText.rich(
+          AutospaceText.apply(
+            context,
+            TextSpan(text: widget.item.title!),
+            style: const TextStyle(fontSize: 16),
+          ),
           style: const TextStyle(fontSize: 16),
         ),
         const SizedBox(height: 4),
@@ -170,8 +175,12 @@ class _IntroDetailState extends State<PgcIntroPanel>
             style: theme.textTheme.titleMedium,
           ),
           const SizedBox(height: 4),
-          SelectionText(
-            widget.item.evaluate!,
+          SelectionText.rich(
+            AutospaceText.apply(
+              context,
+              TextSpan(text: widget.item.evaluate!),
+              style: textStyle,
+            ),
             style: textStyle,
           ),
         ],

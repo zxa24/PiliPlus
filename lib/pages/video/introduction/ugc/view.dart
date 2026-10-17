@@ -2,6 +2,7 @@ import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/animated_height.dart';
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/expandable.dart';
 import 'package:PiliPlus/common/widgets/gesture/tap_gesture_recognizer.dart';
@@ -287,7 +288,14 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
     if (videoDetail.descV2 case final descV2? when descV2.isNotEmpty) ...[
       const SizedBox(height: 8),
       SelectionText.rich(
-        buildDesc(descV2),
+        AutospaceText.apply(
+          context,
+          buildDesc(descV2),
+          style: const TextStyle(
+            fontSize: IntroMetrics.description,
+            height: IntroMetrics.descriptionHeight,
+          ),
+        ),
         style: const TextStyle(
           fontSize: IntroMetrics.description,
           height: IntroMetrics.descriptionHeight,
@@ -414,11 +422,15 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
       );
       if (isSelectable) {
         return SelectionText.rich(
-          textSpan,
+          AutospaceText.apply(
+            context,
+            textSpan,
+            style: const TextStyle(fontSize: IntroMetrics.title),
+          ),
           style: const TextStyle(fontSize: IntroMetrics.title),
         );
       }
-      return Text.rich(
+      return AutospaceText.rich(
         textSpan,
         maxLines: isExpand ? null : 2,
         overflow: isExpand ? null : .ellipsis,

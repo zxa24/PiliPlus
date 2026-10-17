@@ -75,6 +75,96 @@ abstract final class CjkAutospace {
     return out;
   }
 
+  /// [root] with [em] between CJK and Latin letters or digits wherever they
+  /// meet, across its spans too (`用` in one, `iPhone` in a link after it):
+  /// the character before each boundary in a span of its own with that much
+  /// more letter spacing. All else of each span — style, link, cursor — is
+  /// kept, and its pieces carry its recognizer. A [WidgetSpan] (an emote)
+  /// parts what is either side of it. [inherited]: the style the tree is
+  /// drawn in (the [DefaultTextStyle] with the widget's own), for the size
+  /// the gap is measured in. [root] itself when there is no gap.
+  static InlineSpan spaceTree(InlineSpan root, TextStyle inherited) {
+    // the text as drawn, a widget as U+FFFC (no gap either side)
+    final buffer = StringBuffer();
+    void collect(InlineSpan span) {
+      if (span is TextSpan) {
+        if (span.text case final text?) buffer.write(text);
+        span.children?.forEach(collect);
+      } else {
+        buffer.writeCharCode(0xFFFC);
+      }
+    }
+
+    collect(root);
+    final at = [for (final (start, _) in gaps(buffer.toString())) start];
+    if (at.isEmpty) return root;
+    // walked in the order collected: a span used twice (a const one) is at
+    // two places
+    var pos = 0;
+    InlineSpan rebuild(InlineSpan span, TextStyle style) {
+      if (span is! TextSpan) {
+        pos++;
+        return span;
+      }
+      final own = span.style == null ? style : style.merge(span.style);
+      final text = span.text;
+      List<InlineSpan>? pieces;
+      if (text != null) {
+        final start = pos;
+        pos += text.length;
+        final inside = [
+          for (final g in at)
+            if (g >= start && g < pos) g - start,
+        ];
+        if (inside.isNotEmpty) {
+          final spaced = TextStyle(
+            letterSpacing: (own.letterSpacing ?? 0) + em * (own.fontSize ?? 14),
+          );
+          TextSpan piece(String text, [TextStyle? style]) => TextSpan(
+            text: text,
+            style: style,
+            recognizer: span.recognizer,
+            mouseCursor: span.mouseCursor,
+            onEnter: span.onEnter,
+            onExit: span.onExit,
+          );
+          pieces = [];
+          var from = 0;
+          for (final g in inside) {
+            final width = (text.codeUnitAt(g) & 0xFC00) == 0xD800 ? 2 : 1;
+            if (g > from) pieces.add(piece(text.substring(from, g)));
+            pieces.add(piece(text.substring(g, g + width), spaced));
+            from = g + width;
+          }
+          if (from < text.length) pieces.add(piece(text.substring(from)));
+        }
+      }
+      final children = span.children;
+      final rebuilt = children?.map((c) => rebuild(c, own)).toList();
+      var changed = false;
+      if (children != null) {
+        for (var i = 0; i < children.length; i++) {
+          if (!identical(children[i], rebuilt![i])) changed = true;
+        }
+      }
+      if (pieces == null && !changed) return span;
+      return TextSpan(
+        text: pieces == null ? text : null,
+        children: [...?pieces, ...?rebuilt],
+        style: span.style,
+        recognizer: span.recognizer,
+        mouseCursor: span.mouseCursor,
+        onEnter: span.onEnter,
+        onExit: span.onExit,
+        semanticsLabel: span.semanticsLabel,
+        locale: span.locale,
+        spellOut: span.spellOut,
+      );
+    }
+
+    return rebuild(root, inherited);
+  }
+
   /// [text] in [style]: [em] between CJK and Latin letters or digits when
   /// [autospace], [tracking] em between two CJK characters, and Latin
   /// letters and digits at [latinScale] times the size — on a line with CJK

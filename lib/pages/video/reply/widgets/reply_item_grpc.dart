@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_translation.dart';
@@ -363,36 +364,40 @@ class ReplyItemGrpc extends StatelessWidget {
                   primary: colorScheme.primary,
                   style: style,
                   maxLines: replyLevel == 1 ? replyLengthLimit : null,
-                  TextSpan(
-                    children: [
-                      if (first && replyControl.isUpTop) ...[
-                        const WidgetSpan(
-                          alignment: .middle,
-                          child: PBadge(
-                            text: 'TOP',
-                            size: .small,
-                            isStack: false,
-                            type: .line_primary,
-                            fontSize: 9,
-                            textScaleFactor: 1,
+                  AutospaceText.apply(
+                    context,
+                    style: style,
+                    TextSpan(
+                      children: [
+                        if (first && replyControl.isUpTop) ...[
+                          const WidgetSpan(
+                            alignment: .middle,
+                            child: PBadge(
+                              text: 'TOP',
+                              size: .small,
+                              isStack: false,
+                              type: .line_primary,
+                              fontSize: 9,
+                              textScaleFactor: 1,
+                            ),
                           ),
+                          const TextSpan(text: ' '),
+                        ],
+                        _buildMessage(
+                          context,
+                          colorScheme,
+                          (translated
+                                  ? CommentTranslator.forReply(
+                                      replyItem,
+                                    )?.contentFor(replyItem)
+                                  : null) ??
+                              (replyControl.showTranslation
+                                  ? replyItem.translatedContent
+                                  : replyItem.content),
+                          replyControl,
                         ),
-                        const TextSpan(text: ' '),
                       ],
-                      _buildMessage(
-                        context,
-                        colorScheme,
-                        (translated
-                                ? CommentTranslator.forReply(
-                                    replyItem,
-                                  )?.contentFor(replyItem)
-                                : null) ??
-                            (replyControl.showTranslation
-                                ? replyItem.translatedContent
-                                : replyItem.content),
-                        replyControl,
-                      ),
-                    ],
+                    ),
                   ),
                 ),
           ),
@@ -690,6 +695,11 @@ class ReplyItemGrpc extends StatelessWidget {
                     );
                   },
                 );
+                final rowStyle = TextStyle(
+                  height: 1.6,
+                  fontSize: 14,
+                  color: colorScheme.onSurface.withValues(alpha: 0.85),
+                );
                 return InkWell(
                   borderRadius: borderRadius,
                   onTap: () =>
@@ -699,57 +709,57 @@ class ReplyItemGrpc extends StatelessWidget {
                   child: Padding(
                     padding: padding,
                     child: TextEllipsis.rich(
-                      style: TextStyle(
-                        height: 1.6,
-                        fontSize: 14,
-                        color: colorScheme.onSurface.withValues(alpha: 0.85),
-                      ),
+                      style: rowStyle,
                       overflow: TextOverflow.ellipsis,
                       maxLines: 2,
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text: childReply.member.name,
-                            style: TextStyle(color: colorScheme.primary),
-                            recognizer: NoDeadlineTapGestureRecognizer()
-                              ..onTap = () {
-                                feedBack();
-                                Get.toNamed(
-                                  '/member?mid=${childReply.member.mid}',
-                                );
-                              },
-                          ),
-                          if (childReply.mid == upMid) ...[
-                            const TextSpan(text: ' '),
-                            const WidgetSpan(
-                              alignment: .middle,
-                              child: PBadge(
-                                text: 'UP',
-                                size: .small,
-                                isStack: false,
-                                fontSize: 9,
-                                textScaleFactor: 1,
-                              ),
+                      AutospaceText.apply(
+                        context,
+                        style: rowStyle,
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: childReply.member.name,
+                              style: TextStyle(color: colorScheme.primary),
+                              recognizer: NoDeadlineTapGestureRecognizer()
+                                ..onTap = () {
+                                  feedBack();
+                                  Get.toNamed(
+                                    '/member?mid=${childReply.member.mid}',
+                                  );
+                                },
                             ),
-                            const TextSpan(text: ' '),
+                            if (childReply.mid == upMid) ...[
+                              const TextSpan(text: ' '),
+                              const WidgetSpan(
+                                alignment: .middle,
+                                child: PBadge(
+                                  text: 'UP',
+                                  size: .small,
+                                  isStack: false,
+                                  fontSize: 9,
+                                  textScaleFactor: 1,
+                                ),
+                              ),
+                              const TextSpan(text: ' '),
+                            ],
+                            TextSpan(
+                              text: childReply.root == childReply.parent
+                                  ? ': '
+                                  : childReply.mid == upMid
+                                  ? ''
+                                  : ' ',
+                            ),
+                            _buildMessage(
+                              context,
+                              colorScheme,
+                              CommentTranslator.forReply(
+                                    childReply,
+                                  )?.contentFor(childReply) ??
+                                  childReply.content,
+                              childReply.replyControl,
+                            ),
                           ],
-                          TextSpan(
-                            text: childReply.root == childReply.parent
-                                ? ': '
-                                : childReply.mid == upMid
-                                ? ''
-                                : ' ',
-                          ),
-                          _buildMessage(
-                            context,
-                            colorScheme,
-                            CommentTranslator.forReply(
-                                  childReply,
-                                )?.contentFor(childReply) ??
-                                childReply.content,
-                            childReply.replyControl,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),

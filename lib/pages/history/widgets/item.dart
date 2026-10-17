@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/video_progress_indicator.dart';
@@ -275,7 +276,7 @@ class HistoryItem extends StatelessWidget {
         spacing: 2,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          AutospaceText(
             item.title!,
             style: TextStyle(
               fontSize: theme.textTheme.bodyMedium!.fontSize,

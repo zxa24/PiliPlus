@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_chrome.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
 import 'package:PiliPlus/common/widgets/simple_colored_box.dart';
@@ -378,7 +379,13 @@ class _CommentTileState extends State<_CommentTile> {
     final text = '${c['content'] ?? ''}';
     final emotes = (c['emotes'] as Map?)?.cast<String, String>();
     if (emotes == null || emotes.isEmpty) {
-      return SelectableText(text, style: style);
+      return Builder(
+        builder: (context) => SelectableText.rich(
+          AutospaceText.apply(context, TextSpan(text: text), style: style)
+              as TextSpan,
+          style: style,
+        ),
+      );
     }
     final spans = <InlineSpan>[];
     var last = 0;
@@ -402,7 +409,7 @@ class _CommentTileState extends State<_CommentTile> {
       last = m.end;
     }
     if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
-    return Text.rich(TextSpan(children: spans), style: style);
+    return AutospaceText.rich(TextSpan(children: spans), style: style);
   }
 
   Widget _picture(BuildContext context, String relative) {

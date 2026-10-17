@@ -1123,6 +1123,8 @@ abstract final class SelfTest {
         // to anything comparing frames
         if (args.contains('--no-danmaku'))
           SettingBoxKey.enableShowDanmaku: false,
+        // 中英文间距 off: the control for the page's shots
+        if (args.contains('--no-autospace')) SettingBoxKey.cjkAutospace: false,
       };
       final before = {
         for (final key in overrides.keys) key: GStorage.setting.get(key),
@@ -5770,12 +5772,23 @@ abstract final class SelfTest {
     }
   }
 
-  /// One `--switch-at` switch on [page], watched.
+  /// One `--switch-at` switch on [page], watched. `shot` and `tabN` (the
+  /// page's tab N) only take a picture of the page, with `--shots`.
   static Future<void> _switchWatched(
     VideoDetailController page,
     int at,
     String kind,
   ) async {
+    if (kind == 'shot') {
+      await _shot('page_$at');
+      return;
+    }
+    if (kind.startsWith('tab')) {
+      page.tabCtr.animateTo(int.tryParse(kind.substring(3)) ?? 0);
+      await Future.delayed(const Duration(seconds: 3));
+      await _shot('page_${at}_$kind');
+      return;
+    }
     final player = page.plPlayerController;
     final clock = Stopwatch()..start();
     await _shot('switch_${at}_before');

@@ -8,6 +8,7 @@
 library;
 
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/utils/grid.dart';
 import 'package:material_ui/material_ui.dart';
@@ -64,7 +65,7 @@ class PortraitCardFrame extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 5, 0, 3),
-              child: Text(
+              child: AutospaceText(
                 title,
                 textAlign: TextAlign.start,
                 style: const TextStyle(letterSpacing: 0.3),

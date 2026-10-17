@@ -16,6 +16,7 @@
 library;
 
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/autospace_text.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -143,7 +144,7 @@ class VideoCardHTitle extends StatelessWidget {
   final FontWeight? fontWeight;
 
   @override
-  Widget build(BuildContext context) => Text(
+  Widget build(BuildContext context) => AutospaceText(
     text,
     textAlign: TextAlign.start,
     style: VideoCardHFrame.titleStyle(
