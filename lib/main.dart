@@ -20,6 +20,7 @@ import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
+import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/pages/setting/models/youtube_settings.dart';
@@ -146,6 +147,9 @@ void main(List<String> args) async {
   // the setting read as each one is drawn
   danmaku.DmUtils.gapsOf = (text) =>
       Pref.cjkAutospace ? CjkAutospace.gaps(text) : const [];
+  // LibrePili: downloads read through the player's parallel fetch (the
+  // pieces kept on disk first)
+  DownloadManager.fetch = PlPlayerController.fetchForDownload;
   // LibrePili: the region/language asked of YouTube, from settings
   applyYtLocale();
   await Future.wait([

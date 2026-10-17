@@ -6171,6 +6171,11 @@ abstract final class SelfTest {
       // (they carry a signature, and expire)
       if (dumpUrls) ...{
         'videoUrlFull': controller.videoUrl,
+        // every host's address of the playing file: whether the path names
+        // the file whatever the host (what a store of its pieces keys by)
+        'candidateUrls': VideoUtils.cdnCandidates(
+          controller.firstVideo.playUrls,
+        ),
         'audioUrlFull': controller.audioUrl,
       },
       'seekLog': seekLog,
@@ -6186,6 +6191,7 @@ abstract final class SelfTest {
       'health': health,
       'playingHost': Uri.tryParse(controller.videoUrl ?? '')?.host,
       'cdnSpeeds': cdnSpeeds,
+      'fetchStats': PlPlayerController.fetchStats.toString(),
       'audioProbe': audioProbe,
       'audioMatrix': audioMatrix,
       'trackDurations': trackDurations,
@@ -9996,6 +10002,8 @@ abstract final class SelfTest {
         : null;
 
     final result = <String, dynamic>{
+      // through the parallel fetch: what came from the pieces kept on disk
+      'fetchStats': PlPlayerController.fetchStats.toString(),
       'bvid': bvid,
       'cid': cid,
       'quality': done.qualityPithyDescription,

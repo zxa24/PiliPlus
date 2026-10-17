@@ -1,6 +1,6 @@
 import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:convert' show ascii, utf8;
-import 'dart:io' show HttpClient, HttpHeaders, Platform, Socket;
+import 'dart:io' show Directory, HttpClient, HttpHeaders, Platform, Socket;
 import 'dart:math' show max, min;
 import 'dart:ui' as ui;
 
@@ -23,6 +23,7 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/dry_watch.dart';
 import 'package:PiliPlus/plugin/pl_player/quality_advisor.dart';
 import 'package:PiliPlus/services/parallel_fetch.dart';
+import 'package:PiliPlus/services/piece_store.dart';
 import 'package:PiliPlus/plugin/pl_player/smoothness_monitor.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/double_tap_type.dart';
@@ -881,17 +882,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<Player> _initPlayer() async {
     assert(_videoPlayerController == null);
     assert(_videoController == null);
-    if (Pref.parallelFetch && !debugNoParallel && !_parallel.running) {
-      ParallelFetch.log ??= (line) => EventLog.add('fetch', line);
-      ParallelFetch.onRefused ??= (uri, status) =>
-          _instance?.onHostRefused?.call(uri.host, status);
-      try {
-        await _parallel.start();
-      } catch (e) {
-        // the streams straight from the CDN, as before
-        EventLog.add('fetch', 'no parallel fetch: $e');
-      }
-    }
+    await _startParallel();
     final (player, controller) = await _newPlayer();
     _videoController = controller;
     _startListeners(player);
@@ -973,6 +964,66 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// `--no-parallel`: the streams straight from the CDN, for comparison.
   static bool debugNoParallel = false;
+
+  /// Starts [_parallel] with its store on disk (see [PieceStore]), when
+  /// the 多线程加载 setting is on.
+  static Future<void> _startParallel() async {
+    if (!Pref.parallelFetch || debugNoParallel || _parallel.running) return;
+    ParallelFetch.log ??= (line) => EventLog.add('fetch', line);
+    ParallelFetch.onRefused ??= (uri, status) =>
+        _instance?.onHostRefused?.call(uri.host, status);
+    try {
+      await _parallel.start();
+    } catch (e) {
+      // the streams straight from the CDN, as before
+      EventLog.add('fetch', 'no parallel fetch: $e');
+      return;
+    }
+    await _openStore();
+  }
+
+  /// The pieces of bilibili's streams kept on disk (user 2026-10-17:
+  /// 「加上缓存到存储，大小为1g」), in this app's folder of the system's
+  /// cache folder: the system may clear it on a phone short of space; the
+  /// app's 清除缓存 leaves it (see CacheManager.clearLibraryCache), the
+  /// 视频缓存 setting empties it.
+  static Future<void> _openStore() async {
+    if (_parallel.store != null) return;
+    final store = PieceStore(
+      Directory(path.join(tmpDirPath, 'video_pieces')),
+      maxBytes: Pref.videoCacheMb << 20,
+    );
+    _parallel.store = store;
+    await store.open();
+  }
+
+  /// Self-test: bytes [_parallel] answered from its store and from the
+  /// network, since it started.
+  static ({int store, int network}) get fetchStats => (
+    store: _parallel.bytesFromStore,
+    network: _parallel.bytesFromNetwork,
+  );
+
+  /// Bytes the store keeps now; null while it is not open.
+  static int? get videoCacheBytes => _parallel.store?.bytes;
+
+  /// [_parallel]'s store, for the setting; opened if it is not.
+  static Future<PieceStore?> videoCache() async {
+    await _openStore();
+    return _parallel.store;
+  }
+
+  /// For a download: its streams through [_parallel] — read from the
+  /// pieces kept on disk first, fetched several at a time; what comes in is
+  /// not kept, the download being a copy of its own (user 2026-10-17, 1B).
+  /// Null when the 多线程加载 setting is off.
+  static Future<String Function(String url)?> fetchForDownload() async {
+    await _startParallel();
+    if (!_parallel.running) return null;
+    return (String url) => ParallelFetch.isBilibili(url)
+        ? (_parallel.wrap(url, keep: false) ?? url)
+        : url;
+  }
 
   /// bilibili's streams, four pieces at a time (user 2026-10-12, 1A).
   static final _parallel = ParallelFetch(

@@ -8,6 +8,7 @@ import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/widgets/ordered_multi_select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/audio_output_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/hwdec_type.dart';
 import 'package:PiliPlus/utils/filtering_text.dart';
@@ -172,6 +173,20 @@ List<SettingsModel> get videoSettings => [
     getSubtitle: () =>
         '当前：${Pref.backBufferSec}s。已播放的部分保留多久，往回跳时不必重新下载；按视频码率换算成大小，手机最多 96MB、电脑最多 256MB（此选项即mpv的--demuxer-max-back-bytes）',
     onTap: _showBackBufferSecDialog,
+  ),
+  // LibrePili (user 2026-10-17, 3B)
+  NormalModel(
+    title: '视频缓存（存储）',
+    leading: const Icon(Icons.sd_storage_outlined),
+    getSubtitle: () {
+      final mb = Pref.videoCacheMb;
+      final used = PlPlayerController.videoCacheBytes;
+      return '${mb == 0 ? '已关闭' : '上限：${_cacheSize(mb)}'}'
+          '${used == null ? '' : '，已用 ${(used / 0x100000).toStringAsFixed(0)} MB'}'
+          '。B站视频播放过的部分存进系统缓存目录：重看、往回跳、换画质或线路后、'
+          '下载时先从这里读。需开启多线程加载';
+    },
+    onTap: _showVideoCacheDialog,
   ),
   NormalModel(
     title: '自动同步',
@@ -575,6 +590,40 @@ void _showBufferSizeDialog(BuildContext context, VoidCallback setState) =>
       title: '缓冲大小',
       suffix: 'MB',
     );
+
+String _cacheSize(int mb) => mb >= 1024 ? '${mb ~/ 1024} GB' : '$mb MB';
+
+Future<void> _showVideoCacheDialog(
+  BuildContext context,
+  VoidCallback setState,
+) async {
+  const clear = -1;
+  final res = await showDialog<int>(
+    context: context,
+    builder: (context) => SelectDialog<int>(
+      title: '视频缓存（存储）',
+      value: Pref.videoCacheMb,
+      values: [
+        (0, '关闭'),
+        for (final mb in const [512, 1024, 2048, 4096]) (mb, _cacheSize(mb)),
+        (clear, '清空现有缓存'),
+      ],
+    ),
+  );
+  if (res == null) return;
+  final store = await PlPlayerController.videoCache();
+  if (res == clear) {
+    await store?.clear();
+    SmartDialog.showToast('视频缓存已清空');
+  } else {
+    await GStorage.setting.put(SettingBoxKey.videoCacheMb, res);
+    if (store != null) {
+      store.maxBytes = res << 20;
+      await store.trim();
+    }
+  }
+  setState();
+}
 
 void _showBackBufferSecDialog(BuildContext context, VoidCallback setState) =>
     _showDecimalDialog(

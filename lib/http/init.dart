@@ -153,7 +153,10 @@ class Request {
               ..autoUncompress = false
               // certificates are still verified; only the separate
               // badCertificateCallback setting (HttpOverrides) skips it
-              ..findProxy = ((_) => 'PROXY $systemProxyHost:$systemProxyPort')
+              // the parallel fetch on the loopback is reached directly
+              ..findProxy = ((uri) => uri.host == '127.0.0.1'
+                  ? 'DIRECT'
+                  : 'PROXY $systemProxyHost:$systemProxyPort')
           : () => HttpClient()
               ..idleTimeout = const Duration(seconds: 15)
               ..autoUncompress = false, // Http2Adapter没有自动解压, 统一行为

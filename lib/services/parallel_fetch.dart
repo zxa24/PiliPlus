@@ -27,6 +27,12 @@
 ///
 /// Only bilibili's own hosts, with bilibili's headers ([isBilibili]); off
 /// with the 多线程加载 setting.
+///
+/// With a [store], pieces are kept on disk as well (user 2026-10-17): each
+/// is read from there before the network is asked, and a stream whose size
+/// the store knows is answered without waiting for the upstream's first
+/// answer. What a download reads ([wrap] `keep: false`) is not kept: the
+/// download is a copy of its own.
 library;
 
 import 'dart:async';
@@ -35,6 +41,7 @@ import 'dart:collection' show SplayTreeMap;
 import 'dart:math' show max, min;
 import 'dart:typed_data';
 
+import 'package:PiliPlus/services/piece_store.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 class ParallelFetch {
@@ -71,6 +78,14 @@ class ParallelFetch {
   /// Told of each answer that was an HTTP error, with the stream's own
   /// address (not the self-test's proxy) and the status.
   static void Function(Uri upstream, int status)? onRefused;
+
+  /// Pieces kept on disk (see the library's doc); none when null.
+  PieceStore? store;
+
+  /// Bytes answered from [store] and from the network, all streams: for the
+  /// self-test.
+  var bytesFromStore = 0;
+  var bytesFromNetwork = 0;
 
   HttpServer? _server;
   final _client = HttpClient()
@@ -130,13 +145,68 @@ class ParallelFetch {
 
   /// The loopback URL that stands in for [url]; null while not running.
   /// The upstream's host is in the path, for a log line to name.
-  String? wrap(String url) {
+  ///
+  /// [keep]: what is fetched of it goes into [store] (not for a download).
+  String? wrap(String url, {bool keep = true}) {
     final server = _server;
     if (server == null) return null;
     final id = _idOf[url] ??= '${_nextId++}';
-    _byId[id] ??= _Remote(Uri.parse(url));
+    _byId[id] ??= _remote(Uri.parse(url), keep);
     final host = Uri.parse(url).host;
     return 'http://127.0.0.1:${server.port}/$id/$host';
+  }
+
+  _Remote _remote(Uri uri, bool keep) {
+    final remote = _Remote(uri)..keep = keep;
+    if (store case final store?) {
+      final key = remote.key = PieceStore.keyOf(uri);
+      if (store.meta(key) case final meta?) {
+        remote
+          ..size = meta.size
+          ..contentType = meta.type
+          ..checked = _check(remote, store, meta.size);
+      }
+    }
+    return remote;
+  }
+
+  /// Asks the upstream the size of [remote] once, before what [store]
+  /// kept of it is read: another file at the same path (one encoded again)
+  /// is another size, and what was kept of the old one must not be played
+  /// (a test caught it handed over whole, the network never asked). Without
+  /// an answer (offline) what was kept is read.
+  Future<void> _check(_Remote remote, PieceStore store, int kept) async {
+    try {
+      final request = await _client
+          .getUrl(debugUpstream?.call(remote.uri) ?? remote.uri)
+          .timeout(const Duration(seconds: 5));
+      _headers(remote.uri).forEach(request.headers.set);
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+      final response = await request.close().timeout(
+        const Duration(seconds: 5),
+      );
+      await response.drain<void>().catchError((_) {});
+      final total = int.tryParse(
+        RegExp(r'/(\d+)$')
+                .firstMatch(
+                  response.headers.value(HttpHeaders.contentRangeHeader) ?? '',
+                )
+                ?.group(1) ??
+            '',
+      );
+      if (total == null || total == kept) return;
+      log?.call(
+        '${remote.uri.host}: ${remote.uri.pathSegments.last} is $total '
+        'bytes, not $kept: kept pieces dropped',
+      );
+      remote
+        ..size = total
+        ..key = null;
+      await store.sized(PieceStore.keyOf(remote.uri), remote.uri, total, null);
+      if (remote.keep) remote.key = PieceStore.keyOf(remote.uri);
+    } catch (_) {
+      // offline, or the host slow: what was kept stands
+    }
   }
 
   /// The upstream [local] stands in for, or [local] itself.
@@ -396,6 +466,8 @@ class ParallelFetch {
     chunk.fetching = true;
     remote.fetching++;
     try {
+      await _fromStore(remote, chunk);
+      final kept = chunk.received;
       // tries that bring nothing count; one that brings bytes does not (akam
       // closes connections every few seconds, measured 2026-10-12)
       var fruitless = 0;
@@ -430,12 +502,59 @@ class ParallelFetch {
       if (!chunk.done) {
         chunk.failure = chunk.lastError ?? const _Failure(null, 'gave up');
       }
+      bytesFromNetwork += chunk.received - kept;
+      // whole and partly from the network: kept for next time
+      if (chunk.done &&
+          chunk.received > kept &&
+          remote.keep &&
+          remote.key != null) {
+        unawaited(
+          store?.write(
+            remote.key!,
+            chunk.start,
+            Uint8List.fromList(chunk.bytes(0, chunk.received)),
+          ),
+        );
+      }
     } finally {
       chunk.fetching = false;
       remote.fetching--;
       chunk.notify();
       _hold(chunk);
       _pump(remote);
+    }
+  }
+
+  /// What [store] holds of [chunk], put in it; the piece done when that is
+  /// all of it.
+  Future<void> _fromStore(_Remote remote, _Chunk chunk) async {
+    final store = this.store;
+    if (store == null || remote.key == null) return;
+    // the size the upstream gives first (see [_check])
+    await remote.checked?.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () {},
+    );
+    final key = remote.key;
+    if (key == null) return;
+    while (chunk.received < chunk.length) {
+      final data = await store.read(
+        key,
+        chunk.start + chunk.received,
+        chunk.length - chunk.received,
+      );
+      if (data == null || data.isEmpty) break;
+      // shortened meanwhile (a reader started inside it)
+      final take = min(data.length, chunk.length - chunk.received);
+      if (take <= 0) break;
+      chunk.add(data, take);
+      bytesFromStore += take;
+    }
+    final size = remote.size;
+    if (chunk.received > 0 &&
+        (chunk.received >= chunk.length ||
+            (size != null && chunk.start + chunk.received >= size))) {
+      chunk.finish(chunk.received);
     }
   }
 
@@ -465,7 +584,15 @@ class ParallelFetch {
               response.headers.value(HttpHeaders.contentRangeHeader) ?? '',
             )
             ?.group(1);
-        if (total != null && remote.size == null) {
+        if (total != null && remote.size != int.parse(total)) {
+          // a size the store had for it that is not this file's: what it
+          // kept is another file's, and goes
+          if (remote.size != null) {
+            log?.call(
+              '${remote.uri.host}: ${remote.uri.pathSegments.last} is '
+              '$total bytes, not ${remote.size}: kept pieces dropped',
+            );
+          }
           remote.size = int.parse(total);
           // the rest need not wait for this piece to finish
           scheduleMicrotask(() => _pump(remote));
@@ -482,6 +609,11 @@ class ParallelFetch {
       remote.contentType ??= response.headers.value(
         HttpHeaders.contentTypeHeader,
       );
+      if (remote.key case final key? when remote.keep) {
+        if (remote.size case final size?) {
+          await store?.sized(key, remote.uri, size, remote.contentType);
+        }
+      }
       var got = 0;
       // a piece that stops coming in is asked for again; one shortened
       // meanwhile stops where it now ends
@@ -539,6 +671,15 @@ class _Remote {
   final Uri uri;
   int? size;
   String? contentType;
+
+  /// Its folder in the store, when there is one.
+  String? key;
+
+  /// What is fetched of it is kept in the store.
+  var keep = true;
+
+  /// The upstream asked its size, before what the store kept is read.
+  Future<void>? checked;
 
   /// Pieces by where they start.
   final chunks = SplayTreeMap<int, _Chunk>();

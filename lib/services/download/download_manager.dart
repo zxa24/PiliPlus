@@ -26,6 +26,12 @@ class DownloadManager {
 
   static const _maxAttempts = 6;
 
+  /// LibrePili: what a stream's address is read through, asked at each
+  /// start (the player's parallel fetch: the pieces kept on disk first,
+  /// several at a time, user 2026-10-17, 1B); null, or a null answer: the
+  /// address itself.
+  static Future<String Function(String url)?> Function()? fetch;
+
   DownloadStatus _status = DownloadStatus.downloading;
 
   DownloadStatus get status => _status;
@@ -44,10 +50,14 @@ class DownloadManager {
   }
 
   Future<void> _start() async {
+    final via = await fetch?.call();
     final urls = [
-      url,
-      for (final u in backupUrls)
-        if (u != url) u,
+      for (final u in [
+        url,
+        for (final u in backupUrls)
+          if (u != url) u,
+      ])
+        via == null ? u : via(u.http2https),
     ];
     // only consecutive attempts that saved nothing count against the budget:
     // a long transfer that keeps advancing between drops is not failing
@@ -94,13 +104,17 @@ class DownloadManager {
     onDone(e);
   }
 
+  /// [url] over https, unless it is the parallel fetch's on the loopback.
+  static String _https(String url) =>
+      url.startsWith('http://127.0.0.1') ? url : url.http2https;
+
   static final _contentRangeReg = RegExp(r'bytes\s+(\d+)-\d+/(\d+|\*)');
 
   /// Size of the stream at [url] from a one-byte range request, or null.
   Future<int?> _probeTotal(String url) async {
     try {
       final res = await Request.http11Dio.get<ResponseBody>(
-        url.http2https,
+        _https(url),
         options: Options(
           headers: {'range': 'bytes=0-0'},
           responseType: ResponseType.stream,
@@ -138,7 +152,7 @@ class DownloadManager {
     Response<ResponseBody> response;
     try {
       response = await Request.http11Dio.get<ResponseBody>(
-        url.http2https,
+        _https(url),
         options: Options(
           headers: {'range': 'bytes=$received-'},
           responseType: ResponseType.stream,

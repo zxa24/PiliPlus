@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:PiliPlus/services/parallel_fetch.dart';
+import 'package:PiliPlus/services/piece_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The parallel fetch against an upstream on the loopback whose behaviour
@@ -203,6 +204,110 @@ void main() {
     );
     expect(ParallelFetch.isBilibili('C:/videos/a.mp4'), isFalse);
   });
+  group('pieces kept on disk', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('pieces');
+    });
+
+    tearDown(() async {
+      await dir.delete(recursive: true).catchError((_) => dir);
+    });
+
+    Future<PieceStore> store() async {
+      final store = PieceStore(dir, maxBytes: 64 << 20);
+      await store.open();
+      return store;
+    }
+
+    test('played again, from another host, in another session: only the '
+        'size asked upstream', () async {
+      fetch.store = await store();
+      final first = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+      expect(first.body, data);
+      // the writes are not awaited by the answer
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(fetch.store!.bytes, data.length);
+
+      // a new session (the app started again), the same file on another
+      // host: same path, another address
+      final other = _Upstream(data);
+      await other.start();
+      final again = ParallelFetch(chunkBytes: 256 * 1024, aheadChunks: 8)
+        ..store = await store();
+      await again.start();
+      try {
+        final r = await get(again.wrap(other.url)!, range: 'bytes=0-');
+        expect(r.body, data);
+        // the size asked once, nothing else
+        expect(other.ranges, ['bytes=0-0']);
+        expect(again.bytesFromStore, data.length);
+        final part = await get(
+          again.wrap(other.url)!,
+          range: 'bytes=1500000-1500099',
+        );
+        expect(part.body, data.sublist(1500000, 1500100));
+      } finally {
+        await again.close();
+        await other.close();
+      }
+    });
+
+    test('part kept, part not: the rest from the network', () async {
+      fetch.store = await store();
+      final local = fetch.wrap(upstream.url)!;
+      await get(local, range: 'bytes=0-999999');
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final again = ParallelFetch(chunkBytes: 256 * 1024, aheadChunks: 8)
+        ..store = await store();
+      await again.start();
+      try {
+        upstream.ranges.clear();
+        final r = await get(again.wrap(upstream.url)!, range: 'bytes=0-');
+        expect(r.body, data);
+        expect(again.bytesFromStore, greaterThanOrEqualTo(1000000));
+        expect(again.bytesFromNetwork, lessThan(data.length - 900000));
+      } finally {
+        await again.close();
+      }
+    });
+
+    test('what a download reads is not kept', () async {
+      fetch.store = await store();
+      final r = await get(
+        fetch.wrap(upstream.url, keep: false)!,
+        range: 'bytes=0-',
+      );
+      expect(r.body, data);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(fetch.store!.bytes, 0);
+    });
+
+    test('another size at the same path: what was kept goes', () async {
+      fetch.store = await store();
+      await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final changed = Uint8List.fromList(
+        List.generate(2 * 1024 * 1024, (i) => (i * 7) & 0xff),
+      );
+      final other = _Upstream(changed);
+      await other.start();
+      final again = ParallelFetch(chunkBytes: 256 * 1024, aheadChunks: 8)
+        ..store = await store();
+      await again.start();
+      try {
+        // the first piece may come from what was kept, before the answer
+        // says the size: asked again, the rest is the new file's
+        final r = await get(again.wrap(other.url)!, range: 'bytes=600000-');
+        expect(r.body, changed.sublist(600000));
+      } finally {
+        await again.close();
+        await other.close();
+      }
+    });
+  });
+
 }
 
 /// A CDN in miniature: ranges, a delay per request, and its failures.

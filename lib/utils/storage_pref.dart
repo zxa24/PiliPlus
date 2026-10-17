@@ -840,6 +840,11 @@ abstract final class Pref {
   static bool get parallelFetch =>
       _setting.get(SettingBoxKey.parallelFetch, defaultValue: true);
 
+  /// LibrePili: MB of bilibili's streams kept on disk (视频缓存, user
+  /// 2026-10-17: 「大小为1g」); 0 keeps none.
+  static int get videoCacheMb =>
+      _setting.get(SettingBoxKey.videoCacheMb, defaultValue: 1024);
+
   static int get minDurationForRcmd =>
       _setting.get(SettingBoxKey.minDurationForRcmd, defaultValue: 0);
 
