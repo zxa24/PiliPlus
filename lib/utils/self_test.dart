@@ -856,7 +856,8 @@ abstract final class SelfTest {
           target,
           tracking: [
             for (final v in (_arg(args, '--cjk-tracking') ?? '').split(','))
-              ?double.tryParse(v),
+              if (double.tryParse(v.split('@').first) case final t?)
+                (t, int.tryParse(v.split('@').skip(1).firstOrNull ?? '')),
           ],
         ),
       );
@@ -1076,6 +1077,7 @@ abstract final class SelfTest {
       _rate = double.tryParse(_arg(args, '--rate') ?? '');
       _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
       _playAt = int.tryParse(_arg(args, '--play-at') ?? '');
+      _pauseAt = int.tryParse(_arg(args, '--pause-at') ?? '');
       VideoDetailController.debugTriedHosts = {
         ...?_arg(args, '--tried-hosts')?.split(','),
       };
@@ -5665,6 +5667,7 @@ abstract final class SelfTest {
   static double? _rate;
   static int _rateAt = 5;
   static int? _playAt;
+  static int? _pauseAt;
 
   static Future<Map<String, dynamic>> _openBili(
     String url,
@@ -5759,6 +5762,15 @@ abstract final class SelfTest {
         await Future.delayed(Duration(seconds: _rateAt));
         EventLog.add('selftest', 'speed to ${rate}x');
         await player.setPlaybackSpeed(rate);
+      }());
+    }
+    // `--pause-at 5`: pause pressed, as a viewer presses it (with
+    // `--play-at`: what a stream cut short meanwhile does to a paused video)
+    if (_pauseAt case final at?) {
+      unawaited(() async {
+        await Future.delayed(Duration(seconds: at));
+        EventLog.add('selftest', 'pause pressed');
+        await player.pause();
       }());
     }
     // `--play-at 32`: play pressed, as a viewer presses it (after a sleep
@@ -9019,11 +9031,11 @@ abstract final class SelfTest {
   /// `--sub-autospace FILE --shots DIR`: a line of Chinese mixed with
   /// Latin letters and digits shown as a subtitle over FILE, with 中英文间距
   /// on (`autospace_on.png`) and off (`autospace_off.png`); with
-  /// `--cjk-tracking 0,0.05,…`, on with each spacing between CJK characters
-  /// (`tracking_<v>.png`).
+  /// `--cjk-tracking 0,0.05,0.08@300…`, on with each spacing between CJK
+  /// characters, at a font weight after `@` (`tracking_<v>[_w<weight>].png`).
   static Future<Map<String, dynamic>> _subAutospace(
     String target, {
-    List<double> tracking = const [],
+    List<(double, int?)> tracking = const [],
   }) async {
     const heroTag = 'selftest_autospace';
     final dir = _shots;
@@ -9054,15 +9066,23 @@ abstract final class SelfTest {
     final off = await _shot('autospace_off');
     final tracked = <String, String?>{};
     final kept = SpacedSubtitleView.tracking;
-    for (final v in tracking) {
+    final weight = player.subtitleFontWeight;
+    for (final (v, w) in tracking) {
       SpacedSubtitleView.tracking = v;
+      player
+        ..subtitleFontWeight = w == null ? weight : w ~/ 100 - 1
+        ..updateSubtitleStyle();
       // a redraw: the switch is what the view listens to
       player.subtitleAutospace.value = true;
       await Future.delayed(const Duration(milliseconds: 400));
-      tracked['$v'] = await _shot('tracking_$v');
+      final name = w == null ? '$v' : '${v}_w$w';
+      tracked[name] = await _shot('tracking_$name');
       player.subtitleAutospace.value = false;
     }
     SpacedSubtitleView.tracking = kept;
+    player
+      ..subtitleFontWeight = weight
+      ..updateSubtitleStyle();
     player.subtitleAutospace.value = was;
     final shown = player.videoPlayerController?.state.subtitle.toString();
     Get.back();

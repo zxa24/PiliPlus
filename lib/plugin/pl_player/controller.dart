@@ -735,6 +735,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _reopening = false;
       _seekFailedAt = _forbiddenAt = null;
       _recheckOnPlay = false;
+      _cutOnPlay = null;
       // a new source: whatever was waiting for the network was for the old
       _stopWaitingForNetwork();
       // the source this was checking on is gone; the new one starts afresh
@@ -1470,6 +1471,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           // nothing there (the size it expects is then unknown): the copy
           // ends there. A seek past the cut shows only the second kind
           if (!_cutAt.add(at) || event.contains(_unknownSize)) {
+            if (_holdWhilePaused) {
+              _cutOnPlay = int.parse(at);
+              EventLog.add(
+                'player',
+                'stream cut at $at while paused: replaced once playing',
+              );
+              return;
+            }
             _replaceCutStreams(int.parse(at));
             return;
           }
@@ -2151,7 +2160,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     next
       ..setProperty('volume', old.getProperty('volume'))
       ..setProperty('mute', old.getProperty('mute'));
-    if (play) await next.play();
+    // not when a pause was asked for meanwhile ([pause] marks it first): the
+    // new player came up playing and the video played on, 16 ms after the
+    // viewer paused (self test, 2026-10-17)
+    if (play && _pausedAt == null) await next.play();
     // nothing of the old player stopping is heard as the viewer pausing
     _removeListeners();
     old.setProperty('mute', 'yes');
@@ -2504,6 +2516,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   void _switchCdn({bool fallback = false}) {
     if (debugDisableRecovery) return;
     if (_replacing && !fallback) return;
+    if (_holdWhilePaused) {
+      if (!_recheckOnPlay) {
+        EventLog.add(
+          'player',
+          'another CDN asked for while paused: once playing',
+        );
+      }
+      _recheckOnPlay = true;
+      return;
+    }
     // one switch per failure: the lines that follow the cut would ask again
     EasyThrottle.throttle(
       'PlPlayerController._switchCdn',
@@ -2554,6 +2576,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _failureCheck = Timer(const Duration(seconds: 15), () {
       _failureCheck = null;
       if (!identical(dataSource, source)) return;
+      // paused: nothing is failing the viewer now (see [_holdWhilePaused])
+      if (playerStatus.isPaused) {
+        EventLog.add('player', 'paused: no failure shown');
+        return;
+      }
       // the position alone is not playback: with the video track dry it
       // follows the sound, over a picture that does not move (2026-10-12)
       if (position.value != before && !isBuffering.value && !_dryNow()) {
@@ -3019,7 +3046,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (_renewIfExpired(resumePosition)) return;
     final paused = _pausedAt;
     _pausedAt = null;
-    if (_recheckOnPlay) {
+    if (_cutOnPlay case final at?) {
+      _cutOnPlay = null;
+      _recheckOnPlay = false;
+      unawaited(_replaceCutStreams(at));
+    } else if (_recheckOnPlay) {
       _recheckOnPlay = false;
       _checkRecovery();
     }
@@ -3098,6 +3129,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// (see [_checkRecovery]).
   var _recheckOnPlay = false;
 
+  /// A stream cut short at this byte while paused: replaced once playing
+  /// again (see [_replaceCutStreams]).
+  int? _cutOnPlay;
+
+  /// Paused by the viewer, no seek waiting on the stream: recovery waits
+  /// for play. A CDN closing a connection that stood idle is not playback
+  /// failing; acted on, the streams were reopened on another host and
+  /// played — the paused video went on by itself — and 视频无法播放 came up
+  /// over it (the user's copy, 2026-10-17). A seek waiting is acted on: the
+  /// viewer is looking at the picture it should bring.
+  bool get _holdWhilePaused => playerStatus.isPaused && _seekFailedAt == null;
+
   /// A pause this long has the play URLs checked as playback resumes (see
   /// [_checkStillServed]). Settable for the self-test.
   static Duration longPause = const Duration(minutes: 5);
@@ -3168,7 +3211,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// 暂停播放
   Future<void> pause({bool notify = true, bool isInterrupt = false}) async {
     _pausedAt ??= DateTime.now();
-    await _videoPlayerController?.pause();
+    final player = _videoPlayerController;
+    await player?.pause();
+    // handed over meanwhile (see [_takeOver]): the one now in place too
+    if (!identical(player, _videoPlayerController)) {
+      await _videoPlayerController?.pause();
+    }
     playerStatus.value = PlayerStatus.paused;
 
     // 主动暂停时让出音频焦点

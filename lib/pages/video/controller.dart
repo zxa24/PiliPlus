@@ -1577,12 +1577,15 @@ class VideoDetailController extends GetxController
   /// continuing from the current position. Shared by the CDN failover and by
   /// quality changes so both keep the same resume behaviour.
   void _reopenAtCurrentPosition() {
-    _autoPlay.value = true;
+    // as it was: a paused video reopened stays paused (it went on by itself,
+    // the user's copy, 2026-10-17)
+    final play = !plPlayerController.playerStatus.isPaused;
+    if (play) _autoPlay.value = true;
     playedTime = plPlayerController.resumePosition;
     plPlayerController
       ..isBuffering.value = false
       ..buffered.value = 0;
-    playerInit();
+    playerInit(autoplay: play);
   }
 
   /// The play URLs expired (a long pause): asks bilibili for new ones and
