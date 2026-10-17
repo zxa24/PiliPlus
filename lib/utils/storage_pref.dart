@@ -606,8 +606,10 @@ abstract final class Pref {
   static int get subtitlePaddingB =>
       _setting.get(SettingBoxKey.subtitlePaddingB, defaultValue: 24);
 
+  /// LibrePili: the box behind subtitles, black at this (17 %, over the
+  /// picture blurred, after a game's look: user 2026-10-17; was 0.67).
   static double get subtitleBgOpacity =>
-      _setting.get(SettingBoxKey.subtitleBgOpacity, defaultValue: 0.67);
+      _setting.get(SettingBoxKey.subtitleBgOpacity, defaultValue: 0.17);
 
   static double get subtitleStrokeWidth =>
       _setting.get(SettingBoxKey.subtitleStrokeWidth, defaultValue: 2.0);

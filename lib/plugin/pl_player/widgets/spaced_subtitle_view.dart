@@ -6,11 +6,11 @@
 /// state (the line shown, the padding, dragging) is media_kit's own.
 library;
 
-import 'dart:ui' show BoxHeightStyle, ImageFilter, clampDouble;
+import 'dart:math' as math;
+import 'dart:ui' show ImageFilter, clampDouble;
 
 import 'package:PiliPlus/utils/cjk_autospace.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 class SpacedSubtitleView extends SubtitleView {
@@ -47,6 +47,48 @@ class SpacedSubtitleView extends SubtitleView {
   /// pixels up and down; drawn larger, neither is felt (user 2026-10-17
   /// picked 2 of 1, 2, 4 and 8, phones too). Self tests try others.
   static double supersample = 2;
+
+  /// The size subtitles are drawn at in an area [height] tall (logical px):
+  /// 40 at 1080, as the square root of the height, within 14–64, times
+  /// [scale] (the 字体大小 setting). Fixed, a subtitle filled a tenth of a
+  /// small window and 1.6 % of a 4K screen; in proportion, it was unreadable
+  /// small and huge full screen (user 2026-10-17, ③ of the size bench).
+  static double sizeFor(double height, double scale) =>
+      clampDouble(40 * math.sqrt(math.max(0, height) / 1080), 14, 64) * scale;
+
+  /// How far up the area the box's lower edge sits, of its height: where
+  /// the game the look was taken from has it (11.12 %, measured on its 4K
+  /// frame).
+  static const lift = 0.1112;
+
+  /// The 底部边距 setting's default: at it, the box sits at [lift].
+  static const paddingBase = 24.0;
+
+  /// The subtitle's box, after a game's (user 2026-10-17, measured on its
+  /// 4K frame, em = the glyph pitch): 0.33 em either side of the glyph
+  /// cells, 0.08 em above and below lines 1.45 em high (1.61 em in all for
+  /// one), corners 0.125 em, [tint] over the picture behind blurred by
+  /// 0.4 em (detail there was 0.12 against 1.4-2.0 beside it).
+  static Widget box({
+    required double em,
+    required Color tint,
+    required Widget child,
+  }) => ClipRRect(
+    borderRadius: BorderRadius.circular(0.125 * em),
+    child: BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 0.4 * em, sigmaY: 0.4 * em),
+      child: ColoredBox(
+        color: tint,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: 0.33 * em,
+            vertical: 0.08 * em,
+          ),
+          child: child,
+        ),
+      ),
+    ),
+  );
   static FilterQuality supersampleQuality = FilterQuality.medium;
   static bool supersampleCascade = true;
 
@@ -66,7 +108,7 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
     return style.copyWith(height: (size * height).roundToDouble() / size);
   }
 
-  /// [style] with its background left to [LineBands].
+  /// [style] with its background left to the box (see [build]).
   static TextStyle _unbacked(TextStyle style) => style.copyWith(
     backgroundColor: style.background == null ? const Color(0x00000000) : null,
     background: style.background == null
@@ -74,26 +116,39 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
         : (Paint()..color = const Color(0x00000000)),
   );
 
-  // as SubtitleViewState.build, the text spaced
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => _build(
+      context,
+      constraints.maxHeight.isFinite
+          ? constraints.maxHeight
+          : MediaQuery.sizeOf(context).height,
+    ),
+  );
+
+  // as SubtitleViewState.build, the text spaced, sized for an area [height]
+  // tall and set on the box of [SpacedSubtitleView.box]
+  Widget _build(BuildContext context, double height) {
     final config = widget.configuration;
     final line = subtitle.toString();
     final autospace = (widget as SpacedSubtitleView).autospace;
+    // the 字体大小 setting is a factor of 16 (see subTitleStyle)
+    final em = SpacedSubtitleView.sizeFor(
+      height,
+      (config.style.fontSize ?? 16) / 16,
+    );
     // a pixel of the layer drawn at supersample times the resolution
     final pixel =
         1 /
         (MediaQuery.devicePixelRatioOf(context) *
             SpacedSubtitleView.supersample);
     Widget text(TextStyle given) {
-      final band = given.backgroundColor ?? given.background?.color;
-      final style = _whole(band == null ? given : _unbacked(given));
-      final size = style.fontSize ?? 14;
+      final style = _whole(_unbacked(given).copyWith(fontSize: em));
       final drop =
-          (SpacedSubtitleView.latinDrop * size / pixel).roundToDouble() *
+          (SpacedSubtitleView.latinDrop * em / pixel).roundToDouble() *
           pixel /
-          size;
-      final paragraph = Text.rich(
+          em;
+      return Text.rich(
         CjkAutospace.span(
           line,
           style,
@@ -108,10 +163,9 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
             : StrutStyle.fromTextStyle(style, forceStrutHeight: true),
         textAlign: config.textAlign,
         textScaler: TextScaler.noScaling,
+        // the box as wide as the longest line, not the whole width
+        textWidthBasis: TextWidthBasis.longestLine,
       );
-      return band == null
-          ? paragraph
-          : LineBands(color: band, child: paragraph);
     }
 
     // at k times the resolution into a layer, which is scaled back down:
@@ -152,11 +206,28 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
           ),
         );
       }
-      return fine(text(config.style));
+      final tint =
+          config.style.backgroundColor ?? config.style.background?.color;
+      if (tint == null || line.isEmpty) return fine(text(config.style));
+      // the box outside the layer the text is drawn in: what it blurs is
+      // the picture behind, which a layer of its own would not have
+      return SpacedSubtitleView.box(
+        em: em,
+        tint: tint,
+        child: fine(text(config.style)),
+      );
     }
 
+    // the box's lower edge [SpacedSubtitleView.lift] of the height up; the
+    // 底部边距 setting moves it from there (its 24 is where it sits)
+    final bottom = math.max(
+      0.0,
+      SpacedSubtitleView.lift * height +
+          padding.bottom -
+          SpacedSubtitleView.paddingBase,
+    );
     return AnimatedContainer(
-      margin: padding,
+      margin: padding.copyWith(bottom: bottom),
       duration: duration,
       alignment: Alignment.bottomCenter,
       child: widget.enableDragSubtitle
@@ -178,72 +249,5 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
             )
           : subtitleView(),
     );
-  }
-}
-
-/// [color] behind each line of the text below as one band, as tall as the
-/// line: a background in the text's style is a box behind each run of
-/// text, and where two runs meet at a fraction of a pixel their soft edges
-/// left a seam (user 2026-10-17: 「统一」).
-class LineBands extends SingleChildRenderObjectWidget {
-  const LineBands({super.key, required this.color, super.child});
-
-  final Color color;
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderLineBands(color);
-
-  @override
-  void updateRenderObject(BuildContext context, RenderObject renderObject) =>
-      (renderObject as _RenderLineBands).color = color;
-}
-
-class _RenderLineBands extends RenderProxyBox {
-  _RenderLineBands(this._color);
-
-  Color _color;
-  set color(Color value) {
-    if (value == _color) return;
-    _color = value;
-    markNeedsPaint();
-  }
-
-  static RenderParagraph? _paragraph(RenderObject node) {
-    if (node is RenderParagraph) return node;
-    RenderParagraph? found;
-    node.visitChildren((child) => found ??= _paragraph(child));
-    return found;
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    if (child == null ? null : _paragraph(child!) case final text?) {
-      final length = text.text.toPlainText().length;
-      final bands = <Rect>[];
-      for (final box in text.getBoxesForSelection(
-        TextSelection(baseOffset: 0, extentOffset: length),
-        boxHeightStyle: BoxHeightStyle.max,
-      )) {
-        final rect = box.toRect();
-        final i = bands.indexWhere(
-          (b) => rect.center.dy > b.top && rect.center.dy < b.bottom,
-        );
-        if (i < 0) {
-          bands.add(rect);
-        } else {
-          bands[i] = bands[i].expandToInclude(rect);
-        }
-      }
-      final transform = text.getTransformTo(this);
-      final paint = Paint()..color = _color;
-      for (final band in bands) {
-        context.canvas.drawRect(
-          MatrixUtils.transformRect(transform, band).shift(offset),
-          paint,
-        );
-      }
-    }
-    super.paint(context, offset);
   }
 }

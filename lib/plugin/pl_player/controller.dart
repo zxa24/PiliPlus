@@ -489,10 +489,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   // 播放顺序相关
   late PlayRepeat playRepeat = Pref.playRepeat;
 
+  /// The subtitle's style: its size here only carries the 字体大小 factor
+  /// (16 × it), the view sizes it for the area it is drawn in (see
+  /// SpacedSubtitleView.sizeFor), full screen or not alike; lines 1.45 em
+  /// high, the box's (see SpacedSubtitleView.box).
   TextStyle get subTitleStyle => TextStyle(
-    height: 1.5,
-    fontSize:
-        16 * (isFullScreen.value ? subtitleFontScaleFS : subtitleFontScale),
+    height: 1.45,
+    fontSize: 16 * subtitleFontScale,
     letterSpacing: 0.1,
     wordSpacing: 0.1,
     color: Colors.white,

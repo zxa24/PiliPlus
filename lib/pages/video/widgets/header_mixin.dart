@@ -51,7 +51,6 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
   }
 
   double get subtitleFontScale => plPlayerController.subtitleFontScale;
-  double get subtitleFontScaleFS => plPlayerController.subtitleFontScaleFS;
   int get subtitlePaddingH => plPlayerController.subtitlePaddingH;
   int get subtitlePaddingB => plPlayerController.subtitlePaddingB;
   double get subtitleBgOpacity => plPlayerController.subtitleBgOpacity;
@@ -107,13 +106,6 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
           setState(() {});
         }
 
-        void updateFontScaleFS(double val) {
-          plPlayerController
-            ..subtitleFontScaleFS = val.toPrecision(2)
-            ..updateSubtitleStyle();
-          setState(() {});
-        }
-
         void updateFontScale(double val) {
           plPlayerController
             ..subtitleFontScale = val.toPrecision(2)
@@ -157,7 +149,7 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '字体大小 ${(subtitleFontScale * 100).toStringAsFixed(1)}%',
+                          '字体大小 ${(subtitleFontScale * 100).toStringAsFixed(1)}%（随画面大小自动缩放）',
                         ),
                         resetBtn(theme, '100.0%', () => updateFontScale(1.0)),
                       ],
@@ -172,27 +164,6 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                         label:
                             '${(subtitleFontScale * 100).toStringAsFixed(1)}%',
                         onChanged: updateFontScale,
-                      ),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '全屏字体大小 ${(subtitleFontScaleFS * 100).toStringAsFixed(1)}%',
-                        ),
-                        resetBtn(theme, '150.0%', () => updateFontScaleFS(1.5)),
-                      ],
-                    ),
-                    Padding(
-                      padding: sliderPadding,
-                      child: Slider(
-                        min: 0.5,
-                        max: 2.5,
-                        value: subtitleFontScaleFS,
-                        divisions: 200,
-                        label:
-                            '${(subtitleFontScaleFS * 100).toStringAsFixed(1)}%',
-                        onChanged: updateFontScaleFS,
                       ),
                     ),
                     Row(
@@ -284,7 +255,7 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                         Text(
                           '背景不透明度 ${(subtitleBgOpacity * 100).toStringAsFixed(1)}%',
                         ),
-                        resetBtn(theme, '67%', () => updateOpacity(0.67)),
+                        resetBtn(theme, '17%', () => updateOpacity(0.17)),
                       ],
                     ),
                     Padding(
