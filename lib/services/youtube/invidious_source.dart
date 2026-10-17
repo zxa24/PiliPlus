@@ -23,9 +23,12 @@
 /// googlevideo directly where googlevideo serves this machine the
 /// instance's URLs — found out with a few bytes of the audio — and through
 /// the companion (`local=true`) where it refuses them, which was 9 videos of
-/// 10 measured (2026-10-12; Rick Astley the one served). When an instance
-/// cannot serve a video, the next is asked: at most [triesPerVideo] per
-/// video.
+/// 10 measured (2026-10-12; Rick Astley the one served). The companion's
+/// streams are tried with a few bytes too: its manifest answering is not its
+/// streams answering (inv-de1.nadeko.net listed them and answered every one
+/// with a 502, 2026-10-16). When an instance cannot serve a video, the next
+/// is asked: at most [triesPerVideo] per video. One whose streams the player
+/// could not open ([playbackFailed]) is set aside like one that failed here.
 ///
 /// The watch pages sit behind go-away (`inv.nadeko.net`, `go_away.dart`) or
 /// Anubis (`invidious.f5.si`, `invidious.tiekoetter.com`, `anubis.dart`):
@@ -79,12 +82,11 @@ class InvidiousAnswer {
 }
 
 /// How a request goes out: [IoInvidiousFetch] in the app, a script in tests.
-typedef InvidiousFetch =
-    Future<InvidiousAnswer> Function(
-      Uri uri, {
-      required String method,
-      required Map<String, String> headers,
-    });
+typedef InvidiousFetch = Future<InvidiousAnswer> Function(
+  Uri uri, {
+  required String method,
+  required Map<String, String> headers,
+});
 
 class YtInvidiousSource implements YouTubeVideoSource {
   YtInvidiousSource({
@@ -150,6 +152,9 @@ class YtInvidiousSource implements YouTubeVideoSource {
   final _cookies = <(String, String), ({String value, bool hostOnly})>{};
 
   final _resolved = <String, ({YtVideoDetail detail, DateTime until})>{};
+
+  /// The instance each video was served by, for [playbackFailed].
+  final _servedBy = <String, String>{};
   final _pending = <String, Future<YtResult<YtVideoDetail>>>{};
 
   @override
@@ -198,6 +203,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
       final r = await _resolveOn(host, videoId);
       if (r.ok) {
         _preferred = host;
+        _servedBy[videoId] = host;
         return r;
       }
       final verdict = r.verdict;
@@ -279,14 +285,32 @@ class YtInvidiousSource implements YouTubeVideoSource {
     // (1 in 10, 2026-10-12): asked once with a few bytes, and through the
     // companion only when it refuses
     final relayedDash = watch.relayedDashUrl;
+    var throughCompanion = relayed;
     if (!relayed && relayedDash != null && relayedDash != dash) {
       final probe = selectYtAudioFormat(formats)?.url;
       if (probe != null && await _refusedHere(probe)) {
         final through = await _formatsFrom(base.resolve(relayedDash));
         if (!through.ok) return through.castFailure();
         formats = through.value!;
-        log?.call('$videoId: googlevideo refuses it here, '
-            'through ${base.resolve(relayedDash).host}');
+        throughCompanion = true;
+        log?.call(
+          '$videoId: googlevideo refuses it here, '
+          'through ${base.resolve(relayedDash).host}',
+        );
+      }
+    }
+    if (throughCompanion) {
+      if (selectYtAudioFormat(formats)?.url case final probe?) {
+        final status = await _companionRefuses(probe);
+        if (status != null) {
+          return YtResult.failed(
+            YtVerdict(
+              YtCause.transient,
+              'invidious:companion-down',
+              '${Uri.parse(probe).host} answers its streams with $status',
+            ),
+          );
+        }
       }
     }
 
@@ -365,6 +389,30 @@ class YtInvidiousSource implements YouTubeVideoSource {
     return false;
   }
 
+  /// What the companion answers a few bytes of [url] with, when it is not
+  /// them (0: no answer); null when it serves them.
+  Future<int?> _companionRefuses(String url) async {
+    var uri = Uri.parse(url);
+    for (var hop = 0; hop < 4; hop++) {
+      final r = await _fetch(
+        uri,
+        method: 'GET',
+        headers: {
+          HttpHeaders.userAgentHeader: userAgent,
+          HttpHeaders.rangeHeader: 'bytes=0-1023',
+        },
+      );
+      log?.call('probe ${uri.host} -> ${r.status}');
+      final next = r.location;
+      if (r.status ~/ 100 == 3 && next != null) {
+        uri = uri.resolve(next);
+        continue;
+      }
+      return r.status ~/ 100 == 2 ? null : r.status;
+    }
+    return 0;
+  }
+
   @override
   Future<YtResult<YtStreamPair>> streams(
     String videoId, {
@@ -399,6 +447,25 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// Forgets [videoId]'s resolved URLs: they stopped working before their
   /// time.
   void forget(String videoId) => _resolved.remove(videoId);
+
+  /// The player could not open the streams [videoId] was served with: the
+  /// instance that served them is set aside (for ten minutes) and the video
+  /// is asked anew. Without it the player asked again, got the same
+  /// instance's same broken companion, and went round for good
+  /// (2026-10-16, a phone: inv-de1.nadeko.net's 502s).
+  void playbackFailed(String videoId) {
+    forget(videoId);
+    final host = _servedBy.remove(videoId);
+    if (host == null) return;
+    _bench(
+      host,
+      const YtVerdict(
+        YtCause.transient,
+        'invidious:playback-failed',
+        'the player could not open its streams',
+      ),
+    );
+  }
 
   // ------------------------------------------------------------- captions
 
@@ -476,19 +543,26 @@ class YtInvidiousSource implements YouTubeVideoSource {
       } catch (_) {}
     }
     if (hosts.isEmpty) {
-      log?.call('the registry gave no instance (${r.status}): '
-          '${_registry == null ? 'the known ones' : 'the last list'}');
+      log?.call(
+        'the registry gave no instance (${r.status}): '
+        '${_registry == null ? 'the known ones' : 'the last list'}',
+      );
       // tried again in ten minutes rather than six hours
-      _registryAt = _now().subtract(registryLasts - const Duration(minutes: 10));
+      _registryAt = _now().subtract(
+        registryLasts - const Duration(minutes: 10),
+      );
       return _registry ??= knownHosts;
     }
-    log?.call('the registry: ${hosts.map((h) => Uri.parse(h).host).join(', ')}');
+    log?.call(
+      'the registry: ${hosts.map((h) => Uri.parse(h).host).join(', ')}',
+    );
     _registryAt = _now();
     return _registry = hosts;
   }
 
   void _bench(String host, YtVerdict why) {
-    final long = why.signal.startsWith('invidious:gate') ||
+    final long =
+        why.signal.startsWith('invidious:gate') ||
         why.signal.startsWith('invidious:not-invidious') ||
         why.signal.endsWith(':moved');
     final until = _now().add(
@@ -496,8 +570,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
     );
     _benched[host] = (until: until, why: why.signal);
     if (_preferred == host) _preferred = null;
-    log?.call('${Uri.parse(host).host} set aside '
-        '${long ? 'for 6 h' : 'for 10 min'}: ${why.signal}');
+    log?.call(
+      '${Uri.parse(host).host} set aside '
+      '${long ? 'for 6 h' : 'for 10 min'}: ${why.signal}',
+    );
   }
 
   // ------------------------------------------------------------- the page
@@ -659,7 +735,9 @@ class YtInvidiousSource implements YouTubeVideoSource {
   ) async {
     final base = Uri.parse(host);
     final js = await _get(base.resolve(script), referer: page);
-    final challengeId = js.status == HttpStatus.ok ? GoAway.powId(js.body) : null;
+    final challengeId = js.status == HttpStatus.ok
+        ? GoAway.powId(js.body)
+        : null;
     if (challengeId == null) return _verdictOf(js, 'go-away-script');
     final made = await _get(
       base.resolve('${GoAway.powPath}/make-challenge'),

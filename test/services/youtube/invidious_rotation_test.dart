@@ -79,7 +79,10 @@ void main() {
       );
       expect(hosts, contains('https://invidious.f5.si'));
       expect(hosts.first, 'https://inv.nadeko.net');
-      expect(hosts.any((h) => h.contains('.onion') || h.contains('.i2p')), isFalse);
+      expect(
+        hosts.any((h) => h.contains('.onion') || h.contains('.i2p')),
+        isFalse,
+      );
     });
   });
 
@@ -94,9 +97,16 @@ void main() {
   group('the instances', () {
     test('a CAPTCHA instance is set aside, the next serves', () async {
       final net = _Net()
-        ..on('captcha.example', '/watch', (_) => _page('<title>Auth with CAPTCHA</title>'))
+        ..on(
+          'captcha.example',
+          '/watch',
+          (_) => _page('<title>Auth with CAPTCHA</title>'),
+        )
         ..serveVideo('good.example', watch, dash, captionList);
-      final source = net.source(['https://captcha.example', 'https://good.example']);
+      final source = net.source([
+        'https://captcha.example',
+        'https://good.example',
+      ]);
 
       final r = await source.detail('dQw4w9WgXcQ');
       expect(r.ok, isTrue);
@@ -126,9 +136,7 @@ void main() {
       final net = _Net()
         ..on('gated.example', '/watch', (request) {
           final cookie = request.headers[HttpHeaders.cookieHeader] ?? '';
-          return cookie.contains('anubis-auth=ok')
-              ? _page(watch)
-              : _page(gate);
+          return cookie.contains('anubis-auth=ok') ? _page(watch) : _page(gate);
         })
         ..on(
           'gated.example',
@@ -168,33 +176,61 @@ void main() {
       expect(net.asked.map((u) => u.host).toSet(), {'a.example', 'b.example'});
     });
 
-    test("Invidious' own error page: the next instance, this one kept", () async {
-      // tiekoetter 2026-10-12: one video "Can't load", another played
-      const error =
-          '<link rel="stylesheet" href="/css/pure-min.css?v=1">'
-          "<p>Can't load the video on this Invidious instance.</p>";
-      final net = _Net()
-        ..on('a.example', '/watch', (_) => const InvidiousAnswer(500, error))
-        ..serveVideo('b.example', watch, dash, captionList);
-      final source = net.source(['https://a.example', 'https://b.example']);
-      expect((await source.detail('dQw4w9WgXcQ')).ok, isTrue);
-      source.forget('dQw4w9WgXcQ');
-      net.asked.clear();
-      await source.detail('dQw4w9WgXcQ');
-      // b served, so b first; a is not set aside, only behind
-      expect(net.asked.first.host, 'b.example');
-      expect(source.preferredHost, 'https://b.example');
-    });
+    test(
+      "Invidious' own error page: the next instance, this one kept",
+      () async {
+        // tiekoetter 2026-10-12: one video "Can't load", another played
+        const error =
+            '<link rel="stylesheet" href="/css/pure-min.css?v=1">'
+            "<p>Can't load the video on this Invidious instance.</p>";
+        final net = _Net()
+          ..on('a.example', '/watch', (_) => const InvidiousAnswer(500, error))
+          ..serveVideo('b.example', watch, dash, captionList);
+        final source = net.source(['https://a.example', 'https://b.example']);
+        expect((await source.detail('dQw4w9WgXcQ')).ok, isTrue);
+        source.forget('dQw4w9WgXcQ');
+        net.asked.clear();
+        await source.detail('dQw4w9WgXcQ');
+        // b served, so b first; a is not set aside, only behind
+        expect(net.asked.first.host, 'b.example');
+        expect(source.preferredHost, 'https://b.example');
+      },
+    );
 
     test("a gate of the instance's own, by redirect, is set aside", () async {
       final net = _Net()
-        ..on('gandalf.example', '/watch', (_) => const InvidiousAnswer(
-          307,
-          '',
-          location: '/.gandalf/check?gandalf_id=x',
-        ))
+        ..on(
+          'gandalf.example',
+          '/watch',
+          (_) => const InvidiousAnswer(
+            307,
+            '',
+            location: '/.gandalf/check?gandalf_id=x',
+          ),
+        )
         ..serveVideo('good.example', watch, dash, captionList);
-      final source = net.source(['https://gandalf.example', 'https://good.example']);
+      final source = net.source([
+        'https://gandalf.example',
+        'https://good.example',
+      ]);
+      expect((await source.detail('dQw4w9WgXcQ')).ok, isTrue);
+    });
+
+    test('the player could not open what was served: that instance is set '
+        'aside, the video asked of the next', () async {
+      final net = _Net()
+        ..serveVideo('a.example', watch, dash, captionList)
+        ..serveVideo('b.example', watch, dash, captionList);
+      final source = net.source(['https://a.example', 'https://b.example']);
+      expect((await source.detail('dQw4w9WgXcQ')).ok, isTrue);
+      expect(source.preferredHost, 'https://a.example');
+      source.playbackFailed('dQw4w9WgXcQ');
+      net.asked.clear();
+      expect((await source.detail('dQw4w9WgXcQ')).ok, isTrue);
+      expect(net.asked.where((u) => u.host == 'a.example'), isEmpty);
+      expect(source.preferredHost, 'https://b.example');
+      // a video it did not serve: nothing set aside
+      source.playbackFailed('other');
       expect((await source.detail('dQw4w9WgXcQ')).ok, isTrue);
     });
 
@@ -210,44 +246,108 @@ void main() {
     });
 
     group('googlevideo refusing this machine', () {
-      _Net refusing(int status) => _Net()
-        ..serveVideo('a.example', watch, dash, captionList)
-        ..on('*', '/companion/api/manifest/dash/', (q) => _page(
-          q.uri.queryParameters['local'] == 'true' ? relayedDash : dash,
-        ))
-        ..on('.googlevideo.com', '/videoplayback', (q) {
-          expect(q.headers[HttpHeaders.rangeHeader], 'bytes=0-1023');
-          // the refusal comes after ipbypass's redirect, as measured
-          return q.uri.queryParameters.containsKey('ipbypass')
-              ? InvidiousAnswer(status, '')
-              : const InvidiousAnswer(
-                  302,
-                  '',
-                  location: 'https://rr9---x.googlevideo.com/videoplayback?ipbypass=yes',
-                );
-        });
+      // [companionStatus] for each probe of the companion's streams in turn
+      // (the last one again after that)
+      _Net refusing(int status, {List<int> companionStatus = const [206]}) {
+        var probes = 0;
+        return _Net()
+          ..serveVideo('a.example', watch, dash, captionList)
+          ..on('*', '/companion/videoplayback', (q) {
+            expect(q.headers[HttpHeaders.rangeHeader], 'bytes=0-1023');
+            final i = probes++;
+            return InvidiousAnswer(
+              companionStatus[i < companionStatus.length
+                  ? i
+                  : companionStatus.length - 1],
+              '',
+            );
+          })
+          ..on(
+            '*',
+            '/companion/api/manifest/dash/',
+            (q) => _page(
+              q.uri.queryParameters['local'] == 'true' ? relayedDash : dash,
+            ),
+          )
+          ..on('.googlevideo.com', '/videoplayback', (q) {
+            expect(q.headers[HttpHeaders.rangeHeader], 'bytes=0-1023');
+            // the refusal comes after ipbypass's redirect, as measured
+            return q.uri.queryParameters.containsKey('ipbypass')
+                ? InvidiousAnswer(status, '')
+                : const InvidiousAnswer(
+                    302,
+                    '',
+                    location: 'https://rr9---x.googlevideo.com/videoplayback?ipbypass=yes',
+                  );
+          });
+      }
 
       test('a 403: the streams through the companion', () async {
         final net = refusing(403);
-        final r = await net.source(['https://a.example']).streams('dQw4w9WgXcQ');
+        final r = await net
+            .source(['https://a.example'])
+            .streams('dQw4w9WgXcQ');
         expect(r.ok, isTrue);
         final video = Uri.parse(r.value!.videoUrl);
         expect(video.host, companion);
         expect(video.path, '/companion/videoplayback');
         expect(Uri.parse(r.value!.audioUrl).host, companion);
         // one probe, its redirect followed
-        expect(net.asked.where((u) => u.host.endsWith('googlevideo.com')), hasLength(2));
-      });
-
-      test('served: the streams from googlevideo, the companion spared', () async {
-        final net = refusing(206);
-        final r = await net.source(['https://a.example']).streams('dQw4w9WgXcQ');
-        expect(Uri.parse(r.value!.videoUrl).host, endsWith('googlevideo.com'));
         expect(
-          net.asked.where((u) => u.queryParameters['local'] == 'true'),
-          isEmpty,
+          net.asked.where((u) => u.host.endsWith('googlevideo.com')),
+          hasLength(2),
+        );
+        // and a few bytes of the companion's
+        expect(
+          net.asked.where((u) => u.path == '/companion/videoplayback'),
+          hasLength(1),
         );
       });
+
+      test('2026-10-16: a companion that lists the streams and answers them '
+          'with a 502: the instance set aside, the next serves', () async {
+        final net = refusing(403, companionStatus: [502, 206])
+          ..on('b.example', '/watch', (_) => _page(watch))
+          // not serveVideo: its manifest route is the unrelayed one
+          ..on('b.example', '/api/v1/captions/', (_) => _page(captionList));
+        final source = net.source(['https://a.example', 'https://b.example']);
+        final r = await source.streams('dQw4w9WgXcQ');
+        expect(r.ok, isTrue);
+        expect(source.preferredHost, 'https://b.example');
+        // a is not asked again for the next video
+        source.forget('dQw4w9WgXcQ');
+        net.asked.clear();
+        await source.detail('dQw4w9WgXcQ');
+        expect(net.asked.where((u) => u.host == 'a.example'), isEmpty);
+      });
+
+      test('every companion down: a verdict, not streams', () async {
+        final net = refusing(403, companionStatus: [502]);
+        final r = await net
+            .source(['https://a.example'])
+            .streams('dQw4w9WgXcQ');
+        expect(r.ok, isFalse);
+        expect(r.verdict.signal, 'invidious:no-instance-served');
+        expect('${r.verdict}', contains('invidious:companion-down'));
+      });
+
+      test(
+        'served: the streams from googlevideo, the companion spared',
+        () async {
+          final net = refusing(206);
+          final r = await net
+              .source(['https://a.example'])
+              .streams('dQw4w9WgXcQ');
+          expect(
+            Uri.parse(r.value!.videoUrl).host,
+            endsWith('googlevideo.com'),
+          );
+          expect(
+            net.asked.where((u) => u.queryParameters['local'] == 'true'),
+            isEmpty,
+          );
+        },
+      );
 
       test('always through the companion when asked to be', () async {
         final net = refusing(206);
@@ -255,23 +355,35 @@ void main() {
             .source(['https://a.example'], relayed: true)
             .streams('dQw4w9WgXcQ');
         expect(Uri.parse(r.value!.videoUrl).host, companion);
-        expect(net.asked.where((u) => u.host.endsWith('googlevideo.com')), isEmpty);
+        expect(
+          net.asked.where((u) => u.host.endsWith('googlevideo.com')),
+          isEmpty,
+        );
       });
     });
 
     test('the registry read when no hosts are given, the known ones when '
         'it is out of reach', () async {
       final up = _Net()
-        ..on('api.invidious.io', '/instances.json', (_) => _page(
-          File('test/fixtures/youtube/invidious/registry.json').readAsStringSync(),
-        ))
+        ..on(
+          'api.invidious.io',
+          '/instances.json',
+          (_) => _page(
+            File('test/fixtures/youtube/invidious/registry.json')
+                .readAsStringSync(),
+          ),
+        )
         ..serveVideo('inv.nadeko.net', watch, dash, captionList);
       final viaRegistry = up.source(null);
       expect((await viaRegistry.detail('dQw4w9WgXcQ')).ok, isTrue);
       expect(viaRegistry.preferredHost, 'https://inv.nadeko.net');
 
       final down = _Net()
-        ..on('api.invidious.io', '/instances.json', (_) => const InvidiousAnswer(0, '', error: 'offline'))
+        ..on(
+          'api.invidious.io',
+          '/instances.json',
+          (_) => const InvidiousAnswer(0, '', error: 'offline'),
+        )
         ..serveVideo('inv.nadeko.net', watch, dash, captionList);
       final fallback = down.source(null);
       expect((await fallback.detail('dQw4w9WgXcQ')).ok, isTrue);
@@ -294,8 +406,11 @@ class _Net {
   List<Uri> get asked => _asked;
   final _asked = <Uri>[];
 
-  void on(String host, String path, InvidiousAnswer Function(_Request) answer) =>
-      _routes[(host, path)] = answer;
+  void on(
+    String host,
+    String path,
+    InvidiousAnswer Function(_Request) answer,
+  ) => _routes[(host, path)] = answer;
 
   /// [host]'s watch page (unless null), and every companion's manifest and
   /// caption list.
@@ -307,22 +422,23 @@ class _Net {
 
   YtInvidiousSource source(List<String>? hosts, {bool relayed = false}) =>
       YtInvidiousSource(
-    hosts: hosts,
-    relayed: relayed,
-    fetch: (uri, {required method, required headers}) async {
-      final request = (uri: uri, method: method, headers: headers);
-      requests.add(request);
-      _asked.add(uri);
-      for (final MapEntry(key: (host, path), value: answer) in _routes.entries) {
-        final hostMatches =
-            host == uri.host ||
-            host == '*' ||
-            (host.startsWith('.') && uri.host.endsWith(host));
-        if (hostMatches && uri.path.startsWith(path)) {
-          return answer(request);
-        }
-      }
-      return const InvidiousAnswer(404, 'not found');
-    },
-  );
+        hosts: hosts,
+        relayed: relayed,
+        fetch: (uri, {required method, required headers}) async {
+          final request = (uri: uri, method: method, headers: headers);
+          requests.add(request);
+          _asked.add(uri);
+          for (final MapEntry(key: (host, path), value: answer)
+              in _routes.entries) {
+            final hostMatches =
+                host == uri.host ||
+                host == '*' ||
+                (host.startsWith('.') && uri.host.endsWith(host));
+            if (hostMatches && uri.path.startsWith(path)) {
+              return answer(request);
+            }
+          }
+          return const InvidiousAnswer(404, 'not found');
+        },
+      );
 }

@@ -312,6 +312,9 @@ class YtVideoController extends GetxController
   /// which stays free of presentation — and the diagnostic signal is appended
   /// so a report says which of the four causes fired.
   static String _messageFor(YtVerdict verdict) => switch (verdict.cause) {
+    // the fallback could not serve either: say so, not 网络错误
+    YtCause.transient when verdict.signal.startsWith('invidious:') =>
+      'YouTube 拒绝了当前网络，备用线路（Invidious）现在也都不可用，可稍后重试，或在浏览器中打开',
     YtCause.ok => '',
     YtCause.contentUnavailable => '该视频无法播放（已删除、私有、年龄限制或地区限制）',
     YtCause.ipBlocked => 'YouTube 暂时拒绝了当前网络，可稍后重试，或在浏览器、Invidious 中打开',
@@ -323,7 +326,9 @@ class YtVideoController extends GetxController
     if (isClosed) return;
     stage.value = YtPageStage.failed;
     message.value = _messageFor(verdict);
-    blocked.value = verdict.cause == YtCause.ipBlocked;
+    blocked.value =
+        verdict.cause == YtCause.ipBlocked ||
+        verdict.signal.startsWith('invidious:');
     // in the event log too: a page that failed said nothing there
     EventLog.add('failure', 'youtube $videoId: $verdict');
     if (kDebugMode) debugPrint('youtube: $verdict');
@@ -1554,7 +1559,8 @@ class YtVideoController extends GetxController
     if (!down) _undoStepUp = null;
     if (_heightChosen || isClosed) return null;
     if (!down) {
-      if (_noStepUpUntil case final until? when DateTime.now().isBefore(until)) {
+      if (_noStepUpUntil case final until?
+          when DateTime.now().isBefore(until)) {
         return null;
       }
     }
@@ -1693,17 +1699,29 @@ class YtVideoController extends GetxController
 
   DateTime? _failoverAt;
 
+  /// Failovers since [_failoverAt].
+  int _failovers = 0;
+
   /// What the player asks for when the URLs will not serve: there is one
   /// host per URL, so new URLs, where playback is — once every two minutes;
-  /// after that the player says 视频无法播放.
+  /// after that the player says 视频无法播放. From Invidious, once per
+  /// instance it may still ask ([YtInvidiousSource.triesPerVideo]): the one
+  /// that served is set aside first, so the new URLs are another's.
   bool _failover() {
     final now = DateTime.now();
-    if (isClosed ||
-        (_failoverAt != null &&
-            now.difference(_failoverAt!) < const Duration(minutes: 2))) {
-      return false;
+    if (isClosed) return false;
+    final fromInvidious = _streams?.sourceId == YtInvidiousSource.shared.id;
+    final within =
+        _failoverAt != null &&
+        now.difference(_failoverAt!) < const Duration(minutes: 2);
+    if (!within) {
+      _failoverAt = now;
+      _failovers = 0;
     }
-    _failoverAt = now;
+    final allowed = fromInvidious ? YtInvidiousSource.triesPerVideo : 1;
+    if (_failovers >= allowed) return false;
+    _failovers++;
+    if (fromInvidious) YtInvidiousSource.shared.playbackFailed(videoId);
     final at = plPlayerController.resumePosition;
     EventLog.add('player', 'youtube: new stream URLs at ${at.inSeconds} s');
     _renewStreams(at);
