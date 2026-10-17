@@ -55,9 +55,9 @@ dependencies:
       path: cached_network_image
       ref: dacec4de669b4c52c59576509db069e3194408ac # develop
   canvas_danmaku:
-    git:
-      url: https://github.com/bggRGjQaUbCoE/canvas_danmaku.git
-      ref: 275046d8647a6a26cba1d0dadb9e28688cb3dbf1 # main
+    # LibrePili: kept in the repo (user 2026-10-17, 1A), copied from
+    # github.com/bggRGjQaUbCoE/canvas_danmaku 275046d (MIT)
+    path: packages/canvas_danmaku
   catcher_2:
     git:
       url: https://github.com/My-Responsitories/catcher_2.git
