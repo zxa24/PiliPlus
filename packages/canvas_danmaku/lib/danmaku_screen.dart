@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:canvas_danmaku/base_danmaku_painter.dart';
 import 'package:canvas_danmaku/danmaku_controller.dart';
 import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:canvas_danmaku/models/danmaku_item.dart';
@@ -64,8 +65,8 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
   late final _random = Random();
 
   late final Ticker _ticker;
-  late final ValueNotifier<int> _notifier;
-  late int _lastTick = 0;
+  late final ValueNotifier<double> _notifier;
+  late double _lastTick = 0;
 
   /// 运行状态
   bool _running = true;
@@ -128,7 +129,11 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
 
   int _time = 0;
   void _tick(Duration elapsed) {
-    _notifier.value = elapsed.inMilliseconds + _lastTick;
+    // to the microsecond (see BaseDanmakuPainter.tick)
+    _notifier.value = (BaseDanmakuPainter.debugLegacyMotion
+            ? elapsed.inMilliseconds.toDouble()
+            : elapsed.inMicroseconds / 1000) +
+        _lastTick;
     if (_time++ > 10) {
       _time = 0;
       _lazyTick(_notifier.value);
@@ -445,7 +450,7 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
   }
 
   @pragma("vm:prefer-inline")
-  void _lazyTick(int tick) {
+  void _lazyTick(double tick) {
     // 移除屏幕外滚动弹幕
     for (var i in _scrollDanmakuItems) {
       i.removeWhereUnsafe((item) => item.needRemove(item.expired ||

@@ -21,7 +21,9 @@ final class SpecialDanmakuPainter extends BaseDanmakuPainter {
     super.batchThreshold,
   });
 
-  static final _paint = Paint();
+  // moved to a fraction of a pixel, as scrolling ones are (see
+  // BaseDanmakuPainter._paint)
+  static final _paint = Paint()..filterQuality = FilterQuality.low;
 
   void paintDanmaku(ui.Canvas canvas, ui.Size size, DanmakuItem item) {
     final elapsed = tick - (item.drawTick ??= tick);
@@ -35,7 +37,7 @@ final class SpecialDanmakuPainter extends BaseDanmakuPainter {
 
   @pragma("vm:prefer-inline")
   void _paintSpecialDanmaku(Canvas canvas, DanmakuItem dm,
-      SpecialDanmakuContentItem item, Size size, int elapsed) {
+      SpecialDanmakuContentItem item, Size size, double elapsed) {
     // 透明度动画
     final color = item.alphaTween == null
         ? item.color

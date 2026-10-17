@@ -17,7 +17,7 @@ class DanmakuItem<T> {
   double xPosition;
 
   /// 上次绘制时间
-  int? drawTick;
+  double? drawTick;
 
   /// 弹幕布局缓存
   ui.Image? image;

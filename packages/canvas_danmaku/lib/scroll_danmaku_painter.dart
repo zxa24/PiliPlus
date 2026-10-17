@@ -5,6 +5,16 @@ import 'package:canvas_danmaku/models/danmaku_item.dart';
 import 'package:material_ui/material_ui.dart';
 
 final class ScrollDanmakuPainter extends BaseDanmakuPainter {
+  /// Self-test: the x of one danmaku (the first to enter after this is set)
+  /// at each frame it is drawn, and the tick: x, tick, x, tick… (up to 600).
+  static List<double>? debugTrace;
+  static DanmakuItem? _traced;
+
+  static void traceAnew() {
+    _traced = null;
+    debugTrace = [];
+  }
+
   final double trackHeight;
   final List<List<DanmakuItem>> danmakuItems;
   final double durationInMilliseconds;
@@ -73,6 +83,8 @@ final class ScrollDanmakuPainter extends BaseDanmakuPainter {
       fontWeight,
       strokeWidth,
     );
+    // a danmaku drawn for the first time: the one to trace, from its entry
+    final fresh = item.drawTick == null;
     if (!item.suspend) {
       final startPosition = size.width;
       final endPosition = -item.width;
@@ -94,6 +106,14 @@ final class ScrollDanmakuPainter extends BaseDanmakuPainter {
       if (item.xPosition < endPosition || item.xPosition > startPosition) {
         item.expired = true;
         return;
+      }
+      if (debugTrace case final trace? when trace.length < 1200) {
+        if (_traced == null && fresh) _traced = item;
+        if (identical(_traced, item)) {
+          trace
+            ..add(item.xPosition)
+            ..add(tick);
+        }
       }
     }
 
