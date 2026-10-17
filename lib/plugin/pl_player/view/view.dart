@@ -75,7 +75,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart'
-    show RenderProxyBox, SemanticsConfiguration;
+    show RenderProxyBox, RenderRepaintBoundary, SemanticsConfiguration;
 import 'package:flutter/services.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
@@ -291,6 +291,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
           : 0.0,
     );
     videoController = plPlayerController.videoController!;
+    plPlayerController.captureVideo = _captureVideo;
 
     if (PlatformUtils.isMobile) {
       Future.microtask(() {
@@ -397,6 +398,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   @override
   void dispose() {
+    if (plPlayerController.captureVideo == _captureVideo) {
+      plPlayerController.captureVideo = null;
+    }
     removeObserverMobile(this);
     _danmakuListener?.cancel();
     _tapGestureRecognizer.dispose();
@@ -2079,33 +2083,65 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
           childKey: _videoKey,
           child: RepaintBoundary(
             key: _videoKey,
-            child: Obx(
-              () {
-                final videoFit = plPlayerController.videoFit.value;
-                return Transform.flip(
-                  flipX: plPlayerController.flipX.value,
-                  flipY: plPlayerController.flipY.value,
-                  child: FittedBox(
-                    fit: videoFit.boxFit,
-                    alignment: widget.alignment,
-                    child: SimpleVideo(
-                      // a new picture after a handover (see
-                      // PlPlayerController.videoControllerEpoch)
-                      key: ValueKey(
-                        plPlayerController.videoControllerEpoch.value,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Obx(
+                  () {
+                    final videoFit = plPlayerController.videoFit.value;
+                    return Transform.flip(
+                      flipX: plPlayerController.flipX.value,
+                      flipY: plPlayerController.flipY.value,
+                      child: FittedBox(
+                        fit: videoFit.boxFit,
+                        alignment: widget.alignment,
+                        child: SimpleVideo(
+                          // a new picture after a handover (see
+                          // PlPlayerController.videoControllerEpoch)
+                          key: ValueKey(
+                            plPlayerController.videoControllerEpoch.value,
+                          ),
+                          controller: plPlayerController.videoController!,
+                          fill: widget.fill,
+                          aspectRatio: videoFit.aspectRatio,
+                        ),
                       ),
-                      controller: plPlayerController.videoController!,
-                      fill: widget.fill,
-                      aspectRatio: videoFit.aspectRatio,
-                    ),
-                  ),
-                );
-              },
+                    );
+                  },
+                ),
+                // the area as it was last drawn while the same video opens
+                // again (see PlPlayerController.heldPicture): taken from
+                // this boundary, so already fitted and flipped
+                Obx(() {
+                  final held = plPlayerController.heldPicture.value;
+                  if (held == null) return const SizedBox.shrink();
+                  return RawImage(
+                    image: held.image,
+                    fit: BoxFit.fill,
+                    filterQuality: FilterQuality.low,
+                  );
+                }),
+              ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// The video's area as drawn now (see PlPlayerController.captureVideo).
+  Future<ui.Image?> _captureVideo() async {
+    if (!mounted) return null;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final boundary = _videoKey.currentContext?.findRenderObject();
+    if (boundary is! RenderRepaintBoundary || !boundary.attached) return null;
+    // a boundary waiting to be painted cannot be read (asserted in a debug
+    // build; a release one reads what it last painted, and has no flag)
+    if (kDebugMode && boundary.debugNeedsPaint) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!boundary.attached || !boundary.hasSize) return null;
+    return boundary.toImage(pixelRatio: dpr);
   }
 
   Future<void> _screenshotWebp() async {

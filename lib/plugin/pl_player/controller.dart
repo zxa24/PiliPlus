@@ -713,6 +713,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // the same one keeps it). Without ids (YouTube) the page sets it again
       // on every open.
       if (cid == null || cid != this.cid || bvid != _bvid) _subtitle = null;
+      // the same video opened again (another host, quality, a retry): its
+      // last picture stays up until the new streams show theirs
+      final sameVideo =
+          (cid != null || bvid != null) && cid == this.cid && bvid == _bvid;
+      if (!sameVideo) _dropPicture();
+      _holdOnOpen = sameVideo;
       // `vid` is an option as well: left off, the new file has no picture
       _videoBack('a new source');
       this.isLive = isLive;
@@ -1077,6 +1083,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // media_kit's open() emits position 0 before anything loads: not where
     // the viewer is (the page took it as the place to resume from, and a
     // local file left during the load saved 0 as its progress)
+    if (_holdOnOpen) await _holdPicture(player);
     _reopening = true;
     _openStartedAt = DateTime.now();
     try {
@@ -1094,6 +1101,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (fd != null) await LocalDocuments.closeFd(fd);
       rethrow;
     }
+    _releasePictureWhenShown(player);
     _watchLoad(player);
   }
 
@@ -1107,12 +1115,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       EventLog.add('player', 'reopen at $resumePosition');
       if (!isLive) media = media.copyWith(start: resumePosition);
       _resumeAt = null;
-      _reopening = true;
-      _openStartedAt = DateTime.now();
-      return ctr
-          .open(media, play: true)
-          .then((_) => _watchLoad(ctr))
-          .catchError((Object _) => _reopening = false);
+      return _holdPicture(ctr).then((_) {
+        _reopening = true;
+        _openStartedAt = DateTime.now();
+        return ctr
+            .open(media, play: true)
+            .then((_) {
+              _releasePictureWhenShown(ctr);
+              _watchLoad(ctr);
+            })
+            .catchError((Object _) {
+              _reopening = false;
+            });
+      });
     }
     return null;
   }
@@ -1599,6 +1614,145 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// When mpv last said a seek in the stream failed (see [_recoverTransport]).
   DateTime? _seekFailedAt;
+
+  /// The last picture of the video, shown over it while the same video
+  /// opens again — another host, another quality, a retry — or a handover
+  /// moves the picture to a second player, until a frame of the new streams
+  /// is up; null otherwise. Opening, the player has no size for a moment and
+  /// shows nothing, and the page was black there, paused or playing (user
+  /// 2026-10-17: 「只要之前有画面就要显示不出现任何黑屏」).
+  final heldPicture = Rx<HeldPicture?>(null);
+
+  /// Whether the source being set up is the video already shown.
+  var _holdOnOpen = false;
+
+  /// Self-test (`--no-hold`): no picture held, the control for the probe.
+  static bool debugNoHeldPicture = false;
+
+  /// Self-test (`--switch-at N:handover`): the streams of a faster host or
+  /// a lower quality put in place, as for a buffer that does not keep up.
+  Future<void> debugReplaceSlow() async {
+    if (onStreamSlow case final slow?) {
+      await _replaceStreams(slow, why: 'slow (self-test)', reopen: false);
+    }
+  }
+
+  /// The video's area as the page draws it, set by the player's view:
+  /// what [heldPicture] takes. Not mpv's screenshot: with the decoder in
+  /// hardware (d3d11va) it gave no frame at all (2026-10-17).
+  Future<ui.Image?> Function()? captureVideo;
+
+  Timer? _pictureWatch;
+
+  /// Takes the frame [player] shows into [heldPicture]; nothing when it
+  /// shows none (a picture held from before stays: an open that has not
+  /// shown one yet, opened again).
+  Future<void> _holdPicture(Player player) async {
+    if (debugNoHeldPicture || player.disposed || onlyPlayAudio.value) return;
+    final rect = _videoController?.rect.value;
+    final capture = captureVideo;
+    if (capture == null ||
+        player.state.width <= 0 ||
+        player.state.height <= 0 ||
+        rect == null ||
+        rect.width <= 1 ||
+        rect.height <= 1) {
+      return;
+    }
+    _pictureWatch?.cancel();
+    _pictureWatch = null;
+    try {
+      final clock = Stopwatch()..start();
+      final image = await capture();
+      if (image == null) {
+        EventLog.add('player', 'picture not held: nothing drawn');
+        return;
+      }
+      EventLog.add(
+        'player',
+        'picture held: ${image.width}x${image.height} in '
+            '${clock.elapsedMilliseconds} ms',
+      );
+      heldPicture.value?.image.dispose();
+      heldPicture.value = HeldPicture(image);
+    } catch (e) {
+      EventLog.add('player', 'picture not held: $e');
+    }
+  }
+
+  /// Lets [heldPicture] go once [player] shows a frame of what it opened:
+  /// it has a size again and mpv says which frame is up. [opened]: the
+  /// frame info of the file before can still read for a moment, so a gap
+  /// in it is waited for first (or 2 s of it reading).
+  void _releasePictureWhenShown(Player player, {bool opened = true}) {
+    _pictureWatch?.cancel();
+    _pictureWatch = null;
+    if (heldPicture.value == null) return;
+    final started = DateTime.now();
+    var gap = !opened;
+    DateTime? shownAt;
+    _pictureWatch = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      // sound only: no frame will come
+      if (onlyPlayAudio.value) {
+        timer.cancel();
+        _dropPicture();
+        return;
+      }
+      if (!identical(player, _videoPlayerController) || player.disposed) {
+        timer.cancel();
+        if (identical(_pictureWatch, timer)) _pictureWatch = null;
+        return;
+      }
+      final rect = _videoController?.rect.value;
+      bool frame;
+      try {
+        frame = player.getProperty('video-frame-info/picture-type').isNotEmpty;
+      } catch (_) {
+        frame = false;
+      }
+      final shown =
+          frame &&
+          player.state.width > 0 &&
+          player.state.height > 0 &&
+          rect != null &&
+          rect.width > 1;
+      if (!shown) {
+        gap = true;
+        shownAt = null;
+        return;
+      }
+      if (!gap &&
+          DateTime.now().difference(started) < const Duration(seconds: 2)) {
+        return;
+      }
+      // a frame or two more: the texture takes the frame mpv says is up
+      shownAt ??= DateTime.now();
+      if (DateTime.now().difference(shownAt!) <
+          const Duration(milliseconds: 100)) {
+        return;
+      }
+      timer.cancel();
+      _pictureWatch = null;
+      EventLog.add(
+        'player',
+        'picture let go after '
+            '${DateTime.now().difference(started).inMilliseconds} ms',
+      );
+      _dropPicture();
+    });
+  }
+
+  void _dropPicture() {
+    _pictureWatch?.cancel();
+    _pictureWatch = null;
+    final held = heldPicture.value;
+    if (held == null) return;
+    heldPicture.value = null;
+    // drawn this frame still: disposed after it
+    SchedulerBinding.instance.addPostFrameCallback(
+      (_) => held.image.dispose(),
+    );
+  }
 
   /// When mpv last gave up on a read (`lavf: … treating it as fatal error`).
   DateTime? _fatalReadAt;
@@ -2226,6 +2380,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // new player came up playing and the video played on, 16 ms after the
     // viewer paused (self test, 2026-10-17)
     if (play && _pausedAt == null) await next.play();
+    // the old player's picture over the moment the new one's takes its place
+    await _holdPicture(old);
     // nothing of the old player stopping is heard as the viewer pausing
     _removeListeners();
     old.setProperty('mute', 'yes');
@@ -2239,6 +2395,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _health.clear();
     _healthRest = max(_healthRest, _afterSeekRest);
     videoControllerEpoch.value++;
+    // its frames are coming already: no gap to wait out
+    _releasePictureWhenShown(next, opened: false);
     // the picture moves over on the next frame; the old one goes after it
     Future.delayed(const Duration(seconds: 1), old.dispose);
   }
@@ -3975,6 +4133,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _recoveryCheck = null;
     _failureCheck?.cancel();
     _failureCheck = null;
+    _dropPicture();
     _stopWaitingForNetwork();
     if (removeSafeArea) {
       showSystemBar();
@@ -4162,4 +4321,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     Get.back();
   }
+}
+
+/// The video's area as it was last drawn (see
+/// [PlPlayerController.heldPicture]): fitted, flipped, what the viewer saw.
+class HeldPicture {
+  HeldPicture(this.image);
+
+  final ui.Image image;
 }

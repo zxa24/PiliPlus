@@ -138,7 +138,7 @@ import 'package:flutter/services.dart'
         LogicalKeyboardKey,
         PhysicalKeyboardKey,
         ServicesBinding;
-import 'package:flutter/rendering.dart' show OffsetLayer;
+import 'package:flutter/rendering.dart' show OffsetLayer, TextureBox;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart'
     show SmartDialog;
@@ -1093,6 +1093,14 @@ abstract final class SelfTest {
       _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
       _playAt = int.tryParse(_arg(args, '--play-at') ?? '');
       _pauseAt = int.tryParse(_arg(args, '--pause-at') ?? '');
+      PlPlayerController.debugNoHeldPicture = args.contains('--no-hold');
+      _shots = _arg(args, '--shots') ?? _shots;
+      _switches = [
+        for (final s in (_arg(args, '--switch-at') ?? '').split(','))
+          if (s.split(':') case [final at, final kind]
+              when int.tryParse(at) != null)
+            (int.parse(at), kind),
+      ];
       VideoDetailController.debugTriedHosts = {
         ...?_arg(args, '--tried-hosts')?.split(','),
       };
@@ -5684,6 +5692,143 @@ abstract final class SelfTest {
   static int? _playAt;
   static int? _pauseAt;
 
+  /// `--switch-at 8:reopen,16:cdn,24:quality,32:pause+cdn`: at each second,
+  /// the same video opened again — a retry, the next host, another quality,
+  /// paused first with `pause+` — with the video's area looked at every few
+  /// frames for the 9 s after it: the share of it that is black (user
+  /// 2026-10-17: 「只要之前有画面就要显示不出现任何黑屏」).
+  static List<(int, String)> _switches = const [];
+  static final _blackProbe = <String, Object?>{};
+
+  /// Where the video's texture was last seen, physical pixels: while a
+  /// source opens there is none to find.
+  static Rect? _videoRect;
+
+  static Rect? _findVideo() {
+    final root = WidgetsBinding.instance.renderViews.first;
+    TextureBox? found;
+    void visit(RenderObject o) {
+      if (found != null) return;
+      if (o is TextureBox) {
+        found = o;
+        return;
+      }
+      o.visitChildren(visit);
+    }
+
+    visit(root);
+    final box = found;
+    if (box == null || !box.hasSize || !box.attached) return null;
+    final dpr = root.flutterView.devicePixelRatio;
+    // through the FittedBox's scale: the box's own size is the video's
+    final shown = MatrixUtils.transformRect(
+      box.getTransformTo(null),
+      Offset.zero & box.size,
+    );
+    final rect = Rect.fromLTRB(
+      shown.left * dpr,
+      shown.top * dpr,
+      shown.right * dpr,
+      shown.bottom * dpr,
+    );
+    return rect.intersect(Offset.zero & root.flutterView.physicalSize);
+  }
+
+  /// The share of the video's area drawn black now (a grid of 32×18).
+  static Future<double?> _blackShare() async {
+    final rect = _findVideo() ?? _videoRect;
+    if (rect == null || rect.isEmpty) return null;
+    _videoRect = rect;
+    final view = WidgetsBinding.instance.renderViews.first;
+    final layer = view.debugLayer! as OffsetLayer;
+    final image = await layer.toImage(
+      Offset.zero & view.flutterView.physicalSize,
+    );
+    try {
+      final data = (await image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      ))!;
+      final inner = rect.deflate(rect.shortestSide * 0.05);
+      var dark = 0, all = 0;
+      for (var i = 0; i < 32; i++) {
+        for (var j = 0; j < 18; j++) {
+          final x = (inner.left + inner.width * (i + 0.5) / 32).floor();
+          final y = (inner.top + inner.height * (j + 0.5) / 18).floor();
+          if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
+            continue;
+          }
+          final o = (y * image.width + x) * 4;
+          final sum =
+              data.getUint8(o) + data.getUint8(o + 1) + data.getUint8(o + 2);
+          all++;
+          if (sum < 12) dark++;
+        }
+      }
+      return all == 0 ? null : dark / all;
+    } finally {
+      image.dispose();
+    }
+  }
+
+  /// One `--switch-at` switch on [page], watched.
+  static Future<void> _switchWatched(
+    VideoDetailController page,
+    int at,
+    String kind,
+  ) async {
+    final player = page.plPlayerController;
+    final clock = Stopwatch()..start();
+    await _shot('switch_${at}_before');
+    final before = await _blackShare();
+    if (kind.startsWith('pause+')) {
+      await player.pause();
+      await Future.delayed(const Duration(seconds: 2));
+    }
+    final what = kind.replaceFirst('pause+', '');
+    EventLog.add('selftest', 'switch $kind (black before: $before)');
+    final started = clock.elapsedMilliseconds;
+    switch (what) {
+      case 'reopen':
+        unawaited(player.refreshPlayer());
+      case 'cdn':
+        page.switchToNextCdn();
+      case 'handover':
+        unawaited(player.debugReplaceSlow());
+      case 'quality':
+        final all = page.data.dash!.video!.availableVideoQualities.toList()
+          ..sort();
+        final now = page.currentVideoQa.value?.code;
+        final lower = all.where((q) => now != null && q < now).toList();
+        final to = lower.isNotEmpty
+            ? lower.last
+            : all.firstWhere((q) => q != now, orElse: () => all.first);
+        page
+          ..currentVideoQa.value = VideoQuality.fromCode(to)
+          ..updatePlayer();
+    }
+    final samples = <String>[];
+    var worst = 0.0;
+    var heldShot = false;
+    while (clock.elapsedMilliseconds - started < 9000) {
+      // with `--shots`: the held picture, to lay over the one before
+      if (!heldShot && player.heldPicture.value != null) {
+        heldShot = true;
+        await _shot('switch_${at}_held');
+      }
+      final share = await _blackShare();
+      final t = clock.elapsedMilliseconds - started;
+      final held = player.heldPicture.value != null;
+      samples.add('$t:${share?.toStringAsFixed(2)}${held ? 'H' : ''}');
+      if (share != null && share > worst) worst = share;
+      await Future.delayed(const Duration(milliseconds: 30));
+    }
+    _blackProbe['$at:$kind'] = {
+      'blackBefore': before,
+      'worstBlack': worst,
+      'samples': samples,
+    };
+  }
+
   static Future<Map<String, dynamic>> _openBili(
     String url,
     int holdSeconds, {
@@ -5786,6 +5931,13 @@ abstract final class SelfTest {
         await Future.delayed(Duration(seconds: at));
         EventLog.add('selftest', 'pause pressed');
         await player.pause();
+      }());
+    }
+    for (final (at, kind) in _switches) {
+      final page = controller;
+      unawaited(() async {
+        await Future.delayed(Duration(seconds: at));
+        await _switchWatched(page, at, kind);
       }());
     }
     // `--play-at 32`: play pressed, as a viewer presses it (after a sleep
@@ -6009,6 +6161,7 @@ abstract final class SelfTest {
         'audioUrlFull': controller.audioUrl,
       },
       'seekLog': seekLog,
+      'switchProbe': _blackProbe,
       'stateTimeline': states,
       'videoFile': Uri.tryParse(controller.videoUrl ?? '')?.pathSegments.last,
       'buffer': buffer,
