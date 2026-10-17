@@ -857,16 +857,8 @@ abstract final class SelfTest {
           text: _arg(args, '--sub-text')?.replaceAll(r'\n', '\n'),
           scale: double.tryParse(_arg(args, '--sub-scale') ?? ''),
           tracking: [
-            for (final v in (_arg(args, '--cjk-tracking') ?? '').split(','))
-              if (double.tryParse(v.split('@').first.split('*').first)
-                  case final t?)
-                (
-                  t,
-                  int.tryParse(
-                    (v.split('@').skip(1).firstOrNull ?? '').split('*').first,
-                  ),
-                  double.tryParse(v.split('*').skip(1).firstOrNull ?? ''),
-                ),
+            for (final s in (_arg(args, '--cjk-tracking') ?? '').split(','))
+              if (_subVariant(s) case final v?) v,
           ],
         ),
       );
@@ -9040,16 +9032,36 @@ abstract final class SelfTest {
   /// `--sub-autospace FILE --shots DIR`: a line of Chinese mixed with
   /// Latin letters and digits shown as a subtitle over FILE, with 中英文间距
   /// on (`autospace_on.png`) and off (`autospace_off.png`); with
-  /// `--cjk-tracking 0,0.05,0.08@300*1.05…`, on with each spacing between
-  /// CJK characters, at a font weight after `@`, Latin letters and digits
-  /// scaled by what follows `*` (`tracking_<v>[_w<weight>][_x<scale>].png`).
+  /// `--cjk-tracking 0,0.05,0.08@300*1.05^0.07~2…`, on with each spacing
+  /// between CJK characters, at a font weight after `@`, Latin letters and
+  /// digits scaled by what follows `*`, lowered by what follows `^` em, and
+  /// drawn at what follows `~` times the resolution and scaled down (`~4l`:
+  /// in one step, not halved a step at a time)
+  /// (`tracking_<v>[_w<weight>][_x<scale>][_d<drop>][_s<k>].png`).
   /// `--sub-text T` shows T instead (`\n` for a new line), `--sub-scale S`
   /// at S times the font size (the subtitle setting's scale).
+  /// One `--cjk-tracking` variant: `v[@weight][*scale][^drop][~k[l]]`.
+  static (double, int?, double?, double?, String?)? _subVariant(String s) {
+    final ss = s.split('~').skip(1).firstOrNull;
+    final rest = s.split('~').first;
+    final drop = double.tryParse(rest.split('^').skip(1).firstOrNull ?? '');
+    final v = rest.split('^').first;
+    final t = double.tryParse(v.split('@').first.split('*').first);
+    if (t == null) return null;
+    return (
+      t,
+      int.tryParse((v.split('@').skip(1).firstOrNull ?? '').split('*').first),
+      double.tryParse(v.split('*').skip(1).firstOrNull ?? ''),
+      drop,
+      ss,
+    );
+  }
+
   static Future<Map<String, dynamic>> _subAutospace(
     String target, {
     String? text,
     double? scale,
-    List<(double, int?, double?)> tracking = const [],
+    List<(double, int?, double?, double?, String?)> tracking = const [],
   }) async {
     const heroTag = 'selftest_autospace';
     final dir = _shots;
@@ -9088,9 +9100,17 @@ abstract final class SelfTest {
     final kept = SpacedSubtitleView.tracking;
     final weight = player.subtitleFontWeight;
     final latinWas = SpacedSubtitleView.latinScale;
-    for (final (v, w, k) in tracking) {
+    final dropWas = SpacedSubtitleView.latinDrop;
+    final superWas = SpacedSubtitleView.supersample;
+    final cascadeWas = SpacedSubtitleView.supersampleCascade;
+    for (final (v, w, k, d, ss) in tracking) {
       SpacedSubtitleView.tracking = v;
       SpacedSubtitleView.latinScale = k ?? latinWas;
+      SpacedSubtitleView.latinDrop = d ?? dropWas;
+      SpacedSubtitleView.supersample =
+          double.tryParse(ss?.replaceAll('l', '') ?? '') ?? superWas;
+      // `l`: scaled down in one step, not halved a step at a time
+      SpacedSubtitleView.supersampleCascade = !(ss?.endsWith('l') ?? false);
       player
         ..subtitleFontWeight = w == null ? weight : w ~/ 100 - 1
         ..updateSubtitleStyle();
@@ -9101,12 +9121,17 @@ abstract final class SelfTest {
         '$v',
         if (w != null) 'w$w',
         if (k != null) 'x$k',
+        if (d != null) 'd$d',
+        if (ss != null) 's$ss',
       ].join('_');
       tracked[name] = await _shot('tracking_$name');
       player.subtitleAutospace.value = false;
     }
     SpacedSubtitleView.tracking = kept;
     SpacedSubtitleView.latinScale = latinWas;
+    SpacedSubtitleView.latinDrop = dropWas;
+    SpacedSubtitleView.supersample = superWas;
+    SpacedSubtitleView.supersampleCascade = cascadeWas;
     player
       ..subtitleFontScale = scaleWas
       ..subtitleFontWeight = weight
