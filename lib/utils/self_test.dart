@@ -854,10 +854,19 @@ abstract final class SelfTest {
         'subAutospace',
         () => _subAutospace(
           target,
+          text: _arg(args, '--sub-text')?.replaceAll(r'\n', '\n'),
+          scale: double.tryParse(_arg(args, '--sub-scale') ?? ''),
           tracking: [
             for (final v in (_arg(args, '--cjk-tracking') ?? '').split(','))
-              if (double.tryParse(v.split('@').first) case final t?)
-                (t, int.tryParse(v.split('@').skip(1).firstOrNull ?? '')),
+              if (double.tryParse(v.split('@').first.split('*').first)
+                  case final t?)
+                (
+                  t,
+                  int.tryParse(
+                    (v.split('@').skip(1).firstOrNull ?? '').split('*').first,
+                  ),
+                  double.tryParse(v.split('*').skip(1).firstOrNull ?? ''),
+                ),
           ],
         ),
       );
@@ -9031,11 +9040,16 @@ abstract final class SelfTest {
   /// `--sub-autospace FILE --shots DIR`: a line of Chinese mixed with
   /// Latin letters and digits shown as a subtitle over FILE, with 中英文间距
   /// on (`autospace_on.png`) and off (`autospace_off.png`); with
-  /// `--cjk-tracking 0,0.05,0.08@300…`, on with each spacing between CJK
-  /// characters, at a font weight after `@` (`tracking_<v>[_w<weight>].png`).
+  /// `--cjk-tracking 0,0.05,0.08@300*1.05…`, on with each spacing between
+  /// CJK characters, at a font weight after `@`, Latin letters and digits
+  /// scaled by what follows `*` (`tracking_<v>[_w<weight>][_x<scale>].png`).
+  /// `--sub-text T` shows T instead (`\n` for a new line), `--sub-scale S`
+  /// at S times the font size (the subtitle setting's scale).
   static Future<Map<String, dynamic>> _subAutospace(
     String target, {
-    List<(double, int?)> tracking = const [],
+    String? text,
+    double? scale,
+    List<(double, int?, double?)> tracking = const [],
   }) async {
     const heroTag = 'selftest_autospace';
     final dir = _shots;
@@ -9051,10 +9065,16 @@ abstract final class SelfTest {
       ..createSync(recursive: true)
       ..writeAsStringSync(
         '1\n00:00:00,000 --> 00:10:00,000\n'
-        '我用iPhone 15拍了3张4K照片，用Python写了script\n'
-        'これはTestです，第2集去Café，α粒子\n'
-        '今天天气很好，我们一起去公园散步吧。\n\n',
+        '${text ?? '我用iPhone 15拍了3张4K照片，用Python写了script\n'
+                'これはTestです，第2集去Café，α粒子\n'
+                '今天天气很好，我们一起去公园散步吧。'}\n\n',
       );
+    final scaleWas = player.subtitleFontScale;
+    if (scale != null) {
+      player
+        ..subtitleFontScale = scale
+        ..updateSubtitleStyle();
+    }
     await player.setSubtitle(SubtitleTrack.uri(srt.path, title: 'autospace'));
     await Future.delayed(const Duration(seconds: 2));
     final was = player.subtitleAutospace.value;
@@ -9067,20 +9087,28 @@ abstract final class SelfTest {
     final tracked = <String, String?>{};
     final kept = SpacedSubtitleView.tracking;
     final weight = player.subtitleFontWeight;
-    for (final (v, w) in tracking) {
+    final latinWas = SpacedSubtitleView.latinScale;
+    for (final (v, w, k) in tracking) {
       SpacedSubtitleView.tracking = v;
+      SpacedSubtitleView.latinScale = k ?? latinWas;
       player
         ..subtitleFontWeight = w == null ? weight : w ~/ 100 - 1
         ..updateSubtitleStyle();
       // a redraw: the switch is what the view listens to
       player.subtitleAutospace.value = true;
       await Future.delayed(const Duration(milliseconds: 400));
-      final name = w == null ? '$v' : '${v}_w$w';
+      final name = [
+        '$v',
+        if (w != null) 'w$w',
+        if (k != null) 'x$k',
+      ].join('_');
       tracked[name] = await _shot('tracking_$name');
       player.subtitleAutospace.value = false;
     }
     SpacedSubtitleView.tracking = kept;
+    SpacedSubtitleView.latinScale = latinWas;
     player
+      ..subtitleFontScale = scaleWas
       ..subtitleFontWeight = weight
       ..updateSubtitleStyle();
     player.subtitleAutospace.value = was;
@@ -9088,7 +9116,10 @@ abstract final class SelfTest {
     Get.back();
     await Future.delayed(const Duration(seconds: 1));
     return {
-      'pass': on != null && off != null && (shown?.contains('iPhone') ?? false),
+      'pass':
+          on != null &&
+          off != null &&
+          (shown?.contains(text?.split('\n').first ?? 'iPhone') ?? false),
       'shown': shown,
       'on': on,
       'off': off,

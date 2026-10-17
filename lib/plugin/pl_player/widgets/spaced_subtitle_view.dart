@@ -24,9 +24,13 @@ class SpacedSubtitleView extends SubtitleView {
 
   final bool autospace;
 
-  /// Between two CJK characters, in em (user 2026-10-17: 「cjk之间的调宽」).
-  /// Self tests try others.
-  static double tracking = 0.05;
+  /// Between two CJK characters, in em (user 2026-10-17: 「cjk之间的调宽」,
+  /// 0.08 picked from screenshots of 0.05 and 0.08). Self tests try others.
+  static double tracking = 0.08;
+
+  /// Latin letters and digits on a line with CJK, times the size. Self
+  /// tests try others.
+  static double latinScale = 1;
 
   @override
   SubtitleViewState createState() => _SpacedSubtitleViewState();
@@ -45,6 +49,7 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
         style,
         autospace: autospace,
         tracking: SpacedSubtitleView.tracking,
+        latinScale: SpacedSubtitleView.latinScale,
       ),
       style: style,
       textAlign: config.textAlign,

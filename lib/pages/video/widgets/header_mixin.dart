@@ -199,7 +199,7 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text('字体粗细 ${subtitleFontWeight + 1}（可能无法精确调节）'),
-                        resetBtn(theme, 6, () => updateFontWeight(5)),
+                        resetBtn(theme, 4, () => updateFontWeight(3)),
                       ],
                     ),
                     Padding(

@@ -117,6 +117,29 @@ void main() {
       expect(pieces, [('中', 0.5 + 2), ('文', 0.5 + 2.5), ('A', null)]);
     });
 
+    test('latinScale: letters and digits on a line with CJK, not spaces '
+        'or a line of English', () {
+      final s = CjkAutospace.span(
+        '中 Ab 1',
+        style,
+        autospace: false,
+        latinScale: 1.1,
+      );
+      final pieces = [
+        for (final c in s.children!.cast<TextSpan>())
+          (c.text, c.style?.fontSize?.toStringAsFixed(3)),
+      ];
+      expect(pieces, [
+        ('中 ', null),
+        ('Ab', '22.000'),
+        (' ', null),
+        ('1', '22.000'),
+      ]);
+      final english = CjkAutospace.span('Ab 1', style, latinScale: 1.1);
+      expect(english.children, isNull);
+      expect(english.text, 'Ab 1');
+    });
+
     test('the text is kept as it was', () {
       final s = CjkAutospace.span('用iPhone拍', style);
       expect(s.toPlainText(), '用iPhone拍');

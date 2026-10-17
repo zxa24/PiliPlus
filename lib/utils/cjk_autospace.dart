@@ -76,38 +76,27 @@ abstract final class CjkAutospace {
   }
 
   /// [text] in [style]: [em] between CJK and Latin letters or digits when
-  /// [autospace], [tracking] em between two CJK characters. Characters with
-  /// the same spacing after them are one span.
+  /// [autospace], [tracking] em between two CJK characters, and Latin
+  /// letters and digits at [latinScale] times the size — on a line with CJK
+  /// in it only: a line of English keeps the size it was set to. Characters
+  /// alike in all that are one span.
   static TextSpan span(
     String text,
     TextStyle style, {
     bool autospace = true,
     double tracking = 0,
+    double latinScale = 1,
   }) {
     final size = style.fontSize ?? 14;
     final base = style.letterSpacing ?? 0;
-    final children = <TextSpan>[];
-    var runStart = 0;
-    var runExtra = 0.0;
-    void close(int end) {
-      if (end <= runStart) return;
-      final piece = text.substring(runStart, end);
-      children.add(
-        runExtra == 0
-            ? TextSpan(text: piece)
-            : TextSpan(
-                text: piece,
-                style: TextStyle(letterSpacing: base + runExtra * size),
-              ),
-      );
-    }
-
-    // the spacing after each character hangs on the one after it
-    var prev = -1;
-    var prevStart = 0;
+    final scaling = latinScale != 1 && text.runes.any(ideograph);
+    // per character: the spacing after it (em) and whether it is scaled
+    final chars = <(int, int, double, bool)>[];
     var i = 0;
+    int? prev;
     for (final c in text.runes) {
-      if (prev >= 0) {
+      final width = c > 0xFFFF ? 2 : 1;
+      if (prev != null) {
         final extra =
             autospace &&
                 ((ideograph(prev) && alphanumeric(c)) ||
@@ -116,24 +105,37 @@ abstract final class CjkAutospace {
             : wide(prev) && wide(c)
             ? tracking
             : 0.0;
-        if (extra != runExtra) {
-          close(prevStart);
-          runStart = prevStart;
-          runExtra = extra;
-        }
+        final (s0, e0, _, k0) = chars.last;
+        chars.last = (s0, e0, extra, k0);
       }
+      chars.add((i, i + width, 0.0, scaling && alphanumeric(c)));
       prev = c;
-      prevStart = i;
-      i += c > 0xFFFF ? 2 : 1;
+      i += width;
     }
-    // the last character: nothing after it
-    if (runExtra != 0) {
-      close(prevStart);
-      runStart = prevStart;
-      runExtra = 0;
+    final children = <TextSpan>[];
+    var run = 0;
+    for (var k = 1; k <= chars.length; k++) {
+      if (k < chars.length &&
+          chars[k].$3 == chars[run].$3 &&
+          chars[k].$4 == chars[run].$4) {
+        continue;
+      }
+      final (from, _, extra, scaled) = chars[run];
+      final piece = text.substring(from, chars[k - 1].$2);
+      children.add(
+        extra == 0 && !scaled
+            ? TextSpan(text: piece)
+            : TextSpan(
+                text: piece,
+                style: TextStyle(
+                  fontSize: scaled ? size * latinScale : null,
+                  letterSpacing: extra == 0 ? null : base + extra * size,
+                ),
+              ),
+      );
+      run = k;
     }
-    close(text.length);
-    if (children.length == 1 && children.single.style == null) {
+    if (children.length <= 1 && (children.firstOrNull?.style == null)) {
       return TextSpan(text: text, style: style);
     }
     return TextSpan(style: style, children: children);

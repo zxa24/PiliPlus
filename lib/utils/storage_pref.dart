@@ -613,7 +613,9 @@ abstract final class Pref {
       _setting.get(SettingBoxKey.subtitleStrokeWidth, defaultValue: 2.0);
 
   static int get subtitleFontWeight =>
-      _setting.get(SettingBoxKey.subtitleFontWeight, defaultValue: 5);
+      // LibrePili: w400 (user 2026-10-17, with 0.08 em between CJK
+      // characters); was w600
+      _setting.get(SettingBoxKey.subtitleFontWeight, defaultValue: 3);
 
   static bool get cjkAutospace =>
       _setting.get(SettingBoxKey.cjkAutospace, defaultValue: true);
