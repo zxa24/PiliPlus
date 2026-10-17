@@ -883,6 +883,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     assert(_videoController == null);
     if (Pref.parallelFetch && !debugNoParallel && !_parallel.running) {
       ParallelFetch.log ??= (line) => EventLog.add('fetch', line);
+      ParallelFetch.onRefused ??= (uri, status) =>
+          _instance?.onHostRefused?.call(uri.host, status);
       try {
         await _parallel.start();
       } catch (e) {
@@ -1115,11 +1117,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       EventLog.add('player', 'reopen at $resumePosition');
       if (!isLive) media = media.copyWith(start: resumePosition);
       _resumeAt = null;
+      // as it was: paused, a retry opens paused (it played on by itself,
+      // 2026-10-17 self-test)
+      final play = !playerStatus.isPaused;
       return _holdPicture(ctr).then((_) {
         _reopening = true;
         _openStartedAt = DateTime.now();
         return ctr
-            .open(media, play: true)
+            .open(media, play: play)
             .then((_) {
               _releasePictureWhenShown(ctr);
               _watchLoad(ctr);
@@ -2081,6 +2086,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// [cutAt], each checked to serve past it; null for one that is fine.
   /// Null when there is nothing to put in place.
   Future<({String? video, String? audio})?> Function(int cutAt)? onStreamCut;
+
+  /// Told when a host answers a stream with an HTTP error (see
+  /// [ParallelFetch.onRefused]): the page keeps track of its hosts.
+  void Function(String host, int status)? onHostRefused;
 
   /// Reopens the page's current streams where playback is: a replacement
   /// no second player could take over (see [_replaceStreams]), the network

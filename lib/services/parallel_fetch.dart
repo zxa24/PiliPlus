@@ -68,6 +68,10 @@ class ParallelFetch {
   /// player): this file stays free of the app.
   static void Function(String line)? log;
 
+  /// Told of each answer that was an HTTP error, with the stream's own
+  /// address (not the self-test's proxy) and the status.
+  static void Function(Uri upstream, int status)? onRefused;
+
   HttpServer? _server;
   final _client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 10)
@@ -452,6 +456,7 @@ class ParallelFetch {
       if (status != HttpStatus.partialContent && status != HttpStatus.ok) {
         await response.drain<void>().catchError((_) {});
         chunk.lastError = _Failure(status, 'HTTP $status');
+        onRefused?.call(remote.uri, status);
         return status;
       }
       if (status == HttpStatus.partialContent) {

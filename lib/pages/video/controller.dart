@@ -607,6 +607,7 @@ class VideoDetailController extends GetxController
     plPlayerController
       ..onCdnFailover = switchToNextCdn
       ..onStreamCut = replaceCutStreams
+      ..onHostRefused = _hostRefused
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
       ..onStepUpDropped = _dropStepUp
@@ -1031,6 +1032,30 @@ class VideoDetailController extends GetxController
     }
     if (newAudio != null) audioUrl = newAudio;
     return (video: newVideo, audio: newAudio);
+  }
+
+  /// A host of this part answered one of its streams with a server error
+  /// (5xx): its copy is broken, and nothing goes back to it for the part.
+  /// akamai answered 502 at the byte a cut copy ended at; the streams had
+  /// meanwhile been handed to cosov, so the cut was looked for there (whole)
+  /// and akamai was never marked — and a failover from cosov later went
+  /// straight back to it (2026-10-17 self-test). Not 403: that is a URL
+  /// gone stale on every host, which a renewal answers.
+  void _hostRefused(String host, int status) {
+    if (status < 500 || isFileSource) return;
+    final ours = {
+      for (final url in [
+        ...firstVideo.playUrls,
+        ...?_currentAudio?.playUrls,
+      ])
+        _hostOf(url),
+    };
+    if (!ours.contains(host) || !_cutHosts.add(host)) return;
+    _triedHosts.add(host);
+    EventLog.add(
+      'player',
+      '$host answered $status: not gone back to for this part',
+    );
   }
 
   /// Hosts given up on for this part.
@@ -1605,7 +1630,10 @@ class VideoDetailController extends GetxController
   void updatePlayer() {
     final currentVideoQa = this.currentVideoQa.value;
     if (currentVideoQa == null) return;
-    _autoPlay.value = true;
+    // as it was: a paused video stays paused at the new quality (it played
+    // on by itself, 2026-10-17 self-test)
+    final play = !plPlayerController.playerStatus.isPaused;
+    if (play) _autoPlay.value = true;
     // not mpv's own position: it reads 0 while a source is opening
     playedTime = plPlayerController.resumePosition;
     plPlayerController
@@ -1625,7 +1653,7 @@ class VideoDetailController extends GetxController
       audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
     }
 
-    playerInit();
+    playerInit(autoplay: play);
   }
 
   Future<void>? _initPlayerIfNeeded(bool autoFullScreenFlag) {
@@ -1674,6 +1702,7 @@ class VideoDetailController extends GetxController
     plPlayerController
       ..onCdnFailover = switchToNextCdn
       ..onStreamCut = replaceCutStreams
+      ..onHostRefused = _hostRefused
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
       ..onStepUpDropped = _dropStepUp
@@ -3752,6 +3781,9 @@ class VideoDetailController extends GetxController
     }
     if (plPlayerController.onStreamCut == replaceCutStreams) {
       plPlayerController.onStreamCut = null;
+    }
+    if (plPlayerController.onHostRefused == _hostRefused) {
+      plPlayerController.onHostRefused = null;
     }
     if (plPlayerController.onStreamSlow == replaceSlowStreams) {
       plPlayerController.onStreamSlow = null;
