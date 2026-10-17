@@ -1344,6 +1344,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       ///completed
       stream.completed.listen((bool completed) {
         if (completed) {
+          if (_endedEarly()) return;
           playerStatus.value = .completed;
 
           for (final element in _statusListeners) {
@@ -1406,6 +1407,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // release one) goes to the events a failure report shows
       stream.log.listen((PlayerLog log) {
         final text = log.text.trim();
+        // a read given up on ends the file there (see [_endedEarly])
+        if (text.contains('treating it as fatal')) {
+          _fatalReadAt = DateTime.now();
+        }
         // the sound running dry is heard as a stutter: its own line
         if (_underrun.hasMatch(text)) {
           EventLog.add('player', '声音断续: $text');
@@ -1594,6 +1599,63 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// When mpv last said a seek in the stream failed (see [_recoverTransport]).
   DateTime? _seekFailedAt;
+
+  /// When mpv last gave up on a read (`lavf: … treating it as fatal error`).
+  DateTime? _fatalReadAt;
+
+  /// Whether an end mpv came to is a read it gave up on, not the end of the
+  /// video: it is then not played out — no "watched to the end", no next
+  /// episode — but opened again from another host where it was.
+  ///
+  /// A failover back to the host whose copy was cut met `Seek failed`, then
+  /// `lavf: error reading packet … treating it as fatal error`: mpv ended
+  /// the file, and the page showed the video played out at 276 s, at 84 s
+  /// (2026-10-17 self-test, BV1va4X65E2a). A file played to its end has
+  /// read all of it; that cache stopped at 84 s. The cache short of the end
+  /// alone is not enough (a stream that never says how far it has cached
+  /// would never end): the playhead short of it too, or a read given up on
+  /// just now.
+  bool _endedEarly() {
+    if (isLive || dataSource is! NetworkSource) return false;
+    final total = duration.value;
+    final cached = buffered.value;
+    if (total <= 0 || cached >= total - 5) return false;
+    final last = _lastGood;
+    final gaveUp =
+        _fatalReadAt != null &&
+        DateTime.now().difference(_fatalReadAt!) < const Duration(seconds: 10);
+    if (!gaveUp && (last == null || last.inSeconds >= total - 5)) return false;
+    _fatalReadAt = null;
+    // the playhead can have been sent to the end with it: no further than
+    // what had arrived
+    final at = last != null && last.inSeconds <= cached + 2
+        ? last
+        : Duration(seconds: cached);
+    EventLog.add(
+      'player',
+      'ended at ${position.value} s with the cache to $cached s of $total s: '
+          'a read given up on, not the end; another host at '
+          '${at.inMilliseconds / 1000} s',
+    );
+    // the end paused it a moment ago; as it was, the reopen plays on
+    if (_pausedAt case final pausedAt?
+        when DateTime.now().difference(pausedAt) < const Duration(seconds: 1)) {
+      _pausedAt = null;
+      playerStatus.value = .playing;
+    }
+    // where it was, not the end it was sent to: shown, and what the check
+    // on a failure compares with (276 s against 79 s read as playing on)
+    position.value = at.inSeconds;
+    _resumeAt = at;
+    // not throttled: the watch had asked for another host a moment before,
+    // and this one, dropped, left the player standing at the end (2026-10-17)
+    if (_holdWhilePaused) {
+      _recheckOnPlay = true;
+    } else {
+      unawaited(_failOver());
+    }
+    return true;
+  }
 
   /// When a host last answered 403 (see [_renewIfExpired]).
   DateTime? _forbiddenAt;
@@ -2530,32 +2592,35 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     EasyThrottle.throttle(
       'PlPlayerController._switchCdn',
       const Duration(seconds: 3),
-      () async {
-        // the network gone is not this host gone: switching then only uses
-        // up the hosts the network will need once it is back (2026-10-03)
-        final source = dataSource;
-        if (_networkWait != null) return;
-        if (!await _reachable(source)) {
-          if (identical(dataSource, source)) _waitForNetwork();
-          return;
-        }
-        if (!identical(dataSource, source)) return;
-        // the new source takes a moment to fill the cache
-        _dry.grace();
-        if (onCdnFailover?.call() ?? false) {
-          _transportFailures = 0;
-        } else {
-          if (kDebugMode) {
-            EventLog.add(
-              'player',
-              'no other CDN, from: '
-                  '${StackTrace.current.toString().split('\n').skip(1).take(4).join(' | ')}',
-            );
-          }
-          _reportFailureUnlessPlaying(source);
-        }
-      },
+      _failOver,
     );
+  }
+
+  /// [_switchCdn] itself, unthrottled.
+  Future<void> _failOver() async {
+    // the network gone is not this host gone: switching then only uses
+    // up the hosts the network will need once it is back (2026-10-03)
+    final source = dataSource;
+    if (_networkWait != null) return;
+    if (!await _reachable(source)) {
+      if (identical(dataSource, source)) _waitForNetwork();
+      return;
+    }
+    if (!identical(dataSource, source)) return;
+    // the new source takes a moment to fill the cache
+    _dry.grace();
+    if (onCdnFailover?.call() ?? false) {
+      _transportFailures = 0;
+    } else {
+      if (kDebugMode) {
+        EventLog.add(
+          'player',
+          'no other CDN, from: '
+              '${StackTrace.current.toString().split('\n').skip(1).take(4).join(' | ')}',
+        );
+      }
+      _reportFailureUnlessPlaying(source);
+    }
   }
 
   Timer? _failureCheck;
@@ -2582,8 +2647,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         return;
       }
       // the position alone is not playback: with the video track dry it
-      // follows the sound, over a picture that does not move (2026-10-12)
-      if (position.value != before && !isBuffering.value && !_dryNow()) {
+      // follows the sound, over a picture that does not move (2026-10-12),
+      // or over none at all (2026-10-17)
+      if (position.value != before &&
+          !isBuffering.value &&
+          !_dryNow() &&
+          _pictureNow() != false) {
         EventLog.add('player', 'playback went on: no failure shown');
         return;
       }
@@ -2755,6 +2824,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     final fps = double.tryParse(player.getProperty('estimated-vf-fps'));
     return fps != null && fps > 0;
+  }
+
+  /// [_picture] of the player now; null when it cannot be read.
+  bool? _pictureNow() {
+    final player = _videoPlayerController;
+    if (player is! NativePlayer) return null;
+    try {
+      return _picture(player);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Whether the playhead is past what arrived now (see [DryWatch.behind]);
