@@ -11,8 +11,13 @@ List<String> spaced(String text) => [
 
 /// The x ranges inked along the middle row of [span] as drawn (the test
 /// font draws every character as a box). Carets would not do: with letter
-/// spacing they sit inside it.
-Future<List<(int, int)>> inked(WidgetTester tester, InlineSpan span) async {
+/// spacing they sit inside it. With [column], the y ranges down that
+/// column instead.
+Future<List<(int, int)>> inked(
+  WidgetTester tester,
+  InlineSpan span, {
+  int? column,
+}) async {
   final key = GlobalKey();
   await tester.pumpWidget(
     Directionality(
@@ -21,7 +26,14 @@ Future<List<(int, int)>> inked(WidgetTester tester, InlineSpan span) async {
         alignment: Alignment.topLeft,
         child: RepaintBoundary(
           key: key,
-          child: ColoredBox(color: Colors.white, child: Text.rich(span)),
+          // room below: a lowered word is drawn past the paragraph
+          child: ColoredBox(
+            color: Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text.rich(span),
+            ),
+          ),
         ),
       ),
     ),
@@ -32,17 +44,21 @@ Future<List<(int, int)>> inked(WidgetTester tester, InlineSpan span) async {
   await tester.runAsync(() async {
     final image = await boundary.toImage();
     final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
-    final y = image.height ~/ 2;
+    final length = column == null ? image.width : image.height;
+    bool dark(int i) {
+      final (x, y) = column == null ? (i, image.height ~/ 2) : (column, i);
+      return data.getUint8((y * image.width + x) * 4) < 128;
+    }
+
     int? start;
-    for (var x = 0; x < image.width; x++) {
-      final dark = data.getUint8((y * image.width + x) * 4) < 128;
-      if (dark && start == null) start = x;
-      if (!dark && start != null) {
-        runs.add((start, x));
+    for (var i = 0; i < length; i++) {
+      if (dark(i) && start == null) start = i;
+      if (!dark(i) && start != null) {
+        runs.add((start, i));
         start = null;
       }
     }
-    if (start != null) runs.add((start, image.width));
+    if (start != null) runs.add((start, length));
   });
   return runs;
 }
@@ -163,6 +179,22 @@ void main() {
       expect(spaced[1].$1 - 80, closeTo(gap, 1));
       // everything after moved by just the gap
       expect(spaced[2].$1 - 160, closeTo(gap, 1));
+    });
+
+    testWidgets('latinDrop: the word drawn that much lower, nothing moved '
+        'along the line', (tester) async {
+      const style = TextStyle(fontSize: 40, color: Colors.black);
+      // 中 0-40, gap 5, A 45-85, b 85-125, gap 5, 中 130-170
+      final level = CjkAutospace.span('中Ab中', style);
+      final low = CjkAutospace.span('中Ab中', style, latinDrop: 0.1);
+      expect(low.children!.whereType<WidgetSpan>(), hasLength(1));
+      expect(await inked(tester, low), await inked(tester, level));
+      final cjk = await inked(tester, low, column: 20);
+      final word = await inked(tester, low, column: 65);
+      final word0 = await inked(tester, level, column: 65);
+      expect(word.single.$1 - word0.single.$1, 4);
+      expect(word.single.$2 - word0.single.$2, 4);
+      expect(word0.single, cjk.single);
     });
 
     testWidgets('first in a line: drawn half a gap in as well (SkParagraph)', (

@@ -28,9 +28,15 @@ class SpacedSubtitleView extends SubtitleView {
   /// 0.08 picked from screenshots of 0.05 and 0.08). Self tests try others.
   static double tracking = 0.08;
 
-  /// Latin letters and digits on a line with CJK, times the size. Self
-  /// tests try others.
-  static double latinScale = 1;
+  /// Latin letters and digits on a line with CJK, times the size (user
+  /// 2026-10-17 picked 1.05 of 1, 1.05 and 1.1: capitals 0.80 of the CJK
+  /// face). Self tests try others.
+  static double latinScale = 1.05;
+
+  /// How far below the baseline they sit, in em (user 2026-10-17:
+  /// 「移到基线和汉字字面下的中间」; the CJK face reaches 0.14 em below the
+  /// baseline at w400).
+  static double latinDrop = 0.07;
 
   @override
   SubtitleViewState createState() => _SpacedSubtitleViewState();
@@ -50,6 +56,7 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
         autospace: autospace,
         tracking: SpacedSubtitleView.tracking,
         latinScale: SpacedSubtitleView.latinScale,
+        latinDrop: SpacedSubtitleView.latinDrop,
       ),
       style: style,
       textAlign: config.textAlign,

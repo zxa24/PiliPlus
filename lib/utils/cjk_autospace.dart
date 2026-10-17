@@ -16,7 +16,7 @@
 /// keep their own spacing.
 library;
 
-import 'package:flutter/painting.dart';
+import 'package:flutter/widgets.dart';
 
 abstract final class CjkAutospace {
   /// The gap, in em (CSS: 1/8 of the ideographic width).
@@ -78,18 +78,23 @@ abstract final class CjkAutospace {
   /// [text] in [style]: [em] between CJK and Latin letters or digits when
   /// [autospace], [tracking] em between two CJK characters, and Latin
   /// letters and digits at [latinScale] times the size — on a line with CJK
-  /// in it only: a line of English keeps the size it was set to. Characters
-  /// alike in all that are one span.
+  /// in it only: a line of English keeps the size it was set to. On such a
+  /// line they also sit [latinDrop] em below the baseline: Flutter has no
+  /// baseline shift, so each word is then a [WidgetSpan] drawn lower (one
+  /// word to a span, as a word is not broken anyway). Characters alike in
+  /// all that are one span.
   static TextSpan span(
     String text,
     TextStyle style, {
     bool autospace = true,
     double tracking = 0,
     double latinScale = 1,
+    double latinDrop = 0,
   }) {
     final size = style.fontSize ?? 14;
     final base = style.letterSpacing ?? 0;
-    final scaling = latinScale != 1 && text.runes.any(ideograph);
+    final scaling =
+        (latinScale != 1 || latinDrop != 0) && text.runes.any(ideograph);
     // per character: the spacing after it (em) and whether it is scaled
     final chars = <(int, int, double, bool)>[];
     var i = 0;
@@ -112,16 +117,32 @@ abstract final class CjkAutospace {
       prev = c;
       i += width;
     }
-    final children = <TextSpan>[];
+    final children = <InlineSpan>[];
     var run = 0;
     for (var k = 1; k <= chars.length; k++) {
+      final (from, _, extra, scaled) = chars[run];
+      final lowered = scaled && latinDrop != 0;
+      // a lowered word is one span whatever its spacing: only its last
+      // character can have more (before CJK)
       if (k < chars.length &&
-          chars[k].$3 == chars[run].$3 &&
-          chars[k].$4 == chars[run].$4) {
+          chars[k].$4 == scaled &&
+          (lowered || chars[k].$3 == extra)) {
         continue;
       }
-      final (from, _, extra, scaled) = chars[run];
       final piece = text.substring(from, chars[k - 1].$2);
+      if (lowered) {
+        children.add(
+          _lowered(
+            piece,
+            style,
+            size * latinScale,
+            latinDrop * size,
+            chars[k - 1].$3 * size,
+          ),
+        );
+        run = k;
+        continue;
+      }
       children.add(
         extra == 0 && !scaled
             ? TextSpan(text: piece)
@@ -140,4 +161,45 @@ abstract final class CjkAutospace {
     }
     return TextSpan(style: style, children: children);
   }
+
+  /// [word] in the line's [style] (all of it, as a widget does not take
+  /// the line's) at [fontSize], drawn [drop] lower, then [gap] of space.
+  /// The gap is padding, not letter spacing, which Flutter would also put
+  /// half of before the word, the first in its own paragraph. Its line is
+  /// as tall as the others and its baseline where theirs is, and the line
+  /// paints the background behind it: one even band, not a taller or darker
+  /// box behind each word.
+  static WidgetSpan _lowered(
+    String word,
+    TextStyle style,
+    double fontSize,
+    double drop,
+    double gap,
+  ) => WidgetSpan(
+    alignment: PlaceholderAlignment.baseline,
+    baseline: TextBaseline.alphabetic,
+    child: Padding(
+      padding: EdgeInsets.only(right: gap),
+      // laid out where it was, so on the line's baseline; drawn lower
+      child: Transform.translate(
+        offset: Offset(0, drop),
+        child: Text(
+          word,
+          style: style.copyWith(
+            fontSize: fontSize,
+            backgroundColor: style.background == null
+                ? const Color(0x00000000)
+                : null,
+            background: style.background == null
+                ? null
+                : (Paint()..color = const Color(0x00000000)),
+          ),
+          strutStyle: StrutStyle.fromTextStyle(style, forceStrutHeight: true),
+          maxLines: 1,
+          softWrap: false,
+          textScaler: TextScaler.noScaling,
+        ),
+      ),
+    ),
+  );
 }
