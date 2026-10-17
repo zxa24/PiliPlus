@@ -899,9 +899,15 @@ class DownloadService extends GetxService {
       curDownload.value = null;
       nextDownload();
     }
-    // comments / subtitles etc. can take many requests: do not hold the
-    // queue for them
-    if (output != null) _queueExtras(entry, output);
+    if (output != null) {
+      // the transcript only needs the video file: it does not wait for the
+      // extras either (its files and entry.json are written one at a time
+      // with theirs)
+      unawaited(transcripts.finished(entry));
+      // comments / subtitles etc. can take many requests: do not hold the
+      // queue for them
+      _queueExtras(entry, output);
+    }
   }
 
   /// Saves the extras of [entry] that an earlier run did not finish.
@@ -981,8 +987,11 @@ class DownloadService extends GetxService {
       // old one removed): nothing to record then
       if (Directory(entry.entryDirPath).existsSync()) {
         await _updateBiliDownloadEntryJson(entry);
-        // and then the transcript, to its end, in the background
-        unawaited(transcripts.finished(entry));
+        // one merged by a version that marked it for its transcript only
+        // here (the app closed while its extras were saved): marked now
+        if (!entry.transcriptPending && transcripts.progress[cid] == null) {
+          unawaited(transcripts.finished(entry));
+        }
       }
       extrasQueue.remove(entry);
       flagNotifier.refresh();

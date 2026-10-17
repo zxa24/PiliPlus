@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -148,7 +150,7 @@ abstract final class DownloadExtras {
     if (Pref.dlSaveComments) {
       await step(
         DownloadProgress.stepComments,
-        () => _comments(entry, folder, base, check, progress),
+        () => _comments(entry, folder, base, check, cancelled, progress),
       );
     }
     return written;
@@ -297,6 +299,7 @@ abstract final class DownloadExtras {
     String folder,
     String base,
     void Function() check,
+    bool Function()? cancelled,
     DownloadProgress? progress,
   ) async {
     final maxRoots = Pref.dlCommentCount;
@@ -334,23 +337,25 @@ abstract final class DownloadExtras {
     if (roots.length > maxRoots) roots.removeRange(maxRoots, roots.length);
     progress?.extrasDone(DownloadProgress.stepCommentList);
 
-    final images = CommentImages(folder);
-    final items = <Map<String, Object?>>[];
-    for (final (i, root) in roots.indexed) {
-      check();
-      progress?.extras(DownloadProgress.stepComments, i, roots.length);
-      var replies = root.replies.toList();
-      final wanted = math.min(maxReplies, root.count.toInt());
-      if (replies.length < wanted) {
-        replies = await _replies(oid, root.id.toInt(), wanted, check);
+    final images = CommentImages(folder, cancelled: cancelled);
+    final List<Map<String, Object?>> items;
+    try {
+      final pending = <Future<Map<String, Object?>>>[];
+      for (final (i, root) in roots.indexed) {
+        check();
+        progress?.extras(DownloadProgress.stepComments, i, roots.length);
+        var replies = root.replies.toList();
+        final wanted = math.min(maxReplies, root.count.toInt());
+        if (replies.length < wanted) {
+          replies = await _replies(oid, root.id.toInt(), wanted, check);
+        }
+        // its pictures are fetched while the next ones' replies are asked
+        pending.add(_withReplies(root, replies.take(maxReplies), images));
       }
-      items.add(
-        await replyToJson(root, images)
-          ..['replies'] = [
-            for (final r in replies.take(maxReplies))
-              await replyToJson(r, images),
-          ],
-      );
+      items = await Future.wait(pending);
+    } finally {
+      // a cancelled export leaves nothing being written into the folder
+      await images.settled();
     }
 
     final json = {
@@ -371,6 +376,18 @@ abstract final class DownloadExtras {
       const JsonEncoder.withIndent(' ').convert(json),
     );
     return '${items.length} comments, ${images.saved} images';
+  }
+
+  static Future<Map<String, Object?>> _withReplies(
+    ReplyInfo root,
+    Iterable<ReplyInfo> replies,
+    CommentImages images,
+  ) async {
+    final json = replyToJson(root, images);
+    final saved = Future.wait([
+      for (final r in replies) replyToJson(r, images),
+    ]);
+    return (await json)..['replies'] = await saved;
   }
 
   static Future<List<ReplyInfo>> _replies(
@@ -424,21 +441,28 @@ abstract final class DownloadExtras {
         return local;
       }
 
+      // all asked for at once ([CommentImages.parallel] at a time), then
+      // collected in order
       final face = r.member.face;
       // shown at 34 px: the original can be a few hundred KB
-      avatar = await keep(face, fetch: '${face.http2https}@96w_96h_1c.webp');
-      for (final p in r.content.pictures) {
-        if (await keep(p.imgSrc) case final local?) pictures.add(local);
-      }
-      for (final e in r.content.emotes.entries) {
-        if (await keep(e.value.url) case final local?) emotes[e.key] = local;
-      }
+      final faceJob = keep(face, fetch: '${face.http2https}@96w_96h_1c.webp');
+      final pictureJobs = [for (final p in r.content.pictures) keep(p.imgSrc)];
+      final emoteJobs = {
+        for (final e in r.content.emotes.entries) e.key: keep(e.value.url),
+      };
       // the replies shown under it in the list: their emotes too
-      for (final c in r.replies) {
-        for (final e in c.content.emotes.values) {
-          await keep(e.url);
-        }
+      final previewJobs = [
+        for (final c in r.replies)
+          for (final e in c.content.emotes.values) keep(e.url),
+      ];
+      avatar = await faceJob;
+      for (final job in pictureJobs) {
+        if (await job case final local?) pictures.add(local);
       }
+      for (final MapEntry(:key, :value) in emoteJobs.entries) {
+        if (await value case final local?) emotes[key] = local;
+      }
+      await Future.wait(previewJobs);
     }
     return {
       'rpid': r.id.toInt(),
@@ -700,20 +724,63 @@ class _Cancelled implements Exception {
 
 /// Pictures and emotes of saved comments, stored once per URL in
 /// `comments_images/` next to the comments file.
+///
+/// [parallel] at a time: they come from bilibili's image servers, not its
+/// API (the comment requests themselves stay one at a time), and one after
+/// another they were most of the time comments took — hundreds of avatars
+/// and emotes for 200 comments.
 class CommentImages {
-  CommentImages(this.folder);
+  CommentImages(this.folder, {this.cancelled});
 
   static const dirName = 'comments_images';
 
+  static const parallel = 6;
+
   final String folder;
-  final _done = <String, String?>{};
+
+  /// Once true (the entry was deleted), the ones still waiting are not
+  /// fetched.
+  final bool Function()? cancelled;
+
+  final _done = <String, Future<String?>>{};
   int saved = 0;
 
+  int _running = 0;
+  final _waiting = Queue<Completer<void>>();
+
   /// Returns the path relative to [folder], or null if it failed.
-  Future<String?> save(String url) async {
-    if (url.isEmpty) return null;
+  Future<String?> save(String url) {
+    if (url.isEmpty) return Future.value();
     url = url.http2https;
-    if (_done.containsKey(url)) return _done[url];
+    return _done[url] ??= _save(url);
+  }
+
+  /// Until every save asked for so far is done: nothing is written into the
+  /// folder after it.
+  Future<void> settled() => Future.wait(_done.values);
+
+  Future<String?> _save(String url) async {
+    if (_running < parallel) {
+      _running++;
+    } else {
+      final turn = Completer<void>();
+      _waiting.add(turn);
+      // [_running] is handed over, not given back
+      await turn.future;
+    }
+    try {
+      if (cancelled?.call() ?? false) return null;
+      return await _fetch(url);
+    } finally {
+      if (_waiting.isNotEmpty) {
+        _waiting.removeFirst().complete();
+      } else {
+        _running--;
+      }
+    }
+  }
+
+  Future<String?> _fetch(String url) async {
     String? result;
     try {
       var ext = path.extension(Uri.parse(url).path).toLowerCase();
@@ -733,6 +800,6 @@ class CommentImages {
     } catch (e) {
       if (kDebugMode) debugPrint('comment image $url: $e');
     }
-    return _done[url] = result;
+    return result;
   }
 }
