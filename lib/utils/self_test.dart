@@ -9040,7 +9040,8 @@ abstract final class SelfTest {
       ..writeAsStringSync(
         '1\n00:00:00,000 --> 00:10:00,000\n'
         '我用iPhone 15拍了3张4K照片，用Python写了script\n'
-        'これはTestです，第2集去Café，α粒子\n\n',
+        'これはTestです，第2集去Café，α粒子\n'
+        '今天天气很好，我们一起去公园散步吧。\n\n',
       );
     await player.setSubtitle(SubtitleTrack.uri(srt.path, title: 'autospace'));
     await Future.delayed(const Duration(seconds: 2));
