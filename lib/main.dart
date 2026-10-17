@@ -42,11 +42,13 @@ import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/request_utils.dart';
 import 'package:PiliPlus/utils/self_test.dart';
 import 'package:PiliPlus/utils/self_test_window.dart';
+import 'package:PiliPlus/utils/cjk_autospace.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:canvas_danmaku/utils/utils.dart' as danmaku;
 import 'package:catcher_2/catcher_2.dart';
 import 'package:collection/collection.dart';
 import 'package:dynamic_color/dynamic_color.dart' show DynamicColorPlugin;
@@ -140,6 +142,10 @@ void main(List<String> args) async {
     appExit();
   }
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
+  // LibrePili: danmaku spaced as subtitles and comments are (中英文间距),
+  // the setting read as each one is drawn
+  danmaku.DmUtils.gapsOf = (text) =>
+      Pref.cjkAutospace ? CjkAutospace.gaps(text) : const [];
   // LibrePili: the region/language asked of YouTube, from settings
   applyYtLocale();
   await Future.wait([

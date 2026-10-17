@@ -18,6 +18,39 @@ abstract final class DmUtils {
 
   static String? fontFamily;
 
+  /// LibrePili: where a gap goes in a danmaku's text — for each, the UTF-16
+  /// range of the character it follows — set by the app (its 中英文间距,
+  /// a little space between Chinese and Latin letters or digits, user
+  /// 2026-10-17); null or empty: none. The gap is [gapEm] of the font size.
+  /// Not on special (positioned) danmaku: a gap would pull their drawings
+  /// out of shape.
+  static List<(int, int)> Function(String text)? gapsOf;
+  static double gapEm = 0.125;
+
+  /// [text] added to [builder] at [fontSize], the character before each gap
+  /// with that much letter spacing more (the gap is drawn after it).
+  static void _addText(
+    ui.ParagraphBuilder builder,
+    String text,
+    double fontSize,
+  ) {
+    final gaps = gapsOf?.call(text);
+    if (gaps == null || gaps.isEmpty) {
+      builder.addText(text);
+      return;
+    }
+    var from = 0;
+    for (final (start, end) in gaps) {
+      if (start > from) builder.addText(text.substring(from, start));
+      builder
+        ..pushStyle(ui.TextStyle(letterSpacing: gapEm * fontSize))
+        ..addText(text.substring(start, end))
+        ..pop();
+      from = end;
+    }
+    if (from < text.length) builder.addText(text.substring(from));
+  }
+
   static ui.Paragraph generateParagraph({
     required DanmakuContentItem content,
     required double fontSize,
@@ -41,9 +74,8 @@ abstract final class DmUtils {
         ..pop();
     }
 
-    builder
-      ..pushStyle(ui.TextStyle(color: content.color, fontSize: fontSize))
-      ..addText(content.text);
+    builder.pushStyle(ui.TextStyle(color: content.color, fontSize: fontSize));
+    _addText(builder, content.text, fontSize);
 
     return builder.build()
       ..layout(const ui.ParagraphConstraints(width: double.infinity));
@@ -101,9 +133,11 @@ abstract final class DmUtils {
           ..pop();
       }
 
-      builder
-        ..pushStyle(ui.TextStyle(fontSize: fontSize, foreground: strokePaint))
-        ..addText(content.text);
+      // as the text: the outline lies on it
+      builder.pushStyle(
+        ui.TextStyle(fontSize: fontSize, foreground: strokePaint),
+      );
+      _addText(builder, content.text, fontSize);
 
       final strokeParagraph = builder.build()
         ..layout(const ui.ParagraphConstraints(width: double.infinity));

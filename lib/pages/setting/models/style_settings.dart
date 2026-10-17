@@ -25,6 +25,7 @@ import 'package:PiliPlus/pages/setting/widgets/dual_slider_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/multi_select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/slider_dialog.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/utils/extension/file_ext.dart';
 import 'package:PiliPlus/utils/extension/get_ext.dart';
@@ -89,6 +90,17 @@ List<SettingsModel> get styleSettings => [
     subtitle: '点击设置',
     leading: const Icon(Icons.text_fields),
     onTap: (context, setState) => Get.toNamed('/fontSetting'),
+  ),
+  // LibrePili: the setting the subtitle panel has too (user 2026-10-17, 3B)
+  SwitchModel(
+    title: '中英文间距',
+    subtitle: '汉字与字母、数字之间留一点空隙：字幕、弹幕、评论、标题、简介',
+    leading: const Icon(Icons.space_bar),
+    setKey: SettingBoxKey.cjkAutospace,
+    defaultVal: true,
+    // the subtitles on screen follow their own copy of it
+    onChanged: (value) =>
+        PlPlayerController.instance?.subtitleAutospace.value = value,
   ),
   NormalModel(
     title: '界面缩放',
