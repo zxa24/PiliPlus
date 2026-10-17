@@ -2692,6 +2692,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           position: pos,
           cacheEnd: cacheEnd,
           duration: double.tryParse(player.getProperty('duration')),
+          picture: _picture(player),
         );
       } catch (_) {
         // disposed between ticks
@@ -2717,6 +2718,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             'nothing arriving for ${_dry.stuckSeconds} s: playhead $pos s, '
                 'cache to $cacheEnd s',
           );
+        case DryVerdict.blind:
+          EventLog.add(
+            'player',
+            'no picture for ${_dry.blindSeconds} s while the sound plays: '
+                'playhead $pos s, cache to $cacheEnd s',
+          );
         case DryVerdict.slow:
           EventLog.add(
             'player',
@@ -2734,6 +2741,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // would only cost the viewer another stall
       _switchCdn();
     });
+  }
+
+  /// Whether frames come from the video track (`estimated-vf-fps` is gone
+  /// once they stop); null when there is none to look at: sound only, or a
+  /// cover picture.
+  bool? _picture(NativePlayer player) {
+    if (onlyPlayAudio.value) return null;
+    final vid = player.getProperty('vid');
+    if (vid.isEmpty || vid == 'no') return null;
+    if (player.getProperty('current-tracks/video/albumart') == 'yes') {
+      return null;
+    }
+    final fps = double.tryParse(player.getProperty('estimated-vf-fps'));
+    return fps != null && fps > 0;
   }
 
   /// Whether the playhead is past what arrived now (see [DryWatch.behind]);

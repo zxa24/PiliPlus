@@ -23,6 +23,13 @@
 /// [waiting] says so after [waitingAfter] ticks, for the page to show it is
 /// loading.
 ///
+/// The playhead moving with no frames coming is a video track that broke
+/// off while the sound plays on, its cache ahead or not: the user's copy
+/// played the sound of BV1va4X65E2a for 3.5 min over no picture after a
+/// reopen whose video request akamai answered 502 (`root atom … partial
+/// file`, 2026-10-17); the cache went on growing, so nothing above saw it.
+/// After [blindSeconds] it is [DryVerdict.blind].
+///
 /// Pure: no mpv, so it can be tested.
 library;
 
@@ -40,10 +47,18 @@ enum DryVerdict {
   /// Standing still behind the cache for [DryWatch.slowSeconds], the bytes
   /// coming too slowly to get there: a slow stream.
   slow,
+
+  /// The playhead moving for [DryWatch.blindSeconds] with no frames from
+  /// the video track: another host.
+  blind,
 }
 
 class DryWatch {
-  DryWatch({this.stuckSeconds = 10, this.slowSeconds = 12});
+  DryWatch({
+    this.stuckSeconds = 10,
+    this.slowSeconds = 12,
+    this.blindSeconds = 3,
+  });
 
   /// How close to the end of the cache a playhead standing still counts as
   /// waiting at it: the frame there is the last one that arrived.
@@ -62,6 +77,13 @@ class DryWatch {
   /// arrives is taken as too slow: the load that played in the user's copy
   /// took 9 s to get there.
   final int slowSeconds;
+
+  /// Ticks the playhead moves with no frames before the video track is
+  /// given up on: a reopen's first frame comes within a second.
+  final int blindSeconds;
+
+  /// Checks in a row the playhead has moved with no frames coming.
+  int _blindTicks = 0;
 
   /// Checks in a row the playhead has been past what arrived; below zero, a
   /// grace period after an open or a recovery.
@@ -86,6 +108,7 @@ class DryWatch {
   /// its cache behind the playhead for a moment.
   void grace([int ticks = 3]) {
     _dryTicks = -ticks;
+    _blindTicks = 0;
     _stuckTicks = 0;
     _standingTicks = 0;
     _forget();
@@ -95,6 +118,7 @@ class DryWatch {
   /// a dry track starts over; the next tick has nothing to compare with.
   void skip() {
     if (_dryTicks > 0) _dryTicks = 0;
+    _blindTicks = 0;
     _stuckTicks = 0;
     _standingTicks = 0;
     _forget();
@@ -105,10 +129,13 @@ class DryWatch {
     _lastCacheEnd = null;
   }
 
+  /// [picture]: whether frames come from the video track; null when there
+  /// is none to look at (sound only, a cover picture).
   DryVerdict tick({
     required double? position,
     required double? cacheEnd,
     required double? duration,
+    bool? picture,
   }) {
     if (_dryTicks < 0) {
       _dryTicks++;
@@ -127,6 +154,12 @@ class DryWatch {
       _standingTicks = 0;
       if (!behind(position: position, cacheEnd: cacheEnd, duration: duration)) {
         _dryTicks = 0;
+        if (picture != false) {
+          _blindTicks = 0;
+        } else if (++_blindTicks >= blindSeconds) {
+          _blindTicks = 0;
+          return DryVerdict.blind;
+        }
         return DryVerdict.fine;
       }
       // one tick can be a seek landing between two property reads
@@ -134,6 +167,8 @@ class DryWatch {
       return DryVerdict.dry;
     }
     _dryTicks = 0;
+    // standing still, no frame is due: a load, judged below
+    _blindTicks = 0;
     // Standing still, any way short of the playhead is short: mpv waits for
     // the frame there. With the second's margin the dry track is given, a
     // cache that stopped at 148.1 s under a playhead at 149.0 s went

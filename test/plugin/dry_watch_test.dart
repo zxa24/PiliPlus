@@ -179,6 +179,69 @@ void main() {
     expect(w.waiting, isFalse);
   });
 
+  group('no picture', () {
+    List<DryVerdict> blind(DryWatch w, List<(double, bool?)> ticks) => [
+      for (final (pos, picture) in ticks)
+        w.tick(
+          position: pos,
+          cacheEnd: pos + 90,
+          duration: 276,
+          picture: picture,
+        ),
+    ];
+
+    test('2026-10-17: the sound playing on with no frames, the cache far '
+        'ahead, after blindSeconds', () {
+      // BV1va4X65E2a after akamai answered the video's reopen 502: the
+      // self-test's samples, a second apart
+      final w = DryWatch();
+      expect(
+        blind(w, [(61.7, false), (62.7, false), (63.7, false), (64.7, false)]),
+        [DryVerdict.fine, DryVerdict.fine, DryVerdict.fine, DryVerdict.blind],
+      );
+    });
+
+    test('frames coming, or a moment without, is fine', () {
+      final w = DryWatch();
+      final verdicts = blind(w, [
+        (10, true),
+        (11, false),
+        (12, false),
+        (13, true),
+        (14, false),
+        (15, true),
+      ]);
+      expect(verdicts, everyElement(DryVerdict.fine));
+    });
+
+    test('standing still with no frames is a load, not a lost picture', () {
+      final w = DryWatch();
+      final verdicts = blind(w, [
+        for (var i = 0; i < 6; i++) (20, false),
+      ]);
+      expect(verdicts, isNot(contains(DryVerdict.blind)));
+    });
+
+    test('nothing to look at (sound only, a cover) is never blind', () {
+      final w = DryWatch();
+      final verdicts = blind(w, [
+        for (var i = 0; i < 8; i++) (30.0 + i, null),
+      ]);
+      expect(verdicts, everyElement(DryVerdict.fine));
+    });
+
+    test('an open is given its grace first', () {
+      final w = DryWatch()..grace();
+      expect(
+        blind(w, [
+          for (var i = 0; i < 8; i++) (40.0 + i, false),
+        ]).indexOf(DryVerdict.blind),
+        // three ticks of grace, one to compare with, then blindSeconds
+        6,
+      );
+    });
+  });
+
   test('ahead of the playhead, or at the end of the video, is fine', () {
     expect(DryWatch.behind(position: 10, cacheEnd: 30, duration: 60), isFalse);
     expect(DryWatch.behind(position: 10, cacheEnd: 9.5, duration: 60), isFalse);

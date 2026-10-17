@@ -187,7 +187,13 @@ final class _CuttingProxy {
     this.throttleAfter,
     this.hangAfter,
     this.hangFor,
+    this.refuseWith,
   });
+
+  /// A request from [cutAt] on answered with this status (`--cut-answer
+  /// 502`), as akamai answered the reopen after its cut in the user's copy
+  /// (2026-10-17), instead of the connection dropped.
+  final int? refuseWith;
 
   /// From this long after the start on, the host stops answering without
   /// hanging up: transfers under way send nothing more, new requests get no
@@ -281,6 +287,13 @@ final class _CuttingProxy {
       try {
         (await request.response.detachSocket(writeHeaders: false)).destroy();
       } catch (_) {}
+      return;
+    }
+    if (refuseWith case final status?
+        when upstream != null && from >= cutAt && !_down) {
+      requests.add('  (answered $status)');
+      request.response.statusCode = status;
+      await request.response.close();
       return;
     }
     if (upstream == null || from >= cutAt || _down) {
@@ -1050,6 +1063,7 @@ abstract final class SelfTest {
           },
           hangAfter: hangAfter == null ? null : Duration(seconds: hangAfter),
           hangFor: hangFor == null ? null : Duration(seconds: hangFor),
+          refuseWith: int.tryParse(_arg(args, '--cut-answer') ?? ''),
         );
         await cut.start();
         if (args.contains('--via-parallel')) {
@@ -5816,6 +5830,10 @@ abstract final class SelfTest {
           'shown=${player.position.value} '
           'buffering=${player.isBuffering.value} vid=${mpv.getProperty('vid')} '
           'apts=${mpv.getProperty('audio-pts')} tpos=${mpv.getProperty('time-pos')} '
+          // the picture: whether frames still come
+          'vpts=${mpv.getProperty('video-pts')} '
+          'vfps=${mpv.getProperty('estimated-vf-fps')} '
+          'vw=${mpv.getProperty('video-params/w')} '
           'drops=${mpv.getProperty('frame-drop-count')} '
           'epoch=${player.videoControllerEpoch.value} '
           'gate=${controller.asrPending.value} '
