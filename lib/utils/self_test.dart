@@ -847,6 +847,10 @@ abstract final class SelfTest {
         () => _openLocal(target, hold, play: args.contains('--play')),
       );
     }
+    if (_arg(args, '--sub-autospace') case final target?) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('subAutospace', () => _subAutospace(target));
+    }
     if (args.contains('--open-offline')) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
       final tab = int.tryParse(_arg(args, '--tab') ?? '');
@@ -9000,6 +9004,48 @@ abstract final class SelfTest {
     } finally {
       VideoDetailController.debugSaveTo = null;
     }
+  }
+
+  /// `--sub-autospace FILE --shots DIR`: a line of Chinese mixed with
+  /// Latin letters and digits shown as a subtitle over FILE, with 中英文间距
+  /// on (`autospace_on.png`) and off (`autospace_off.png`).
+  static Future<Map<String, dynamic>> _subAutospace(String target) async {
+    const heroTag = 'selftest_autospace';
+    final dir = _shots;
+    if (dir == null) return {'pass': false, 'reason': '--shots DIR needed'};
+    unawaited(LocalPlayer.open(target, heroTag: heroTag));
+    await Future.delayed(const Duration(seconds: 6));
+    final ctr = Get.find<VideoDetailController>(tag: heroTag)..autoPlay = true;
+    await ctr.playerInit(autoplay: true);
+    await Future.delayed(const Duration(seconds: 2));
+    final player = PlPlayerController.instance;
+    if (player == null) return {'pass': false, 'reason': 'no player'};
+    final srt = File(path.join(dir, 'autospace.srt'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        '1\n00:00:00,000 --> 00:10:00,000\n'
+        '我用iPhone 15拍了3张4K照片，用Python写了script\n'
+        'これはTestです，第2集去Café，α粒子\n\n',
+      );
+    await player.setSubtitle(SubtitleTrack.uri(srt.path, title: 'autospace'));
+    await Future.delayed(const Duration(seconds: 2));
+    final was = player.subtitleAutospace.value;
+    player.subtitleAutospace.value = true;
+    await Future.delayed(const Duration(milliseconds: 600));
+    final on = await _shot('autospace_on');
+    player.subtitleAutospace.value = false;
+    await Future.delayed(const Duration(milliseconds: 600));
+    final off = await _shot('autospace_off');
+    player.subtitleAutospace.value = was;
+    final shown = player.videoPlayerController?.state.subtitle.toString();
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+    return {
+      'pass': on != null && off != null && (shown?.contains('iPhone') ?? false),
+      'shown': shown,
+      'on': on,
+      'off': off,
+    };
   }
 
   static Future<Map<String, dynamic>> _openLocal(

@@ -128,6 +128,11 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
           setState(() {});
         }
 
+        void updateAutospace(bool val) {
+          plPlayerController.subtitleAutospace.value = val;
+          setState(() {});
+        }
+
         return Padding(
           padding: const EdgeInsets.all(12),
           child: Material(
@@ -143,7 +148,9 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                   children: [
                     const SizedBox(
                       height: 45,
-                      child: Center(child: Text('字幕设置', style: TextStyle(fontSize: 14))),
+                      child: Center(
+                        child: Text('字幕设置', style: TextStyle(fontSize: 14)),
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -205,6 +212,17 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                         label: '${subtitleFontWeight + 1}',
                         onChanged: updateFontWeight,
                       ),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text(
+                        '中英文间距',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text('汉字与字母、数字之间留一点空隙'),
+                      value: plPlayerController.subtitleAutospace.value,
+                      onChanged: updateAutospace,
                     ),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -288,6 +306,7 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
       },
     )?.whenComplete(plPlayerController.putSubtitleSettings);
   }
+
   /// 弹幕功能
   void showSetDanmaku({bool isLive = false}) {
     // 屏蔽类型

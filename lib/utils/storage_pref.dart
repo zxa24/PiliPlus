@@ -615,6 +615,9 @@ abstract final class Pref {
   static int get subtitleFontWeight =>
       _setting.get(SettingBoxKey.subtitleFontWeight, defaultValue: 5);
 
+  static bool get cjkAutospace =>
+      _setting.get(SettingBoxKey.cjkAutospace, defaultValue: true);
+
   static bool get badCertificateCallback =>
       _setting.get(SettingBoxKey.badCertificateCallback, defaultValue: false);
 

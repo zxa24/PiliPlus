@@ -428,6 +428,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   final bool showVipDanmaku = Pref.showVipDanmaku; // loop unswitching
   late double subtitleStrokeWidth = Pref.subtitleStrokeWidth;
   late int subtitleFontWeight = Pref.subtitleFontWeight;
+  // its own: the configuration compares by its fields, so a change of this
+  // alone would not redraw the subtitle
+  late final subtitleAutospace = Pref.cjkAutospace.obs;
 
   // settings
   late final showFSActionItem = Pref.showFSActionItem;
@@ -3780,6 +3783,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       SettingBoxKey.subtitleBgOpacity: subtitleBgOpacity,
       SettingBoxKey.subtitleStrokeWidth: subtitleStrokeWidth,
       SettingBoxKey.subtitleFontWeight: subtitleFontWeight,
+      SettingBoxKey.cjkAutospace: subtitleAutospace.value,
     });
   }
 

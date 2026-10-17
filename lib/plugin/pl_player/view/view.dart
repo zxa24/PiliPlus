@@ -47,6 +47,7 @@ import 'package:PiliPlus/plugin/pl_player/models/video_fit_type.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/app_bar_ani.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/backward_seek.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/bottom_control.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/spaced_subtitle_view.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/common_btn.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/debug_overlay_view.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/forward_seek.dart';
@@ -1378,7 +1379,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
             child: IgnorePointer(
               ignoring: !plPlayerController.enableDragSubtitle,
               child: Obx(
-                () => SubtitleView(
+                () => SpacedSubtitleView(
                   key: ValueKey(
                     plPlayerController.videoControllerEpoch.value,
                   ),
@@ -1386,6 +1387,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                   configuration: plPlayerController.subtitleConfig.value,
                   enableDragSubtitle: plPlayerController.enableDragSubtitle,
                   onUpdatePadding: plPlayerController.onUpdatePadding,
+                  autospace: plPlayerController.subtitleAutospace.value,
                 ),
               ),
             ),

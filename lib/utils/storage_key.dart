@@ -227,7 +227,9 @@ abstract final class SettingBoxKey {
       subtitleStrokeWidth = 'subtitleStrokeWidth',
       subtitleFontScale = 'subtitleFontScale',
       subtitleFontScaleFS = 'subtitleFontScaleFS',
-      subtitleFontWeight = 'subtitleFontWeight';
+      subtitleFontWeight = 'subtitleFontWeight',
+      // LibrePili: 中英文间距 (CjkAutospace)
+      cjkAutospace = 'cjkAutospace';
 
   static const String webdavUri = 'webdavUri',
       webdavUsername = 'webdavUsername',
