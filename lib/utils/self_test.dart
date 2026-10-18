@@ -1099,6 +1099,7 @@ abstract final class SelfTest {
       _playAt = int.tryParse(_arg(args, '--play-at') ?? '');
       _pauseAt = int.tryParse(_arg(args, '--pause-at') ?? '');
       _frameProbeAt = int.tryParse(_arg(args, '--frame-probe') ?? '');
+      _fullScreenAt = int.tryParse(_arg(args, '--fullscreen-at') ?? '');
       BaseDanmakuPainter.debugLegacyMotion = args.contains('--danmaku-legacy');
       PlPlayerController.debugNoHeldPicture = args.contains('--no-hold');
       _shots = _arg(args, '--shots') ?? _shots;
@@ -5705,6 +5706,9 @@ abstract final class SelfTest {
   /// danmaku moving over the video): their intervals, build and raster
   /// times, and the refresh rate Flutter reads for the display.
   static int? _frameProbeAt;
+
+  /// `--fullscreen-at S`: the fullscreen button pressed S s in.
+  static int? _fullScreenAt;
   static Map<String, Object?>? _frames;
 
   static Future<void> _probeFrames() async {
@@ -6068,6 +6072,13 @@ abstract final class SelfTest {
     }
     // `--pause-at 5`: pause pressed, as a viewer presses it (with
     // `--play-at`: what a stream cut short meanwhile does to a paused video)
+    if (_fullScreenAt case final at?) {
+      unawaited(() async {
+        await Future.delayed(Duration(seconds: at));
+        EventLog.add('selftest', 'fullscreen pressed');
+        await player.triggerFullScreen(status: true);
+      }());
+    }
     if (_frameProbeAt case final at?) {
       unawaited(() async {
         await Future.delayed(Duration(seconds: at));

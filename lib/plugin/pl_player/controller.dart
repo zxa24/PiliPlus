@@ -1345,6 +1345,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// a visible hitch, and is logged as one. Not the gaps between frames: a
   /// video frame is a texture update, drawn with no frame timing (see
   /// SmoothnessMonitor), so they read a smooth video as one frame a second.
+  /// With where the rest of the time went: 开始前, from the frame's start
+  /// to its build (the UI thread busy with something else), and 排队, from
+  /// the build to its drawing (the raster thread still on an earlier one).
   static void _watchFrames() {
     if (_framesWatched) return;
     _framesWatched = true;
@@ -1352,9 +1355,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       for (final t in timings) {
         final span = t.totalSpan.inMilliseconds;
         if (span > 100) {
+          int ms(ui.FramePhase from, ui.FramePhase to) =>
+              (t.timestampInMicroseconds(to) -
+                  t.timestampInMicroseconds(from)) ~/
+              1000;
           EventLog.add(
             'ui',
-            '界面卡 $span ms (构建 ${t.buildDuration.inMilliseconds} ms'
+            '界面卡 $span ms (开始前 ${ms(ui.FramePhase.vsyncStart, ui.FramePhase.buildStart)} ms'
+                ' · 构建 ${t.buildDuration.inMilliseconds} ms'
+                ' · 排队 ${ms(ui.FramePhase.buildFinish, ui.FramePhase.rasterStart)} ms'
                 ' · 绘制 ${t.rasterDuration.inMilliseconds} ms)',
           );
         }
