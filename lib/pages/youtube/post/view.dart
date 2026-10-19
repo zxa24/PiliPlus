@@ -27,6 +27,7 @@ import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -115,13 +116,19 @@ class _YtPostPageState extends State<YtPostPage>
   late final String params = Get.parameters['params'] ?? '';
   late final String? postId = Get.parameters['id'];
 
+  /// This page's own, as the channel and playlist pages': the same post
+  /// opened again over it is not to share (and dispose) its controller.
+  late final String tag = Get.isRegistered<YtPostController>(tag: params)
+      ? Utils.makeHeroTag(params)
+      : params;
+
   late final YtPostController controller = Get.put(
     YtPostController(
       params,
       postId: postId,
       post: Get.arguments is YtPost ? Get.arguments as YtPost : null,
     ),
-    tag: params,
+    tag: tag,
   );
 
   // one tab; the controller is what DynTabBar's look needs
@@ -132,7 +139,7 @@ class _YtPostPageState extends State<YtPostPage>
   @override
   void dispose() {
     _tabController.dispose();
-    Get.delete<YtPostController>(tag: params);
+    Get.delete<YtPostController>(tag: tag);
     super.dispose();
   }
 

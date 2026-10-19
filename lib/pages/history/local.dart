@@ -43,20 +43,36 @@ class _LocalHistoryPageState extends State<LocalHistoryPage> {
   @override
   void initState() {
     super.initState();
-    _sub = LocalHistory.watch().listen((event) {
-      if (mounted) setState(() => _entries = _applied(event));
+    _sub = LocalHistory.watch().listen((BoxEvent event) {
+      _changed.add(event.key);
+      if (_applying) return;
+      _applying = true;
+      // after the burst: a clear, a trim or a restore sends one event per
+      // key, and each applied on its own copied and scanned the whole list —
+      // 20000 entries cleared took seconds on this isolate
+      Timer.run(() {
+        _applying = false;
+        final keys = {..._changed};
+        _changed.clear();
+        if (mounted) setState(() => _entries = _applied(keys));
+      });
     });
   }
 
-  /// [_entries] with the one [event] changed: kept alive in a tab under a
-  /// playing video, the page re-read and re-sorted the whole history (up to
-  /// 20000 entries) on every 10 s save.
-  List<LocalWatchEntry> _applied(BoxEvent event) {
-    final key = event.key;
-    if (key is! String) return LocalHistory.entries();
-    final entries = [..._entries]..removeWhere((e) => e.key == key);
-    final entry = event.deleted ? null : LocalHistory.get(key);
-    if (entry != null) {
+  final _changed = <Object?>{};
+  var _applying = false;
+
+  /// [_entries] with the entries under [keys] changed: kept alive in a tab
+  /// under a playing video, the page re-read and re-sorted the whole history
+  /// (up to 20000 entries) on every 10 s save. Many at once are read whole.
+  List<LocalWatchEntry> _applied(Set<Object?> keys) {
+    if (keys.length > 16 || keys.any((k) => k is! String)) {
+      return LocalHistory.entries();
+    }
+    final entries = [..._entries]..removeWhere((e) => keys.contains(e.key));
+    for (final key in keys) {
+      final entry = LocalHistory.get(key as String);
+      if (entry == null) continue;
       // most recently watched first, as [LocalHistory.entries]
       final at = entries.indexWhere((e) => e.time.compareTo(entry.time) < 0);
       entries.insert(at < 0 ? entries.length : at, entry);

@@ -40,9 +40,18 @@ abstract final class OnDeviceMenu {
     ...otherTranslationLanguages,
   ];
 
-  static int valueOf(String code) => code == 'asr'
-      ? original
-      : _languageBase - _languages.indexOf(code).clamp(0, 999);
+  static int valueOf(String code) {
+    if (code == 'asr') return original;
+    final at = _languages.indexOf(code);
+    if (at >= 0) return _languageBase - at;
+    // a code not in the list (a track's own, a menu row the list lost): a
+    // value of its own — clamped to 0 it took the app language's, two rows
+    // shared one and the menu opened at the wrong one
+    return _unlisted.putIfAbsent(code, () => _unlistedBase - _unlisted.length);
+  }
+
+  static const _unlistedBase = -100000;
+  static final _unlisted = <String, int>{};
 
   /// The languages listed by name for [host]: the app's, those kept in the
   /// menu, and the one picked when it is neither.

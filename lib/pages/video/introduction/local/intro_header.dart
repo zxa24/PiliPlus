@@ -227,7 +227,10 @@ class _LocalIntroHeaderState extends State<LocalIntroHeader> {
     return Row(
       spacing: IntroMetrics.avatarGap,
       children: [
-        _avatar(colorScheme, intro.face(card?.card?.face)),
+        _avatar(
+          colorScheme,
+          intro.face(card?.card?.face) ?? intro.face(view.owner?.face),
+        ),
         Expanded(
           child: Column(
             crossAxisAlignment: .start,

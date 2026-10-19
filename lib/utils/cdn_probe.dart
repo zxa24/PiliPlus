@@ -7,6 +7,7 @@
 /// switch made playback worse.
 library;
 
+import 'dart:async' show TimeoutException;
 import 'dart:io' show HttpClient, HttpHeaders, HttpStatus;
 
 import 'package:PiliPlus/http/browser_ua.dart';
@@ -55,6 +56,17 @@ abstract final class CdnProbe {
       }
       final left = timeout - clock.elapsed;
       if (left <= Duration.zero) return null;
+      // what the answer says it holds: a range past the end of the file (a
+      // cut in its last [length], a short stream) ends early, and whole
+      final range = RegExp(r'(\d+)-(\d+)/').firstMatch(
+        response.headers.value(HttpHeaders.contentRangeHeader) ?? '',
+      );
+      final declared = response.contentLength >= 0
+          ? response.contentLength
+          : range == null
+          ? length
+          : int.parse(range[2]!) - int.parse(range[1]!) + 1;
+      final expected = declared < length ? declared : length;
       try {
         await for (final chunk in response.timeout(left)) {
           received += chunk.length;
@@ -67,17 +79,19 @@ abstract final class CdnProbe {
           if (received >= length) break;
           if (clock.elapsed >= timeout) break;
         }
-      } on Exception {
+      } on TimeoutException {
         // out of time: a slow host, measured as far as it got
         return received > 0 ? _rate(received - first, transfer) : null;
       }
       // closed before the range was done: a cut copy, not a slow one
-      if (received < length && clock.elapsed < timeout) return null;
+      if (received < expected && clock.elapsed < timeout) return null;
       return _rate(received - first, transfer);
+    } on TimeoutException {
+      return received > 0 ? _rate(received - first, transfer) : null;
     } catch (_) {
-      return received > 0 && clock.elapsed >= timeout
-          ? _rate(received - first, transfer)
-          : null;
+      // the connection closed short of what was declared (dart:io's
+      // `Connection closed while receiving data`): a cut copy, as above
+      return null;
     } finally {
       client.close(force: true);
     }

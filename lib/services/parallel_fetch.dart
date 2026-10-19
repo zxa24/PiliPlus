@@ -88,11 +88,18 @@ class ParallelFetch {
   var bytesFromStore = 0;
   var bytesFromNetwork = 0;
 
+  /// How a connection upstream goes (`DIRECT` / `PROXY host:port`), as
+  /// the app's own requests do: a download through this went round the
+  /// 设置代理 setting (audit 2026-10-19). Unset, the environment's.
+  static String Function(Uri uri)? proxyFor;
+
   HttpServer? _server;
   final _client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 10)
     ..idleTimeout = const Duration(seconds: 15)
-    ..autoUncompress = false;
+    ..autoUncompress = false
+    ..findProxy = (uri) =>
+        proxyFor?.call(uri) ?? HttpClient.findProxyFromEnvironment(uri);
 
   final _byId = <String, _Remote>{};
 
@@ -573,6 +580,24 @@ class ParallelFetch {
   Future<void> _fromStore(_Remote remote, _Chunk chunk) async {
     final store = this.store;
     if (store == null || remote.key == null) return;
+    // made while the store was still being read (see [_remote]): what it
+    // found of this one is checked the same way before it is read; nothing
+    // compared it, and another encode's pieces were played (audit 2026-10-19)
+    if (remote.checked == null) {
+      if (store.meta(remote.key!) case final meta?) {
+        if (remote.size == meta.size) {
+          // the size the network gave (its own meta, as like as not)
+          remote.checked = Future<void>.value();
+        } else {
+          if (remote.size == null) {
+            remote
+              ..size = meta.size
+              ..contentType ??= meta.type;
+          }
+          remote.checked = _check(remote, store, meta.size);
+        }
+      }
+    }
     // the size the upstream gives first (see [_check]): as long as its two
     // 5 s timeouts, or a slow answer came after the old file was read
     await remote.checked?.timeout(

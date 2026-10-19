@@ -48,6 +48,10 @@ class YtChannelController extends GetxController
 
   YtChannelTabPage? takeSeed(YtChannelTab tab) => _seeds.remove(tab);
 
+  /// How many times the header has landed: a tab's list made before the
+  /// last ([YtChannelTabController.channelLoad]) is from before a reload.
+  var loads = 0;
+
   @override
   void onInit() {
     super.onInit();
@@ -72,6 +76,7 @@ class YtChannelController extends GetxController
     // a response with no tab list at all still has its uploads
     tabs = listed.isEmpty ? const [YtChannelTab.videos] : listed;
     _seeds[YtChannelTab.videos] = page;
+    loads++;
     tabController?.dispose();
     tabController = TabController(length: tabs.length, vsync: this);
     loadingState.value = Success(page.info);
@@ -107,8 +112,12 @@ class YtChannelTabController extends YtListController<Object> {
     this.tab, {
     this.channelName,
     this.seed,
+    this.channelLoad = 0,
     super.source,
   });
+
+  /// [YtChannelController.loads] when this list was made.
+  final int channelLoad;
 
   final String channelId;
   final YtChannelTab tab;

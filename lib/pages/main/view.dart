@@ -192,7 +192,15 @@ class _MainAppState extends PopScopeState<MainApp>
     if (_mainController.showTrayIcon &&
         !isSelfTestProfile &&
         !_setting.containsKey(SettingBoxKey.minimizeOnExit)) {
-      final toTray = await _askOnFirstClose();
+      // a second click on close while it asks: not another question on top
+      if (_asking) return;
+      _asking = true;
+      final bool? toTray;
+      try {
+        toTray = await _askOnFirstClose();
+      } finally {
+        _asking = false;
+      }
       // dismissed: the window stays
       if (toTray == null) return;
       _setting.put(SettingBoxKey.minimizeOnExit, toTray);
@@ -205,6 +213,9 @@ class _MainAppState extends PopScopeState<MainApp>
       _onClose();
     }
   }
+
+  /// [_askOnFirstClose]'s question is up.
+  var _asking = false;
 
   /// true for the tray, false to quit, null when dismissed.
   Future<bool?> _askOnFirstClose() {

@@ -21,6 +21,14 @@ void main() {
   ).host;
   final captionList = fixture('captions_dQw4w9WgXcQ.json');
 
+  // every host public: no lookup leaves the test
+  setUpAll(
+    () => YtInvidiousSource.lookup = (_) async => [
+      InternetAddress('203.0.113.7'),
+    ],
+  );
+  tearDownAll(() => YtInvidiousSource.lookup = InternetAddress.lookup);
+
   group('Anubis', () {
     test("tiekoetter's recorded challenge, solved as webread solves it", () {
       final c = Anubis.parse(fixture('anubis_tiekoetter.html'))!;

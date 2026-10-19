@@ -1597,6 +1597,17 @@ class VideoDetailController extends GetxController
         await response.drain<void>();
         return true;
       }
+      if (response.statusCode == HttpStatus.ok) {
+        // the range ignored: the whole file was read to the end (hundreds
+        // of MB) and the host then counted as cut (audit 2026-10-19). It
+        // says nothing of [offset]; a host that answers is not a cut one
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 4),
+        )) {
+          if (chunk.isNotEmpty) return true;
+        }
+        return false;
+      }
       var length = 0;
       await for (final chunk in response.timeout(const Duration(seconds: 4))) {
         length += chunk.length;
@@ -1757,7 +1768,7 @@ class VideoDetailController extends GetxController
       onInit: () {
         _watchPlayback();
         videoState.value = true;
-        _applySubtitle(vttSubtitlesIndex.value);
+        _applySubtitle(vttSubtitlesIndex.value, again: true);
       },
       width: firstVideo.width,
       height: firstVideo.height,
@@ -2267,10 +2278,20 @@ class VideoDetailController extends GetxController
   /// player when this page has it again.
   Future<void> _applyOwnSubtitle(int index) async {
     if (_ownsPlayer) return _applySubtitle(index);
+    _subtitleApplies++;
     vttSubtitlesIndex.value = index;
   }
 
-  Future<void> _applySubtitle(int index) async {
+  /// Counts the changes of subtitle: one whose track was still downloading
+  /// when another was asked for gives way to it. The track the switch picks
+  /// on open, coming in after the viewer chose 关闭 or another, put itself
+  /// back on (audit 2026-10-19).
+  var _subtitleApplies = 0;
+
+  /// [again]: the track shown, handed to a player opened anew — not a
+  /// change, and no reason for one still downloading to give way.
+  Future<void> _applySubtitle(int index, {bool again = false}) async {
+    final apply = again ? _subtitleApplies : ++_subtitleApplies;
     if (index <= 0) {
       await plPlayerController.setSubtitle(SubtitleTrack.no());
       vttSubtitlesIndex.value = index;
@@ -2292,15 +2313,17 @@ class VideoDetailController extends GetxController
 
     var subtitle = vttSubtitles[index - 1];
     if (subtitle == null) {
-      final result = await VideoHttp.getSubtitles(
-        subtitles[index - 1].subtitleUrl!,
-      );
+      final asked = subtitles[index - 1];
+      final result = await VideoHttp.getSubtitles(asked.subtitleUrl!);
       if (!isClosed && result != null) {
         subtitle = (isData: true, id: result);
+        // the list rebuilt meanwhile (another part): not this index's
+        if (!identical(subtitles.elementAtOrNull(index - 1), asked)) return;
         vttSubtitles[index - 1] = subtitle;
       } else {
         return;
       }
+      if (apply != _subtitleApplies) return;
     }
     await setSub(subtitle);
   }
@@ -3867,6 +3890,7 @@ class VideoDetailController extends GetxController
 
     // subtitle
     subtitles.clear();
+    _subtitleApplies++;
     vttSubtitlesIndex.value = -1;
     vttSubtitles.clear();
     // a transcription belongs to the part it was started for; the next part

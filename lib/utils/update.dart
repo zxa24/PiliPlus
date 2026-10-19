@@ -37,10 +37,13 @@ abstract final class Update {
       // LibrePili: the app's releases only — the repository also keeps
       // non-app releases (the speech models' mirror, tag asr-models), which
       // are not a new version of anything
+      // — nor one holding only the side-by-side test build (`_dev_`, its own
+      // app id): installed, it sits beside this one instead of updating it
       final releases = (res.data as List).whereType<Map>().where(
         (r) =>
             r['draft'] != true &&
-            RegExp(r'^v?\d+\.\d+').hasMatch('${r['tag_name']}'),
+            RegExp(r'^v?\d+\.\d+').hasMatch('${r['tag_name']}') &&
+            !_onlyDev(r['assets']),
       );
       if (releases.isEmpty) {
         if (!isAuto) SmartDialog.showToast('已是最新版本');
@@ -127,6 +130,14 @@ abstract final class Update {
     }
   }
 
+  /// The Android test build's file (`LibrePili_android_<v>_dev_<abi>.apk`).
+  static bool _isDev(String name) => name.contains('_dev_');
+
+  static bool _onlyDev(Object? assets) =>
+      assets is List &&
+      assets.isNotEmpty &&
+      assets.every((a) => a is Map && _isDev('${a['name']}'));
+
   // 下载适用于当前系统的安装包
   static Future<void> onDownload(Map data, {String? ext}) async {
     SmartDialog.dismiss();
@@ -135,6 +146,7 @@ abstract final class Update {
         if (data['assets'].isNotEmpty) {
           for (Map<String, dynamic> i in data['assets']) {
             final String name = i['name'];
+            if (_isDev(name)) continue;
             if (name.contains(plat) &&
                 (ext == null || ext.isEmpty ? true : name.endsWith(ext))) {
               PageUtils.launchURL(i['browser_download_url']);

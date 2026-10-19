@@ -185,14 +185,28 @@ class DownloadProgress extends ChangeNotifier {
   /// stream may report first.
   int get mediaTotal {
     final known = videoTotal + audioTotal;
-    final allKnown = videoTotal > 0 && (expectAudio == false || audioTotal > 0);
+    final allKnown =
+        (videoTotal > 0 || _videoFinished) &&
+        (expectAudio == false || audioTotal > 0 || _audioFinished);
     return allKnown ? known : math.max(known, mediaGuess);
   }
 
-  /// A stream is complete: its last bytes are not always reported.
-  void videoDone() => video(videoTotal, videoTotal);
+  /// A stream is complete: its last bytes are not always reported — and
+  /// one already whole on disk reports none at all, so its total is known
+  /// to be what was reported (else the guess held the bar short until the
+  /// end).
+  void videoDone() {
+    _videoFinished = true;
+    video(videoTotal, videoTotal);
+  }
 
-  void audioDone() => audio(audioTotal, audioTotal);
+  void audioDone() {
+    _audioFinished = true;
+    audio(audioTotal, audioTotal);
+  }
+
+  bool _videoFinished = false;
+  bool _audioFinished = false;
 
   void _measure() {
     final now = _clock();
@@ -224,6 +238,7 @@ class DownloadProgress extends ChangeNotifier {
     expectAudio = null;
     danmakuDone = danmakuTotal = 0;
     audioReceived = audioTotal = 0;
+    _videoFinished = _audioFinished = false;
     merged = false;
     _shown = 0;
     _changed();

@@ -125,8 +125,21 @@ class SubtitleCacheEntry {
   SubtitleCache? _store;
 
   /// The [runs] [SubtitleCache.onSaved] was last told of: a save that
-  /// changed only the translations does not tell it again.
+  /// changed neither these nor [translations] does not tell it again.
   List<RestoredRun>? _runsTold;
+
+  /// The [translations] it was last told of, each language's results as
+  /// the object they were (a capture makes a new one). Those are saved a few
+  /// seconds after a change at most (TranslationCacheLink), and told as
+  /// often: a transcript complete before it was translated never reached
+  /// the file beside the download.
+  Map<String, TranslationResults> _translationsTold = const {};
+
+  bool get _translationsChanged =>
+      _translationsTold.length != translations.length ||
+      translations.entries.any(
+        (e) => !identical(_translationsTold[e.key], e.value),
+      );
 
   /// Writes it to the cache it came from, as it is now (see
   /// [SubtitleCache.save]).
@@ -438,8 +451,10 @@ class SubtitleCache {
     _entries[name] = entry;
     entry._store = this;
     if (entry.isEmpty) return _writes[name] ?? Future.value();
-    if (!identical(entry._runsTold, entry.runs)) {
-      entry._runsTold = entry.runs;
+    if (!identical(entry._runsTold, entry.runs) || entry._translationsChanged) {
+      entry
+        .._runsTold = entry.runs
+        .._translationsTold = Map.of(entry.translations);
       onSaved?.call(entry);
     }
     final text = jsonEncode(entry.toJson());
@@ -455,9 +470,9 @@ class SubtitleCache {
     return write;
   }
 
-  /// Told of every entry kept, as it is kept, when its transcript has
-  /// changed since: the downloads write a finished download's transcript
-  /// beside its video (TranscriptFiles).
+  /// Told of every entry kept, as it is kept, when its transcript or its
+  /// translations have changed since: the downloads write a finished
+  /// download's transcript beside its video (TranscriptFiles).
   static void Function(SubtitleCacheEntry entry)? onSaved;
 
   /// Whether a transcription job holds [key]'s entry (AsrService): [adopt]

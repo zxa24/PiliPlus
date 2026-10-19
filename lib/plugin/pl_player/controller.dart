@@ -992,6 +992,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     ParallelFetch.log ??= (line) => EventLog.add('fetch', line);
     ParallelFetch.onRefused ??= (uri, status) =>
         _instance?.onHostRefused?.call(uri.host, status);
+    // the 设置代理 setting, as Request's own client reads it
+    ParallelFetch.proxyFor ??= (uri) {
+      final port = int.tryParse(Pref.systemProxyPort);
+      final host = Pref.systemProxyHost;
+      if (!Pref.enableSystemProxy || port == null || host.isEmpty) {
+        return HttpClient.findProxyFromEnvironment(uri);
+      }
+      return uri.host == '127.0.0.1' ? 'DIRECT' : 'PROXY $host:$port';
+    };
     try {
       await _parallel.start();
     } catch (e) {
@@ -2544,7 +2553,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _startListeners(next);
     // a pause that came during [next.play] paused only [old] (the check in
     // [pause] saw no handover yet): the one now in place too
-    if (_pausedAt != null) unawaited(next.pause());
+    if (_pausedAt != null) {
+      unawaited(next.pause());
+    } else if (!play && playerStatus.isPlaying && !next.state.playing) {
+      // the mirror: a play that came during [_holdPicture] started only
+      // [old], and [next] came up paused (audit 2026-10-19)
+      unawaited(next.play());
+    }
     // the stall this was for ends with the old player
     _logBuffering(false);
     _transportFailures = 0;
@@ -3786,9 +3801,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (playerStatus.isPlaying) {
         longPressStatus.value = val;
         HapticFeedback.lightImpact();
+        // a press while the last release still ramps down counts from the
+        // speed that release was going back to, not the fast one it left
+        // [playbackSpeed] at: that stuck at 3x for good (audit 2026-10-19)
+        final base = _releasingTo ?? playbackSpeed;
         await setPlaybackSpeed(
-          enableAutoLongPressSpeed ? playbackSpeed * 2 : longPressSpeed,
+          enableAutoLongPressSpeed ? base * 2 : longPressSpeed,
         );
+        lastPlaybackSpeed = base;
       }
     } else {
       // if (kDebugMode) debugPrint('$playbackSpeed');
@@ -3796,70 +3816,84 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       debugOnRelease?.call(_read('time-pos'));
       final fast = playbackSpeed;
       final target = lastPlaybackSpeed;
-      // `rampsmooth:300`: [_rampDown] over 300 ms (1 s unsaid)
-      final release = debugLongPressRelease?.split(':');
-      switch (release?.first) {
-        case 'ramp':
-          // down in small steps: each leaves mpv a small A/V gap to take up
-          // by resampling instead of the whole 3x buffer at once
-          const steps = 8;
-          for (var i = 1; i < steps; i++) {
-            if (longPressStatus.value) return;
-            final rate = fast + (target - fast) * i / steps;
-            await _videoPlayerController?.setRate(rate);
-            await Future.delayed(const Duration(milliseconds: 150));
-          }
-          await setPlaybackSpeed(target);
-          lastPlaybackSpeed = target;
-        case 'seek':
-          // where the picture is at the release, read from mpv before the
-          // speed changes (state.position lags and moves with the change)
-          final at = _read('time-pos');
-          await setPlaybackSpeed(target);
-          if (double.tryParse(at) != null) {
-            await _videoPlayerController?.command([
-              'seek',
-              at,
-              'absolute+exact',
-            ]);
-          }
-        case 'rampsmooth':
-          final ms = int.tryParse(release!.elementAtOrNull(1) ?? '') ?? 1000;
-          await _rampDown(fast, target, Duration(milliseconds: ms));
-        case 'hold':
-          // the release before 2026-10-01: no frames dropped, one step down
-          _holdFrames();
-          await setPlaybackSpeed(target);
-          _releaseFrames();
-        case 'seekfirst':
-          // the seek throws the fast audio away before the speed changes,
-          // so the change has none to re-time (with 'seek', the picture
-          // shows the jump for a frame before the seek lands)
-          final at = _read('time-pos');
-          if (double.tryParse(at) != null) {
-            await _videoPlayerController?.command([
-              'seek',
-              at,
-              'absolute+exact',
-            ]);
-          }
-          await setPlaybackSpeed(target);
-        case 'aoreload':
-          // the audio made at the fast speed is thrown away with the output
-          await setPlaybackSpeed(target);
-          await _videoPlayerController?.command(['ao-reload']);
-        case 'now':
-          await setPlaybackSpeed(target);
-        default:
-          // in step on release: down over 100 ms (user 2026-10-01, by eye:
-          // 1 s felt sticky, one step jumped); far behind (a phone that could
-          // not decode 3x), only dropping catches up, as before
-          if (_nearlyInStep()) {
-            await _rampDown(fast, target, const Duration(milliseconds: 100));
-          } else {
-            await setPlaybackSpeed(target);
-          }
+      final release = ++_releases;
+      _releasingTo = target;
+      try {
+        await _letGo(fast, target);
+      } finally {
+        if (_releases == release) _releasingTo = null;
       }
+    }
+  }
+
+  /// The speed a long press's release is going back to, while it ramps.
+  double? _releasingTo;
+  int _releases = 0;
+
+  Future<void> _letGo(double fast, double target) async {
+    // `rampsmooth:300`: [_rampDown] over 300 ms (1 s unsaid)
+    final release = debugLongPressRelease?.split(':');
+    switch (release?.first) {
+      case 'ramp':
+        // down in small steps: each leaves mpv a small A/V gap to take up
+        // by resampling instead of the whole 3x buffer at once
+        const steps = 8;
+        for (var i = 1; i < steps; i++) {
+          if (longPressStatus.value) return;
+          final rate = fast + (target - fast) * i / steps;
+          await _videoPlayerController?.setRate(rate);
+          await Future.delayed(const Duration(milliseconds: 150));
+        }
+        await setPlaybackSpeed(target);
+        lastPlaybackSpeed = target;
+      case 'seek':
+        // where the picture is at the release, read from mpv before the
+        // speed changes (state.position lags and moves with the change)
+        final at = _read('time-pos');
+        await setPlaybackSpeed(target);
+        if (double.tryParse(at) != null) {
+          await _videoPlayerController?.command([
+            'seek',
+            at,
+            'absolute+exact',
+          ]);
+        }
+      case 'rampsmooth':
+        final ms = int.tryParse(release!.elementAtOrNull(1) ?? '') ?? 1000;
+        await _rampDown(fast, target, Duration(milliseconds: ms));
+      case 'hold':
+        // the release before 2026-10-01: no frames dropped, one step down
+        _holdFrames();
+        await setPlaybackSpeed(target);
+        _releaseFrames();
+      case 'seekfirst':
+        // the seek throws the fast audio away before the speed changes,
+        // so the change has none to re-time (with 'seek', the picture
+        // shows the jump for a frame before the seek lands)
+        final at = _read('time-pos');
+        if (double.tryParse(at) != null) {
+          await _videoPlayerController?.command([
+            'seek',
+            at,
+            'absolute+exact',
+          ]);
+        }
+        await setPlaybackSpeed(target);
+      case 'aoreload':
+        // the audio made at the fast speed is thrown away with the output
+        await setPlaybackSpeed(target);
+        await _videoPlayerController?.command(['ao-reload']);
+      case 'now':
+        await setPlaybackSpeed(target);
+      default:
+        // in step on release: down over 100 ms (user 2026-10-01, by eye:
+        // 1 s felt sticky, one step jumped); far behind (a phone that could
+        // not decode 3x), only dropping catches up, as before
+        if (_nearlyInStep()) {
+          await _rampDown(fast, target, const Duration(milliseconds: 100));
+        } else {
+          await setPlaybackSpeed(target);
+        }
     }
   }
 
@@ -3965,15 +3999,30 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// a wider audio correction: 0 dropped, no stall, avsync back to 0 within
   /// 2.5 s (desktop).
   Timer? _framesTimer;
+  bool _framesHeld = false;
 
   void _holdFrames() {
     _framesTimer?.cancel();
     _framesTimer = null;
     final player = _videoPlayerController;
     if (player == null) return;
+    _framesHeld = true;
     player
       ..setProperty('framedrop', 'no')
       ..setProperty('video-sync-max-audio-change', '5');
+  }
+
+  /// mpv's own defaults back. Every way out of a hold comes here: a press
+  /// again before A/V is back in step left framedrop=no for good, and the
+  /// player is shared by every page (audit 2026-10-19).
+  void _restoreFrames() {
+    _framesTimer?.cancel();
+    _framesTimer = null;
+    if (!_framesHeld) return;
+    _framesHeld = false;
+    _videoPlayerController
+      ?..setProperty('framedrop', 'vo')
+      ..setProperty('video-sync-max-audio-change', '0.125');
   }
 
   void _releaseFrames() {
@@ -3983,7 +4032,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _framesTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       final player = _videoPlayerController;
       if (player == null || longPressStatus.value) {
-        timer.cancel();
+        // a press again: it runs with the defaults, as the first one did
+        _restoreFrames();
         return;
       }
       final avsync = double.tryParse(player.getProperty('avsync')) ?? 0;
@@ -3991,11 +4041,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // in step for half a second, or given up on after 10 s
       if (inStep >= 5 ||
           DateTime.now().difference(started) > const Duration(seconds: 10)) {
-        timer.cancel();
-        _framesTimer = null;
-        player
-          ..setProperty('framedrop', 'vo')
-          ..setProperty('video-sync-max-audio-change', '0.125');
+        _restoreFrames();
       }
     });
   }
@@ -4282,8 +4328,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // 每次减1，最后销毁
     resetScreenRotation();
     cancelLongPressTimer();
-    _framesTimer?.cancel();
-    _framesTimer = null;
+    _restoreFrames();
     _debugStatusTimer?.cancel();
     _debugStatusTimer = null;
     DebugOverlay.drop('player');

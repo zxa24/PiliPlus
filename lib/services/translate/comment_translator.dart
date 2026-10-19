@@ -283,21 +283,32 @@ class CommentTranslator {
     total.value++;
     final round = _round;
     final translate = debugTranslate ?? TranslationService.to.translateText;
-    translate(protected.text, into: TextLanguage.native.first, tag: this).then(
-      (result) {
-        if (!_all.containsValue(this)) return;
-        final restored = result == null ? null : protected.restore(result);
+    void settle(String? result) {
+      if (!_all.containsValue(this)) return;
+      String? restored;
+      // a translation that throws is a failure like one that gave nothing:
+      // left in [_asked], the comment stayed pending and [done] never came
+      try {
+        restored = result == null ? null : protected.restore(result);
         if (restored != null) keep(restored);
-        // dropped (the list turned off): not a failure, and not this
-        // round's to count — the counts started again from 0
-        if (round == _round) {
-          _asked.remove(id);
-          if (restored == null) _failed.add(id);
-          done.value++;
-        }
-        revision.value++;
-      },
-    );
+      } catch (_) {
+        restored = null;
+      }
+      // dropped (the list turned off): not a failure, and not this
+      // round's to count — the counts started again from 0
+      if (round == _round) {
+        _asked.remove(id);
+        if (restored == null) _failed.add(id);
+        done.value++;
+      }
+      revision.value++;
+    }
+
+    translate(
+      protected.text,
+      into: TextLanguage.native.first,
+      tag: this,
+    ).then(settle, onError: (Object _) => settle(null));
   }
 
   void _stop() {

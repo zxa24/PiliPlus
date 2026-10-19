@@ -124,9 +124,19 @@ class PieceStore {
     if (known != null && known.size == size) return;
     if (known != null) await _drop(known);
     await _deleting[key];
+    final folder = Directory('${dir.path}/$key');
+    // the old file's folder not all gone (Windows: a piece open for a read
+    // meanwhile is not deleted): a meta for the new size beside its pieces
+    // would have them taken for the new file's at the next start. Nothing
+    // kept of it this time; without a meta of this size the next start
+    // finds them out (audit 2026-10-19)
+    try {
+      if (folder.existsSync() && !await folder.list().isEmpty) return;
+    } catch (_) {
+      return;
+    }
     final stream = _streams[key] = _Stream(key, size, type);
     try {
-      final folder = Directory('${dir.path}/$key');
       await folder.create(recursive: true);
       await File('${folder.path}/meta').writeAsString(
         jsonEncode({'path': uri.path, 'size': size, 'type': type}),

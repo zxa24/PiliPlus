@@ -299,6 +299,25 @@ class YtInvidiousSource implements YouTubeVideoSource {
     }
 
     final base = Uri.parse(host);
+    switch (await _isPublic(base.resolve(dash))) {
+      case null:
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.transient,
+            'invidious:manifest:transport',
+            'no address for ${base.resolve(dash).host}',
+          ),
+        );
+      case false:
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.transient,
+            'invidious:foreign-manifest',
+            'the page points the manifest at ${base.resolve(dash).host}',
+          ),
+        );
+      case true:
+    }
     final (listed, captionList) = await (
       _formatsFrom(base.resolve(dash)),
       _get(base.resolve('/api/v1/captions/$videoId')),
@@ -311,7 +330,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
     // companion only when it refuses
     final relayedDash = watch.relayedDashUrl;
     var throughCompanion = relayed;
-    if (!relayed && relayedDash != null && relayedDash != dash) {
+    if (!relayed &&
+        relayedDash != null &&
+        relayedDash != dash &&
+        await _isPublic(base.resolve(relayedDash)) == true) {
       final probe = selectYtAudioFormat(formats)?.url;
       if (probe != null && await _refusedHere(probe)) {
         final through = await _formatsFrom(base.resolve(relayedDash));
@@ -347,6 +369,12 @@ class YtInvidiousSource implements YouTubeVideoSource {
       } catch (_) {}
     }
 
+    final tracks = [
+      for (final t in invidiousCaptionTracks(watch, codes, base))
+        if (Uri.tryParse(t.baseUrl) case final u?)
+          if (await _isPublic(u) == true) t,
+    ];
+
     final now = _now();
     final expiry = invidiousExpiry(formats);
     final lasts = expiry == null ? keep : expiry.difference(now);
@@ -361,7 +389,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
       isLive: false,
       thumbnails: invidiousThumbnails(videoId),
       formats: formats,
-      captionTracks: invidiousCaptionTracks(watch, codes, base),
+      captionTracks: tracks,
       expiresIn: lasts,
     );
     // kept until well before the URLs end
@@ -370,6 +398,57 @@ class YtInvidiousSource implements YouTubeVideoSource {
     );
     _resolved[videoId] = (detail: detail, until: until, ends: now.add(lasts));
     return YtResult.ok(detail);
+  }
+
+  /// How a host name is resolved for [_isPublic]: tests put their own.
+  static Future<List<InternetAddress>> Function(String host) lookup =
+      InternetAddress.lookup;
+
+  /// Whether [uri], named by an instance's watch page, may be asked for:
+  /// `https`, to a host that is not — and does not resolve to — this
+  /// machine or the local network (loopback, private, link-local,
+  /// unique-local, carrier-grade NAT, unspecified, multicast). An instance
+  /// already picks which public hosts the streams come from; what its page
+  /// must not do is send this machine to a service beside it. Redirects are
+  /// not followed ([_get]). Null when the host has no address.
+  static Future<bool?> _isPublic(Uri uri) async {
+    if (uri.scheme != 'https' || uri.host.isEmpty) return false;
+    final literal = InternetAddress.tryParse(uri.host);
+    if (literal != null) return !_isLocal(literal);
+    final List<InternetAddress> addresses;
+    try {
+      addresses = await lookup(uri.host);
+    } catch (_) {
+      return null;
+    }
+    if (addresses.isEmpty) return null;
+    return !addresses.any(_isLocal);
+  }
+
+  static bool _isLocal(InternetAddress address) {
+    var b = address.rawAddress;
+    if (b.length == 16) {
+      // an IPv4 address written as IPv6 (::ffff:a.b.c.d)
+      final mapped =
+          b.take(10).every((x) => x == 0) && b[10] == 0xff && b[11] == 0xff;
+      if (!mapped) {
+        final zero = b.take(15).every((x) => x == 0);
+        return (zero && (b[15] == 0 || b[15] == 1)) || // :: and ::1
+            b[0] & 0xfe == 0xfc || // fc00::/7
+            (b[0] == 0xfe && b[1] & 0xc0 == 0x80) || // fe80::/10
+            b[0] == 0xff; // ff00::/8
+      }
+      b = b.sublist(12);
+    }
+    if (b.length != 4) return true;
+    return b[0] == 0 || // 0.0.0.0/8
+        b[0] == 127 ||
+        b[0] == 10 ||
+        (b[0] == 172 && b[1] & 0xf0 == 16) ||
+        (b[0] == 192 && b[1] == 168) ||
+        (b[0] == 169 && b[1] == 254) ||
+        (b[0] == 100 && b[1] & 0xc0 == 64) || // 100.64.0.0/10
+        b[0] >= 224; // multicast, and the reserved range above it
   }
 
   /// The formats of the manifest at [manifest]. Relative stream paths are

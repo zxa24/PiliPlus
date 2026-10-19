@@ -222,18 +222,32 @@ class _YtChannelTabPageState
   late final _channel = Get.find<YtChannelController>(tag: widget.pageTag);
 
   @override
-  late final YtChannelTabController controller = Get.put(
-    YtChannelTabController(
-      widget.channelId,
-      tab,
-      channelName: widget.channelName,
-      seed: _channel.takeSeed(tab),
-      // the channel's own source: it holds the tab params the first
-      // response listed, which every later tab is asked for with
-      source: _channel.router.direct,
-    ),
-    tag: _tabTag(widget.pageTag, tab),
+  late final YtChannelTabController controller = _controllerFor(
+    _tabTag(widget.pageTag, tab),
   );
+
+  YtChannelTabController _controllerFor(String tag) {
+    // the channel reloaded: Get.put handed back the list from before, and
+    // the fresh first page went to a controller thrown away
+    if (Get.isRegistered<YtChannelTabController>(tag: tag) &&
+        Get.find<YtChannelTabController>(tag: tag).channelLoad !=
+            _channel.loads) {
+      Get.delete<YtChannelTabController>(tag: tag);
+    }
+    return Get.put(
+      YtChannelTabController(
+        widget.channelId,
+        tab,
+        channelName: widget.channelName,
+        seed: _channel.takeSeed(tab),
+        channelLoad: _channel.loads,
+        // the channel's own source: it holds the tab params the first
+        // response listed, which every later tab is asked for with
+        source: _channel.router.direct,
+      ),
+      tag: tag,
+    );
+  }
 
   @override
   bool get wantKeepAlive => true;

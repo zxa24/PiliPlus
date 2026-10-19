@@ -74,8 +74,8 @@ class YtVideoController extends GetxController
   @override
   final YtSourceRouter router;
 
-  /// The video, its streams and captions: the direct source, and
-  /// `inv.nadeko.net` when YouTube refuses this network.
+  /// The video, its streams and captions: the direct source, and the public
+  /// Invidious instances when YouTube refuses this network.
   late final YtSourceRouter play;
 
   /// `--yt-source invidious|direct`: one source only.
@@ -354,9 +354,15 @@ class YtVideoController extends GetxController
     return _showCaption(index);
   }
 
+  /// Bumped by every change of what subtitle is shown: a caption still
+  /// being fetched when another is picked (or a transcript or translation
+  /// put up) is not put back over it.
+  var _captionTurn = 0;
+
   Future<void> _showCaption(int index) async {
     final player = plPlayerController.videoPlayerController;
     if (player == null) return;
+    final turn = ++_captionTurn;
     if (index < 0 || index >= captions.length) {
       await plPlayerController.setSubtitle(SubtitleTrack.no());
       captionIndex.value = -1;
@@ -375,7 +381,7 @@ class YtVideoController extends GetxController
       content = result.value!;
       _captionCache[index] = content;
     }
-    if (isClosed) return;
+    if (isClosed || turn != _captionTurn) return;
     final track = captions[index];
     await plPlayerController.setSubtitle(
       SubtitleTrack(
@@ -1095,6 +1101,7 @@ class YtVideoController extends GetxController
   SubtitleTrack? _generatedTrack;
 
   void _showGeneratedTrack(SubtitleTrack track) {
+    _captionTurn++;
     _generatedTrack = track;
     plPlayerController.setSubtitle(track);
     captionIndex.value = -2;

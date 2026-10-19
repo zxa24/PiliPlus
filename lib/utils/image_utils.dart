@@ -222,11 +222,14 @@ abstract final class ImageUtils {
 
   /// LibrePili: an absolute path on this device rather than a URL — the
   /// copies saved with a download (an offline comment's avatar, emotes and
-  /// pictures). `//host/…` is a URL without its scheme, not a path.
+  /// pictures). `//host/…` is a URL without its scheme, not a path;
+  /// `\\server\share\…` is one, a download folder on a network share.
   static bool isLocalFile(String? src) =>
       src != null &&
       !src.startsWith('//') &&
-      (src.startsWith('/') || _windowsPath.hasMatch(src));
+      (src.startsWith('/') ||
+          src.startsWith(r'\\') ||
+          _windowsPath.hasMatch(src));
 
   static final _windowsPath = RegExp(r'^[A-Za-z]:[\\/]');
 

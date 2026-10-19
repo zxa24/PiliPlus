@@ -255,7 +255,15 @@ abstract final class DownloadExtras {
     }
     final faces = <String, String>{};
     for (final url in {
-      if (card case {'card': {'face': final String face}}) face,
+      if (card case {'card': {'face': final String face}})
+        face
+      // the card refused: the uploader's face from the video's own answer
+      else if (view['owner']
+          case {
+            'face': final String face,
+          }
+          when staff.isEmpty)
+        face,
       for (final s in staff)
         if (s['face'] case final String face) face,
     }) {

@@ -279,8 +279,7 @@ class YtDirectSource implements YouTubeVideoSource {
       );
     }
 
-    final asked =
-        _tabParams[channelId]?[tab] ?? tab.fallbackParams;
+    final asked = _tabParams[channelId]?[tab] ?? tab.fallbackParams;
     var r = await client.browse(channelId, params: asked);
     var verdict = classifyYtTransport(r);
     if (verdict != null) return YtResult.failed(verdict);
@@ -319,7 +318,8 @@ class YtDirectSource implements YouTubeVideoSource {
     }
 
     final info = parseChannelInfo(r.json, channelId);
-    final named = context ?? (info == null ? null : (name: info.name, id: channelId));
+    final named =
+        context ?? (info == null ? null : (name: info.name, id: channelId));
     return YtResult.ok(
       YtChannelTabPage(
         tab: tab,
@@ -374,7 +374,15 @@ class YtDirectSource implements YouTubeVideoSource {
     if (verdict != null) return YtResult.failed(verdict);
     final videos = parseChannelVideos(r.json);
     final token = listContinuationToken(r.json);
-    if (continuation == null && videos.isEmpty && token == null) {
+    final info = continuation == null
+        ? parsePlaylistInfo(r.json, playlistId)
+        : null;
+    // an empty playlist still has its header: only a page with neither is
+    // one this client no longer reads
+    if (continuation == null &&
+        videos.isEmpty &&
+        token == null &&
+        info == null) {
       return const YtResult.failed(
         YtVerdict(
           YtCause.clientBroken,
@@ -385,7 +393,7 @@ class YtDirectSource implements YouTubeVideoSource {
     }
     return YtResult.ok(
       YtPlaylistPage(
-        continuation == null ? parsePlaylistInfo(r.json, playlistId) : null,
+        info,
         YtPage(videos, token),
       ),
     );
