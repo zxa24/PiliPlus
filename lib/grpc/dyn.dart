@@ -90,6 +90,7 @@ abstract final class DynGrpc {
         dynType: dynType,
         rid: rid,
         offset: offset,
+        from: from,
         repostType: repostType,
       ),
       RepostListRsp.fromBuffer,

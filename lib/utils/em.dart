@@ -1,7 +1,7 @@
 abstract final class Em {
   static final _exp = RegExp('<[^>]*>([^<]*)</[^>]*>');
   static final _htmlRegExp = RegExp(
-    r'&(lt|gt|quot|apos|nbsp|amp|#x[a-fA-F\d]{2,4});',
+    r'&(lt|gt|quot|apos|nbsp|amp|#[xX][a-fA-F\d]{1,6}|#\d{1,7});',
   );
 
   static String regCate(String origin) {
@@ -19,9 +19,15 @@ abstract final class Em {
         'apos' => "'",
         'nbsp' => ' ',
         'amp' => '&',
-        var i? when (i.startsWith('#x')) => String.fromCharCode(
-          int.parse(i.substring(2), radix: 16),
-        ),
+        // numeric: hex or decimal, any code point (emoji are above
+        // U+FFFF); one that is not a character stays as written
+        var i? when (i.startsWith('#')) => switch (i[1] == 'x' || i[1] == 'X'
+            ? int.parse(i.substring(2), radix: 16)
+            : int.parse(i.substring(1))) {
+          final c when c <= 0x10FFFF && (c < 0xD800 || c > 0xDFFF) =>
+            String.fromCharCode(c),
+          _ => match.group(0)!,
+        },
         _ => match.group(0)!,
       },
     );

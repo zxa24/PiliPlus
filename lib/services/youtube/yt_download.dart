@@ -5,9 +5,10 @@
 /// None of that describes a YouTube video, so this does not go through it.
 /// What it does share is the part that matters — [Mp4Remuxer], the same pure
 /// Dart remuxer that turns bilibili's two DASH tracks into one progressive
-/// file. YouTube's adaptive streams are the same kind of fragmented MP4, so
-/// the video and the audio arrive separately and leave as one file that any
-/// player opens.
+/// file. YouTube's AVC/AV1 and AAC streams are the same kind of fragmented
+/// MP4, so the video and the audio arrive separately and leave as one file
+/// that any player opens; its VP9 and Opus ones are WebM, which the remuxer
+/// cannot read ([YtDownloader.remuxable]).
 ///
 /// The requests carry no cookies and no bilibili headers: a bare
 /// [HttpClient], not the app's Dio stack.
@@ -16,7 +17,9 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:PiliPlus/services/youtube/invidious_source.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
+import 'package:PiliPlus/services/youtube/yt_video_id.dart';
 import 'package:PiliPlus/utils/mp4_remux.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:path/path.dart' as path;
@@ -52,7 +55,28 @@ class YtDownloadToken {
   }
 }
 
+class YtDownloadNotMp4 implements Exception {
+  const YtDownloadNotMp4();
+  @override
+  String toString() => '该视频没有可合成为 mp4 的格式（只有 WebM），无法下载';
+}
+
 abstract final class YtDownloader {
+  /// Whether [pair] can be made one mp4: [Mp4Remuxer] reads ISO BMFF only,
+  /// and YouTube serves VP9 (every height above 1080p) and Opus as WebM.
+  static bool remuxable(YtStreamPair pair) {
+    final video = pair.video;
+    if (video == null) return false;
+    // itag 18 and friends: one progressive mp4 already
+    if (pair.videoUrl == pair.audioUrl) {
+      return video.mimeType.startsWith('video/mp4');
+    }
+    final audio = pair.audio;
+    return audio != null &&
+        video.mimeType.startsWith('video/mp4') &&
+        audio.mimeType.startsWith('audio/mp4');
+  }
+
   /// No single request may sit idle longer than this. A YouTube URL that
   /// stops producing bytes does not close on its own.
   static const _idleTimeout = Duration(seconds: 30);
@@ -66,6 +90,13 @@ abstract final class YtDownloader {
     YtDownloadProgress? onProgress,
     YtDownloadToken? token,
   }) async {
+    // a folder of its own that is deleted whole: never a path made of
+    // anything but an id
+    if (!isYouTubeVideoId(videoId)) {
+      throw ArgumentError.value(videoId, 'videoId', 'not a YouTube video id');
+    }
+    // said before the transfer, not after it as the remuxer's "bad box"
+    if (!remuxable(pair)) throw const YtDownloadNotMp4();
     final temp = await appTempDirectory();
     final work = await Directory(
       path.join(temp.path, 'ytdl', videoId),
@@ -79,9 +110,7 @@ abstract final class YtDownloader {
       // two halves: the audio is a small fraction of the video, and a bar
       // that sits at 50% for the whole audio track is a bar that is lying.
       final videoBytes = await _contentLength(pair.videoUrl, token);
-      final audioBytes = muxed
-          ? 0
-          : await _contentLength(pair.audioUrl, token);
+      final audioBytes = muxed ? 0 : await _contentLength(pair.audioUrl, token);
       final total = (videoBytes ?? 0) + (audioBytes ?? 0);
 
       var done = 0;
@@ -145,15 +174,45 @@ abstract final class YtDownloader {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     final safe = cleaned.isEmpty ? 'video' : cleaned;
-    return safe.length <= 80 ? safe : safe.substring(0, 80).trim();
+    // by code point: by UTF-16 unit, an emoji cut in two
+    final runes = safe.runes;
+    return runes.length <= 80
+        ? safe
+        : String.fromCharCodes(runes.take(80)).trim();
+  }
+
+  /// [method] on [uri], its redirects followed here rather than by the
+  /// client: each hop must be public https ([YtInvidiousSource.isPublicUrl]),
+  /// as the stream URL itself had to be when it was listed.
+  static Future<HttpClientResponse> _send(
+    HttpClient client,
+    String method,
+    Uri uri, {
+    String? range,
+  }) async {
+    for (var hop = 0; hop < 5; hop++) {
+      if (hop > 0 && await YtInvidiousSource.isPublicUrl(uri) != true) {
+        throw HttpException('redirected to a non-public address', uri: uri);
+      }
+      final request = await client.openUrl(method, uri)
+        ..followRedirects = false;
+      if (range != null) request.headers.set(HttpHeaders.rangeHeader, range);
+      final response = await request.close().timeout(_idleTimeout);
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      if (response.statusCode ~/ 100 != 3 || location == null) {
+        return response;
+      }
+      await response.drain<void>();
+      uri = uri.resolve(location);
+    }
+    throw HttpException('too many redirects', uri: uri);
   }
 
   static Future<int?> _contentLength(String url, YtDownloadToken? token) async {
     final client = HttpClient()..idleTimeout = _idleTimeout;
     token?._register(() => client.close(force: true));
     try {
-      final request = await client.openUrl('HEAD', Uri.parse(url));
-      final response = await request.close().timeout(_idleTimeout);
+      final response = await _send(client, 'HEAD', Uri.parse(url));
       await response.drain<void>();
       final length = response.headers.contentLength;
       return length > 0 ? length : null;
@@ -193,9 +252,12 @@ abstract final class YtDownloader {
       while (true) {
         if (token?.isCancelled ?? false) throw const YtDownloadCancelled();
         final end = received + _chunkSize - 1;
-        final request = await client.getUrl(uri)
-          ..headers.set(HttpHeaders.rangeHeader, 'bytes=$received-$end');
-        final response = await request.close().timeout(_idleTimeout);
+        final response = await _send(
+          client,
+          'GET',
+          uri,
+          range: 'bytes=$received-$end',
+        );
         if (response.statusCode != HttpStatus.partialContent &&
             response.statusCode != HttpStatus.ok) {
           if (response.statusCode == HttpStatus.requestedRangeNotSatisfiable) {

@@ -256,7 +256,13 @@ class ImageGridView extends StatelessWidget {
               ],
             );
             if (!item.isLongPic) {
-              child = Hero(tag: '${item.url}$hashCode', child: child);
+              // as the gallery tags it: a repeated picture gets its index
+              final isRepeat =
+                  picArr.indexWhere((e) => e.url == item.url) != index;
+              child = Hero(
+                tag: '${item.url}$hashCode${isRepeat ? '#$index' : ''}',
+                child: child,
+              );
             }
             child = Semantics(
               label: '图片，第 ${index + 1} 张，共 ${picArr.length} 张',

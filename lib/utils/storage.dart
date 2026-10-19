@@ -124,10 +124,13 @@ abstract final class GStorage {
   /// Setting keys that describe this installation rather than a preference
   /// (paths on this device): left out of a backup, and this device's values
   /// kept on import, as the PiliPlus settings import does. Snapshots carry
-  /// them, so an undo restores them too.
+  /// them, so an undo restores them too. The documents provider is one too:
+  /// a backup from another device must not open this device's data folder
+  /// to other apps without asking.
   static const deviceKeys = [
     SettingBoxKey.downloadPath,
     SettingBoxKey.appFont,
+    SettingBoxKey.enableDocProvider,
   ];
 
   /// Whether a backup [map] carries any of the [credentialKeys].

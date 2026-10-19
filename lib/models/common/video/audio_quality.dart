@@ -18,4 +18,8 @@ enum AudioQuality {
   static final _codeMap = {for (final i in values) i.code: i};
 
   static AudioQuality fromCode(int code) => _codeMap[code]!;
+
+  /// Null for a quality id this list does not know yet (a new one once
+  /// failed the whole playurl).
+  static AudioQuality? tryFromCode(int? code) => _codeMap[code];
 }

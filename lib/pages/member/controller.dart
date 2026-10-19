@@ -45,7 +45,7 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
 
   SpaceSetting? spaceSetting;
   List<SpaceTab2>? tab2;
-  late List<Tab> tabs;
+  List<Tab> tabs = const [];
   TabController? tabController;
   RxInt contributeInitialIndex = 0.obs;
 
@@ -161,6 +161,12 @@ class MemberController extends CommonDataController<SpaceData, SpaceData?>
           initialIndex: max(0, initialIndex),
         );
       }
+    }
+    if (tab2?.isNotEmpty != true) {
+      // no known tab: the view reads [tabs] whatever the answer was
+      tabs = const [];
+      tabController?.dispose();
+      tabController = null;
     }
     if (mid == account.mid) {
       spaceSetting = data.setting;

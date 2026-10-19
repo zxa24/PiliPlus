@@ -155,8 +155,24 @@ class BiliDocumentsProvider : DocumentsProvider() {
 
     override fun deleteDocument(documentId: String) {
         if (retrieveFile(documentId, true)
-                ?.deleteRecursively() != true
+                ?.deleteNoFollow() != true
         ) throw FileNotFoundException("Failed to delete document $documentId")
+    }
+
+    // like deleteRecursively, but a symlink (mt:createSymlink can point one
+    // anywhere) is removed itself, never walked into: deleteRecursively
+    // follows a link to a directory and deletes what is outside the roots
+    private fun File.deleteNoFollow(): Boolean {
+        val isLink = try {
+            OsConstants.S_ISLNK(Os.lstat(path).st_mode)
+        } catch (_: Exception) {
+            false
+        }
+        var ok = true
+        if (!isLink && isDirectory) listFiles()?.forEach {
+            if (!it.deleteNoFollow()) ok = false
+        }
+        return delete() && ok
     }
 
     override fun moveDocument(
@@ -176,8 +192,10 @@ class BiliDocumentsProvider : DocumentsProvider() {
 
     override fun renameDocument(documentId: String, displayName: String): String {
         val file = retrieveFile(documentId, true)
+        // never onto an existing file: renameTo would silently replace it
         if (file == null || !displayName.isValidName || file.parentFile.let {
-                it == null || !file.renameTo(File(it, displayName))
+                it == null || File(it, displayName).exists() ||
+                        !file.renameTo(File(it, displayName))
             }) throw FileNotFoundException("Failed to rename document $documentId with name $displayName")
         return documentId.substringBeforeLast('/').appendChild(displayName)
     }
@@ -257,6 +275,9 @@ class BiliDocumentsProvider : DocumentsProvider() {
     }
 
     private fun retrieveFile(documentId: String, check: Boolean = true): File? {
+        // ids are `<packageName>/<root>/…`: anything else is not ours
+        if (documentId != packageName && !documentId.startsWith("$packageName/"))
+            throw FileNotFoundException("$documentId not found")
         val path = documentId.substring(packageName.length)
             .removePrefix("/").removeSuffix("/")
         if (path.isEmpty()) return null

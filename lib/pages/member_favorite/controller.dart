@@ -49,10 +49,19 @@ class MemberFavoriteCtr
     queryData();
   }
 
+  // a 加载更多 still out when the folders are refreshed answers for the old
+  // list: it must neither append to the new one nor advance the page
+  int _generation = 0;
+  bool _favLoading = false;
+  bool _subLoading = false;
+
   @override
   Future<void> onRefresh() {
     favPage = 2;
     subPage = 2;
+    _generation++;
+    _favLoading = false;
+    _subLoading = false;
     return super.onRefresh();
   }
 
@@ -80,6 +89,9 @@ class MemberFavoriteCtr
   }
 
   Future<void> userFavFolder() async {
+    if (_favLoading) return;
+    _favLoading = true;
+    final generation = _generation;
     try {
       final res = await Request().get(
         Api.userFavFolder,
@@ -89,6 +101,7 @@ class MemberFavoriteCtr
           'up_mid': mid,
         },
       );
+      if (generation != _generation) return;
       if (res.data['code'] == 0) {
         favPage++;
         final data = res.data['data'];
@@ -112,10 +125,15 @@ class MemberFavoriteCtr
       }
     } catch (e) {
       SmartDialog.showToast(e.toString());
+    } finally {
+      if (generation == _generation) _favLoading = false;
     }
   }
 
   Future<void> userSubFolder() async {
+    if (_subLoading) return;
+    _subLoading = true;
+    final generation = _generation;
     try {
       final res = await Request().get(
         Api.userSubFolder,
@@ -126,6 +144,7 @@ class MemberFavoriteCtr
           'platform': 'web',
         },
       );
+      if (generation != _generation) return;
       if (res.data['code'] == 0) {
         subPage++;
         final data = res.data['data'];
@@ -149,6 +168,8 @@ class MemberFavoriteCtr
       }
     } catch (e) {
       SmartDialog.showToast(e.toString());
+    } finally {
+      if (generation == _generation) _subLoading = false;
     }
   }
 

@@ -104,7 +104,10 @@ class YtVideoController extends GetxController
   /// Caption tracks offered by YouTube, plus the one currently shown.
   final captions = <YtCaptionTrack>[].obs;
   final captionIndex = (-1).obs;
-  final _captionCache = <int, String>{};
+
+  /// Each track's text, by its URL: by list index, a 重载视频 that brought
+  /// another list showed the old track's text under the new one's name.
+  final _captionCache = <String, String>{};
 
   YtStreamPair? _streams;
 
@@ -167,6 +170,15 @@ class YtVideoController extends GetxController
     message.value = '';
     blocked.value = false;
 
+    // the id goes into file names (the download's folder, the transcript's
+    // scratch): only the 11 characters an id is made of
+    if (!isYouTubeVideoId(videoId)) {
+      stage.value = YtPageStage.failed;
+      message.value = '无效的视频 ID';
+      commentsBootstrapFailed(message.value);
+      return;
+    }
+
     final info = await play.run((s) => s.detail(videoId));
     if (isClosed) return;
     if (!info.ok || info.value == null) {
@@ -176,6 +188,7 @@ class YtVideoController extends GetxController
     _detailSource = info.source;
     _noteSource(info.source);
     detail.value = info.value;
+    _captionCache.clear();
     captions.value = info.value!.captionTracks;
     _refreshSubscribed();
     refreshFav();
@@ -369,9 +382,9 @@ class YtVideoController extends GetxController
       return;
     }
 
-    var content = _captionCache[index];
+    final track = captions[index];
+    var content = _captionCache[track.baseUrl];
     if (content == null) {
-      final track = captions[index];
       final result = await _captionsFrom.captionContent(track);
       if (!result.ok || result.value == null) {
         message.value = _messageFor(result.verdict);
@@ -379,10 +392,9 @@ class YtVideoController extends GetxController
       }
       // YouTube hands back WebVTT already; nothing to convert
       content = result.value!;
-      _captionCache[index] = content;
+      _captionCache[track.baseUrl] = content;
     }
     if (isClosed || turn != _captionTurn) return;
-    final track = captions[index];
     await plPlayerController.setSubtitle(
       SubtitleTrack(
         'memory://$content',
@@ -426,11 +438,20 @@ class YtVideoController extends GetxController
     return heights;
   }
 
+  /// Bumped by every pick: only the latest one opens, or puts the cap back.
+  var _heightPick = 0;
+
+  /// The cap of the streams open, from before the picks still out: what a
+  /// failed pick puts back (a pick made while another was out had that
+  /// one's cap as its "before", which never opened).
+  ({int cap, bool chosen})? _capBeforePicks;
+
   Future<void> setMaxHeight(int height) async {
     if (maxHeight.value == height) return;
+    final pick = ++_heightPick;
+    _capBeforePicks ??= (cap: maxHeight.value, chosen: _heightChosen);
     // the viewer's: nothing changes it by itself from now on
     _heightChosen = true;
-    final before = maxHeight.value;
     maxHeight.value = height;
     // not mpv's own position: it reads 0 while a source is opening
     final position = plPlayerController.resumePosition;
@@ -441,6 +462,11 @@ class YtVideoController extends GetxController
       ),
     );
     if (isClosed) return;
+    // another height was picked meanwhile: that pick is the one that opens
+    // (or puts the cap back), not this older one
+    if (pick != _heightPick) return;
+    final before = _capBeforePicks!;
+    _capBeforePicks = null;
     if (streams.ok && streams.value != null) {
       _streams = streams.value;
       await _open(streams.value!, seekTo: position);
@@ -449,7 +475,8 @@ class YtVideoController extends GetxController
     } else {
       // the video playing now goes on: a failed pick put the error panel
       // in place of a player that worked. The cap stays as it was
-      maxHeight.value = before;
+      maxHeight.value = before.cap;
+      _heightChosen = before.chosen;
       SmartDialog.showToast('切换画质失败：${_messageFor(streams.verdict)}');
       EventLog.add('failure', 'youtube $videoId quality: ${streams.verdict}');
     }
@@ -511,7 +538,7 @@ class YtVideoController extends GetxController
       _downloadToken?.cancel();
       return;
     }
-    final pair = _streams;
+    var pair = _streams;
     if (pair == null) {
       SmartDialog.showToast('还没有可下载的流');
       return;
@@ -523,6 +550,23 @@ class YtVideoController extends GetxController
       onDismiss: token.cancel,
     );
     try {
+      if (!YtDownloader.remuxable(pair)) {
+        // what plays (VP9 above 1080p, say) is WebM, which the remuxer cannot
+        // read: an MP4 pair of its own, as close to the cap as MP4 goes
+        final mp4 = await play.run(
+          (s) => s.streams(
+            videoId,
+            preference: YtFormatPreference.mp4Download(maxHeight.value),
+          ),
+        );
+        if (token.isCancelled) throw const YtDownloadCancelled();
+        if (!mp4.ok || mp4.value == null) {
+          throw mp4.verdict.signal.endsWith('no-playable-pair')
+              ? const YtDownloadNotMp4()
+              : _messageFor(mp4.verdict);
+        }
+        pair = mp4.value!;
+      }
       final file = await YtDownloader.download(
         pair: pair,
         videoId: videoId,
@@ -541,6 +585,9 @@ class YtVideoController extends GetxController
     } on YtDownloadCancelled {
       SmartDialog.dismiss(status: SmartStatus.loading);
       SmartDialog.showToast('已取消下载');
+    } on YtDownloadNotMp4 catch (e) {
+      SmartDialog.dismiss(status: SmartStatus.loading);
+      SmartDialog.showToast('$e');
     } catch (e) {
       SmartDialog.dismiss(status: SmartStatus.loading);
       SmartDialog.showToast('下载失败: $e');
@@ -1238,10 +1285,11 @@ class YtVideoController extends GetxController
   }
 
   Future<bool> _translateCaptions(int index, {String? into}) async {
-    var content = _captionCache[index];
+    final track = captions[index];
+    var content = _captionCache[track.baseUrl];
     if (content == null) {
       final stops = _translationStops;
-      final result = await _captionsFrom.captionContent(captions[index]);
+      final result = await _captionsFrom.captionContent(track);
       // gone, or stopped while fetching: nothing more to do, and above all
       // no falling back to transcription
       if (isClosed) return true;
@@ -1250,7 +1298,7 @@ class YtVideoController extends GetxController
         return true;
       }
       content = result.ok ? result.value : null;
-      if (content != null) _captionCache[index] = content;
+      if (content != null) _captionCache[track.baseUrl] = content;
     }
     final cues = content == null ? const <AsrCue>[] : parseCaptionCues(content);
     if (cues.isEmpty) {
@@ -1261,7 +1309,7 @@ class YtVideoController extends GetxController
     await translation.startCaptions(
       cues,
       into: into,
-      from: captionLanguage(captions[index].languageCode),
+      from: captionLanguage(track.languageCode),
     );
     return true;
   }

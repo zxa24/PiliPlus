@@ -1818,8 +1818,12 @@ class VideoDetailController extends GetxController
         _getDmTrend();
       }
     } else {
-      await _loadLocalSubtitles();
-      _maybeAutoTranscribe(opening: true);
+      try {
+        await _loadLocalSubtitles();
+      } finally {
+        // a subtitle file that would not load must not cost the transcript
+        _maybeAutoTranscribe(opening: true);
+      }
     }
 
     defaultST = null;
@@ -1867,14 +1871,29 @@ class VideoDetailController extends GetxController
         }).toList()..sort((a, b) => a.path.compareTo(b.path));
         for (final f in files) {
           final name = path.basename(f.path);
-          final lan = name.substring(base.length + 1, name.length - 4);
+          // `<base>.srt`, the usual name for a video's own subtitles, says
+          // no language
+          final lan = name.length > base.length + 5
+              ? name.substring(base.length + 1, name.length - 4)
+              : 'und';
           final transcript = name == '$base${TranscriptFiles.srtSuffix}';
           if (transcript && transcribes) continue;
+          final String text;
+          try {
+            text = _decodeSrt(await f.readAsBytes());
+          } catch (_) {
+            // one unreadable file: the others still load
+            continue;
+          }
           saved.add((
             // not `asr`: that is the track the device is making
             lan: transcript ? 'asr-file' : lan,
-            text: await f.readAsString(),
-            label: transcript ? '本机转录（已保存）' : null,
+            text: text,
+            label: transcript
+                ? '本机转录（已保存）'
+                : lan == 'und'
+                ? '字幕'
+                : null,
           ));
         }
       }
@@ -1909,6 +1928,23 @@ class VideoDetailController extends GetxController
       // index now says
       await _applyOwnSubtitle(0);
     }
+  }
+
+  /// A subtitle file as text: UTF-16 by its byte-order mark, else UTF-8 read
+  /// leniently (a GBK file shows garbled rather than failing the list).
+  static String _decodeSrt(Uint8List bytes) {
+    if (bytes.length >= 2) {
+      final le = bytes[0] == 0xFF && bytes[1] == 0xFE;
+      final be = bytes[0] == 0xFE && bytes[1] == 0xFF;
+      if (le || be) {
+        final units = <int>[
+          for (var i = 2; i + 1 < bytes.length; i += 2)
+            le ? bytes[i] | bytes[i + 1] << 8 : bytes[i] << 8 | bytes[i + 1],
+        ];
+        return String.fromCharCodes(units);
+      }
+    }
+    return utf8.decode(bytes, allowMalformed: true);
   }
 
   /// Puts the transcript and translation made for this part back after the
@@ -2484,8 +2520,9 @@ class VideoDetailController extends GetxController
     // a document opened through Android's picker has no path, only a content
     // URI, and the descriptor the player holds is its own — transcription
     // needs a second one, which mpv closes itself via `fdclose://`
+    int? fd;
     if (source.startsWith('content://')) {
-      final fd = await LocalDocuments.openFd(source);
+      fd = await LocalDocuments.openFd(source);
       if (fd == null) {
         if (holding) _closeAsrGate();
         SmartDialog.showToast('无法读取该视频文件');
@@ -2501,7 +2538,11 @@ class VideoDetailController extends GetxController
     await stopAsr(keepGate: holding);
     // closed meanwhile: no gate for a page that is gone, and no start that
     // would end whichever transcription is running now
-    if (isClosed || cid.value != part) return;
+    if (isClosed || cid.value != part) {
+      // nothing will hand the descriptor to mpv to close
+      if (fd != null) LocalDocuments.closeFd(fd);
+      return;
+    }
     if (auto) _openAsrGate();
     final service = AsrService.to;
     final session = await service.start(
@@ -3974,13 +4015,18 @@ class VideoDetailController extends GetxController
       Rx<LoadingState<List<double>>?>(null);
   late final RxBool showDmTrendChart = true.obs;
 
+  /// Which request [dmTrend] waits for: `LoadingState.loading()` is one
+  /// const, so the old part's request and the new one's looked the same.
+  int _dmTrendSeq = 0;
+
   Future<void> _getDmTrend() async {
-    final pending = LoadingState<List<double>>.loading();
-    dmTrend.value = pending;
+    final seq = ++_dmTrendSeq;
+    final part = cid.value;
+    dmTrend.value = LoadingState<List<double>>.loading();
     // a part switch meanwhile cleared it for the new part: this answer is
     // the old one's
     void set(LoadingState<List<double>> state) {
-      if (identical(dmTrend.value, pending)) dmTrend.value = state;
+      if (seq == _dmTrendSeq && cid.value == part) dmTrend.value = state;
     }
 
     try {

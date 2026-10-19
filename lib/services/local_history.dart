@@ -1,5 +1,6 @@
 import 'dart:math' show max;
 
+import 'package:PiliPlus/services/youtube/yt_video_id.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -209,7 +210,11 @@ abstract final class LocalHistory {
     if (data == null) return;
     try {
       for (final v in (data as Map).values) {
-        LocalWatchEntry.fromJson(v as Map);
+        final entry = LocalWatchEntry.fromJson(v as Map);
+        // the id becomes a page parameter and part of file paths
+        if (entry.ytId case final id? when !isYouTubeVideoId(id)) {
+          throw FormatException('YouTube 视频 id 无效: $id');
+        }
       }
     } catch (e) {
       throw FormatException('本机观看记录数据无效: $e');

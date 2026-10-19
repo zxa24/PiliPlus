@@ -1,4 +1,4 @@
-import 'dart:io' show File, HttpException;
+import 'dart:io' show File;
 
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
@@ -527,10 +527,11 @@ abstract class CommonRichTextPubPageState<T extends CommonRichTextPubPage>
           eagerError: true,
         );
         SmartDialog.dismiss();
-      } on HttpException catch (e) {
+      } catch (e) {
+        // a failed upload throws its Error state from result.data
         cancelToken.cancel();
         SmartDialog.dismiss();
-        SmartDialog.showToast(e.message);
+        SmartDialog.showToast(e.toString());
         return;
       }
     }

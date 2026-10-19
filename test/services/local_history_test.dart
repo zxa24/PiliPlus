@@ -264,7 +264,12 @@ void main() {
       progress: 30000,
       duration: 60000,
     );
-    await LocalHistory.record(_yt('abc'), progress: 1000, duration: 2000);
+    // a real 11-character id: the import refuses any other
+    await LocalHistory.record(
+      _yt('dQw4w9WgXcQ'),
+      progress: 1000,
+      duration: 2000,
+    );
     await LocalHistory.setPaused(true);
     final exported = GStorage.exportAllSettings();
     final before = LocalHistory.entries().map((e) => e.toJson()).toList();

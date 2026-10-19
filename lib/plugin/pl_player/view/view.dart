@@ -210,7 +210,6 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     });
   }
 
-  int? tmpSubtitlePaddingB;
   StreamSubscription? _controlsListener;
   void _onControlChanged(bool val) {
     final visible = val && !plPlayerController.controlsLock.value;
@@ -245,19 +244,19 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         if (controller.vttSubtitlesIndex.value != 0) {
           const int minPadding = 70;
           if (plPlayerController.subtitlePaddingB < minPadding) {
-            tmpSubtitlePaddingB = plPlayerController.subtitlePaddingB;
             plPlayerController
+              ..subtitleLiftedFrom = plPlayerController.subtitlePaddingB
               ..subtitlePaddingB = minPadding
               ..subtitleConfig.value = plPlayerController.getSubConfig;
           }
         }
         // a lift is let go of whatever the subtitle is now: turned off while
         // the controls showed, it stayed and became the stored padding
-      } else if (tmpSubtitlePaddingB != null) {
+      } else if (plPlayerController.subtitleLiftedFrom case final padding?) {
         plPlayerController
-          ..subtitlePaddingB = tmpSubtitlePaddingB!
-          ..subtitleConfig.value = plPlayerController.getSubConfig;
-        tmpSubtitlePaddingB = null;
+          ..subtitlePaddingB = padding
+          ..subtitleConfig.value = plPlayerController.getSubConfig
+          ..subtitleLiftedFrom = null;
       }
     }
   }
@@ -426,11 +425,11 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     _volumeListener?.cancel();
     // the lift above the controls is this view's: closed with them shown,
     // it stayed, and was saved as the subtitle padding
-    if (tmpSubtitlePaddingB case final padding?) {
+    if (plPlayerController.subtitleLiftedFrom case final padding?) {
       plPlayerController
         ..subtitlePaddingB = padding
-        ..subtitleConfig.value = plPlayerController.getSubConfig;
-      tmpSubtitlePaddingB = null;
+        ..subtitleConfig.value = plPlayerController.getSubConfig
+        ..subtitleLiftedFrom = null;
     }
     super.dispose();
   }

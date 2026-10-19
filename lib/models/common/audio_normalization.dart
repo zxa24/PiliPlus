@@ -37,10 +37,13 @@ enum AudioNormalization {
         loudnormRegExp,
         (i) =>
             'loudnorm=${volume.format(
+              // the numeric options only: `linear=true`, `print_format=…`
+              // or a trailing `:` in a custom string broke playback
               Map.fromEntries(
-                i.group(1)!.split(':').map((item) {
+                i.group(1)!.split(':').expand((item) {
                   final parts = item.split('=');
-                  return MapEntry(parts[0].toLowerCase(), num.parse(parts[1]));
+                  final value = parts.length == 2 ? num.tryParse(parts[1]) : null;
+                  return value == null ? const <MapEntry<String, num>>[] : [MapEntry(parts[0].toLowerCase(), value)];
                 }),
               ),
             )}',

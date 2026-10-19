@@ -23,4 +23,8 @@ enum VideoQuality {
   static final _codeMap = {for (final i in values) i.code: i};
 
   static VideoQuality fromCode(int code) => _codeMap[code]!;
+
+  /// Null for a quality id this list does not know yet (a new one once
+  /// failed the whole playurl).
+  static VideoQuality? tryFromCode(int? code) => _codeMap[code];
 }

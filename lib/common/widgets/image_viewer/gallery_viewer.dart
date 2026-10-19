@@ -522,7 +522,13 @@ class _GalleryViewerState extends State<GalleryViewer>
               : const SizedBox.shrink(),
         );
     }
-    return Hero(tag: '${item.url}${widget.tag}', child: child);
+    // a picture that appears twice gets its index, or the tags would clash
+    final isRepeat =
+        widget.sources.indexWhere((e) => e.url == item.url) != index;
+    return Hero(
+      tag: '${item.url}${widget.tag}${isRepeat ? '#$index' : ''}',
+      child: child,
+    );
   }
 
   void _onTap() {

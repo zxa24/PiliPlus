@@ -718,6 +718,7 @@ abstract final class LiveHttp {
     required Object uid,
     required String msg,
     required String reason,
+    required int reasonId,
     required int ts,
     required String token,
   }) async {
@@ -732,7 +733,8 @@ abstract final class LiveHttp {
         'reason': reason,
         'ts': ts,
         'sign': '',
-        'reason_id': reason,
+        // the reason's number, not its label
+        'reason_id': reasonId,
         'token': token,
         'id_str': id.toString(),
         'csrf_token': csrf,

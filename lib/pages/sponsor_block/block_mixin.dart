@@ -36,6 +36,7 @@ mixin BlockConfigMixin {
 }
 
 mixin BlockMixin on GetxController {
+  /// The position (ms) the skip check last saw.
   int? _lastBlockPos;
   BlockConfigMixin get blockConfig;
   StreamSubscription<Duration>? _blockListener;
@@ -91,16 +92,22 @@ mixin BlockMixin on GetxController {
     if (_segmentList.isNotEmpty) {
       _blockListener?.cancel();
       _blockListener = player?.stream.position.listen((position) {
-        int currentPos = position.inSeconds;
-        if (currentPos != _lastBlockPos) {
-          _lastBlockPos = currentPos;
-          final msPos = currentPos * 1000;
+        // by the millisecond: by whole seconds a skip came up to a second
+        // before its segment did
+        final msPos = position.inMilliseconds;
+        final last = _lastBlockPos;
+        if (msPos != last) {
+          _lastBlockPos = msPos;
           for (SegmentModel item in _segmentList) {
             // if (kDebugMode) {
             //   debugPrint(
             //       '${position.inSeconds},,${item.segment.first},,${item.segment.second},,${item.skipType.name},,${item.hasSkipped}');
             // }
-            if (msPos <= item.segment.$1 && item.segment.$1 <= msPos + 1000) {
+            // reached in this step, within its first second: not again on
+            // every position inside it
+            if (item.segment.$1 <= msPos &&
+                msPos < item.segment.$1 + 1000 &&
+                (last == null || last < item.segment.$1)) {
               switch (item.skipType) {
                 case SkipType.alwaysSkip:
                   onSkip(item, isSeek: false);

@@ -45,7 +45,7 @@ class LiveSearchChildController
   Future<LoadingState<LiveSearchData>> customGetData() {
     return LiveHttp.liveSearch(
       page: page,
-      keyword: controller.editingController.text,
+      keyword: controller.keyword,
       type: searchType,
     );
   }

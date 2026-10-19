@@ -39,6 +39,8 @@ abstract class BaseVideoWebCtr<R, T, V> extends CommonListController<R, T>
     reload = true;
     this.page = page;
     loadingState.value = LoadingState.loading();
+    // a refresh still out is fetching another page
+    markRefreshStale();
     queryData();
   }
 

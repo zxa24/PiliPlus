@@ -31,7 +31,8 @@ class Subtitle implements Comparable<Subtitle> {
     isTranslated = isAi && json["ai_type"] == 1;
     // the source note used to be baked into the name as '（AI）'; it is a
     // property of the track now, and rendered the same way on both platforms
-    lanDoc = '${json["lan_doc"]}';
+    // a missing name stays null (the menu falls back to [lan]), not "null"
+    lanDoc = json["lan_doc"]?.toString();
     source = isAi ? SubtitleSource.platform : SubtitleSource.author;
     subtitleUrl = json["subtitle_url"];
     subtitleUrlV2 = json["subtitle_url_v2"];

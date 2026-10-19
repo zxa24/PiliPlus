@@ -107,8 +107,9 @@ class PgcReviewController
       reviewId: reviewId,
     );
     if (res.isSuccess) {
+      // by id, not position: the list may have changed during the request
       loadingState
-        ..value.data!.removeAt(index)
+        ..value.dataOrNull?.removeWhere((e) => e.reviewId == reviewId)
         ..refresh();
       SmartDialog.showToast('删除成功');
     } else {

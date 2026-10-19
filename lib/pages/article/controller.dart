@@ -58,6 +58,11 @@ class ArticleController extends CommonDynController {
 
     // to opus
     if (type == 'read') {
+      // the share / browser actions and the reply type are read while the
+      // redirect below is still out
+      url = 'https://www.bilibili.com/read/cv$id';
+      commentId = int.parse(id);
+      commentType = 12;
       UrlUtils.parseRedirectUrl('https://www.bilibili.com/read/cv$id/').then((
         url,
       ) {
@@ -221,7 +226,12 @@ class ArticleController extends CommonDynController {
   @override
   Future<void> onReload() {
     if (!isLoaded.value) {
-      return Future.syncValue(null);
+      // the content itself failed: fetch it again, unless it is still loading
+      if (loadingState.value is Loading) {
+        return Future.syncValue(null);
+      }
+      loadingState.value = LoadingState.loading();
+      return _queryContent();
     }
     return super.onReload();
   }

@@ -432,6 +432,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   late double subtitleFontScaleFS = Pref.subtitleFontScaleFS;
   late int subtitlePaddingH = Pref.subtitlePaddingH;
   late int subtitlePaddingB = Pref.subtitlePaddingB;
+
+  /// The bottom padding from before the player view lifted the subtitle
+  /// above its controls (to 70), while it does: what is the viewer's, and
+  /// what is saved. A padding the viewer sets ends the lift.
+  int? subtitleLiftedFrom;
   late double subtitleBgOpacity = Pref.subtitleBgOpacity;
   final bool showVipDanmaku = Pref.showVipDanmaku; // loop unswitching
   late double subtitleStrokeWidth = Pref.subtitleStrokeWidth;
@@ -545,6 +550,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void onUpdatePadding(EdgeInsets padding) {
+    subtitleLiftedFrom = null;
     subtitlePaddingB = padding.bottom.round().clamp(0, 200);
     putSubtitleSettings();
   }
@@ -814,7 +820,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         return;
       }
       // 配置Player 音轨、字幕等等
-      await _createVideoController(dataSource, seekTo, volume);
+      await _createVideoController(dataSource, seekTo, volume, open);
       if (open != _openSeq) return;
 
       if (_playerCount == 0) {
@@ -1115,11 +1121,33 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       Pref.initBuffer(_playbackSpeed.value, streamBitrate);
   late final liveBuffer = Pref.initLiveBuffer();
 
+  /// The player being made by [_createPlayer], for an open that starts
+  /// meanwhile to wait for rather than make another.
+  Future<Player?>? _creatingPlayer;
+
+  /// The shared player, made and set up; null when every page let go of it
+  /// meanwhile.
+  Future<Player?> _createPlayer() async {
+    final player = await _initPlayer();
+    if (_playerCount == 0) {
+      _removeListeners();
+      player.dispose();
+      _videoController = null;
+      return null;
+    }
+    _videoPlayerController = player;
+    if (isAnim && superResolutionType.value != .disable) {
+      await setShader();
+    }
+    return player;
+  }
+
   // 配置播放器
   Future<void> _createVideoController(
     DataSource dataSource,
     Duration? seekTo,
     Volume? volume,
+    int open,
   ) async {
     isBuffering.value = false;
     _heartDuration = 0;
@@ -1128,18 +1156,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     var player = _videoPlayerController;
 
     if (player == null) {
-      player = await _initPlayer();
-      if (_playerCount == 0) {
-        _removeListeners();
-        player.dispose();
-        player = null;
-        _videoController = null;
-        return;
-      }
-      _videoPlayerController = player;
-      if (isAnim && superResolutionType.value != .disable) {
-        await setShader();
-      }
+      // two first opens at once share one player, not one each
+      player = await (_creatingPlayer ??= _createPlayer().whenComplete(
+        () => _creatingPlayer = null,
+      ));
+      if (player == null) return;
+      // a newer source began while the player was made: it is not opened
+      if (open != _openSeq) return;
     }
 
     final Map<String, String> extras = {
@@ -1165,6 +1188,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         SmartDialog.showToast('无法读取该视频文件，请重新选择');
         // setDataSource turns this into the error state
         throw StateError('cannot open $video');
+      }
+      // a newer source began while this one was asked for: it is not opened
+      if (open != _openSeq) {
+        await LocalDocuments.closeFd(fd);
+        return;
       }
       video = 'fdclose://$fd';
     }
@@ -1199,7 +1227,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // media_kit's open() emits position 0 before anything loads: not where
     // the viewer is (the page took it as the place to resume from, and a
     // local file left during the load saved 0 as its progress)
-    if (_holdOnOpen) await _holdPicture(player);
+    if (_holdOnOpen) {
+      await _holdPicture(player);
+      // superseded while the picture was taken: the newer source opens
+      if (open != _openSeq) {
+        if (fd != null) await LocalDocuments.closeFd(fd);
+        return;
+      }
+    }
     _setHeaders(player, dataSource);
     _reopening = true;
     _openStartedAt = DateTime.now();
@@ -4368,7 +4403,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       SettingBoxKey.subtitleFontScale: subtitleFontScale,
       SettingBoxKey.subtitleFontScaleFS: subtitleFontScaleFS,
       SettingBoxKey.subtitlePaddingH: subtitlePaddingH,
-      SettingBoxKey.subtitlePaddingB: subtitlePaddingB,
+      // not the lift's 70: 字幕设置 closed with the controls shown saved it
+      SettingBoxKey.subtitlePaddingB: subtitleLiftedFrom ?? subtitlePaddingB,
       SettingBoxKey.subtitleBgOpacity: subtitleBgOpacity,
       SettingBoxKey.subtitleStrokeWidth: subtitleStrokeWidth,
       SettingBoxKey.subtitleFontWeight: subtitleFontWeight,
@@ -4505,10 +4541,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
+  /// Which request [videoShot] waits for: `LoadingState.loading()` is one
+  /// const, so the old source's request and the new one's looked the same.
+  int _videoShotSeq = 0;
+
   void _clearPreview() {
     showPreview.value = false;
     previewIndex.value = null;
     videoShot = null;
+    _videoShotSeq++;
     for (final i in previewCache.values) {
       i?.dispose();
     }
@@ -4521,10 +4562,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // changes
     final cid = this.cid;
     if (_bvid == null || cid == null) return;
-    final pending = videoShot;
+    final seq = ++_videoShotSeq;
     final res = await VideoHttp.videoshot(bvid: bvid, cid: cid);
     // cleared meanwhile (another source): this answer is the old one's
-    if (identical(videoShot, pending)) videoShot = res;
+    if (seq == _videoShotSeq) videoShot = res;
   }
 
   Future<void> takeScreenshot() async {

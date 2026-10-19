@@ -285,6 +285,16 @@ class RenderViewPointProgressBar
       return;
     }
     _onSeek = value;
+    // the recognizer was made (or not) when this was built: follow the widget
+    _hitTestSelf = value != null;
+    if (value == null) {
+      _tapGestureRecognizer
+        ?..onTapUp = null
+        ..dispose();
+      _tapGestureRecognizer = null;
+    } else {
+      _tapGestureRecognizer ??= TapGestureRecognizer()..onTapUp = _onTapUp;
+    }
   }
 
   TapGestureRecognizer? _tapGestureRecognizer;
@@ -299,7 +309,7 @@ class RenderViewPointProgressBar
     super.dispose();
   }
 
-  final bool _hitTestSelf;
+  bool _hitTestSelf;
   @override
   bool hitTestSelf(Offset position) => _hitTestSelf;
 
@@ -362,7 +372,8 @@ class BaseRenderProgressBar<T extends BaseSegment> extends RenderBox {
   List<T> _segments;
   List<T> get segments => _segments;
   set segments(List<T> value) {
-    if (listEquals(_segments, value)) return;
+    // the same (Rx)list may have been edited in place: repaint it anyway
+    if (!identical(_segments, value) && listEquals(_segments, value)) return;
     _segments = value;
     markNeedsPaint();
   }

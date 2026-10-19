@@ -19,6 +19,10 @@ class LiveSearchController extends GetxController
   final RxBool hasData = false.obs;
   final RxList<int> counts = <int>[-1, -1].obs;
 
+  /// The keyword last submitted: a page loaded later (load-more) must not
+  /// search for whatever has been typed since.
+  String keyword = '';
+
   late final roomCtr = Get.put(
     LiveSearchChildController(this, LiveSearchType.room),
     tag: Utils.generateRandomString(8),
@@ -50,6 +54,7 @@ class LiveSearchController extends GetxController
       if (IdUtils.digitOnlyRegExp.hasMatch(editingController.text)) {
         PageUtils.toLiveRoom(int.parse(editingController.text));
       } else {
+        keyword = editingController.text;
         hasData.value = true;
         roomCtr
           ..scrollController.jumpToTop()

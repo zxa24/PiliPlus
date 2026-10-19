@@ -23,7 +23,6 @@ import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
-import 'package:PiliPlus/utils/extension/file_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
@@ -381,6 +380,13 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // login mode is not an exportable setting: keep it
                         // (the running account state is not re-applied)
                         final loginMode = Pref.loginMode;
+                        // nor are this installation's own keys (paths, the
+                        // documents provider)
+                        final device = {
+                          for (final key in GStorage.deviceKeys)
+                            if (GStorage.setting.containsKey(key))
+                              key: GStorage.setting.get(key),
+                        };
                         // snapshot first, like every import path, so
                         // 恢复到导入前 can undo this too
                         final snapshot = await GStorage.saveSnapshot();
@@ -388,10 +394,10 @@ Commit Hash: ${BuildConfig.commitHash}''',
                           GStorage.setting.clear(),
                           GStorage.video.clear(),
                         ]);
-                        await GStorage.setting.put(
-                          SettingBoxKey.loginMode,
-                          loginMode,
-                        );
+                        await GStorage.setting.putAll({
+                          SettingBoxKey.loginMode: loginMode,
+                          ...device,
+                        });
                         _syncDocProvider();
                         SmartDialog.showToast(
                           '重置成功（重启生效），重置前的数据已保存至 $snapshot',
@@ -420,9 +426,16 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // thumbnails and avatars of what was watched, and
                         // the in-app browser's cache and site storage
                         await CacheManager.manager.emptyCache();
-                        await _clearWebViewData();
+                        final webViewLeft = await _clearWebViewData();
                         _syncDocProvider();
-                        SmartDialog.showToast('重置成功（重启生效）');
+                        SmartDialog.showToast(
+                          switch (webViewLeft) {
+                            0 => '重置成功（重启生效）',
+                            < 0 => '重置成功（重启生效），但内置浏览器的数据未能清除',
+                            _ =>
+                              '重置成功（重启生效），内置浏览器有 $webViewLeft 个文件正被占用未能删除，重启后再重置一次可清除',
+                          },
+                        );
                       },
                       child: const Text(
                         '重置所有数据（含登录信息、本地关注/收藏、本机观看记录，不可撤回）',
@@ -461,15 +474,41 @@ Future<void> _clearLogs(BuildContext context) async {
 
 /// The in-app WebView's cache and site storage (its cookies are cleared
 /// with the accounts). Best effort: each platform keeps them differently.
-Future<void> _clearWebViewData() async {
+/// Returns how many files could not be deleted (Windows only; elsewhere 0),
+/// or -1 when clearing failed as a whole (listing the folder, or the
+/// platform call), so the reset does not report it as done.
+Future<int> _clearWebViewData() async {
   try {
     if (Platform.isWindows) {
       // WebView2 keeps everything in the user data folder given at start-up
-      // (main.dart); there is no API for its cache or storage here
-      await Directory(
+      // (main.dart); there is no API for its cache or storage here. A
+      // recursive delete stops at the first file a live WebView2 holds
+      // open, so delete file by file and count what is left.
+      final dir = Directory(
         path.join(appSupportDirPath, 'flutter_inappwebview'),
-      ).tryDel(recursive: true);
-      return;
+      );
+      if (!dir.existsSync()) return 0;
+      int left = 0;
+      await for (final e in dir.list(recursive: true, followLinks: false)) {
+        if (e is Directory) continue;
+        try {
+          await e.delete();
+        } catch (_) {
+          left++;
+        }
+      }
+      // emptied folders, deepest first; one still holding a locked file
+      // stays
+      final dirs = [
+        await for (final e in dir.list(recursive: true, followLinks: false))
+          if (e is Directory) e,
+      ]..sort((a, b) => b.path.length.compareTo(a.path.length));
+      for (final d in [...dirs, dir]) {
+        try {
+          await d.delete();
+        } catch (_) {}
+      }
+      return left;
     }
     if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
       await web.InAppWebViewController.clearAllCache();
@@ -482,5 +521,8 @@ Future<void> _clearWebViewData() async {
         date: DateTime.fromMillisecondsSinceEpoch(0),
       );
     }
-  } catch (_) {}
+  } catch (_) {
+    return -1;
+  }
+  return 0;
 }

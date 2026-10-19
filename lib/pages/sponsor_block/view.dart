@@ -62,11 +62,22 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
   }
 
   Future<void> _getUserInfo() async {
-    _userInfo.value = await SponsorBlock.userInfo(const [
+    final userId = _userId;
+    final info = await SponsorBlock.userInfo(const [
       'viewCount',
       'minutesSaved',
       'segmentCount',
-    ], userId: _userId);
+    ], userId: userId);
+    // another ID set meanwhile: these are the old one's stats
+    if (userId == _userId) _userInfo.value = info;
+  }
+
+  /// A new user ID: 您的信息 shows its stats, not the old one's.
+  void _setUserId(String userId) {
+    _userId = userId;
+    setting.put(SettingBoxKey.blockUserID, _userId);
+    _userInfo.value = LoadingState.loading();
+    _getUserInfo();
   }
 
   Widget _blockLimitItem(
@@ -174,13 +185,14 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
                   TextButton(
                     onPressed: () {
                       Get.back();
-                      _userId = Digest(
-                        List.generate(
-                          16,
-                          (_) => Utils.secureRandom.nextInt(256),
-                        ),
-                      ).toString();
-                      setting.put(SettingBoxKey.blockUserID, _userId);
+                      _setUserId(
+                        Digest(
+                          List.generate(
+                            16,
+                            (_) => Utils.secureRandom.nextInt(256),
+                          ),
+                        ).toString(),
+                      );
                       (context as Element).markNeedsBuild();
                     },
                     child: const Text('随机'),
@@ -198,8 +210,7 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
                     onPressed: () {
                       if (key.currentState?.validate() == true) {
                         Get.back();
-                        _userId = _textController.text;
-                        setting.put(SettingBoxKey.blockUserID, _userId);
+                        _setUserId(_textController.text);
                         (context as Element).markNeedsBuild();
                       }
                     },

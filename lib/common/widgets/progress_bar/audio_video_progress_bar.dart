@@ -509,6 +509,18 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
       return;
     }
     _onDragStartUserCallback = value;
+    // the drag recognizer was made (or not) when this was built: follow it
+    _hitTestSelf = value != null;
+    if (value == null) {
+      _drag?.dispose();
+      _drag = null;
+    } else {
+      _drag ??= _EagerHorizontalDragGestureRecognizer()
+        ..onStart = _onDragStart
+        ..onUpdate = _onDragUpdate
+        ..onEnd = _onDragEnd
+        ..onCancel = _finishDrag;
+    }
   }
 
   /// A callback when the thumb is being dragged.
@@ -629,7 +641,7 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
   @override
   double computeMaxIntrinsicHeight(double width) => _heightWhenNoLabels();
 
-  final bool _hitTestSelf;
+  bool _hitTestSelf;
   @override
   bool hitTestSelf(Offset position) => _hitTestSelf;
 
@@ -789,7 +801,7 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
   void increaseAction() {
     final newValue = _thumbValue + _semanticActionUnit;
     _thumbValue = (newValue).clamp(0.0, 1.0);
-    onSeek?.call(_currentThumbDuration());
+    onSeek?.call(_currentThumbDurationInMilliseconds());
     markNeedsPaint();
     markNeedsSemanticsUpdate();
   }
@@ -797,7 +809,7 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
   void decreaseAction() {
     final newValue = _thumbValue - _semanticActionUnit;
     _thumbValue = (newValue).clamp(0.0, 1.0);
-    onSeek?.call(_currentThumbDuration());
+    onSeek?.call(_currentThumbDurationInMilliseconds());
     markNeedsPaint();
     markNeedsSemanticsUpdate();
   }

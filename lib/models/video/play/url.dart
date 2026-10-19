@@ -60,8 +60,9 @@ class PlayUrlModel {
 
   int findAvailableVideoQuality(int preferredQuality) {
     final curHighestVideoQa = dash!.video!.first.quality.code;
+    // an empty list has no closest one (reduce threw)
     if (acceptQuality case final qualitys?
-        when preferredQuality <= curHighestVideoQa) {
+        when qualitys.isNotEmpty && preferredQuality <= curHighestVideoQa) {
       return qualitys.findClosestTarget((e) => e <= preferredQuality, max);
     } else {
       return curHighestVideoQa;
@@ -201,8 +202,10 @@ class Dash {
   Dash.fromJson(Map<String, dynamic> json) {
     duration = json['duration'];
     minBufferTime = json['minBufferTime'];
+    // a stream of a quality not known here is left out, not the whole answer
     video = (json['video'] as List?)
-        ?.map<VideoItem>((e) => VideoItem.fromJson(e))
+        ?.where((e) => VideoQuality.tryFromCode(e['id']) != null)
+        .map<VideoItem>((e) => VideoItem.fromJson(e))
         .toList();
     final audio = [
       if (json['flac']?['audio'] case Map<String, dynamic> flac)
@@ -336,7 +339,8 @@ class AudioItem extends BaseItem {
   late String quality;
 
   AudioItem.fromJson(Map<String, dynamic> json) : super.fromJson(json) {
-    quality = AudioQuality.fromCode(json['id']).desc;
+    // a quality not known here is shown by its id
+    quality = AudioQuality.tryFromCode(json['id'])?.desc ?? '${json['id']}';
   }
 }
 

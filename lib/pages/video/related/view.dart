@@ -43,10 +43,13 @@ class _RelatedVideoPanelState extends State<RelatedVideoPanel> with GridMixin {
             ? SliverGrid.builder(
                 gridDelegate: gridDelegate,
                 itemBuilder: (context, index) {
+                  final item = response[index];
                   return VideoCardH(
-                    videoItem: response[index],
+                    videoItem: item,
+                    // the item, not this build's position: the removal comes
+                    // after a request, and the list may have changed
                     onRemove: () => _relatedController.loadingState
-                      ..value.data!.removeAt(index)
+                      ..value.dataOrNull?.remove(item)
                       ..refresh(),
                   );
                 },

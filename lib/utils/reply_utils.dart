@@ -27,6 +27,7 @@ abstract final class ReplyUtils {
     required bool isManual,
   }) {
     try {
+      // async: the try only sees what throws before its first await
       _checkReply(
         oid: replyInfo.oid.toInt(),
         type: replyInfo.type.toInt(),
@@ -44,11 +45,17 @@ abstract final class ReplyUtils {
         isManual: isManual,
         biliSendCommAntifraud: biliSendCommAntifraud,
         sourceId: sourceId,
-      );
+      ).catchError((Object e) {
+        SmartDialog.showToast(e.toString());
+      });
     } catch (e) {
       SmartDialog.showToast(e.toString());
     }
   }
+
+  // the paging loops below stop here: a server that keeps answering with a
+  // full page would otherwise keep them going for ever
+  static const _maxCheckPages = 500;
 
   // ref https://github.com/freedom-introvert/biliSendCommAntifraud
   static Future<void> _checkReply({
@@ -246,6 +253,10 @@ https://api.bilibili.com/x/v2/reply/reply?oid=$oid&pn=1&ps=20&root=$id&type=$typ
       }
     } else {
       for (int i = 1; ; i++) {
+        if (i > _maxCheckPages) {
+          SmartDialog.showToast('楼中楼页数过多，未能完成检查');
+          return;
+        }
         final res3 = await ReplyHttp.replyReplyList(
           isLogin: false,
           oid: oid,
@@ -273,6 +284,10 @@ https://api.bilibili.com/x/v2/reply/reply?oid=$oid&pn=1&ps=20&root=$id&type=$typ
       }
 
       for (int i = 1; ; i++) {
+        if (i > _maxCheckPages) {
+          SmartDialog.showToast('楼中楼页数过多，未能完成检查');
+          return;
+        }
         final res4 = await ReplyHttp.replyReplyList(
           isLogin: true,
           asAccount: true,

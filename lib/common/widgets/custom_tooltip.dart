@@ -265,7 +265,8 @@ class _RenderToolTip extends RenderBox
   set target(Offset value) {
     if (_target == value) return;
     _target = value;
-    markNeedsPaint();
+    // the positions are worked out in performLayout
+    markNeedsLayout();
   }
 
   bool _preferBelow;
@@ -273,7 +274,7 @@ class _RenderToolTip extends RenderBox
   set preferBelow(bool value) {
     if (_preferBelow == value) return;
     _preferBelow = value;
-    markNeedsPaint();
+    markNeedsLayout();
   }
 
   @override

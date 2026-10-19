@@ -28,7 +28,8 @@ class MemberArticleCtr
 
   @override
   void checkIsEnd(int length) {
-    if (length >= count) {
+    // no count (-1) is unknown: an empty page ends the list instead
+    if (count != -1 && length >= count) {
       isEnd = true;
     }
   }

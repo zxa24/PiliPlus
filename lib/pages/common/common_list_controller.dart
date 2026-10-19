@@ -58,7 +58,13 @@ abstract class CommonListController<R, T> extends CommonController<R, T> {
     if (!isRefresh && (isLoading || isEnd)) return;
     final generation = isRefresh ? ++_generation : _generation;
     isLoading = true;
-    final LoadingState<R> res = await customGetData();
+    LoadingState<R> res;
+    try {
+      res = await customGetData();
+    } catch (e) {
+      // a parse error would otherwise leave [isLoading] set for good
+      res = Error(e.toString());
+    }
     if (generation != _generation) return;
     if (res case Success(:final response)) {
       if (!customHandleResponse(isRefresh, res)) {

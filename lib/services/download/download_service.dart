@@ -1,7 +1,13 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io'
-    show Directory, File, FileSystemEntity, FileSystemException, Platform;
+    show
+        Directory,
+        File,
+        FileMode,
+        FileSystemEntity,
+        FileSystemException,
+        Platform;
 import 'dart:isolate' show Isolate;
 import 'dart:math' as math;
 
@@ -199,6 +205,11 @@ class DownloadService extends GetxService {
                   BiliDownloadEntryInfo.fromJson(jsonDecode(entryJson))
                     ..pageDirPath = pageDir.path
                     ..entryDirPath = entryDir.path;
+              // [cid] reads one of the two: without either the
+              // entry throws later, wherever the list is used
+              if (entry.source == null && entry.pageData == null) {
+                throw const FormatException('neither source nor page_data');
+              }
               if (entry.isCompleted) {
                 result.add(entry);
                 // the app closed while they were being saved
@@ -1370,6 +1381,14 @@ class DownloadService extends GetxService {
     final part = '$to.part';
     try {
       await File(from).copy(part);
+      // on disk before the rename: the caller deletes the stream files
+      // next, and an unflushed copy lost in a power cut would leave nothing
+      final raf = await File(part).open(mode: FileMode.append);
+      try {
+        await raf.flush();
+      } finally {
+        await raf.close();
+      }
       await File(part).rename(to);
     } catch (_) {
       await File(part).tryDel();

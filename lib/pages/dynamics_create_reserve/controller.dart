@@ -42,20 +42,30 @@ class CreateReserveController extends GetxController {
     }
   }
 
+  // a second tap while the request is out would create a second reserve
+  bool _creating = false;
+
   Future<void> onCreate() async {
+    if (_creating) return;
+    _creating = true;
     final livePlanStartTime = date.value.millisecondsSinceEpoch ~/ 1000;
-    final res = sid == null
-        ? await DynamicsHttp.createReserve(
-            title: title.value,
-            subType: subType.value,
-            livePlanStartTime: livePlanStartTime,
-          )
-        : await DynamicsHttp.updateReserve(
-            sid: sid!,
-            subType: subType.value,
-            title: title.value,
-            livePlanStartTime: livePlanStartTime,
-          );
+    final LoadingState<int?> res;
+    try {
+      res = sid == null
+          ? await DynamicsHttp.createReserve(
+              title: title.value,
+              subType: subType.value,
+              livePlanStartTime: livePlanStartTime,
+            )
+          : await DynamicsHttp.updateReserve(
+              sid: sid!,
+              subType: subType.value,
+              title: title.value,
+              livePlanStartTime: livePlanStartTime,
+            );
+    } finally {
+      _creating = false;
+    }
     if (res case Success(:final response)) {
       Get.back(
         result: ReserveInfoData(

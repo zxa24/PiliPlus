@@ -229,8 +229,9 @@ class DownloadTranscripts {
       session.duration,
     );
     final state = session.state.value;
-    // a page's own took its place, also one resting in standby, which
-    // [AsrService.start] does not mark as displaced
+    // a page's own took its place: [AsrService.start] marks it displaced,
+    // one resting in standby too (it is stopped with a reason); and as a
+    // second check, the service no longer has it for its key
     final displaced =
         session.wasDisplaced ||
         !identical(AsrService.to.sessionFor(session.key), session);

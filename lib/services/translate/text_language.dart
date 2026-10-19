@@ -501,7 +501,9 @@ abstract final class TextLanguage {
     },
   };
 
-  /// Letters only one of these languages uses (among them).
+  /// Letters that mark one of these languages (among them). Not all are its
+  /// alone: ö and ü are Turkish too (and ê Portuguese), so German gets
+  /// points on Turkish text.
   static final _letters = {
     'es': RegExp('[ñ¿¡]'),
     'de': RegExp('[ßäöü]'),

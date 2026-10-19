@@ -624,10 +624,14 @@ class ChatItem extends StatelessWidget {
 
   Widget msgTypePic_2(Map content) {
     final url = content['url'];
-    final imgWidth = (content['width'] as num).toDouble();
-    final imgHeight = (content['height'] as num).toDouble();
-    final width = math.min(220.0, imgWidth);
-    final ratio = imgHeight / imgWidth;
+    final imgWidth = (content['width'] as num?)?.toDouble() ?? 0;
+    final imgHeight = (content['height'] as num?)?.toDouble() ?? 0;
+    // a size of 0 (or none) would give NaN: lay it out as a square
+    final hasSize = imgWidth > 0 && imgHeight > 0;
+    final width = hasSize ? math.min(220.0, imgWidth) : 220.0;
+    final ratio = hasSize ? imgHeight / imgWidth : 1.0;
+    // the same picture can be sent twice in one chat
+    final tag = '${item.msgKey}';
     Widget child = NetworkImgLayer(
       width: width,
       height: width * ratio,
@@ -635,12 +639,15 @@ class ChatItem extends StatelessWidget {
     );
     if (ratio <= Style.imgMaxRatio) {
       child = fromHero(
-        tag: url,
+        tag: '$url$tag',
         child: child,
       );
     }
     return GestureDetector(
-      onTap: () => PageUtils.imageView(imgList: [SourceModel(url: url)]),
+      onTap: () => PageUtils.imageView(
+        imgList: [SourceModel(url: url)],
+        tag: tag,
+      ),
       child: child,
     );
   }

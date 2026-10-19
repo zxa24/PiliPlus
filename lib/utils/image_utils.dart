@@ -1,5 +1,5 @@
 import 'dart:async' show FutureOr;
-import 'dart:io' show File, Platform;
+import 'dart:io' show Directory, File, FileSystemException, Platform;
 import 'dart:math' as math;
 import 'dart:typed_data' show Uint8List;
 
@@ -15,7 +15,6 @@ import 'package:PiliPlus/utils/permission_handler.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
-import 'package:PiliPlus/utils/utils.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:live_photo_maker/live_photo_maker.dart';
@@ -100,7 +99,7 @@ abstract final class ImageUtils {
       }
       if (!silentDownImg) SmartDialog.showLoading(msg: '正在下载');
 
-      String videoName = "video_${Utils.getFileName(liveUrl)}";
+      String videoName = "video_${_safeFileName(liveUrl, 'live.mp4')}";
       String videoPath = '$tmpDirPath/$videoName';
 
       final res = await Request().downloadFile(liveUrl.http2https, videoPath);
@@ -156,7 +155,7 @@ abstract final class ImageUtils {
       SmartDialog.showLoading(msg: '正在下载原图');
     }
     final futures = imgList.map((url) async {
-      final name = Utils.getFileName(url);
+      final name = _safeFileName(url, 'image.jpg');
       final file = await CacheManager.manager.getSingleFile(url.http2https);
       return (file, name);
     });
@@ -187,10 +186,35 @@ abstract final class ImageUtils {
           SmartDialog.showToast('取消保存');
           return false;
         }
+        // never overwrite: each target is created exclusively (a name a
+        // file, folder or an earlier picture of this batch already holds
+        // gets a numbered one), so nothing that appears between a check
+        // and the write can be replaced
+        final targets = <File>[];
+        for (final (_, name) in result) {
+          final ext = path.extension(name);
+          final stem = path.basenameWithoutExtension(name);
+          for (int n = 0; ; n++) {
+            final target = File(
+              path.join(dst, n == 0 ? name : '$stem ($n)$ext'),
+            );
+            try {
+              await target.create(exclusive: true);
+              targets.add(target);
+              break;
+            } on FileSystemException {
+              if (!target.existsSync() &&
+                  !Directory(target.path).existsSync()) {
+                rethrow;
+              }
+            }
+          }
+        }
         await Future.wait([
-          for (final (src, name) in result)
-            // copy: moving would leave the cache entry without its file
-            src.copy(path.join(dst, name)),
+          for (int i = 0; i < result.length; i++)
+            // copied into the file just created: moving would leave the
+            // cache entry without its file
+            result[i].$1.openRead().pipe(targets[i].openWrite()),
         ]);
       }
       SmartDialog.showToast(' 已保存 ');
@@ -198,6 +222,19 @@ abstract final class ImageUtils {
     } finally {
       if (!silentDownImg) SmartDialog.dismiss(status: .loading);
     }
+  }
+
+  static final _unsafeNameChars = RegExp(r'[\\/:*?"<>|#\x00-\x1f]');
+
+  /// The last path segment of [url] as a plain file name: the URL decides
+  /// it, so `\`, `..` and the like must not reach a path join (a name such
+  /// as `..\..\evil.txt` wrote outside the folder the user picked).
+  static String _safeFileName(String url, String fallback) {
+    final segments = Uri.tryParse(url)?.pathSegments;
+    String name = segments == null || segments.isEmpty ? '' : segments.last;
+    name = name.replaceAll(_unsafeNameChars, '_').trim();
+    if (name.replaceAll('.', '').isEmpty) return fallback;
+    return name;
   }
 
   static final _suffixRegex = RegExp(

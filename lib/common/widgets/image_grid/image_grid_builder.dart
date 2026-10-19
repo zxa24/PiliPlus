@@ -119,13 +119,29 @@ class RenderImageGrid extends RenderBox
   OnShowMenu? _onSecondaryTapUp;
   set onSecondaryTapUp(OnShowMenu? value) {
     _onSecondaryTapUp = value;
+    // the recognizers were wired when this was built: follow a later widget
+    _tapGestureRecognizer.onSecondaryTapUp = value == null
+        ? null
+        : _handleSecondaryTapUp;
   }
 
   OnShowMenu? _onLongPressStart;
   set onLongPressStart(OnShowMenu? value) {
     _onLongPressStart = value;
+    if (value == null) {
+      _longPressGestureRecognizer
+        ?..onLongPressStart = null
+        ..dispose();
+      _longPressGestureRecognizer = null;
+    } else {
+      _longPressGestureRecognizer ??= LongPressGestureRecognizer()
+        ..onLongPressStart = _handleLongPressStart;
+    }
   }
 
+  // the picture under the last hit test; a hover between press and release
+  // would move it, so the gesture uses the one taken at the press
+  int? _hitIndex;
   int? _index;
 
   void _handleOnTap() {
@@ -217,18 +233,19 @@ class RenderImageGrid extends RenderBox
         },
       );
       if (isHit) {
-        _index = childParentData.id as int;
+        _hitIndex = childParentData.id as int;
         return true;
       }
       child = childParentData.previousSibling;
     }
-    _index = null;
+    _hitIndex = null;
     return false;
   }
 
   @override
   void handleEvent(PointerEvent event, BoxHitTestEntry entry) {
     if (event is PointerDownEvent) {
+      _index = _hitIndex;
       _tapGestureRecognizer.addPointer(event);
       _longPressGestureRecognizer?.addPointer(event);
     }

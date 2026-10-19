@@ -2226,8 +2226,9 @@ class RenderEditable extends RenderBox
       baseOffset = controller.tapOffset(
         baseOffset,
         textPainter: _textPainter,
-        localPos: localFrom,
-        lastTapDownPosition: from,
+        // both in the text painter's coordinates, as the glyph bounds are
+        localPos: localFrom - _paintOffset,
+        lastTapDownPosition: localFrom - _paintOffset,
       );
       extentOffset = baseOffset;
     } else {
@@ -2322,8 +2323,8 @@ class RenderEditable extends RenderBox
     final newOffset = controller.tapOffset(
       position.offset,
       textPainter: _textPainter,
-      localPos: localPos,
-      lastTapDownPosition: _lastTapDownPosition!,
+      localPos: localPos - _paintOffset,
+      lastTapDownPosition: localPos - _paintOffset,
     );
     final newSelection = TextSelection.collapsed(offset: newOffset);
 

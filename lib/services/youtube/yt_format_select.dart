@@ -33,6 +33,7 @@ class YtFormatPreference {
     this.audioCodecs = ytAudioCodecPreference,
     this.allowDubbedAudio = false,
     this.preferredAudioLanguage,
+    this.listedCodecsOnly = false,
   });
 
   /// Cap on the *smaller* of the two video dimensions, so a portrait video is
@@ -49,6 +50,20 @@ class YtFormatPreference {
   /// e.g. `de-DE`. Only consulted when [allowDubbedAudio] is true; matched
   /// against the language part of `audioTrack.id` (`de-DE.10` → `de-DE`).
   final String? preferredAudioLanguage;
+
+  /// Only the codecs listed in [videoCodecs] and [audioCodecs], with no
+  /// fallback to whatever else is on offer: what a download needs, since
+  /// the remuxer reads MP4 only (`avc1`/`av01` + `mp4a`), not WebM.
+  final bool listedCodecsOnly;
+
+  /// A pair the downloader can make one mp4 of, as close to [maxHeight] as
+  /// MP4 goes.
+  static YtFormatPreference mp4Download(int maxHeight) => YtFormatPreference(
+    maxHeight: maxHeight,
+    videoCodecs: const ['avc1', 'av01'],
+    audioCodecs: const ['mp4a'],
+    listedCodecsOnly: true,
+  );
 
   static const YtFormatPreference standard = YtFormatPreference();
 }
@@ -87,7 +102,13 @@ YtFormat? selectYtVideoFormat(
   YtFormatPreference pref = YtFormatPreference.standard,
 ]) {
   final playable = formats
-      .where((f) => f.isVideo && f.isPlayable)
+      .where(
+        (f) =>
+            f.isVideo &&
+            f.isPlayable &&
+            (!pref.listedCodecsOnly ||
+                pref.videoCodecs.contains(f.codecFamily)),
+      )
       .toList(growable: false);
   if (playable.isEmpty) return null;
 
@@ -157,7 +178,13 @@ YtFormat? selectYtAudioFormat(
   YtFormatPreference pref = YtFormatPreference.standard,
 ]) {
   final playable = formats
-      .where((f) => f.isAudio && f.isPlayable)
+      .where(
+        (f) =>
+            f.isAudio &&
+            f.isPlayable &&
+            (!pref.listedCodecsOnly ||
+                pref.audioCodecs.contains(f.codecFamily)),
+      )
       .toList(growable: false);
   if (playable.isEmpty) return null;
 

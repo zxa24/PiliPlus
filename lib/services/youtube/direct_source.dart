@@ -101,10 +101,19 @@ class YtDirectSource implements YouTubeVideoSource {
     );
   }
 
+  /// The answer [detail] got, for the [streams] a video page asks for right
+  /// after it: one viewing is one `player` call (and one `cpn`), not two.
+  /// Taken once, and only while fresh: a quality change or a renewal later
+  /// asks anew.
+  ({String videoId, YtPlayerResponse response, DateTime at})? _lastDetail;
+
+  static const _detailReuse = Duration(seconds: 30);
+
   @override
   Future<YtResult<YtVideoDetail>> detail(String videoId) async {
     final r = await playerWithSelfHeal(videoId);
     if (!r.verdict.isOk) return YtResult.failed(r.verdict);
+    _lastDetail = (videoId: videoId, response: r, at: DateTime.now());
     return YtResult.ok(parseYtPlayerResponse(r.response));
   }
 
@@ -113,7 +122,14 @@ class YtDirectSource implements YouTubeVideoSource {
     String videoId, {
     YtFormatPreference preference = YtFormatPreference.standard,
   }) async {
-    final r = await playerWithSelfHeal(videoId);
+    final last = _lastDetail;
+    _lastDetail = null;
+    final r =
+        last != null &&
+            last.videoId == videoId &&
+            DateTime.now().difference(last.at) < _detailReuse
+        ? last.response
+        : await playerWithSelfHeal(videoId);
     if (!r.verdict.isOk) return YtResult.failed(r.verdict);
 
     final detail = parseYtPlayerResponse(r.response);

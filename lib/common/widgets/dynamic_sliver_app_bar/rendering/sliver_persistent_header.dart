@@ -198,7 +198,10 @@ class RenderSliverPinnedHeader extends RenderSliverPersistentHeader {
       );
       _rawLayout();
     } else {
-      if (_maxExtent!.crossAxisExtent == constraints.crossAxisExtent) {
+      // a rebuild or a relayout of the header (new content) measures its
+      // full height again, as a new width does; a scroll alone does not
+      if (_maxExtent!.crossAxisExtent == constraints.crossAxisExtent &&
+          !_needsUpdateChild) {
         updateChildIfNeeded(
           constraints.scrollOffset,
           _maxExtent?.maxExtent,

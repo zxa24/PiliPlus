@@ -400,6 +400,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
     return YtResult.ok(detail);
   }
 
+  /// [_isPublic], for the downloader: a stream URL is checked when the
+  /// manifest is read, and the hops a download is redirected to with this.
+  static Future<bool?> isPublicUrl(Uri uri) => _isPublic(uri);
+
   /// How a host name is resolved for [_isPublic]: tests put their own.
   static Future<List<InternetAddress>> Function(String host) lookup =
       InternetAddress.lookup;
@@ -480,13 +484,16 @@ class YtInvidiousSource implements YouTubeVideoSource {
 
   /// Whether googlevideo refuses [url] to this machine: a few bytes asked
   /// for, its redirects followed (the refusal comes after `ipbypass=yes`'s).
-  /// Anything but a 403 leaves it to the player.
+  /// Anything but a 403 leaves it to the player — except a redirect it may
+  /// not follow, which counts as refused.
   Future<bool> _refusedHere(String url) async {
     var uri = Uri.parse(url);
     for (var hop = 0; hop < 4; hop++) {
       // every hop as the stream URL itself ([_isPublic]): a redirect to
-      // this machine or the local network is not followed
-      if (await _isPublic(uri) != true) return false;
+      // this machine or the local network is not followed — and not left to
+      // mpv either, which would follow it there: refused, so the streams go
+      // through the companion or not at all
+      if (await _isPublic(uri) != true) return true;
       final r = await _fetch(
         uri,
         method: 'GET',

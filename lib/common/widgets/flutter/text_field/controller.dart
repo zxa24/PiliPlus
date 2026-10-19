@@ -330,7 +330,10 @@ class RichTextItem {
     }
 
     if (range.start >= deletedRange.start && range.end > deletedRange.end) {
-      final start = min(deletedRange.start, range.start);
+      // a rich item removed before this one took its own text along
+      final start = delLength != null
+          ? deletedRange.end - delLength
+          : min(deletedRange.start, range.start);
       controller.newSelection = TextSelection.collapsed(offset: start);
       if (isRich) {
         return (remove: true, cal: true);
@@ -621,6 +624,7 @@ class RichTextEditingController extends TextEditingController {
         }
 
       case TextEditingDeltaDeletion e:
+        int? delStart;
         for (int index = 0; index < items.length; index++) {
           final item = items[index];
           ({bool remove, bool cal})? res = item.onDelete(e, this, delLength);
@@ -629,7 +633,12 @@ class RichTextEditingController extends TextEditingController {
               (toDel ??= <RichTextItem>[]).add(item);
             }
             if (res.cal) {
-              delLength ??= item.text.length;
+              // a rich item goes as a whole: the text lost is the deleted
+              // range joined with every rich item it cuts into
+              final range = item.range;
+              final deleted = e.deletedRange;
+              delStart ??= min(range.start, deleted.start);
+              delLength = max(range.end, deleted.end) - delStart;
             }
           }
         }

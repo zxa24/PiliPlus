@@ -275,14 +275,17 @@ class _ViewerState extends State<Viewer> with SingleTickerProviderStateMixin {
         final imageHeight = _scale * _imageSize.height;
         final containerHeight = widget.containerSize.height;
         if (_scalePos != null && _calc(_scalePos!, details.focalPoint)) {
+          // the top and bottom edges as [_clampPosition] sets them; the image
+          // need not fill the viewer's height (a window taller than 2.6:1)
+          final center = containerHeight * (1 - _scale) / 2;
+          final dyOffset = imageHeight > containerHeight
+              ? (imageHeight - containerHeight) / 2
+              : 0.0;
           final bool drag;
           if (details.focalPoint.dy > _scalePos!.dy) {
-            drag = _position.dy.equals(
-              (imageHeight - _scale * containerHeight) / 2,
-              1e-6,
-            );
+            drag = _position.dy.equals(center + dyOffset, 1e-6);
           } else {
-            drag = _position.dy.equals(containerHeight - imageHeight, 1e-6);
+            drag = _position.dy.equals(center - dyOffset, 1e-6);
           }
           if (drag) {
             _gestureType = .drag;

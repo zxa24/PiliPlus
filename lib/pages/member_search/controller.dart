@@ -17,6 +17,10 @@ class MemberSearchController extends GetxController
   final RxBool hasData = false.obs;
   final RxList<int> counts = <int>[-1, -1].obs;
 
+  /// The keyword last submitted: a page loaded later (load-more) must not
+  /// search for whatever has been typed since.
+  String keyword = '';
+
   late final MemberSearchChildController arcCtr;
   late final MemberSearchChildController dynCtr;
 
@@ -49,6 +53,7 @@ class MemberSearchController extends GetxController
 
   void submit() {
     if (editingController.text.isNotEmpty) {
+      keyword = editingController.text;
       hasData.value = true;
       arcCtr
         ..scrollController.jumpToTop()

@@ -1,4 +1,5 @@
 import 'package:PiliPlus/models_new/member/search_archive/vlist.dart';
+import 'package:PiliPlus/services/youtube/yt_video_id.dart';
 import 'package:hive_ce/hive.dart';
 
 /// Account-free follows and favorites stored on this device only (LibrePili).
@@ -124,6 +125,15 @@ abstract final class LocalLibrary {
         if (v is! Map) continue;
         if (!keys.add(v['key'])) {
           throw FormatException('本地收藏数据有重复的 key: ${v['key']}');
+        }
+        // the id becomes a page parameter and part of file paths
+        if (v['data'] case final Map d when d['yt'] != null) {
+          final yt = d['yt'];
+          if (yt is! String || !isYouTubeVideoId(yt)) {
+            throw FormatException(
+              '本地收藏「${v['key']}」的 YouTube 视频 id 无效: ${d['yt']}',
+            );
+          }
         }
         if (ids == null) continue;
         if (v['folders'] case final List refs) {

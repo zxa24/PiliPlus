@@ -94,6 +94,9 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
 
         void updateBottomPadding(double val) {
           plPlayerController
+            // the viewer's padding: the controls hiding must not put the
+            // one from before the lift back over it
+            ..subtitleLiftedFrom = null
             ..subtitlePaddingB = val.round()
             ..updateSubtitleStyle();
           setState(() {});

@@ -1273,10 +1273,12 @@ class AsrSession {
         'asr',
         'run $serial from ${extractFrom.toStringAsFixed(1)} s ($why)',
       );
+      // not the key as it is: `yt:<id>` named an NTFS stream of a file `yt`
       final pcmPath = path.join(
         tmpDirPath,
         'asr',
-        '$key-${DateTime.now().millisecondsSinceEpoch}-r$serial.pcm',
+        '${key.replaceAll(RegExp(r'[^\w.-]'), '_')}'
+            '-${DateTime.now().millisecondsSinceEpoch}-r$serial.pcm',
       );
       final run = _Run(
         serial: serial,
@@ -2010,6 +2012,24 @@ class AsrService extends GetxService {
       session._set(AsrState(stage: AsrStage.failed, message: reason));
     }
     await session?.dispose();
+  }
+
+  /// Whether the job going reads [model]'s files or is fetching them: what
+  /// deleting [model] has to stop. A job that is idle, finished or failed
+  /// reads none; the English model only one that was handed it.
+  bool usesModel(AsrModel model) {
+    final session = _current;
+    if (session == null) return false;
+    final stage = session.state.value.stage;
+    if (stage == AsrStage.idle ||
+        stage == AsrStage.done ||
+        stage == AsrStage.failed) {
+      return false;
+    }
+    if (model.id == AsrModelCatalog.parakeet.id) {
+      return session._models?.english != null || session._englishIn != null;
+    }
+    return AsrModelCatalog.required.any((m) => m.id == model.id);
   }
 
   /// The model guard's stop: the current job's run ends and its recogniser

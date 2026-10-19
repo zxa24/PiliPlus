@@ -43,7 +43,8 @@ class MemberSearchChildController extends CommonListController {
         if (data.hasMore == false) {
           isEnd = true;
         }
-        controller.counts[searchType.index] = data.total ?? 0;
+        // no total is unknown (-1), not 0: has_more still ends the list
+        controller.counts[searchType.index] = data.total ?? -1;
         return data.items;
     }
   }
@@ -61,13 +62,13 @@ class MemberSearchChildController extends CommonListController {
         mid: _midInt64,
         pn: page,
         ps: _ps,
-        keyword: controller.editingController.text,
+        keyword: controller.keyword,
       ),
       MemberSearchType.dynamic => MemberHttp.dynSearch(
         mid: controller.mid,
         pn: page,
         offset: offset ?? '',
-        keyword: controller.editingController.text,
+        keyword: controller.keyword,
       ),
     };
   }

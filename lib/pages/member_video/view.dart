@@ -176,6 +176,8 @@ class _MemberVideoState extends State<MemberVideo>
                             ..reload = true
                             ..page = 0
                             ..loadingState.value = LoadingState.loading()
+                            // a refresh still out is fetching another page
+                            ..markRefreshStale()
                             ..queryData();
                         } else {
                           _controller.setIsLocating(

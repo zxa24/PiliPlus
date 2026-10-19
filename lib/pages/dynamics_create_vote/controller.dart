@@ -86,7 +86,11 @@ class CreateVoteController extends GetxController {
     }
   }
 
+  // a second tap while the request is out would create a second vote
+  bool _creating = false;
+
   Future<void> onCreate() async {
+    if (_creating) return;
     final voteInfo = VoteInfo(
       title: title.value,
       desc: desc.value,
@@ -98,9 +102,15 @@ class CreateVoteController extends GetxController {
       votePublisher: Accounts.main.mid,
       voteId: voteId,
     );
-    final res = await (voteId == null
-        ? DynamicsHttp.createVote(voteInfo)
-        : DynamicsHttp.updateVote(voteInfo));
+    _creating = true;
+    final LoadingState<int?> res;
+    try {
+      res = await (voteId == null
+          ? DynamicsHttp.createVote(voteInfo)
+          : DynamicsHttp.updateVote(voteInfo));
+    } finally {
+      _creating = false;
+    }
     if (res case Success(:final response)) {
       voteInfo.voteId = response;
       Get.back(result: voteInfo);
@@ -110,15 +120,16 @@ class CreateVoteController extends GetxController {
   }
 
   Future<void> onUpload(int index, String path) async {
+    // the option, not its index: one may be deleted while this uploads
+    final option = options[index];
     final res = await MsgHttp.uploadBfs(
       path: path,
       category: 'daily',
       biz: 'vote',
     );
     if (res case Success(:final response)) {
-      options
-        ..[index].imgUrl = response.imageUrl
-        ..refresh();
+      option.imgUrl = response.imageUrl;
+      options.refresh();
       updateCanCreate();
     } else {
       res.toast();

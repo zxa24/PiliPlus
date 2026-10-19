@@ -65,8 +65,10 @@ class _ZonePageState extends State<ZonePage>
                   if (item is HotVideoItemModel) {
                     return VideoCardH(
                       videoItem: item,
+                      // the item, not this build's position: the removal comes
+                      // after a request, and the list may have changed
                       onRemove: () => controller.loadingState
-                        ..value.data!.removeAt(index)
+                        ..value.dataOrNull?.remove(item)
                         ..refresh(),
                     );
                   }

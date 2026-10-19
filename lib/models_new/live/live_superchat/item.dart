@@ -96,6 +96,7 @@ class SuperChatItem {
     int? id,
     int? uid,
     int? price,
+    String? backgroundImage,
     String? backgroundColor,
     String? backgroundBottomColor,
     String? backgroundPriceColor,
@@ -113,6 +114,7 @@ class SuperChatItem {
       id: id ?? this.id,
       uid: uid ?? this.uid,
       price: price ?? this.price,
+      backgroundImage: backgroundImage ?? this.backgroundImage,
       backgroundColor: backgroundColor ?? this.backgroundColor,
       backgroundBottomColor:
           backgroundBottomColor ?? this.backgroundBottomColor,
@@ -125,7 +127,7 @@ class SuperChatItem {
       ts: ts ?? this.ts,
       userInfo: userInfo ?? this.userInfo,
       medalInfo: medalInfo ?? this.medalInfo,
-    );
+    )..expired = expired ?? this.expired;
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{

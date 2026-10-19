@@ -88,13 +88,17 @@ class DynamicsController
     _jumpToTab(mid);
   }
 
-  Future<void> singleRefresh() {
+  void _resetPaging() {
     if (_showAllUp) {
       _page = 1;
       _cacheUpList = null;
     }
     _offset = null;
     _isEnd = false;
+  }
+
+  Future<void> singleRefresh() {
+    _resetPaging();
     return super.onRefresh();
   }
 
@@ -172,6 +176,9 @@ class DynamicsController
     await super.queryData(isRefresh);
     if (_refreshWaiting) {
       _refreshWaiting = false;
+      // the load that was out (a refresh too, perhaps) has moved the paging
+      // on: a refresh starts from the first page again
+      _resetPaging();
       await super.queryData(true);
     }
   }

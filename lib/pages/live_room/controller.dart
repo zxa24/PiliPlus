@@ -853,6 +853,7 @@ class LiveRoomController extends GetxController {
           uid: item.uid,
           msg: item.message,
           reason: ReportOptions.liveDanmakuReport['']![reasonType]!,
+          reasonId: reasonType,
           ts: item.ts,
           token: item.token,
         );

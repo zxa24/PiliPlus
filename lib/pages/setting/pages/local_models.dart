@@ -134,9 +134,16 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
     );
     if (confirmed != true) return;
     try {
-      // a transcription may be using or downloading it; its page hears why
-      // it ended (as 已下载的翻译模型 does for translation)
-      await AsrService.to.stop(reason: '识别模型已删除');
+      // a transcription using or downloading it ends, and its page hears
+      // why (as 已下载的翻译模型 does for translation); one that does not
+      // goes on (the English model, say, deleted under a SenseVoice job)
+      final service = AsrService.to;
+      if (service.usesModel(model)) {
+        await service.stop(reason: '识别模型已删除');
+      }
+      if (model.id == AsrModelCatalog.parakeet.id) {
+        service.cancelEnglishDownload();
+      }
       await _store.remove(model);
     } catch (e) {
       SmartDialog.showToast('删除失败: $e');

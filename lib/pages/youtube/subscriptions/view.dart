@@ -6,6 +6,8 @@
 /// hundred requests.
 library;
 
+import 'dart:async';
+
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
@@ -39,12 +41,28 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
   var _loading = false;
   var _failed = 0;
   late final _gridDelegate = Grid.videoCardHDelegate();
+  StreamSubscription? _boxSub;
 
   @override
   void initState() {
     super.initState();
     _subs = YtSubscriptions.all();
     if (_subs.isNotEmpty) _refresh();
+    // a channel followed from a video page while this (kept-alive) page
+    // showed 「还没有订阅的频道」 must bring the feed up
+    _boxSub = YtSubscriptions.watch().listen((_) {
+      if (!mounted) return;
+      final subs = YtSubscriptions.all();
+      final wasEmpty = _subs.isEmpty;
+      setState(() => _subs = subs);
+      if (wasEmpty && subs.isNotEmpty) _refresh();
+    });
+  }
+
+  @override
+  void dispose() {
+    _boxSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _refresh() async {

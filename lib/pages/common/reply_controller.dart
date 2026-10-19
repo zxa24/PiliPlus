@@ -242,11 +242,13 @@ abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
     );
     if (res.isSuccess) {
       item.replyControl.isUpTop = !isUpTop;
-      if (!isUpTop && index != 0) {
-        final list = loadingState.value.data!;
-        list
+      // found again by item: the list may have changed during the request
+      final list = loadingState.value.dataOrNull;
+      final current = list?.indexOf(item) ?? -1;
+      if (!isUpTop && current > 0) {
+        list!
           ..first.replyControl.isUpTop = false
-          ..insert(0, list.removeAt(index));
+          ..insert(0, list.removeAt(current));
       }
       loadingState.refresh();
       SmartDialog.showToast('${isUpTop ? '取消' : ''}置顶成功');

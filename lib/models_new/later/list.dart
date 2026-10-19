@@ -67,12 +67,15 @@ class LaterItemModel with MultiSelectData {
     bangumi: json['bangumi'] == null
         ? null
         : Bangumi.fromJson(json['bangumi'] as Map<String, dynamic>),
+    // [Bangumi] takes season as optional: so does this, or one such item
+    // fails the whole list
     subtitle: json['bangumi'] == null
         ? null
-        : (json['title'] as String).replaceFirst(
-            '${json['bangumi']['season']['title']} ',
-            '',
-          ),
+        : switch (json['bangumi']['season']?['title']) {
+            final String seasonTitle =>
+              (json['title'] as String?)?.replaceFirst('$seasonTitle ', ''),
+            _ => json['title'] as String?,
+          },
     cid: json['cid'] as int?,
     progress: json['progress'] as int?,
     bvid: json['bvid'] as String?,
