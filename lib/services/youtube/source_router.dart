@@ -2,8 +2,8 @@
 ///
 /// Its ONLY job is to make sure a fall-through to another source happens for
 /// cause (b) — our IP is blocked — and for nothing else. The video pages put
-/// `inv.nadeko.net` ([YtInvidiousSource], 2026-10-12) in the fallback slot;
-/// every other page leaves it empty.
+/// [YtInvidiousSource] (the registry's https instances, in turn) in the
+/// fallback slot; every other page leaves it empty.
 ///
 /// ## The routing rule, cause by cause
 ///

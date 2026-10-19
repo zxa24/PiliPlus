@@ -12,9 +12,14 @@ sealed class DataSource {
 }
 
 class NetworkSource extends DataSource {
+  /// YouTube's streams (googlevideo or an Invidious instance): never sent
+  /// bilibili's Referer, nor checked against bilibili's hosts.
+  final bool youtube;
+
   NetworkSource({
     required super.videoSource,
     required super.audioSource,
+    this.youtube = false,
   });
 }
 

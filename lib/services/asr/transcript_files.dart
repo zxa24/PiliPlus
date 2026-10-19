@@ -25,6 +25,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:PiliPlus/services/asr/asr_cue.dart';
+import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/transcriber.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
@@ -92,9 +93,14 @@ abstract final class TranscriptFiles {
     final covered = entry.coveredSeconds;
     if (covered <= 0) return false;
     final there = await _read(videoPath);
-    if (there != null &&
-        there.key == entry.key &&
-        there.coveredSeconds > covered) {
+    if (there != null) {
+      if (there.key == entry.key && there.coveredSeconds > covered) {
+        return false;
+      }
+    } else if (_besideExists(videoPath) && !_coversWhole(entry)) {
+      // files this version cannot read (another format: the app was
+      // updated, and opening the video dropped the cache entry) are not
+      // replaced by the little made since, until it is the whole media
       return false;
     }
     await _replace(srtPath(videoPath), displayed(entry).toSrt());
@@ -127,6 +133,25 @@ abstract final class TranscriptFiles {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Whether a transcript file is beside the video at [videoPath].
+  static bool _besideExists(String videoPath) {
+    try {
+      return File(entryPath(videoPath)).existsSync() ||
+          File(srtPath(videoPath)).existsSync();
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Whether [entry] covers the whole media, as a session finds it done
+  /// (isCoveredWhole): only then is it sure to have all the files had.
+  static bool _coversWhole(SubtitleCacheEntry entry) {
+    final end = entry.mediaEnd;
+    if (end == null) return false;
+    final store = TranscriptStore()..restore(entry.runs);
+    return isCoveredWhole(store.covered, end);
   }
 
   static var _serial = 0;

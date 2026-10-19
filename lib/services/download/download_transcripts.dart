@@ -27,6 +27,7 @@ import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/model_bench/model_bench.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart';
@@ -179,16 +180,27 @@ class DownloadTranscripts {
         !Get.isRegistered<AsrService>() ||
         !AsrService.to.modelsReady ||
         AsrService.to.hasJob ||
+        ModelBench.isRunning ||
         await readAsrPower() != AsrPower.unlimited) {
       _later();
       return;
     }
-    // looked again after the wait above: a page may have started one
-    if (_session != null || AsrService.to.hasJob) {
+    final cid = entry.cid;
+    // what is kept beside the video goes on where it was, as on the page,
+    // rather than from the start when the cache has lost it
+    try {
+      final kept = await TranscriptFiles.read(
+        entry.mergedPath!,
+        SubtitleCacheKey.bilibili(cid),
+        AsrService.recogniserId,
+      );
+      if (kept != null) await AsrService.to.cache.adopt(kept);
+    } catch (_) {}
+    // looked again after the waits above: a page may have started one
+    if (_session != null || AsrService.to.hasJob || ModelBench.isRunning) {
       _later();
       return;
     }
-    final cid = entry.cid;
     final session = _session = await AsrService.to.start(
       key: 'download:$cid',
       source: entry.mergedPath!,
@@ -217,6 +229,14 @@ class DownloadTranscripts {
       session.duration,
     );
     final state = session.state.value;
+    // a page's own took its place, also one resting in standby, which
+    // [AsrService.start] does not mark as displaced
+    final displaced =
+        session.wasDisplaced ||
+        !identical(AsrService.to.sessionFor(session.key), session);
+    // stopped by the model guard (the app went away): it carries on when
+    // the app is back
+    if (!displaced && session.isSuspended) return;
     if (state.isBusy || state.stage == AsrStage.idle) {
       // a phone taken off its charger: a run to the end waits for it
       if (await readAsrPower() == AsrPower.unlimited) return;
@@ -230,7 +250,7 @@ class DownloadTranscripts {
       entry,
       outcome: switch (state.stage) {
         AsrStage.done => _Outcome.done,
-        _ when session.wasDisplaced => _Outcome.paused,
+        _ when displaced => _Outcome.paused,
         // stood still short of the end (standby with no viewer to wait for):
         // what the transcript has is all there is, near enough
         AsrStage.standby when fraction >= 0.99 => _Outcome.done,

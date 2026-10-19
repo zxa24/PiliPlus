@@ -1190,7 +1190,11 @@ class _SherpaEngine implements AsrEngine {
       (cut.flushQuick ? quickVad : vad).flush();
       drain(end: reader.samplesRead);
       if (stopping()) return false;
-      filter.finish().forEach(emit);
+      // a stretch still undecided at an end cut short is shown: the rest,
+      // tried again later, may be in its language too
+      filter
+          .finish(hide: !request.follow || reader.extractionReachedEnd)
+          .forEach(emit);
       final played = offset + reader.samplesRead / asrSampleRate;
       send({
         'type': 'progress',

@@ -105,9 +105,11 @@ class SubtitleCacheEntry {
   double? mediaEnd;
 
   /// The English model, where the session switched to it
-  /// (AsrModelCatalog.parakeet's id), and where in the media its first
-  /// segment starts: the recogniser named by the key made what comes
-  /// before, in that run and in the runs before it. Null: all SenseVoice.
+  /// (AsrModelCatalog.parakeet's id), and where in the media the first
+  /// segment it made starts. Only that: runs follow the viewer, not the
+  /// media's order, so a run made after the switch — the English model's
+  /// — can lie before it, and one made before it — the key's recogniser's
+  /// — after it. Null: all SenseVoice.
   /// Which model made a line is not kept line by line; this is the key's
   /// other half (see [SubtitleCache.format], 6).
   String? englishModel;
@@ -121,6 +123,10 @@ class SubtitleCacheEntry {
 
   /// The cache it was opened from, which [save] writes it to.
   SubtitleCache? _store;
+
+  /// The [runs] [SubtitleCache.onSaved] was last told of: a save that
+  /// changed only the translations does not tell it again.
+  List<RestoredRun>? _runsTold;
 
   /// Writes it to the cache it came from, as it is now (see
   /// [SubtitleCache.save]).
@@ -432,7 +438,10 @@ class SubtitleCache {
     _entries[name] = entry;
     entry._store = this;
     if (entry.isEmpty) return _writes[name] ?? Future.value();
-    onSaved?.call(entry);
+    if (!identical(entry._runsTold, entry.runs)) {
+      entry._runsTold = entry.runs;
+      onSaved?.call(entry);
+    }
     final text = jsonEncode(entry.toJson());
     final write = (_writes[name] ?? Future.value()).then(
       (_) => _write(name, text),
@@ -446,15 +455,21 @@ class SubtitleCache {
     return write;
   }
 
-  /// Told of every entry kept, as it is kept: the downloads write a
-  /// finished download's transcript beside its video (TranscriptFiles).
+  /// Told of every entry kept, as it is kept, when its transcript has
+  /// changed since: the downloads write a finished download's transcript
+  /// beside its video (TranscriptFiles).
   static void Function(SubtitleCacheEntry entry)? onSaved;
+
+  /// Whether a transcription job holds [key]'s entry (AsrService): [adopt]
+  /// leaves it alone then.
+  static bool Function(SubtitleCacheKey key)? transcribing;
 
   /// Puts [kept] — the entry of the same part and recogniser, from beside a
   /// downloaded video — in place of what the cache has, when it covers more
   /// of the media. False when the cache's covers as much. Only while nothing
   /// is transcribing that part: a session's transcript would not take it.
   Future<bool> adopt(SubtitleCacheEntry kept) async {
+    if (transcribing?.call(kept.key) ?? false) return false;
     final entry = await open(kept.key, kept.recogniser);
     if (kept.coveredSeconds <= entry.coveredSeconds) return false;
     entry

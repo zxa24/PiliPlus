@@ -13,6 +13,7 @@ import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
+import 'package:hive_ce/hive.dart' show BoxEvent;
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -42,9 +43,25 @@ class _LocalHistoryPageState extends State<LocalHistoryPage> {
   @override
   void initState() {
     super.initState();
-    _sub = LocalHistory.watch().listen((_) {
-      if (mounted) setState(() => _entries = LocalHistory.entries());
+    _sub = LocalHistory.watch().listen((event) {
+      if (mounted) setState(() => _entries = _applied(event));
     });
+  }
+
+  /// [_entries] with the one [event] changed: kept alive in a tab under a
+  /// playing video, the page re-read and re-sorted the whole history (up to
+  /// 20000 entries) on every 10 s save.
+  List<LocalWatchEntry> _applied(BoxEvent event) {
+    final key = event.key;
+    if (key is! String) return LocalHistory.entries();
+    final entries = [..._entries]..removeWhere((e) => e.key == key);
+    final entry = event.deleted ? null : LocalHistory.get(key);
+    if (entry != null) {
+      // most recently watched first, as [LocalHistory.entries]
+      final at = entries.indexWhere((e) => e.time.compareTo(entry.time) < 0);
+      entries.insert(at < 0 ? entries.length : at, entry);
+    }
+    return entries;
   }
 
   @override

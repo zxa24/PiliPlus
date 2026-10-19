@@ -18,6 +18,7 @@ import 'package:PiliPlus/pages/youtube/common/yt_list_controller.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/utils/grid.dart';
+import 'package:PiliPlus/utils/utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -72,15 +73,22 @@ class _YtPlaylistPageState
   late final String playlistId = Get.parameters['id'] ?? '';
   late final String? title = Get.parameters['title'];
 
+  /// This page's own, as the channel page's: the same playlist opened
+  /// again over it is not to share (and dispose) its controller.
+  late final String tag =
+      Get.isRegistered<YtPlaylistController>(tag: playlistId)
+      ? Utils.makeHeroTag(playlistId)
+      : playlistId;
+
   @override
   late final YtPlaylistController controller = Get.put(
     YtPlaylistController(playlistId),
-    tag: playlistId,
+    tag: tag,
   );
 
   @override
   void dispose() {
-    Get.delete<YtPlaylistController>(tag: playlistId);
+    Get.delete<YtPlaylistController>(tag: tag);
     super.dispose();
   }
 

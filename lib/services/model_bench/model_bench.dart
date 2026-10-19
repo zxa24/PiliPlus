@@ -4,10 +4,14 @@
 /// The question it answers is the one noisy-speech §18 ran into on a Pixel
 /// 6 Pro: translation shares the CPU with transcription, and beside it runs
 /// at about a third of its speed alone (reply 8.4–9.6 → 2.9 tok/s, §18.1).
-/// A test of the translation model alone would overstate what the viewer
-/// gets about threefold, so the line that decides the advice is translated
-/// while SenseVoice decodes speech over and over, as it does while the
-/// transcript races ahead of the viewer.
+/// Since a transcription far enough ahead gives the CPU to a translation
+/// behind its viewer (asrYieldFor), they take turns rather than run at once
+/// the whole time: the advice is read from the translation's speed alone
+/// times what SenseVoice, timed alone, leaves of each second
+/// (BenchTranslation.sharedRealTime). A line is still translated while
+/// SenseVoice decodes speech over and over, as it does while the transcript
+/// races ahead of the viewer: the worst case, kept in 详细数据, and the
+/// advice's basis where the shared figure cannot be had.
 ///
 /// Only installed models are tested; nothing is downloaded for the test.
 /// For a model that is not installed there is no estimate either: the one
@@ -168,11 +172,20 @@ class ModelBench with WidgetsBindingObserver {
 
   var _pressure = false;
 
+  /// A test is running: the downloads' background transcription waits
+  /// for it rather than share the CPU and memory with it.
+  static bool get isRunning => _running > 0;
+  static var _running = 0;
+
   /// Something else holding the models: the numbers would be shared with
   /// it, and loading a second copy is the memory the guard is there for.
   static String? busyReason() {
     bool live<S>() => Get.isRegistered<S>() && !Get.isPrepared<S>();
     if (live<AsrService>() && AsrService.to.holdsModels) {
+      // the downloads' own, which no page switch stops (DownloadTranscripts)
+      if (AsrService.to.debugCurrent?.key.startsWith('download:') ?? false) {
+        return '正在后台转录下载的视频，请稍后再测试';
+      }
       return '正在转录，请先关闭字幕转录或退出视频后再测试';
     }
     if (live<TranslationService>() && TranslationService.to.isBusy) {
@@ -304,6 +317,7 @@ class ModelBench with WidgetsBindingObserver {
       return result();
     }
 
+    _running++;
     WidgetsBinding.instance.addObserver(this);
     _Recogniser? recogniser;
     try {
@@ -396,6 +410,7 @@ class ModelBench with WidgetsBindingObserver {
       error = '测试出错：$e';
       return result();
     } finally {
+      _running--;
       sampler.cancel();
       WidgetsBinding.instance.removeObserver(this);
       if (recogniser != null) {

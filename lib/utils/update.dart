@@ -155,7 +155,12 @@ abstract final class Update {
       }
     } catch (e) {
       if (kDebugMode) debugPrint('download error: $e');
-      PageUtils.launchURL('${Constants.sourceCodeUrl}/releases/latest');
+      // this release's page: GitHub's /releases/latest is the newest
+      // release of any kind, which was the speech models' mirror
+      // (asr-models, measured 2026-10-19)
+      PageUtils.launchURL(
+        '${data['html_url'] ?? '${Constants.sourceCodeUrl}/releases'}',
+      );
     }
   }
 }

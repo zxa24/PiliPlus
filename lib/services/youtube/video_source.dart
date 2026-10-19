@@ -1,6 +1,7 @@
 /// One interface, two implementations: [YtDirectSource] (InnerTube) and
-/// [YtInvidiousSource] (`inv.nadeko.net`'s watch page, 2026-10-12), which
-/// the video pages fall back to when YouTube refuses this network.
+/// [YtInvidiousSource] (the watch pages of the registry's https instances,
+/// in turn), which the video pages fall back to when YouTube refuses this
+/// network.
 library;
 
 import 'package:PiliPlus/services/youtube/yt_format_select.dart';

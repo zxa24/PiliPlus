@@ -48,20 +48,28 @@ class YtChannelPageView extends StatefulWidget {
 class _YtChannelPageViewState extends State<YtChannelPageView> {
   late final String channelId = Get.parameters['id'] ?? '';
 
+  /// This page's own: the same channel opened again from it (帖子 → the
+  /// post's author) got the first page's controllers, and its close
+  /// disposed what the page under it still used. The first keeps the bare
+  /// id, which the self-test finds it by.
+  late final String tag = Get.isRegistered<YtChannelController>(tag: channelId)
+      ? Utils.makeHeroTag(channelId)
+      : channelId;
+
   late final YtChannelController controller = Get.put(
     YtChannelController(channelId),
-    tag: channelId,
+    tag: tag,
   );
 
   @override
   void dispose() {
     for (final tab in YtChannelTab.values) {
-      final tag = _tabTag(channelId, tab);
+      final tag = _tabTag(this.tag, tab);
       if (Get.isRegistered<YtChannelTabController>(tag: tag)) {
         Get.delete<YtChannelTabController>(tag: tag);
       }
     }
-    Get.delete<YtChannelController>(tag: channelId);
+    Get.delete<YtChannelController>(tag: tag);
     super.dispose();
   }
 
@@ -85,6 +93,7 @@ class _YtChannelPageViewState extends State<YtChannelPageView> {
               _YtChannelTabPage(
                 key: ValueKey(tab),
                 channelId: channelId,
+                pageTag: tag,
                 channelName: response?.name,
                 tab: tab,
               ),
@@ -96,7 +105,7 @@ class _YtChannelPageViewState extends State<YtChannelPageView> {
   );
 }
 
-String _tabTag(String channelId, YtChannelTab tab) => '$channelId/${tab.name}';
+String _tabTag(String pageTag, YtChannelTab tab) => '$pageTag/${tab.name}';
 
 /// The channel's header: [SpaceHeaderCard] with YouTube's facts in it.
 class YtChannelHeader extends StatelessWidget {
@@ -189,11 +198,15 @@ class _YtChannelTabPage extends StatefulWidget {
   const _YtChannelTabPage({
     super.key,
     required this.channelId,
+    required this.pageTag,
     required this.channelName,
     required this.tab,
   });
 
   final String channelId;
+
+  /// The channel page's controller tag (see its `tag`).
+  final String pageTag;
   final String? channelName;
   final YtChannelTab tab;
 
@@ -206,7 +219,7 @@ class _YtChannelTabPageState
     with AutomaticKeepAliveClientMixin, GridMixin, DynMixin {
   YtChannelTab get tab => widget.tab;
 
-  late final _channel = Get.find<YtChannelController>(tag: widget.channelId);
+  late final _channel = Get.find<YtChannelController>(tag: widget.pageTag);
 
   @override
   late final YtChannelTabController controller = Get.put(
@@ -219,7 +232,7 @@ class _YtChannelTabPageState
       // response listed, which every later tab is asked for with
       source: _channel.router.direct,
     ),
-    tag: _tabTag(widget.channelId, tab),
+    tag: _tabTag(widget.pageTag, tab),
   );
 
   @override

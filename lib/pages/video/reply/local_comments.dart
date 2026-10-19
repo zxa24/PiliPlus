@@ -60,11 +60,19 @@ class LocalComments {
     localize(
       reply,
       (url) => switch (files[url]) {
-        final rel? => path.join(dir, rel),
+        final rel? => inside(dir, rel) ?? '',
         _ => '',
       },
     );
     return reply;
+  }
+
+  /// [rel] under [dir]; null when it is not (an absolute path, or `..`, in
+  /// the file would show any file on the device).
+  static String? inside(String dir, String rel) {
+    if (path.isAbsolute(rel)) return null;
+    final full = path.join(dir, rel);
+    return path.isWithin(dir, path.normalize(full)) ? full : null;
   }
 
   /// Points [reply]'s images, and those of the replies under it, at what

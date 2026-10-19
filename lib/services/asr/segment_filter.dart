@@ -113,9 +113,10 @@ class AsrSegmentFilter<T> {
   }
 
   /// No more segments are coming: a stretch still undecided has nothing
-  /// after it, and is hidden.
-  List<AsrFiltered<T>> finish() {
-    if (_stretch != null) _resolve(hide: true);
+  /// after it, and is hidden — unless [hide] is false: the audio was cut
+  /// short, and what follows it is not known.
+  List<AsrFiltered<T>> finish({bool hide = true}) {
+    if (_stretch != null) _resolve(hide: hide);
     return _release();
   }
 

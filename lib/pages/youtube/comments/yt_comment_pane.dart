@@ -508,7 +508,7 @@ class _YtCommentPaneState extends State<YtCommentPane> {
                 theme,
                 isEnd: !loading && !controller.hasMoreReplies(id),
                 error: error,
-                onRetry: () => controller.refreshReplies(comment),
+                onRetry: () => controller.retryReplies(comment),
                 emptyText: replies.isEmpty ? '没有取到回复' : '没有更多了',
               );
             },

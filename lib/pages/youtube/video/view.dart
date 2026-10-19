@@ -732,7 +732,12 @@ class _YtVideoPageState extends State<YtVideoPage>
                   (value: height, label: '${height}P', enabled: true),
               ],
               onSelected: controller.setMaxHeight,
-              child: _popupLabel(current == 0 ? '自动' : '${current}P'),
+              // what is open, not the cap it was picked under
+              child: _popupLabel(
+                current == 0
+                    ? '自动'
+                    : '${controller.openedHeight.value ?? current}P',
+              ),
             );
           }),
           ComBtn(

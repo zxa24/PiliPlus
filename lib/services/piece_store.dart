@@ -39,6 +39,9 @@ class PieceStore {
   final _lru = <_Piece>{};
   var _bytes = 0;
 
+  /// Numbers each scratch file [write] makes.
+  var _scratchSerial = 0;
+
   /// What the pieces kept take now.
   int get bytes => _bytes;
 
@@ -62,6 +65,11 @@ class PieceStore {
         await for (final file in entry.list()) {
           if (file is! File) continue;
           final name = file.uri.pathSegments.last;
+          // a write cut short (see [write])
+          if (name.endsWith('.tmp')) {
+            await file.delete().catchError((_) => file);
+            continue;
+          }
           final m = RegExp(r'^(\d+)-(\d+)$').firstMatch(name);
           if (m == null) continue;
           final piece = _Piece(
@@ -182,10 +190,23 @@ class PieceStore {
       return;
     }
     final piece = _Piece(stream, start, data.length, DateTime.now());
+    // a scratch file renamed into place, as the other caches here do: a
+    // full-length piece of garbage (a crash under delayed allocation) would
+    // pass [read]'s length check, and be played and copied into downloads
+    final name = '${dir.path}/$key/$start-${data.length}';
     try {
-      await File(
-        '${dir.path}/$key/$start-${data.length}',
-      ).writeAsBytes(data, flush: false);
+      // its own scratch name: two writers of one piece (the stream re-sized
+      // between them) never share or remove each other's file
+      final scratch = await File(
+        '$name.${_scratchSerial++}.tmp',
+      ).writeAsBytes(data, flush: true);
+      // the stream re-sized (another file) during the write: these bytes
+      // are the old one's, not to be filed under the new
+      if (!identical(_streams[key], stream)) {
+        await scratch.delete().catchError((_) => scratch);
+        return;
+      }
+      await scratch.rename(name);
     } catch (_) {
       return;
     }

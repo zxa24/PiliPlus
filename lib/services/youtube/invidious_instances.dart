@@ -1,8 +1,9 @@
 /// LibrePili: a public Invidious instance that answers now, for opening a
 /// video there in the browser when YouTube refuses this network (its bot
-/// wall). Not the source the app plays from — that is `inv.nadeko.net`
-/// ([YtInvidiousSource], in the router's fallback slot); this only hands the
-/// viewer somewhere the video can be watched in a browser.
+/// wall). Not the source the app plays from — that is [YtInvidiousSource],
+/// in the router's fallback slot, which walks every https instance of the
+/// registry; this only hands the viewer somewhere the video can be watched
+/// in a browser.
 ///
 /// Plain [HttpClient] requests: nothing of bilibili's (cookies, referer, user
 /// agent) goes to either the list or the instances.

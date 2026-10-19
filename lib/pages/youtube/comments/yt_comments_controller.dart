@@ -116,9 +116,22 @@ mixin YtCommentsMixin on GetxController {
       (commentsLoading.value || !_commentsStarted.value);
 
   /// Retries the page that failed, without losing the ones that did not.
+  /// With no token to retry with (the request that carries it failed, the
+  /// host's own), the first page anew: 重试 did nothing at all.
   Future<void> retryComments() {
     commentsError.value = null;
+    if (_commentsToken.value == null && comments.isEmpty) {
+      return refreshComments();
+    }
     return loadMoreComments();
+  }
+
+  /// The host's request that carries the first token failed: said in the
+  /// section, which otherwise waited for it for ever. Not over comments
+  /// already loading or loaded.
+  void commentsBootstrapFailed(String message) {
+    if (_commentsToken.value != null || comments.isNotEmpty) return;
+    commentsError.value = message;
   }
 
   /// Pull to refresh: back to the first page, which means a fresh bootstrap
@@ -140,8 +153,14 @@ mixin YtCommentsMixin on GetxController {
     replies.clear();
     repliesLoading.clear();
     _moreReplies.clear();
+    _failedReplies.clear();
+    // a thread's preview still on its way is for the list thrown away: its
+    // replies were added to the new list's, which asked again (twice over)
+    _repliesGeneration++;
     commentsError.value = null;
     _commentsToken.value = result.value;
+    // asked for: none, from here, is 「暂无评论」, not still waiting
+    _commentsStarted.value = true;
     await loadMoreComments();
   }
 
@@ -155,6 +174,13 @@ mixin YtCommentsMixin on GetxController {
   final replies = <String, RxList<YtComment>>{}.obs;
   final repliesLoading = <String>{}.obs;
   final _moreReplies = <String, String?>{};
+
+  /// The token of a thread's page that failed, for 重试 to ask again (see
+  /// [retryReplies]).
+  final _failedReplies = <String, String>{};
+
+  /// Counts [refreshComments]: a reply page fetched before one is dropped.
+  var _repliesGeneration = 0;
 
   bool hasMoreReplies(String commentId) => _moreReplies[commentId] != null;
 
@@ -189,8 +215,20 @@ mixin YtCommentsMixin on GetxController {
       ..remove(id)
       ..refresh();
     _moreReplies.remove(id);
+    _failedReplies.remove(id);
     repliesError.remove(id);
     await _fetchReplies(id, comment.replyToken);
+  }
+
+  /// 重试 under a thread: the page that failed, keeping the replies that
+  /// loaded (it reloaded the whole thread); the thread anew when nothing
+  /// is kept to retry.
+  Future<void> retryReplies(YtComment comment) {
+    final id = comment.commentId;
+    final token = _failedReplies.remove(id);
+    if (token == null) return refreshReplies(comment);
+    repliesError.remove(id);
+    return _fetchReplies(id, token);
   }
 
   /// Why a thread's replies are not here, when they are not. Keyed by
@@ -203,14 +241,16 @@ mixin YtCommentsMixin on GetxController {
   Future<void> _fetchReplies(String commentId, String? token) async {
     if (token == null || repliesLoading.contains(commentId)) return;
     repliesLoading.add(commentId);
+    final generation = _repliesGeneration;
     final result = await router.run((s) => fetchCommentsPage(s, token));
-    if (isClosed) return;
+    if (isClosed || generation != _repliesGeneration) return;
     repliesLoading.remove(commentId);
     if (result.ok && result.value != null) {
       (replies[commentId] ??= <YtComment>[].obs).addAll(result.value!.items);
       translateLoadedComments();
       replies.refresh();
       _moreReplies[commentId] = result.value!.continuation;
+      _failedReplies.remove(commentId);
       repliesError.remove(commentId);
     } else {
       // an empty list rather than nothing: the thread is open and has to say
@@ -218,6 +258,7 @@ mixin YtCommentsMixin on GetxController {
       replies[commentId] ??= <YtComment>[].obs;
       replies.refresh();
       _moreReplies[commentId] = null;
+      _failedReplies[commentId] = token;
       repliesError[commentId] = commentsMessageFor(result.verdict);
     }
   }

@@ -31,10 +31,26 @@ String? ytOriginalAudioLanguage(List<YtFormat> formats) {
 /// [track]'s kind: an automatic track in another language than the
 /// [original] audio's is the transcript of a dub — the speech translated,
 /// not the speech as it is.
+///
+/// A track of no known language (an Invidious instance that refused its
+/// caption list, a label it did not know) is taken as the speech, as with
+/// no dubs: nothing says it is a dub.
 PlatformTrackKind ytTrackKind(YtCaptionTrack track, String? original) {
   if (!track.isAutomatic) return PlatformTrackKind.author;
   if (original == null) return PlatformTrackKind.generated;
-  return captionLanguage(track.languageCode) == original
+  final language = _current(captionLanguage(track.languageCode));
+  if (language.isEmpty) return PlatformTrackKind.generated;
+  return language == _current(original)
       ? PlatformTrackKind.generated
       : PlatformTrackKind.translated;
 }
+
+/// The codes YouTube still uses for a few languages (Hebrew `iw`,
+/// Indonesian `in`, Yiddish `ji`) as their current ones: the audio track
+/// and the caption track need not say it the same way.
+String _current(String language) => switch (language) {
+  'iw' => 'he',
+  'in' => 'id',
+  'ji' => 'yi',
+  _ => language,
+};

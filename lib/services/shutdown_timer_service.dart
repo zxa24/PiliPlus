@@ -6,12 +6,17 @@ import 'package:PiliPlus/models/common/enum_with_label.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPicker;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:get/get_core/src/get_main.dart';
+import 'package:get/get_instance/src/extension_instance.dart';
 import 'package:get/get_rx/src/rx_types/rx_types.dart';
 import 'package:get/get_state_manager/src/rx_flutter/rx_obx_widget.dart';
 import 'package:material_ui/material_ui.dart';
@@ -126,10 +131,30 @@ class ShutdownTimerService {
         isManual: true,
       );
       if (res != null) {
-        res.whenComplete(appExit);
+        res.whenComplete(_flushAndExit);
         return;
       }
     }
+    _flushAndExit();
+  }
+
+  /// What closing the window does first (the main page's `_onClose`), as
+  /// app_exit.dart asks: what transcription and translation made since the
+  /// last save, and Hive's pending writes (the local watch history), on
+  /// disk before the process is ended.
+  static Future<void> _flushAndExit() async {
+    try {
+      if (Get.isRegistered<TranslationService>()) {
+        TranslationService.to.keepCache();
+      }
+      if (Get.isRegistered<AsrService>()) {
+        await AsrService.to.keepCache().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {},
+        );
+      }
+      await GStorage.close();
+    } catch (_) {}
     // not exit(): see appExit — a sleep-timer exit crashed in dcomp.dll
     appExit();
   }

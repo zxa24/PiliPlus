@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert' show jsonEncode, utf8;
-import 'dart:io' show Directory, File, HttpClient, HttpHeaders, HttpStatus;
+import 'dart:io'
+    show Directory, File, HttpClient, HttpHeaders, HttpStatus, SocketException;
 import 'dart:math' show min;
 import 'dart:typed_data' show Uint8List;
 import 'dart:ui';
@@ -993,10 +994,13 @@ class VideoDetailController extends GetxController
     final video = videoUrl;
     final audio = audioUrl;
     if (isFileSource || video == null) return null;
-    final (videoOk, audioOk) = await (
+    // null: no answer in time — a slow host, not a cut copy
+    final (videoServes, audioServes) = await (
       servesAt(video, cutAt),
-      audio == null ? Future.value(true) : servesAt(audio, cutAt),
+      audio == null ? Future<bool?>.value(true) : servesAt(audio, cutAt),
     ).wait;
+    final videoOk = videoServes == true;
+    final audioOk = audioServes == true;
     // both answer: not a broken copy, and a reopen is the safe way on
     if (videoOk && audioOk) return null;
     // the fastest other host that has the byte: measured from it, which
@@ -1026,7 +1030,13 @@ class VideoDetailController extends GetxController
     if (newVideo != null) {
       if (_hostOf(video) case final cut?) {
         _triedHosts.add(cut);
-        _cutHosts.add(cut);
+        // only a copy that answered short is cut for the part; one that
+        // timed out is slow, and gone back to once that has passed
+        if (videoServes == false) {
+          _cutHosts.add(cut);
+        } else {
+          _noteSlow(cut);
+        }
       }
       videoUrl = newVideo;
     }
@@ -1569,8 +1579,9 @@ class VideoDetailController extends GetxController
   /// Whether [url] hands over the byte at [offset], asked as the player asks
   /// (its user agent and referer, no cookies). A copy cut short before it
   /// drops the connection; one shorter than [offset] answers 416, which is
-  /// not a cut of this stream.
-  static Future<bool> servesAt(String url, int offset) async {
+  /// not a cut of this stream. Null when it gave no answer in time (a
+  /// timeout, no connection): slow, which is not cut.
+  static Future<bool?> servesAt(String url, int offset) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 4)
       ..userAgent = BrowserUa.pc;
@@ -1591,6 +1602,10 @@ class VideoDetailController extends GetxController
         length += chunk.length;
       }
       return response.statusCode == HttpStatus.partialContent && length > 0;
+    } on TimeoutException {
+      return null;
+    } on SocketException {
+      return null;
     } catch (_) {
       return false;
     } finally {
@@ -1614,17 +1629,26 @@ class VideoDetailController extends GetxController
   }
 
   /// The play URLs expired (a long pause): asks bilibili for new ones and
-  /// reopens on them at [at], playing — the CDN backups came in the same
-  /// answer and expired with them.
+  /// reopens on them at [at], playing as the player says (a paused video
+  /// stays paused, see [PlPlayerController.renewalPlays]) — the CDN backups
+  /// came in the same answer and expired with them.
   Future<void> _renewPlayUrl(Duration at) async {
     if (isFileSource || isClosed) return;
-    _autoPlay.value = true;
+    _renewing = true;
     playedTime = at;
     plPlayerController
       ..isBuffering.value = false
       ..buffered.value = 0;
-    await queryVideoUrl(fromReset: true);
+    try {
+      await queryVideoUrl(fromReset: true);
+    } finally {
+      _renewing = false;
+    }
   }
+
+  /// A renewal's query is under way: its source opens as
+  /// [PlPlayerController.renewalPlays] says, whatever 自动播放 is.
+  var _renewing = false;
 
   /// 更新画质、音质
   void updatePlayer() {
@@ -1657,6 +1681,11 @@ class VideoDetailController extends GetxController
   }
 
   Future<void>? _initPlayerIfNeeded(bool autoFullScreenFlag) {
+    if (_renewing && !isFileSource) {
+      final play = plPlayerController.renewalPlays;
+      if (play) _autoPlay.value = true;
+      return playerInit(autoplay: play);
+    }
     if (_autoPlay.value ||
         (plPlayerController.preInitPlayer && !plPlayerController.processing) &&
             (isFileSource
@@ -3810,6 +3839,10 @@ class VideoDetailController extends GetxController
     // the part being left, before its position is forgotten below
     saveLocalHistory(force: true);
     _historySavedSec = null;
+    // nothing the player says counts until the next part's source is set:
+    // a position from before its pause landed was saved as the next part's
+    // resume point (the cid and visit are the next part's from here on)
+    _ownSource = null;
 
     _lastLocalSaveSec = 0;
     playedTime = null;

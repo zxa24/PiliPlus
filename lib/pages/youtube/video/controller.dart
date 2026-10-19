@@ -199,13 +199,12 @@ class YtVideoController extends GetxController
     unawaited(_loadRelated());
   }
 
-  Future<void> _open(YtStreamPair pair, {Duration? seekTo}) async {
-    // The player is shared with the bilibili page, which sets bilibili's
-    // Referer and UA on it globally. Sending those to googlevideo would tell
-    // Google which bilibili client is watching — exactly the cross-site
-    // linkage this app exists to avoid. Google serves these URLs without any
-    // of it (measured), so they are cleared for the duration.
-    plPlayerController.videoPlayerController?.setMediaHeader();
+  /// [play]: whether it plays once open, in place of what [_open] decides.
+  Future<void> _open(YtStreamPair pair, {Duration? seekTo, bool? play}) async {
+    // The player is shared with the bilibili page. Sending bilibili's
+    // Referer to googlevideo would tell Google which bilibili client is
+    // watching — exactly the cross-site linkage this app exists to avoid:
+    // a source marked `youtube` is opened, and handed over, without it.
     var videoUrl = _videoUrlOf(pair);
     var audioUrl = pair.audioUrl;
     if (debugRefuseFirstOpen && _ownSource == null) {
@@ -221,14 +220,17 @@ class YtVideoController extends GetxController
     final source = NetworkSource(
       videoSource: videoUrl,
       audioSource: audioUrl,
+      youtube: true,
     );
     // the player's own autoplay calls a hook only the bilibili page sets:
     // here it never played by itself (2026-10-01, it sat paused with the
     // stream loaded). The first open follows 自动播放; a later one (another
     // quality, new URLs) plays on if it was playing
-    final playAfter = _ownSource == null
-        ? Pref.autoPlayEnable
-        : plPlayerController.playerStatus.isPlaying;
+    final playAfter =
+        play ??
+        (_ownSource == null
+            ? Pref.autoPlayEnable
+            : plPlayerController.playerStatus.isPlaying);
     _ownSource = source;
     // mpv keeps an added subtitle track with the file it was added to: a new
     // one — a quality change, fresh streams — starts without the transcript
@@ -251,6 +253,7 @@ class YtVideoController extends GetxController
       ..onReopen = _reopenHere
       ..onStepUpDropped = _dropStepUp;
     _heightCeiling ??= pair.video == null ? null : ytShortSide(pair.video!);
+    openedHeight.value = pair.video == null ? null : ytShortSide(pair.video!);
     // what the buffer is sized by: without it mpv got the 4 MiB setting, 5 s
     // of a 1080p60 stream against the 30 s asked for, and every seek 10 s on
     // waited (2026-10-01) — or the bitrate of the bilibili video before
@@ -329,6 +332,9 @@ class YtVideoController extends GetxController
     blocked.value =
         verdict.cause == YtCause.ipBlocked ||
         verdict.signal.startsWith('invidious:');
+    // the related request, which carries the comments' token, is not made
+    // when the video fails to load: the 评论 tab waited for it for ever
+    commentsBootstrapFailed(message.value);
     // in the event log too: a page that failed said nothing there
     EventLog.add('failure', 'youtube $videoId: $verdict');
     if (kDebugMode) debugPrint('youtube: $verdict');
@@ -398,6 +404,10 @@ class YtVideoController extends GetxController
   /// 0 is "no cap".
   final maxHeight = 1080.obs;
 
+  /// The short side of the video stream open now, for the quality button:
+  /// the cap read 1080P on a video that has 720P at most.
+  final openedHeight = RxnInt();
+
   /// The heights actually on offer for this video, best first: each one a
   /// cap the selection reaches (it picks the height before the codec), by
   /// the short side as the cap is — a portrait 1080x1920 is 1080P.
@@ -433,7 +443,9 @@ class YtVideoController extends GetxController
   }
 
   /// The stream URLs expired (a long pause): new ones, at the height asked
-  /// for, opened at [at] — the same as a quality change does.
+  /// for, opened at [at] — the same as a quality change does — playing as
+  /// the player says (a paused video stays paused, and a pause made during
+  /// the fetch holds: see [PlPlayerController.renewalPlays]).
   Future<void> _renewStreams(Duration at) async {
     _forgetResolved();
     final streams = await play.run(
@@ -445,9 +457,11 @@ class YtVideoController extends GetxController
     if (isClosed) return;
     if (streams.ok && streams.value != null) {
       _streams = streams.value;
-      await _open(streams.value!, seekTo: at);
-      // the viewer pressed play on the expired ones
-      if (!isClosed) await plPlayerController.play();
+      await _open(
+        streams.value!,
+        seekTo: at,
+        play: plPlayerController.renewalPlays,
+      );
     } else {
       _fail(streams.verdict);
     }
@@ -592,6 +606,9 @@ class YtVideoController extends GetxController
     if (!result.ok || result.value == null) {
       _relatedDone.value = true;
       relatedError.value = _messageFor(result.verdict);
+      // the comments' token comes with it: their tab says so too, and its
+      // 重试 asks again (see [retryComments])
+      commentsBootstrapFailed(relatedError.value!);
       return;
     }
     _relatedDone.value = true;

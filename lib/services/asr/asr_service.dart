@@ -718,6 +718,8 @@ class AsrSession {
     String? userAgent,
     required AsrModels models,
   }) async {
+    // displaced while its models loaded: dispose found no ticker to stop
+    if (_closed) return;
     _source = source;
     _referer = referer;
     _userAgent = userAgent;
@@ -1464,7 +1466,8 @@ class AsrSession {
     try {
       File(run.cancelPath).writeAsStringSync('1');
     } catch (_) {}
-    // whatever a join was holding duplicated text already there
+    // whatever a join was holding goes: the run did not claim its stretch
+    // (see [_onProgress]), so it is transcribed again
     run
       ..join = null
       ..store.finish();
@@ -1631,9 +1634,15 @@ class AsrSession {
     _holdForEnglish();
     if (run.skipUntil != null) return;
     final joinFrom = run.joinFrom ?? _nextKnown(run);
-    final reach = joinFrom == null
+    var reach = joinFrom == null
         ? run.frontier
         : (run.frontier < joinFrom ? run.frontier : joinFrom);
+    // what a join holds back is not the run's until the join is made: a
+    // run ending before then leaves that stretch to be transcribed again
+    final held = run.join?.held;
+    if (held != null && held.isNotEmpty && held.first.start < reach) {
+      reach = held.first.start;
+    }
     // before the target the pre-roll is not the run's to claim
     if (reach > run.store.start) transcript.advance(run.store, reach);
     _updateState();
@@ -1801,6 +1810,15 @@ Future<String?> loadChineseSegmenter() async {
 }
 
 class AsrService extends GetxService {
+  AsrService() {
+    // a transcript from beside a downloaded video is not put in the cache
+    // while a job transcribes that part: its next save would write over it
+    SubtitleCache.transcribing = (key) {
+      final session = _current;
+      return session != null && !session._closed && session.cacheKey == key;
+    };
+  }
+
   static AsrService get to => Get.find<AsrService>();
 
   final store = AsrModelStore(

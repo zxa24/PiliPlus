@@ -144,6 +144,7 @@ abstract final class AsrAudioExtractor {
         } catch (_) {}
       });
     }
+    var reachedEnd = false;
     try {
       final args = (
         source: source,
@@ -159,6 +160,7 @@ abstract final class AsrAudioExtractor {
       if (outcome.bytes <= 0) {
         throw const AsrExtractException('没有解出音频');
       }
+      reachedEnd = outcome.reachedEnd;
       return (
         path: output,
         durationSeconds: outcome.bytes / asrBytesPerSecond,
@@ -172,8 +174,11 @@ abstract final class AsrAudioExtractor {
       // only once the isolate has returned, which is when the last bytes are
       // on disk.
       try {
+        // and whether the media ended there (PcmWindowReader
+        // .extractionReachedEnd)
         done.writeAsStringSync(
-          file.existsSync() ? '${file.lengthSync()}' : '0',
+          '${file.existsSync() ? file.lengthSync() : 0}'
+          '${reachedEnd ? ' eof' : ''}',
         );
       } catch (_) {}
     }

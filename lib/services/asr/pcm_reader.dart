@@ -79,6 +79,16 @@ class PcmWindowReader {
 
   bool get _extractionFinished => File(doneMarkerFor(_path)).existsSync();
 
+  /// The extractor got to the end of the media, as its marker says: not
+  /// cut short, and no marker missing (a decoder that died).
+  bool get extractionReachedEnd {
+    try {
+      return File(doneMarkerFor(_path)).readAsStringSync().endsWith(' eof');
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Blocks until there is more to read, and answers whether there is.
   ///
   /// Synchronous on purpose: this runs on the transcription isolate, whose

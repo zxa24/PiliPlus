@@ -38,7 +38,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 import 'dart:collection' show SplayTreeMap;
-import 'dart:math' show max, min;
+import 'dart:math' show Random, max, min;
 import 'dart:typed_data';
 
 import 'package:PiliPlus/services/piece_store.dart';
@@ -76,7 +76,8 @@ class ParallelFetch {
   static void Function(String line)? log;
 
   /// Told of each answer that was an HTTP error, with the stream's own
-  /// address (not the self-test's proxy) and the status.
+  /// address (not the self-test's proxy) and the status — for playback's
+  /// streams only (`keep`), not a download's.
   static void Function(Uri upstream, int status)? onRefused;
 
   /// Pieces kept on disk (see the library's doc); none when null.
@@ -94,8 +95,10 @@ class ParallelFetch {
     ..autoUncompress = false;
 
   final _byId = <String, _Remote>{};
-  final _idOf = <String, String>{};
-  var _nextId = 0;
+
+  /// By URL and `keep`: a download's wrap (not kept) took playback's remote
+  /// (kept), and its pieces went into the store, or the other way round.
+  final _idOf = <(String, bool), String>{};
 
   /// Pieces held, oldest use first, for [cachedBytes].
   final _held = <_Chunk>{};
@@ -140,8 +143,13 @@ class ParallelFetch {
         host.endsWith('.bilivideo.cn') ||
         host.endsWith('.akamaized.net') ||
         host.endsWith('.hdslb.com') ||
-        uri.path.contains('/upgcxcode/');
+        // bilibili's caches known by address only (`<ip>:<port>/upgcxcode/…`):
+        // by its path alone, a stream on any named host was sent
+        // bilibili's headers
+        (uri.path.contains('/upgcxcode/') && _isAddress(host));
   }
+
+  static bool _isAddress(String host) => InternetAddress.tryParse(host) != null;
 
   /// The loopback URL that stands in for [url]; null while not running.
   /// The upstream's host is in the path, for a log line to name.
@@ -150,11 +158,24 @@ class ParallelFetch {
   String? wrap(String url, {bool keep = true}) {
     final server = _server;
     if (server == null) return null;
-    final id = _idOf[url] ??= '${_nextId++}';
+    final known = _idOf[(url, keep)];
+    // a new URL (a renewal, another host): what the others left half
+    // fetched is let go
+    if (known == null) _releaseIdle();
+    final id = known ?? (_idOf[(url, keep)] = _newId());
     _byId[id] ??= _remote(Uri.parse(url), keep);
     final host = Uri.parse(url).host;
     return 'http://127.0.0.1:${server.port}/$id/$host';
   }
+
+  /// 128 random bits: anything else able to reach 127.0.0.1 could read the
+  /// playing stream at `/0/…`, `/1/…`.
+  static String _newId() => [
+    for (var i = 0; i < 16; i++)
+      _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ].join();
+
+  static final _random = Random.secure();
 
   _Remote _remote(Uri uri, bool keep) {
     final remote = _Remote(uri)..keep = keep;
@@ -202,6 +223,7 @@ class ParallelFetch {
       remote
         ..size = total
         ..key = null;
+      _dropStored(remote);
       await store.sized(PieceStore.keyOf(remote.uri), remote.uri, total, null);
       if (remote.keep) remote.key = PieceStore.keyOf(remote.uri);
     } catch (_) {
@@ -222,7 +244,12 @@ class ParallelFetch {
 
   Future<void> _serve(HttpRequest request) async {
     final segments = request.uri.pathSegments;
-    final remote = segments.isEmpty ? null : _byId[segments.first];
+    // only as this address itself: a page that rebinds a name of its own to
+    // 127.0.0.1 sends that name
+    final host = request.headers.value(HttpHeaders.hostHeader);
+    final remote = segments.isEmpty || host != '127.0.0.1:${_server?.port}'
+        ? null
+        : _byId[segments.first];
     final response = request.response;
     if (remote == null) {
       response.statusCode = HttpStatus.notFound;
@@ -307,15 +334,26 @@ class ParallelFetch {
       return;
     }
     // the player hanging up (a seek opens a new request and drops this
-    // one): what it read here is no longer wanted, at once
-    unawaited(
-      socket.done.catchError((_) {}).whenComplete(() {
-        reader.gone = true;
-        remote.readers.remove(reader);
-        reader.waitingOn?.notify();
-        _pump(remote);
-      }),
+    // one): what it read here is no longer wanted, at once. Heard on the
+    // socket's input: `done` alone did not complete in 4 s after the client
+    // closed, its input's end came 2 ms after (probed)
+    var hungUp = false;
+    void hangUp() {
+      if (hungUp) return;
+      hungUp = true;
+      reader.gone = true;
+      remote.readers.remove(reader);
+      reader.waitingOn?.notify();
+      _pump(remote);
+    }
+
+    socket.listen(
+      (_) {},
+      onDone: hangUp,
+      onError: (Object _) => hangUp(),
+      cancelOnError: true,
     );
+    unawaited(socket.done.catchError((_) {}).whenComplete(hangUp));
     try {
       while (reader.pos <= to && !reader.gone) {
         final pos = reader.pos;
@@ -502,10 +540,12 @@ class ParallelFetch {
       if (!chunk.done) {
         chunk.failure = chunk.lastError ?? const _Failure(null, 'gave up');
       }
-      bytesFromNetwork += chunk.received - kept;
+      // what the store gave, unless it was dropped as another file's
+      final fromStore = chunk.fromStore ? kept : 0;
+      bytesFromNetwork += chunk.received - fromStore;
       // whole and partly from the network: kept for next time
       if (chunk.done &&
-          chunk.received > kept &&
+          chunk.received > fromStore &&
           remote.keep &&
           remote.key != null) {
         unawaited(
@@ -519,6 +559,9 @@ class ParallelFetch {
     } finally {
       chunk.fetching = false;
       remote.fetching--;
+      // given up on, with nobody reading it: its buffer goes (it stays
+      // given up on — a reader's own request tries it anew)
+      if (chunk.failure != null && chunk.readers == 0) chunk.release();
       chunk.notify();
       _hold(chunk);
       _pump(remote);
@@ -530,24 +573,31 @@ class ParallelFetch {
   Future<void> _fromStore(_Remote remote, _Chunk chunk) async {
     final store = this.store;
     if (store == null || remote.key == null) return;
-    // the size the upstream gives first (see [_check])
+    // the size the upstream gives first (see [_check]): as long as its two
+    // 5 s timeouts, or a slow answer came after the old file was read
     await remote.checked?.timeout(
-      const Duration(seconds: 3),
+      const Duration(seconds: 10),
       onTimeout: () {},
     );
     final key = remote.key;
     if (key == null) return;
     while (chunk.received < chunk.length) {
+      // as it was before the read: one that found another file meanwhile
+      // (see [_dropStored]) may have read the old file's bytes
+      final epoch = remote.epoch;
       final data = await store.read(
         key,
         chunk.start + chunk.received,
         chunk.length - chunk.received,
       );
-      if (data == null || data.isEmpty) break;
+      if (data == null || data.isEmpty || remote.epoch != epoch) break;
       // shortened meanwhile (a reader started inside it)
       final take = min(data.length, chunk.length - chunk.received);
       if (take <= 0) break;
-      chunk.add(data, take);
+      chunk
+        ..add(data, take)
+        ..fromStore = true
+        ..storeEpoch = epoch;
       bytesFromStore += take;
     }
     final size = remote.size;
@@ -575,7 +625,9 @@ class ParallelFetch {
       if (status != HttpStatus.partialContent && status != HttpStatus.ok) {
         await response.drain<void>().catchError((_) {});
         chunk.lastError = _Failure(status, 'HTTP $status');
-        onRefused?.call(remote.uri, status);
+        // playback's own (a download's are not kept): a download's refusal
+        // put the host among the playing part's cut ones
+        if (remote.keep) onRefused?.call(remote.uri, status);
         return status;
       }
       if (status == HttpStatus.partialContent) {
@@ -586,14 +638,26 @@ class ParallelFetch {
             ?.group(1);
         if (total != null && remote.size != int.parse(total)) {
           // a size the store had for it that is not this file's: what it
-          // kept is another file's, and goes
-          if (remote.size != null) {
+          // kept is another file's, and goes — on disk, and the pieces
+          // filled from it (this one too), which mixed two encodes
+          final stale = remote.size != null;
+          if (stale) {
             log?.call(
               '${remote.uri.host}: ${remote.uri.pathSegments.last} is '
               '$total bytes, not ${remote.size}: kept pieces dropped',
             );
           }
           remote.size = int.parse(total);
+          if (stale) {
+            final store = this.store;
+            remote.key = null;
+            _dropStored(remote);
+            if (store != null) {
+              final key = PieceStore.keyOf(remote.uri);
+              await store.sized(key, remote.uri, remote.size!, null);
+              if (remote.keep) remote.key = key;
+            }
+          }
           // the rest need not wait for this piece to finish
           scheduleMicrotask(() => _pump(remote));
         }
@@ -605,6 +669,10 @@ class ParallelFetch {
           return HttpStatus.ok;
         }
         if (response.contentLength >= 0) remote.size ??= response.contentLength;
+      }
+      if (_stale(remote, chunk)) {
+        await response.drain<void>().catchError((_) {});
+        return 0;
       }
       remote.contentType ??= response.headers.value(
         HttpHeaders.contentTypeHeader,
@@ -625,6 +693,8 @@ class ParallelFetch {
         got += take;
         if (chunk.received >= chunk.length) break;
       }
+      // found another file's meanwhile (see [_check])
+      if (_stale(remote, chunk)) return 0;
       if (chunk.received >= chunk.length ||
           chunk.start + chunk.received >= (remote.size ?? 0)) {
         chunk.finish(chunk.received);
@@ -638,6 +708,42 @@ class ParallelFetch {
     } finally {
       chunk.notify();
     }
+  }
+
+  /// The buffers of pieces nobody is reading or fetching that are not
+  /// whole: outside [cachedBytes], which counts whole pieces only, they
+  /// were kept for good (the URLs before a renewal, a host left). The
+  /// stand-in itself stays: mpv may come back to it (a paused stream).
+  void _releaseIdle() {
+    for (final remote in _byId.values) {
+      if (remote.readers.isNotEmpty || remote.fetching > 0) continue;
+      for (final chunk in remote.chunks.values) {
+        if (chunk.done || chunk.fetching || chunk.readers > 0) continue;
+        chunk.release();
+      }
+    }
+  }
+
+  /// What [remote]'s pieces took from the store, dropped: another file's
+  /// (its size changed), fetched anew when read. Not a piece under way:
+  /// that one finds out itself (see [_get]).
+  void _dropStored(_Remote remote) {
+    remote.epoch++;
+    for (final chunk in remote.chunks.values) {
+      if (!chunk.fromStore || chunk.fetching) continue;
+      if (_held.remove(chunk)) _heldBytes -= chunk.received;
+      chunk.drop();
+    }
+  }
+
+  /// Whether [chunk], under way, began with bytes the store had of another
+  /// file (see [_dropStored]): emptied, to be fetched from its start.
+  bool _stale(_Remote remote, _Chunk chunk) {
+    if (!chunk.fromStore || chunk.storeEpoch == remote.epoch) return false;
+    chunk
+      ..drop()
+      ..lastError = const _Failure(null, 'encoded again');
+    return true;
   }
 
   // ---------------------------------------------------------------- memory
@@ -681,6 +787,9 @@ class _Remote {
   /// The upstream asked its size, before what the store kept is read.
   Future<void>? checked;
 
+  /// Counts the times what the store had of it turned out another file's.
+  var epoch = 0;
+
   /// Pieces by where they start.
   final chunks = SplayTreeMap<int, _Chunk>();
   final readers = <_Reader>{};
@@ -720,6 +829,11 @@ class _Chunk {
 
   Uint8List? _data;
   var received = 0;
+
+  /// Some of it came from the store (see [ParallelFetch._dropStored]), as
+  /// it was at [_Remote.epoch] [storeEpoch].
+  var fromStore = false;
+  var storeEpoch = 0;
   var done = false;
   var fetching = false;
   var attempts = 0;
@@ -759,10 +873,20 @@ class _Chunk {
 
   List<int> bytes(int from, int to) => Uint8List.sublistView(_data!, from, to);
 
+  /// Its bytes let go, not whole: fetched from its start if it is read
+  /// again. Unlike [drop], a piece given up on stays so (see
+  /// [ParallelFetch._pieceAt]).
+  void release() {
+    _data = null;
+    received = 0;
+    fromStore = false;
+  }
+
   /// Evicted: asked for again if it is read again.
   void drop() {
     _data = null;
     received = 0;
+    fromStore = false;
     done = false;
     attempts = 0;
     failure = null;

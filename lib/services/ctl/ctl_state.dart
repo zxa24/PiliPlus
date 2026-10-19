@@ -140,6 +140,8 @@ const ctlSettingKeys = [
   SettingBoxKey.badCertificateCallback,
   // subtitles
   SettingBoxKey.subtitleFontScale,
+  // legacy, unused: nothing draws with it any more (see
+  // PlPlayerController.subtitleFontScaleFS)
   SettingBoxKey.subtitleFontScaleFS,
   SettingBoxKey.dlSaveSubtitle,
   SettingBoxKey.dlTranscribe,

@@ -36,20 +36,31 @@ class LocalReplyPanel extends StatefulWidget {
 
 class _LocalReplyPanelState extends State<LocalReplyPanel>
     with AutomaticKeepAliveClientMixin {
-  late final Future<Map<String, dynamic>> _data = _load();
+  late final Future<({Map<String, dynamic> data, LocalComments? local})> _data =
+      _load();
 
   @override
   bool get wantKeepAlive => true;
 
-  Future<Map<String, dynamic>> _load() async =>
-      jsonDecode(await File(widget.path).readAsString())
-          as Map<String, dynamic>;
+  /// Read and parsed once, not on every build; a format-2 file that does
+  /// not decode (bad base64 or protobuf) shows as format 1, its plain
+  /// words, not an error.
+  Future<({Map<String, dynamic> data, LocalComments? local})> _load() async {
+    final data = jsonDecode(
+      await File(widget.path).readAsString(),
+    ) as Map<String, dynamic>;
+    LocalComments? local;
+    try {
+      local = LocalComments.parse(data, p.dirname(widget.path));
+    } catch (_) {}
+    return (data: data, local: local);
+  }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final theme = Theme.of(context);
-    return FutureBuilder<Map<String, dynamic>>(
+    return FutureBuilder<({Map<String, dynamic> data, LocalComments? local})>(
       future: _data,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -58,9 +69,8 @@ class _LocalReplyPanelState extends State<LocalReplyPanel>
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final data = snapshot.data!;
-        if (LocalComments.parse(data, p.dirname(widget.path))
-            case final local?) {
+        final (:data, :local) = snapshot.data!;
+        if (local != null) {
           return _LocalCommentList(local: local, heroTag: widget.heroTag);
         }
         final comments = (data['comments'] as List).cast<Map>();
@@ -369,7 +379,9 @@ class _CommentTileState extends State<_CommentTile> {
     );
   }
 
-  File _file(String relative) => File(p.join(widget.dir, relative));
+  // nothing outside the download's folder (see [LocalComments.inside])
+  File _file(String relative) =>
+      File(LocalComments.inside(widget.dir, relative) ?? '');
 
   static final _emoteReg = RegExp(r'\[[^\[\]]+\]');
 

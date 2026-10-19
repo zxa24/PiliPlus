@@ -50,6 +50,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:PiliPlus/services/youtube/anubis.dart';
 import 'package:PiliPlus/services/youtube/go_away.dart';
@@ -151,7 +152,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// is the setting host alone.
   final _cookies = <(String, String), ({String value, bool hostOnly})>{};
 
-  final _resolved = <String, ({YtVideoDetail detail, DateTime until})>{};
+  /// [ends]: when its URLs stop being served, as their `expire` says (the
+  /// detail's own `expiresIn` is the time left when it was resolved).
+  final _resolved =
+      <String, ({YtVideoDetail detail, DateTime until, DateTime ends})>{};
 
   /// The instance each video was served by, for [playbackFailed].
   final _servedBy = <String, String>{};
@@ -197,6 +201,18 @@ class YtInvidiousSource implements YouTubeVideoSource {
     YtVerdict? last;
     var unavailable = 0;
     var tried = 0;
+    // Instances not reached at all are set aside only if another answered
+    // in the same walk: with this machine offline none is reached, and
+    // every one was set aside for 10 min — just as the network came back.
+    final unreached = <(String, YtVerdict)>[];
+    var answered = false;
+    void benchUnreached() {
+      if (!answered) return;
+      for (final (host, why) in unreached) {
+        _bench(host, why);
+      }
+    }
+
     for (final host in hosts) {
       if (tried == triesPerVideo) break;
       tried++;
@@ -204,14 +220,22 @@ class YtInvidiousSource implements YouTubeVideoSource {
       if (r.ok) {
         _preferred = host;
         _servedBy[videoId] = host;
+        answered = true;
+        benchUnreached();
         return r;
       }
       final verdict = r.verdict;
       last = verdict;
       log?.call('${Uri.parse(host).host}: $verdict');
+      if (verdict.signal.endsWith(':transport')) {
+        unreached.add((host, verdict));
+        continue;
+      }
+      answered = true;
       switch (verdict.signal) {
         // the same for every instance: no use asking the next
         case 'invidious:live':
+          benchUnreached();
           return r;
         // this instance, this video (measured per video, 2026-09-20)
         case 'invidious:no-player' || 'invidious:no-streams':
@@ -223,6 +247,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
           _bench(host, verdict);
       }
     }
+    benchUnreached();
     if (unavailable == tried) {
       // every instance asked found no such video
       return YtResult.failed(last!);
@@ -343,7 +368,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
     final until = now.add(
       lasts - const Duration(minutes: 30) < keep ? lasts ~/ 2 : keep,
     );
-    _resolved[videoId] = (detail: detail, until: until);
+    _resolved[videoId] = (detail: detail, until: until, ends: now.add(lasts));
     return YtResult.ok(detail);
   }
 
@@ -437,7 +462,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
         videoUrl: picked.video.url!,
         audioUrl: picked.audio.url!,
         sourceId: id,
-        expiresIn: resolved.expiresIn,
+        // the time left now: a detail kept up to 20 min claimed its URLs
+        // lived that much longer than they did
+        expiresIn:
+            _resolved[videoId]?.ends.difference(_now()) ?? resolved.expiresIn,
         video: picked.video,
         audio: picked.audio,
       ),
@@ -706,7 +734,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
       );
     }
     final watch = Stopwatch()..start();
-    final solution = Anubis.solve(challenge.randomData, challenge.difficulty);
+    final solution = await _solveAnubis(
+      challenge.randomData,
+      challenge.difficulty,
+    );
     if (solution == null) {
       return YtVerdict(
         YtCause.ipBlocked,
@@ -726,6 +757,17 @@ class YtInvidiousSource implements YouTubeVideoSource {
     );
     return passed.status ~/ 100 == 3 ? null : _verdictOf(passed, 'anubis-pass');
   }
+
+  /// The solvers off the UI isolate: the difficulty is the server's, and
+  /// their budgets are seconds of hashing (a frozen page, an ANR on
+  /// Android). Static, so the closure carries nothing but its arguments.
+  static Future<({int nonce, String hash})?> _solveAnubis(
+    String randomData,
+    int difficulty,
+  ) => Isolate.run(() => Anubis.solve(randomData, difficulty));
+
+  static Future<String?> _solveGoAway(String challenge, String target) =>
+      Isolate.run(() => GoAway.solve(challenge, target));
 
   /// One go-away `js-pow-sha256`: null when passed, why when not.
   Future<YtVerdict?> _passGoAwayPow(
@@ -754,7 +796,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
       return _verdictOf(made, 'go-away-make');
     }
     final watch = Stopwatch()..start();
-    final token = GoAway.solve(data, target);
+    final token = await _solveGoAway(data, target);
     if (token == null) {
       return YtVerdict(
         YtCause.ipBlocked,
@@ -826,8 +868,12 @@ class YtInvidiousSource implements YouTubeVideoSource {
       final domain = set == null || set.isEmpty
           ? host
           : (set.startsWith('.') ? set.substring(1) : set);
-      // a host sets cookies for itself and its parents only
+      // a host sets cookies for itself and its parents only — and not for a
+      // bare suffix: `Domain=net` was replayed to every `*.net` instance,
+      // companion and caption host, one instance tagging the viewer across
+      // the others
       if (domain != host && !host.endsWith('.$domain')) continue;
+      if (domain != host && !domain.contains('.')) continue;
       final key = (domain, c.name);
       if (c.value.isEmpty || c.maxAge == 0) {
         _cookies.remove(key);
@@ -883,10 +929,23 @@ class IoInvidiousFetch {
         response.statusCode,
         body,
         location: response.headers.value(HttpHeaders.locationHeader),
-        cookies: response.cookies,
+        cookies: _cookiesOf(response.headers),
       );
     } catch (e) {
       return InvidiousAnswer(0, '', error: '$e');
     }
+  }
+
+  /// The cookies set, each on its own: `response.cookies` throws on one it
+  /// cannot parse (`Expires=0`, a value with a space or comma), and that
+  /// dropped the whole answer as a transport failure. Only the bad ones go.
+  static List<Cookie> _cookiesOf(HttpHeaders headers) {
+    final cookies = <Cookie>[];
+    for (final value in headers[HttpHeaders.setCookieHeader] ?? const []) {
+      try {
+        cookies.add(Cookie.fromSetCookieValue(value));
+      } catch (_) {}
+    }
+    return cookies;
   }
 }

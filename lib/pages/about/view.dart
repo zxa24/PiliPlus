@@ -11,6 +11,7 @@ import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/common/widgets/flutter/list_tile.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/pages/mine/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
@@ -407,6 +408,9 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // what was transcribed and translated: it says what
                         // was watched
                         await SubtitleCache.instance.clear();
+                        // the pieces of streams kept on disk: each folder
+                        // names the stream it is of
+                        await (await PlPlayerController.videoCache())?.clear();
                         SmartDialog.showToast('重置成功（重启生效）');
                       },
                       child: const Text(

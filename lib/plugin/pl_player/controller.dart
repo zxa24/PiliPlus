@@ -422,6 +422,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       : const Duration(seconds: 3);
   // 字幕
   late double subtitleFontScale = Pref.subtitleFontScale;
+
+  /// Legacy: the fullscreen scale's slider is gone (subtitles are sized by
+  /// the picture) and nothing draws with it. Still read and saved back, so
+  /// a value set before is kept in the stored settings and exports.
   late double subtitleFontScaleFS = Pref.subtitleFontScaleFS;
   late int subtitlePaddingH = Pref.subtitlePaddingH;
   late int subtitlePaddingB = Pref.subtitlePaddingB;
@@ -930,9 +934,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       ),
     );
 
-    player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
-
     return (player, controller);
+  }
+
+  /// The headers [player] sends with [source]'s streams: bilibili's
+  /// Referer to bilibili only. A YouTube stream with it would tell Google
+  /// (or an Invidious instance) which bilibili client is watching; the
+  /// user agent is a stock browser's, which googlevideo serves (measured).
+  static void _setHeaders(Player player, DataSource source) {
+    final youtube = source is NetworkSource && source.youtube;
+    player.setMediaHeader(
+      userAgent: BrowserUa.pc,
+      referer: youtube ? '' : HttpString.baseUrl,
+    );
   }
 
   /// Changes when the player is handed over to another (see [_handOver]):
@@ -952,12 +966,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// network that can be taken down for this build only).
   static String Function(String url)? debugWrapAll;
 
-  static String _wrapAll(String url) {
+  /// [parallel]: false for a live stream, which has no size and no end —
+  /// the parallel fetch answered it 502 after its first piece.
+  static String _wrapAll(String url, {bool parallel = true}) {
     if (debugWrapAll != null && url.startsWith('http')) {
       return debugWrapAll!(url);
     }
     // bilibili's streams through the parallel fetch (see [ParallelFetch])
-    if (!debugNoParallel &&
+    if (parallel &&
+        !debugNoParallel &&
         Pref.parallelFetch &&
         ParallelFetch.isBilibili(url)) {
       return _parallel.wrap(url) ?? url;
@@ -982,7 +999,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       EventLog.add('fetch', 'no parallel fetch: $e');
       return;
     }
-    await _openStore();
+    // not waited for: listing it is a stat of every piece (2000+ at the
+    // 1 GB cap) before the first video could open; until it is read, the
+    // store finds nothing and keeps nothing
+    unawaited(_openStore());
   }
 
   /// The pieces of bilibili's streams kept on disk (user 2026-10-17:
@@ -990,15 +1010,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// cache folder: the system may clear it on a phone short of space; the
   /// app's 清除缓存 leaves it (see CacheManager.clearLibraryCache), the
   /// 视频缓存 setting empties it.
-  static Future<void> _openStore() async {
-    if (_parallel.store != null) return;
+  static Future<void> _openStore() {
+    if (_storeOpening case final opening?) return opening;
     final store = PieceStore(
       Directory(path.join(tmpDirPath, 'video_pieces')),
       maxBytes: Pref.videoCacheMb << 20,
     );
     _parallel.store = store;
-    await store.open();
+    return _storeOpening = store.open();
   }
+
+  /// [_openStore]'s reading of what is on disk, once.
+  static Future<void>? _storeOpening;
 
   /// Self-test: bytes [_parallel] answered from its store and from the
   /// network, since it started.
@@ -1123,7 +1146,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       audioFilterExtras(volume, map: extras);
     }
-    video = _wrapAll(video);
+    video = _wrapAll(video, parallel: !isLive);
 
     assert(!isLive || seekTo == null);
     // a seek made while this was being set up is where the viewer wants to
@@ -1140,6 +1163,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // the viewer is (the page took it as the place to resume from, and a
     // local file left during the load saved 0 as its progress)
     if (_holdOnOpen) await _holdPicture(player);
+    _setHeaders(player, dataSource);
     _reopening = true;
     _openStartedAt = DateTime.now();
     try {
@@ -1962,7 +1986,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
       }
     }
-    final youtube = hosts.any((h) => h.endsWith('googlevideo.com'));
+    // by the source, not the host: an Invidious instance's own host serves
+    // YouTube's streams too
+    final youtube = source is NetworkSource && source.youtube;
     hosts.add(youtube ? 'www.youtube.com' : 'api.bilibili.com');
     final tries = [
       for (final host in hosts)
@@ -1995,7 +2021,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     SmartDialog.showToast('网络已断开，恢复后自动继续');
     final source = dataSource;
     var looking = false;
-    _networkWait = Timer.periodic(const Duration(seconds: 3), (_) async {
+    _networkWait = Timer.periodic(const Duration(seconds: 3), (timer) async {
       if (looking) return;
       looking = true;
       try {
@@ -2004,6 +2030,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           return;
         }
         if (!await _reachable(source)) return;
+        // another video opened (or the wait ended) during the look, up to
+        // 3 s: this one's position is not for it
+        if (!identical(dataSource, source) || !identical(_networkWait, timer)) {
+          return;
+        }
         final lost = _networkLostAt;
         _stopWaitingForNetwork();
         EventLog.add(
@@ -2063,10 +2094,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   );
 
   /// Asked for new play URLs, and to reopen on them at the position given,
-  /// playing: the page's own request, which is the only thing that can make
-  /// them. Retrying or switching the CDN reuses URLs from the same answer,
-  /// which all expire together.
+  /// playing when [renewalPlays]: the page's own request, which is the only
+  /// thing that can make them. Retrying or switching the CDN reuses URLs
+  /// from the same answer, which all expire together.
   Future<void> Function(Duration at)? onSourceExpired;
+
+  /// Whether what a renewal opens is to play: a paused video stays paused
+  /// (an idle connection closing, or a seek, renewed it and it played by
+  /// itself), and a pause made while the new URLs are fetched holds.
+  bool get renewalPlays => _renewalPlays;
+  var _renewalPlays = true;
 
   /// When the current source's URLs stop being served, as they say
   /// (bilibili's `deadline`, YouTube's `expire`); null when they do not say,
@@ -2110,9 +2147,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// true when it did (or is already doing so), and the caller is to leave
   /// the player alone. Once per source: a renewal that fails leaves the
   /// ordinary recovery to go on.
-  bool _renewIfExpired(Duration at, {bool refused = false}) {
+  ///
+  /// [play]: the viewer pressed play; otherwise the renewal plays only if
+  /// the video is playing now (see [renewalPlays]).
+  bool _renewIfExpired(
+    Duration at, {
+    bool refused = false,
+    bool play = false,
+  }) {
     if (isLive || debugDisableRecovery) return false;
-    if (_renewing) return true;
+    if (_renewing) {
+      if (play) _renewalPlays = true;
+      return true;
+    }
     final renew = onSourceExpired;
     final expires = _sourceExpiresAt;
     if (renew == null || dataSource is! NetworkSource) return false;
@@ -2131,6 +2178,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _sourceExpiresAt = null;
     _forbiddenAt = null;
     _renewing = true;
+    _renewalPlays = play || !playerStatus.isPaused;
     EventLog.add(
       'player',
       refused
@@ -2303,6 +2351,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final clock = Stopwatch()..start();
     const budget = Duration(seconds: 20);
     final (next, picture) = await _newPlayer();
+    _setHeaders(next, source);
     var handedOver = false;
     bool gone() =>
         !identical(dataSource, source) ||
@@ -2400,7 +2449,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           // player was getting ready: over to it if it is near enough
           final at = pos ?? now;
           if (at == null || !closeEnough(at, target)) return false;
-          await _takeOver(old, next, picture, play: old.state.playing);
+          if (!await _takeOver(
+            old,
+            next,
+            picture,
+            source: source,
+            play: old.state.playing,
+          )) {
+            return false;
+          }
           handedOver = true;
           break;
         }
@@ -2416,7 +2473,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               Duration(microseconds: (left / old.state.rate * 1e6).round()),
             );
           }
-          await _takeOver(old, next, picture, play: true);
+          if (!await _takeOver(
+            old,
+            next,
+            picture,
+            source: source,
+            play: true,
+          )) {
+            return false;
+          }
           handedOver = true;
           break;
         }
@@ -2438,11 +2503,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   /// The moment of the handover: [next] plays (when [play]) and becomes the
-  /// player everything listens to; [old] stops and goes.
-  Future<void> _takeOver(
+  /// player everything listens to; [old] stops and goes. False, having
+  /// swapped nothing, when [source] was replaced, the player released or
+  /// [old] disposed during its awaits (the caller disposes [next]).
+  Future<bool> _takeOver(
     NativePlayer old,
     NativePlayer next,
     VideoController picture, {
+    required DataSource source,
     required bool play,
   }) async {
     next
@@ -2454,13 +2522,31 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (play && _pausedAt == null) await next.play();
     // the old player's picture over the moment the new one's takes its place
     await _holdPicture(old);
+    // after those awaits: another video opened on [old], the page let the
+    // player go, or [old] went — swapping now would put the previous video
+    // (or an orphan player with sound) in place
+    if (!identical(dataSource, source) || _playerCount == 0 || old.disposed) {
+      if (identical(old, _videoPlayerController) && !old.disposed) {
+        _releasePictureWhenShown(old, opened: false);
+      } else {
+        _dropPicture();
+      }
+      return false;
+    }
     // nothing of the old player stopping is heard as the viewer pausing
     _removeListeners();
     old.setProperty('mute', 'yes');
-    await old.pause();
+    // not awaited before the swap: a source set meanwhile is opened on the
+    // player in place, which must be [next] by then
+    final stopping = old.pause();
     _videoPlayerController = next;
     _videoController = picture;
     _startListeners(next);
+    // a pause that came during [next.play] paused only [old] (the check in
+    // [pause] saw no handover yet): the one now in place too
+    if (_pausedAt != null) unawaited(next.pause());
+    // the stall this was for ends with the old player
+    _logBuffering(false);
     _transportFailures = 0;
     isBuffering.value = false;
     // the buffer read from here on is the new player's, filling from little
@@ -2471,6 +2557,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _releasePictureWhenShown(next, opened: false);
     // the picture moves over on the next frame; the old one goes after it
     Future.delayed(const Duration(seconds: 1), old.dispose);
+    await stopping.catchError((Object _) {});
+    return true;
   }
 
   /// Asked for streams from a faster host when playback is not keeping up
@@ -3373,8 +3461,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // a wake that was never told
     _videoBack('play');
     // a pause long enough for the URLs to expire: the page reopens on new
-    // ones, playing (the same once a seek has asked for them)
-    if (_renewIfExpired(resumePosition)) return;
+    // ones, playing (the same when a seek, paused, already asked for them)
+    if (_renewIfExpired(resumePosition, play: true)) return;
     final paused = _pausedAt;
     _pausedAt = null;
     if (_cutOnPlay case final at?) {
@@ -3493,7 +3581,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (url.startsWith('http')) url,
     ];
     for (final url in urls) {
-      final status = await _statusOf(debugCheckUrl?.call(url) ?? url);
+      final status = await _statusOf(
+        debugCheckUrl?.call(url) ?? url,
+        youtube: source.youtube,
+      );
       if (!identical(dataSource, source)) return;
       if (status == 403 || status == 404 || status == 410) {
         EventLog.add(
@@ -3509,8 +3600,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   /// The HTTP status [url] answers a one-byte request with; null when it
-  /// does not answer (the network: see [_reachable]).
-  static Future<int?> _statusOf(String url) async {
+  /// does not answer (the network: see [_reachable]). [youtube]: one of
+  /// YouTube's streams (googlevideo or an Invidious instance).
+  static Future<int?> _statusOf(String url, {required bool youtube}) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return null;
     final client = HttpClient()
@@ -3524,7 +3616,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           );
       request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
       // bilibili's referer to bilibili's hosts only
-      if (!uri.host.endsWith('googlevideo.com')) {
+      if (!youtube) {
         request.headers.set(HttpHeaders.refererHeader, HttpString.baseUrl);
       }
       final response = await request.close().timeout(
@@ -3542,6 +3634,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// 暂停播放
   Future<void> pause({bool notify = true, bool isInterrupt = false}) async {
     _pausedAt ??= DateTime.now();
+    // new URLs being fetched open paused (see [renewalPlays])
+    if (_renewing) _renewalPlays = false;
     final player = _videoPlayerController;
     await player?.pause();
     // handed over meanwhile (see [_takeOver]): the one now in place too

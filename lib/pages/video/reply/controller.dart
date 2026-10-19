@@ -27,11 +27,21 @@ class VideoReplyController extends ReplyController<MainListReply>
   @override
   dynamic get sourceId => IdUtils.av2bv(aid);
 
-  /// LibrePili: this list's on-device comment translation.
-  late final translatorKey = CommentTranslator.keyOf(
-    videoType.replyType,
-    isPugv ? videoCtr.epId! : aid,
-  );
+  /// LibrePili: this list's on-device comment translation — of the video
+  /// shown now: a part or episode switch changes [aid] in place, and the
+  /// first video's translator went on with comments it never shows. The
+  /// one before is released (nobody sees what it would translate).
+  String get translatorKey {
+    final key = CommentTranslator.keyOf(
+      videoType.replyType,
+      isPugv ? videoCtr.epId! : aid,
+    );
+    final before = _translatorKey;
+    if (before != null && before != key) CommentTranslator.release(before);
+    return _translatorKey = key;
+  }
+
+  String? _translatorKey;
 
   CommentTranslator get translator => CommentTranslator.of(translatorKey);
 

@@ -171,6 +171,8 @@ class _ScanPageState extends State<ScanPage> {
         ),
       );
       final text = code.text;
+      // left during the decode: the pop would take the page under this one
+      if (!mounted) return;
       if (code.isValid && text != null && text.isNotEmpty && !_done) {
         _done = true;
         ScanPage.debugRead = text;

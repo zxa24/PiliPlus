@@ -281,8 +281,11 @@ abstract final class AsrCueBuilder {
   ///
   /// Used alongside the recogniser's own language tag rather than instead
   /// of it: the tag is per segment and occasionally wrong on short ones.
+  /// ・ and ー are not counted: Chinese writes 哈利・波特 too.
   static bool hasKana(String text) => text.runes.any(
-    (r) => (r >= 0x3041 && r <= 0x309F) || (r >= 0x30A0 && r <= 0x30FF),
+    (r) =>
+        (r >= 0x3041 && r <= 0x309F) ||
+        (r >= 0x30A0 && r <= 0x30FF && r != 0x30FB && r != 0x30FC),
   );
 
   /// Whether [next] begins a word, and so whether a cue may end before it.
@@ -637,7 +640,7 @@ abstract final class AsrCueBuilder {
         cues[i + 1] = AsrCue(
           from: cue.from,
           to: next.to,
-          content: _tidy('${cue.content}${next.content}'),
+          content: _tidy(_join(cue.content, next.content)),
         );
         continue;
       }

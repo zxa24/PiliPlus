@@ -62,6 +62,8 @@ abstract final class TextLanguage {
     final count = {for (final script in _Script.values) script: 0};
     for (final r in text.runes) {
       final script = switch (r) {
+        // ・ and ー are not kana: Chinese writes 哈利・波特 too
+        0x30FB || 0x30FC => null,
         _ when r >= 0x3040 && r <= 0x30FF || r >= 0x31F0 && r <= 0x31FF =>
           _Script.kana,
         _ when r >= 0x4E00 && r <= 0x9FFF || r >= 0x3400 && r <= 0x4DBF =>

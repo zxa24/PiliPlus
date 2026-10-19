@@ -42,7 +42,10 @@ class TimingInterceptor extends Interceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) {
     if (err.type != DioExceptionType.cancel) {
       final ms = _elapsed(err.requestOptions);
-      final cause = err.error ?? err.message ?? '';
+      final cause = _withoutQuery(
+        '${err.error ?? err.message ?? ''}',
+        err.requestOptions,
+      );
       EventLog.add(
         'http',
         'failed ${_what(err.requestOptions)} ${err.type.name} '
@@ -58,6 +61,21 @@ class TimingInterceptor extends Interceptor {
         ? DateTime.now().millisecondsSinceEpoch - started
         : null;
   }
+
+  /// [text] (an exception's words) without any query: it can quote the
+  /// whole URL, keys and ids with it, and the line is kept and can go out
+  /// in a failure report.
+  static String _withoutQuery(String text, RequestOptions options) {
+    var s = text;
+    final query = options.uri.query;
+    if (query.isNotEmpty) s = s.replaceAll(query, '…');
+    return s.replaceAllMapped(
+      _urlQuery,
+      (m) => '${m[1]}?…',
+    );
+  }
+
+  static final _urlQuery = RegExp(r'(\w+://[^\s?#]+)\?[^\s#]*');
 
   static String _what(RequestOptions options) {
     final uri = options.uri;

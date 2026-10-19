@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -383,7 +384,7 @@ def main(argv=None) -> int:
         elif args.command == "log":
             q = []
             if args.since:
-                q.append("since=" + urllib.request.quote(args.since))
+                q.append("since=" + urllib.parse.quote(args.since))
             if args.last is not None:
                 q.append(f"limit={args.last}")
             data = request(info, "/log" + ("?" + "&".join(q) if q else ""))
