@@ -210,15 +210,19 @@ abstract final class LocalHistory {
     if (data == null) return;
     try {
       for (final v in (data as Map).values) {
-        final entry = LocalWatchEntry.fromJson(v as Map);
-        // the id becomes a page parameter and part of file paths
-        if (entry.ytId case final id? when !isYouTubeVideoId(id)) {
-          throw FormatException('YouTube 视频 id 无效: $id');
-        }
+        LocalWatchEntry.fromJson(v as Map);
       }
     } catch (e) {
       throw FormatException('本机观看记录数据无效: $e');
     }
+  }
+
+  /// The id becomes a page parameter and part of file paths: an entry with
+  /// an invalid one is left out of an import, the rest of the backup is
+  /// still taken (backups made before the id was checked may hold one).
+  static bool _badYtId(Object? v) {
+    final id = LocalWatchEntry.fromJson(v as Map).ytId;
+    return id != null && !isYouTubeVideoId(id);
   }
 
   /// Replaces the history with the backup's; a backup without one (made
@@ -230,7 +234,8 @@ abstract final class LocalHistory {
       // keyed by their own `key`: a hand-edited backup cannot hold an entry
       // that delete cannot reach
       await _box.putAll({
-        for (final v in data.values) '${(v as Map)['key']}': v,
+        for (final v in data.values)
+          if (!_badYtId(v)) '${(v as Map)['key']}': v,
       });
       // not trimmed here: the setting box is being replaced alongside, so
       // the cap read now could be neither the old nor the imported one.

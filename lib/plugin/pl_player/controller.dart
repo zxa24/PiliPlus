@@ -1228,7 +1228,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // the viewer is (the page took it as the place to resume from, and a
     // local file left during the load saved 0 as its progress)
     if (_holdOnOpen) {
-      await _holdPicture(player);
+      await _holdPicture(player, open: open);
       // superseded while the picture was taken: the newer source opens
       if (open != _openSeq) {
         if (fd != null) await LocalDocuments.closeFd(fd);
@@ -1822,8 +1822,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// Takes the frame [player] shows into [heldPicture]; nothing when it
   /// shows none (a picture held from before stays: an open that has not
-  /// shown one yet, opened again).
-  Future<void> _holdPicture(Player player) async {
+  /// shown one yet, opened again). [open]: the open taking it; superseded
+  /// meanwhile, the frame is not held (another video's open dropped the
+  /// picture already, and this one stayed over it).
+  Future<void> _holdPicture(Player player, {int? open}) async {
     if (debugNoHeldPicture || player.disposed || onlyPlayAudio.value) return;
     final rect = _videoController?.rect.value;
     final capture = captureVideo;
@@ -1842,6 +1844,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       final image = await capture();
       if (image == null) {
         EventLog.add('player', 'picture not held: nothing drawn');
+        return;
+      }
+      if (open != null && open != _openSeq) {
+        image.dispose();
         return;
       }
       EventLog.add(

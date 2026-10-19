@@ -176,9 +176,18 @@ final class CtlServer {
       } catch (_) {}
     }
 
+    final String? origin;
+    final String? authorization;
+    try {
+      origin = request.headers.value('origin');
+      authorization = request.headers.value(HttpHeaders.authorizationHeader);
+    } catch (_) {
+      // a header sent twice: value() throws, and the request was left open
+      return send(HttpStatus.badRequest, {'error': 'malformed headers'});
+    }
     // a browser's page on another origin: never, token or not (a page can
     // reach the loopback address; it has no business here)
-    if (request.headers.value('origin') != null) {
+    if (origin != null) {
       return send(HttpStatus.forbidden, {'error': 'browser requests refused'});
     }
     if (request.method != 'GET') {
@@ -188,10 +197,7 @@ final class CtlServer {
     if (route == '/health') {
       return send(HttpStatus.ok, {'ok': true, ...identity});
     }
-    if (!tokenMatches(
-      request.headers.value(HttpHeaders.authorizationHeader),
-      token,
-    )) {
+    if (!tokenMatches(authorization, token)) {
       return send(HttpStatus.unauthorized, {
         'error': 'missing or wrong token (see ctl.json)',
       });

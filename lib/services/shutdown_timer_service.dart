@@ -7,6 +7,8 @@ import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/transcript_files.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
@@ -152,20 +154,33 @@ class ShutdownTimerService {
   /// ⌘Q on macOS): the same saves first, not a bare `exit(0)`.
   static Future<void> flushAndExit() async {
     try {
-      if (Get.isRegistered<TranslationService>()) {
+      // as the main page's: lazily registered and never created means
+      // nothing to keep, and finding one here would create it
+      bool live<S>() => Get.isRegistered<S>() && !Get.isPrepared<S>();
+      if (live<TranslationService>()) {
         TranslationService.to.keepCache();
       }
-      if (Get.isRegistered<AsrService>()) {
+      if (live<AsrService>()) {
         await AsrService.to.keepCache().timeout(
           const Duration(seconds: 2),
           onTimeout: () {},
         );
+      } else if (live<TranslationService>()) {
+        await _flushTranslations();
       }
       await GStorage.close();
     } catch (_) {}
     // not exit(): see appExit — a sleep-timer exit crashed in dcomp.dll
     appExit();
   }
+
+  /// Translated with nothing transcribed: what keepCache queued is written
+  /// by the subtitle cache, which only the transcription's keepCache waited
+  /// for (round 5, X5). The same 2 s cap.
+  static Future<void> _flushTranslations() => Future.wait([
+    SubtitleCache.instance.flush(),
+    TranscriptFiles.flush(),
+  ]).then((_) {}).timeout(const Duration(seconds: 2), onTimeout: () {});
 
   static (int hour, int minute) _parseMinutes(int minutes) =>
       (minutes ~/ 60, minutes % 60);

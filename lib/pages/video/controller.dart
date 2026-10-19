@@ -2228,7 +2228,15 @@ class VideoDetailController extends GetxController
 
       /// 优先顺序 设置中指定质量 -> 当前可选的最高质量
       AudioItem? firstAudio;
-      final audioList = data.dash?.audio;
+      // An id this build does not know is skipped when there is another
+      // stream to play; it still plays when it is the only one.
+      final allAudio = data.dash?.audio;
+      final knownAudio = allAudio
+          ?.where((e) => AudioQuality.tryFromCode(e.id) != null)
+          .toList();
+      final audioList = knownAudio != null && knownAudio.isNotEmpty
+          ? knownAudio
+          : allAudio;
       if (audioList != null && audioList.isNotEmpty) {
         final audioIds = audioList.map((map) => map.id).toList();
         int closestNumber = audioIds.findClosestTarget(
@@ -2245,7 +2253,7 @@ class VideoDetailController extends GetxController
         );
         _currentAudio = firstAudio;
         audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
-        currentAudioQa = AudioQuality.fromCode(firstAudio.id);
+        currentAudioQa = AudioQuality.tryFromCode(firstAudio.id);
       } else {
         audioUrl = '';
       }
@@ -2698,6 +2706,9 @@ class VideoDetailController extends GetxController
     if (isClosed || !Get.isRegistered<AsrService>()) return;
     if (_openApplied) {
       _restartDisplaced();
+      // and a translation the model guard stopped while this page was
+      // covered, which waits for the page to have the player
+      translation.retryAfterReturn();
       return;
     }
     // the source is resolved by queryVideoUrl, the subtitles by

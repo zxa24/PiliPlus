@@ -58,9 +58,24 @@ abstract class YtListController<T> extends CommonListController<YtPage<T>, T> {
   @override
   Future<LoadingState<YtPage<T>>> customGetData() async {
     final token = continuation;
-    final result = page == 1 || token == null
+    var result = page == 1 || token == null
         ? await fetchFirst()
         : await fetchMore(token);
+    // a page with nothing this app reads (the parsers keep only videos: a
+    // page of shelves or channels) that still has a continuation is not the
+    // end, which is what the base takes an empty page for: the next is
+    // asked for here, a few at most
+    for (
+      var skipped = 0;
+      skipped < 3 &&
+          result.ok &&
+          result.value != null &&
+          result.value!.items.isEmpty &&
+          result.value!.continuation != null;
+      skipped++
+    ) {
+      result = await fetchMore(result.value!.continuation!);
+    }
     return result.asLoadingState;
   }
 

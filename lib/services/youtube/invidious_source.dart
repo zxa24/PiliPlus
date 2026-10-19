@@ -485,7 +485,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// Whether googlevideo refuses [url] to this machine: a few bytes asked
   /// for, its redirects followed (the refusal comes after `ipbypass=yes`'s).
   /// Anything but a 403 leaves it to the player — except a redirect it may
-  /// not follow, which counts as refused.
+  /// not follow, or one past the last hop checked, which counts as refused.
   Future<bool> _refusedHere(String url) async {
     var uri = Uri.parse(url);
     for (var hop = 0; hop < 4; hop++) {
@@ -507,7 +507,9 @@ class YtInvidiousSource implements YouTubeVideoSource {
       if (r.status ~/ 100 != 3 || next == null) return r.status == 403;
       uri = uri.resolve(next);
     }
-    return false;
+    // out of hops: mpv would follow the rest unchecked, as it would a
+    // redirect that is not public (as [_companionRefuses] counts it)
+    return true;
   }
 
   /// What the companion answers a few bytes of [url] with, when it is not

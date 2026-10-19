@@ -58,44 +58,48 @@ abstract class CommonListController<R, T> extends CommonController<R, T> {
     if (!isRefresh && (isLoading || isEnd)) return;
     final generation = isRefresh ? ++_generation : _generation;
     isLoading = true;
-    LoadingState<R> res;
+    // a throw anywhere below (the subclass parsing hooks too) would
+    // otherwise leave [isLoading] set for good
     try {
-      res = await customGetData();
-    } catch (e) {
-      // a parse error would otherwise leave [isLoading] set for good
-      res = Error(e.toString());
-    }
-    if (generation != _generation) return;
-    if (res case Success(:final response)) {
-      if (!customHandleResponse(isRefresh, res)) {
-        final dataList = getDataList(response);
-        if (dataList == null || dataList.isEmpty) {
-          isEnd = true;
+      LoadingState<R> res;
+      try {
+        res = await customGetData();
+      } catch (e) {
+        res = Error(e.toString());
+      }
+      if (generation != _generation) return;
+      if (res case Success(:final response)) {
+        if (!customHandleResponse(isRefresh, res)) {
+          final dataList = getDataList(response);
+          if (dataList == null || dataList.isEmpty) {
+            isEnd = true;
+            if (isRefresh) {
+              loadingState.value = Success(dataList);
+            } else if (hasFooter == true) {
+              loadingState.refresh();
+            }
+            return;
+          }
+          handleListResponse(dataList);
           if (isRefresh) {
+            checkIsEnd(dataList.length);
             loadingState.value = Success(dataList);
-          } else if (hasFooter == true) {
+          } else if (loadingState.value case Success(:final response)) {
+            response!.addAll(dataList);
+            checkIsEnd(response.length);
             loadingState.refresh();
           }
-          isLoading = false;
-          return;
         }
-        handleListResponse(dataList);
-        if (isRefresh) {
-          checkIsEnd(dataList.length);
-          loadingState.value = Success(dataList);
-        } else if (loadingState.value case Success(:final response)) {
-          response!.addAll(dataList);
-          checkIsEnd(response.length);
-          loadingState.refresh();
+        page++;
+      } else {
+        if (isRefresh && !handleError(res is Error ? res.errMsg : null)) {
+          loadingState.value = res as Error;
         }
       }
-      page++;
-    } else {
-      if (isRefresh && !handleError(res is Error ? res.errMsg : null)) {
-        loadingState.value = res as Error;
-      }
+    } finally {
+      // a stale load leaves the flag to the refresh that replaced it
+      if (generation == _generation) isLoading = false;
     }
-    isLoading = false;
   }
 
   @override

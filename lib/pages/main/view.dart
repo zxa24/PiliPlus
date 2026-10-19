@@ -15,6 +15,8 @@ import 'package:PiliPlus/pages/main/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/transcript_files.dart';
+import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
@@ -255,6 +257,13 @@ class _MainAppState extends PopScopeState<MainApp>
         const Duration(seconds: 2),
         onTimeout: () {},
       );
+    } else if (live<TranslationService>()) {
+      // translated with nothing transcribed: what keepCache queued is
+      // written by the cache, which only the transcription's waited for
+      await Future.wait([
+        SubtitleCache.instance.flush(),
+        TranscriptFiles.flush(),
+      ]).then((_) {}).timeout(const Duration(seconds: 2), onTimeout: () {});
     }
     await GStorage.compact();
     await GStorage.close();

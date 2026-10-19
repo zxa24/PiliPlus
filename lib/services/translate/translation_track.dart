@@ -10,6 +10,7 @@ import 'dart:async';
 
 import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
+import 'package:PiliPlus/services/asr/model_guard.dart' show ModelStopReason;
 import 'package:PiliPlus/services/asr/subtitle_punctuation.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
@@ -18,6 +19,7 @@ import 'package:PiliPlus/services/translate/translation_session.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:get/get.dart';
 
 /// Whether to hand the player a rebuilt translation track.
@@ -156,9 +158,19 @@ class TranslationTrack {
     );
   }
 
+  /// This track's last start, made again: for a translation the model guard
+  /// stopped as the app went away (see [_restartOnReturn]).
+  Future<void> Function()? _again;
+  AppLifecycleListener? _returnListener;
+
+  /// Stopped by the guard, and the app came back while another page had
+  /// the player: started again once this page has it ([retryAfterReturn]).
+  TranslationSession? _restartWhenOwned;
+
   /// Translates a transcript as it is being written, into [into] (the app's
   /// language by default).
   Future<void> start(AsrSession asr, {String? into}) => _startWith(
+    again: () => start(asr, into: into),
     into,
     from: () => asr.state.value.language,
     () => TranslationService.to.start(
@@ -177,6 +189,7 @@ class TranslationTrack {
     String? into,
     String? from,
   }) => _startWith(
+    again: () => startCaptions(cues, into: into, from: from),
     into,
     from: () => from,
     () => TranslationService.to.startCaptions(
@@ -192,8 +205,10 @@ class TranslationTrack {
     String? into,
     Future<TranslationSession> Function() create, {
     required String? Function() from,
+    required Future<void> Function() again,
     void Function(TranslationSession current)? onAttach,
   }) async {
+    _again = again;
     // taken before anything is awaited: a stop that lands while the one
     // before this is being torn down must still count
     final generation = _starting = ++_generation;
@@ -286,6 +301,9 @@ class TranslationTrack {
             );
           }
           onFailed(state.message ?? '');
+          if (state.message == ModelStopReason.background.translationMessage) {
+            _restartOnReturn(current);
+          }
         case TranslationStage.paused:
           // another video has the player; the session goes on by itself
           // once this page has it back
@@ -452,7 +470,41 @@ class TranslationTrack {
     await _detach();
   }
 
+  /// The model guard stopped the translation as the app went away: it starts
+  /// again once the app is back, as the transcription does, rather than
+  /// staying stopped under a transcript that goes on (round 5, F4). Not
+  /// over another video's page: a page covered meanwhile has it parked.
+  void _restartOnReturn(TranslationSession failed) {
+    _returnListener?.dispose();
+    _returnListener = AppLifecycleListener(
+      onResume: () {
+        _returnListener?.dispose();
+        _returnListener = null;
+        _restartWhenOwned = failed;
+        retryAfterReturn();
+      },
+    );
+  }
+
+  /// The page has the player back (it came back on top): a restart the
+  /// guard's stop is waiting for goes now (round 5, F4).
+  void retryAfterReturn() {
+    final failed = _restartWhenOwned;
+    final again = _again;
+    if (failed == null) return;
+    if (again == null || !identical(session.value, failed)) {
+      _restartWhenOwned = null;
+      return;
+    }
+    if (ownsPlayer?.call() == false) return;
+    _restartWhenOwned = null;
+    unawaited(again());
+  }
+
   Future<void> _detach() async {
+    _returnListener?.dispose();
+    _returnListener = null;
+    _restartWhenOwned = null;
     _refresh?.cancel();
     _refresh = null;
     _readyPoll?.cancel();

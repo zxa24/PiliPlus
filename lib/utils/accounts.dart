@@ -58,6 +58,10 @@ abstract final class Accounts {
 
   static Future<void> clear() async {
     await LoginUtils.clearWebCookies();
+    // marked deleted, not only dropped from the box: a request still in
+    // flight with one of them would write the whole record back through
+    // [LoginAccount.onChange] (a Set-Cookie, a late expiry)
+    await Future.wait(account.values.toList().map((a) => a.delete()));
     await account.clear();
     for (int i = 0; i < AccountType.values.length; i++) {
       accountMode[i] = AnonymousAccount();

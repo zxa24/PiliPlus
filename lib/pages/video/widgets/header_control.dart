@@ -1107,7 +1107,11 @@ class HeaderControlState extends State<HeaderControl>
                         }
                         Get.back();
                         final int quality = item.id;
-                        final newQa = AudioQuality.fromCode(quality);
+                        final newQa = AudioQuality.tryFromCode(quality);
+                        if (newQa == null) {
+                          SmartDialog.showToast('暂不支持该音质');
+                          return;
+                        }
                         videoDetailCtr
                           ..plPlayerController.cacheAudioQa = newQa.code
                           ..currentAudioQa = newQa

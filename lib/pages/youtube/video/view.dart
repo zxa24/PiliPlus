@@ -12,6 +12,7 @@ import 'package:PiliPlus/common/skeleton/video_card_h.dart';
 import 'package:PiliPlus/common/widgets/video_intro/intro_metrics.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
+import 'package:PiliPlus/common/widgets/route_aware_mixin.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
@@ -47,7 +48,7 @@ class YtVideoPage extends StatefulWidget {
 }
 
 class _YtVideoPageState extends State<YtVideoPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, RouteAware, RouteAwareMixin {
   late final String videoId =
       Get.parameters['id'] ?? (Get.arguments as String? ?? '');
 
@@ -818,6 +819,27 @@ class _YtVideoPageState extends State<YtVideoPage>
       style: const TextStyle(color: Colors.white, fontSize: 13),
     ),
   );
+
+  // the bilibili page's route handling: a player page opened over this one
+  // played on beside it, and closing it left its video on the player under
+  // this page's title (round 5, F1)
+  @override
+  void didPushNext() {
+    super.didPushNext();
+    controller.onCovered();
+  }
+
+  @override
+  void didPopNext() {
+    super.didPopNext();
+    controller.onUncovered();
+  }
+
+  @override
+  void didPop() {
+    super.didPop();
+    controller.onPopped();
+  }
 
   @override
   void dispose() {

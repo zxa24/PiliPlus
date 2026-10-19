@@ -94,12 +94,14 @@ abstract final class SubtitleUtils {
     return '$h:$m:$sec,$ms';
   }
 
+  /// A blank line ends an SRT cue as it does a VTT one: collapsed, as in
+  /// [_vttText].
   static String json2Srt(List list) {
     final sb = StringBuffer()
       ..writeAll(
         list.mapIndexed(
           (i, e) =>
-              '${i + 1}\n${_srtTimecode(e['from'])} --> ${_srtTimecode(e['to'])}\n${e['content'].trim()}',
+              '${i + 1}\n${_srtTimecode(e['from'])} --> ${_srtTimecode(e['to'])}\n${e['content'].trim().replaceAll(_blankLines, '\n')}',
         ),
         '\n\n',
       );

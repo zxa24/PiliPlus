@@ -181,6 +181,12 @@ void main(List<String> args) async {
     ..lazyPut(AsrService.new)
     ..lazyPut(TranslationService.new)
     ..put(PlatformService());
+  // LibrePili: the background transcription of finished downloads carries
+  // on after a restart, and a transcript made while watching is written
+  // beside the download, without waiting for a download page to create the
+  // service (it reads the download list only: nothing is downloaded or
+  // requested until a download page or action uses it)
+  unawaited(Future(DownloadService.startInBackground));
   // stop on-device inference on memory pressure, or when the app is sent to
   // the background with nothing playing — before Android stops the app
   OnDeviceModelGuard.install();

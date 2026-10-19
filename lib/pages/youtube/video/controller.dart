@@ -8,11 +8,13 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_publish.dart';
@@ -32,6 +34,9 @@ import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/services/service_locator.dart';
+import 'package:PiliPlus/services/shutdown_timer_service.dart'
+    show shutdownTimerService;
 import 'package:PiliPlus/services/youtube/invidious_instances.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_tracks.dart';
@@ -43,6 +48,7 @@ import 'package:PiliPlus/utils/cdn_probe.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
+import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart'
@@ -124,9 +130,108 @@ class YtVideoController extends GetxController
       ever<PlayerStatus>(plPlayerController.playerStatus, (status) {
         if (!_ownsPlayer || status.isPlaying) return;
         _saveHistory(completed: status.isCompleted);
+        if (status.isCompleted) _onCompleted();
       }),
     ];
     unawaited(load());
+  }
+
+  /// The video played to its end, as on the bilibili page: the sleep
+  /// timer waiting for it (额外等待视频播放完毕) goes off, or 播放顺序 is
+  /// followed — there is no list here to go on to — and full screen is left
+  /// (自动退出全屏).
+  void _onCompleted() {
+    if (shutdownTimerService.isWaiting) {
+      shutdownTimerService.handleWaiting();
+    } else if (plPlayerController.playRepeat == PlayRepeat.singleCycle) {
+      plPlayerController.play(repeat: true);
+      return;
+    }
+    if (plPlayerController.autoExitFullscreen) {
+      plPlayerController.triggerFullScreen(status: false);
+      if (plPlayerController.controlsLock.value) {
+        plPlayerController.onLockControl(false);
+      }
+    } else if (plPlayerController.controlsLock.value &&
+        (!Platform.isAndroid || !AndroidHelper.isPipMode)) {
+      plPlayerController.onLockControl(false);
+    }
+  }
+
+  // ------------------------------------------- other pages over this one
+
+  /// Whether this page's video was playing when another page opened over it.
+  var _playingWhenCovered = false;
+
+  /// Another page is over this one.
+  var _covered = false;
+
+  /// The first open, held back while the page was covered (see [load]).
+  ({YtStreamPair pair, Duration? seekTo})? _openWhenUncovered;
+
+  /// Another page opened over this one (the bilibili page's didPushNext):
+  /// where it was is saved, and its video pauses.
+  void onCovered() {
+    _covered = true;
+    _playingWhenCovered =
+        _ownsPlayer && plPlayerController.playerStatus.isPlaying;
+    if (!_ownsPlayer) return;
+    _saveHistory();
+    if (_playingWhenCovered) plPlayerController.pause();
+  }
+
+  /// The page is going: its video does not play on with no page to it.
+  void onPopped() {
+    if (_ownsPlayer && plPlayerController.playerStatus.isPlaying) {
+      plPlayerController.pause();
+    }
+  }
+
+  /// Back on top (didPopNext). A page that opened its own video on the
+  /// player left that one on it: this video is opened again where it was,
+  /// and a transcription that page's took the place of starts again (a
+  /// parked translation goes on by itself once the player is this page's).
+  Future<void> onUncovered() async {
+    _covered = false;
+    final held = _openWhenUncovered;
+    _openWhenUncovered = null;
+    if (isClosed || plPlayerController.isCloseAll) return;
+    final play = _playingWhenCovered;
+    _playingWhenCovered = false;
+    final pair = _streams;
+    if (held != null) {
+      // the first open, as [load] would have made it
+      await _open(held.pair, seekTo: held.seekTo);
+    } else if (_ownsPlayer) {
+      if (play) {
+        plPlayerController.play();
+      } else if (plPlayerController.playerStatus.isPlaying) {
+        plPlayerController.pause();
+      }
+    } else if (pair != null && stage.value == YtPageStage.ready) {
+      final sec = _historySec;
+      await _open(
+        pair,
+        seekTo: sec == null ? null : Duration(seconds: sec),
+        play: play,
+      );
+    }
+    if (isClosed) return;
+    _restartDisplaced();
+    translation.retryAfterReturn();
+  }
+
+  /// See [VideoDetailController._restartDisplaced].
+  void _restartDisplaced() {
+    final session = asrSession.value;
+    final wanted = _wantedOnDevice;
+    if (session == null || !session.wasDisplaced || wanted == null) return;
+    if (!_ownsPlayer || !canTranscribe) return;
+    if (wanted == 'asr') {
+      startAsr();
+    } else {
+      showTranslation(wanted);
+    }
   }
 
   // ------------------------------------------------ local watch history
@@ -205,10 +310,14 @@ class YtVideoController extends GetxController
       LocalHistory.ytKey(videoId),
       LocalHistory.ytPart,
     );
-    await _open(
-      streams.value!,
-      seekTo: resume == null ? null : Duration(milliseconds: resume),
-    );
+    final seekTo = resume == null ? null : Duration(milliseconds: resume);
+    if (_covered) {
+      // another page opened over this one while it loaded: the player is
+      // that page's, and this opens when the page is back on top
+      _openWhenUncovered = (pair: streams.value!, seekTo: seekTo);
+    } else {
+      await _open(streams.value!, seekTo: seekTo);
+    }
     unawaited(_loadRelated());
   }
 
@@ -294,9 +403,21 @@ class YtVideoController extends GetxController
         if (playAfter) plPlayerController.play();
       },
     );
-    if (!isClosed) stage.value = YtPageStage.ready;
+    if (!isClosed) {
+      stage.value = YtPageStage.ready;
+      // the notification and lock screen say what plays, and their buttons
+      // reach it: only the bilibili pages gave the media session an item
+      videoPlayerServiceHandler?.onVideoDetailChange(
+        detail.value,
+        0,
+        _mediaTag,
+      );
+    }
     _maybeAutoTranscribe();
   }
+
+  /// This page's entry in the media session, removed as it closes.
+  late final String _mediaTag = 'yt:$videoId:${identityHashCode(this)}';
 
   /// The source captions come from: the one that listed them.
   YouTubeVideoSource get _captionsFrom => _detailSource ?? router.direct;
@@ -567,6 +688,9 @@ class YtVideoController extends GetxController
         }
         pair = mp4.value!;
       }
+      String? shownMsg;
+      String? shownStage;
+      DateTime? shownAt;
       final file = await YtDownloader.download(
         pair: pair,
         videoId: videoId,
@@ -574,10 +698,22 @@ class YtVideoController extends GetxController
         token: token,
         onProgress: (fraction, stage) {
           if (isClosed) return;
-          SmartDialog.showLoading(
-            msg: '$stage ${(fraction * 100).clamp(0, 100).toStringAsFixed(0)}%',
-            onDismiss: token.cancel,
-          );
+          // every received chunk rebuilt the overlay: only a new figure, and
+          // no more often than a few times a second, except a new stage
+          final msg =
+              '$stage ${(fraction * 100).clamp(0, 100).toStringAsFixed(0)}%';
+          final now = DateTime.now();
+          if (msg == shownMsg ||
+              (stage == shownStage &&
+                  shownAt != null &&
+                  now.difference(shownAt!) <
+                      const Duration(milliseconds: 250))) {
+            return;
+          }
+          shownMsg = msg;
+          shownStage = stage;
+          shownAt = now;
+          SmartDialog.showLoading(msg: msg, onDismiss: token.cancel);
         },
       );
       SmartDialog.dismiss(status: SmartStatus.loading);
@@ -1878,6 +2014,7 @@ class YtVideoController extends GetxController
         ..onReopen = null
         ..onStepUpDropped = null;
     }
+    videoPlayerServiceHandler?.onVideoDetailDispose(_mediaTag);
     plPlayerController.dispose();
     super.onClose();
   }

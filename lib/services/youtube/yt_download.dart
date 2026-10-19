@@ -17,6 +17,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/youtube/invidious_source.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_video_id.dart';
@@ -81,7 +82,8 @@ abstract final class YtDownloader {
   /// stops producing bytes does not close on its own.
   static const _idleTimeout = Duration(seconds: 30);
 
-  /// Downloads [pair] and writes one mp4 into the app's download folder.
+  /// Downloads [pair] and writes one mp4 where bilibili downloads are
+  /// exported ([DownloadService.exportDir]).
   /// Returns the path of the finished file.
   static Future<String> download({
     required YtStreamPair pair,
@@ -149,8 +151,15 @@ abstract final class YtDownloader {
           output: out,
         );
       }
+      // galleries and other apps see it, as they do a bilibili download
+      if (Platform.isAndroid) await DownloadService.scanMedia(out);
       onProgress?.call(1, '完成');
       return out;
+    } catch (_) {
+      // a cancel tears the socket down, which surfaces as an HttpException
+      // carrying the signed stream URL: it is a cancel, nothing failed
+      if (token?.isCancelled ?? false) throw const YtDownloadCancelled();
+      rethrow;
     } finally {
       // the parts are never left behind: a half-written m4s beside a
       // finished mp4 reads as a broken download that is not broken
@@ -161,7 +170,11 @@ abstract final class YtDownloader {
   }
 
   static Future<String> _outputPath(String title, String videoId) async {
-    final dir = await Directory(downloadPath).create(recursive: true);
+    // Android: the public folder bilibili downloads are exported to (the
+    // download folder is app-private there, removed on uninstall)
+    final dir = await Directory(
+      await DownloadService.exportDir(),
+    ).create(recursive: true);
     final name = '${sanitise(title)}-$videoId.mp4';
     return path.join(dir.path, name);
   }

@@ -10,6 +10,7 @@ import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/page.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+import 'package:PiliPlus/services/youtube/yt_models.dart' show YtVideoDetail;
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -238,6 +239,18 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
           artist: data.ownerName,
           duration: Duration(milliseconds: data.totalTimeMilli),
           artUri: uri,
+        );
+      // LibrePili: the YouTube page's video. Not through [getUri]: the
+      // resize suffix it adds is bilibili's
+      case YtVideoDetail():
+        final thumb = data.thumbnails.lastOrNull?.url;
+        mediaItem = MediaItem(
+          id: id,
+          title: data.title,
+          artist: data.author,
+          duration: data.duration,
+          artUri: thumb == null ? null : Uri.tryParse(thumb),
+          isLive: data.isLive,
         );
       default:
         return;

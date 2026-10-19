@@ -381,9 +381,13 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // (the running account state is not re-applied)
                         final loginMode = Pref.loginMode;
                         // nor are this installation's own keys (paths, the
-                        // documents provider)
+                        // documents provider), nor its credentials, which
+                        // export and import leave alone too
                         final device = {
-                          for (final key in GStorage.deviceKeys)
+                          for (final key in [
+                            ...GStorage.deviceKeys,
+                            ...GStorage.credentialKeys,
+                          ])
                             if (GStorage.setting.containsKey(key))
                               key: GStorage.setting.get(key),
                         };
@@ -411,7 +415,19 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // no snapshot: a full reset must not leave a copy of
                         // the data behind (GStorage.clear also drops the
                         // import snapshots), so it cannot be undone
+                        // A custom download folder is kept: the downloads
+                        // in it stay on disk, and would vanish from the
+                        // list after the restart
+                        final downloadDir = GStorage.setting.get(
+                          SettingBoxKey.downloadPath,
+                        );
                         await GStorage.clear();
+                        if (downloadDir != null) {
+                          await GStorage.setting.put(
+                            SettingBoxKey.downloadPath,
+                            downloadDir,
+                          );
+                        }
                         // outside Hive, and just as much user data: the
                         // crash log (entries can carry signed request URLs)
                         // and the picked-document side-file mirrors

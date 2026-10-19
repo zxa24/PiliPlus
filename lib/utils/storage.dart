@@ -338,6 +338,9 @@ abstract final class GStorage {
   /// this device has a value for can be checked. int and double are told
   /// apart (a getter of a double setting cannot take an int); a backup the
   /// app wrote keeps the kind each value was saved with.
+  static Map<dynamic, dynamic> mismatched(Box box, Map imported) =>
+      _mismatched(box, imported);
+
   static Map<dynamic, dynamic> _mismatched(Box box, Map imported) {
     String kind(Object? v) => switch (v) {
       null => 'null',

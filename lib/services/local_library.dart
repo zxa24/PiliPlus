@@ -78,7 +78,10 @@ abstract final class LocalLibrary {
               : identical(box, _folders)
               ? {for (final v in data.values) '${(v as Map)['id']}': v}
               : identical(box, _items)
-              ? {for (final v in data.values) '${(v as Map)['key']}': v}
+              ? {
+                  for (final v in data.values)
+                    if (!_badYtId(v)) '${(v as Map)['key']}': v,
+                }
               : data,
         );
       }
@@ -122,18 +125,9 @@ abstract final class LocalLibrary {
           : null;
       final keys = <Object?>{};
       for (final v in data.values) {
-        if (v is! Map) continue;
+        if (v is! Map || _badYtId(v)) continue;
         if (!keys.add(v['key'])) {
           throw FormatException('本地收藏数据有重复的 key: ${v['key']}');
-        }
-        // the id becomes a page parameter and part of file paths
-        if (v['data'] case final Map d when d['yt'] != null) {
-          final yt = d['yt'];
-          if (yt is! String || !isYouTubeVideoId(yt)) {
-            throw FormatException(
-              '本地收藏「${v['key']}」的 YouTube 视频 id 无效: ${d['yt']}',
-            );
-          }
         }
         if (ids == null) continue;
         if (v['folders'] case final List refs) {
@@ -155,12 +149,26 @@ abstract final class LocalLibrary {
       if (data == null) continue;
       try {
         for (final value in (data as Map).values) {
+          if (name == _items.name && _badYtId(value)) {
+            continue;
+          }
           parse(value as Map);
         }
       } catch (e) {
         throw FormatException('本地关注/收藏数据无效 ($name): $e');
       }
     }
+  }
+
+  /// The id becomes a page parameter and part of file paths: an item with
+  /// an invalid one is left out of an import, the rest of the backup is
+  /// still taken (backups made before the id was checked may hold one).
+  static bool _badYtId(Object? v) {
+    if (v case {'data': final Map d} when d['yt'] != null) {
+      final yt = d['yt'];
+      return yt is! String || !isYouTubeVideoId(yt);
+    }
+    return false;
   }
 
   static Future<void> clear() async {

@@ -191,31 +191,42 @@ abstract final class ImageUtils {
         // gets a numbered one), so nothing that appears between a check
         // and the write can be replaced
         final targets = <File>[];
-        for (final (_, name) in result) {
-          final ext = path.extension(name);
-          final stem = path.basenameWithoutExtension(name);
-          for (int n = 0; ; n++) {
-            final target = File(
-              path.join(dst, n == 0 ? name : '$stem ($n)$ext'),
-            );
-            try {
-              await target.create(exclusive: true);
-              targets.add(target);
-              break;
-            } on FileSystemException {
-              if (!target.existsSync() &&
-                  !Directory(target.path).existsSync()) {
-                rethrow;
+        try {
+          for (final (_, name) in result) {
+            final ext = path.extension(name);
+            final stem = path.basenameWithoutExtension(name);
+            for (int n = 0; ; n++) {
+              final target = File(
+                path.join(dst, n == 0 ? name : '$stem ($n)$ext'),
+              );
+              try {
+                await target.create(exclusive: true);
+                targets.add(target);
+                break;
+              } on FileSystemException {
+                if (!target.existsSync() &&
+                    !Directory(target.path).existsSync()) {
+                  rethrow;
+                }
               }
             }
           }
+          await Future.wait([
+            for (int i = 0; i < result.length; i++)
+              // copied into the file just created: moving would leave the
+              // cache entry without its file
+              result[i].$1.openRead().pipe(targets[i].openWrite()),
+          ]);
+        } catch (_) {
+          // the targets this call created hold nothing or part of a
+          // picture: they must not stay in the user's folder
+          // (Future.wait above waits for every copy before failing)
+          for (final target in targets) {
+            await target.tryDel();
+          }
+          SmartDialog.showToast('保存失败');
+          return false;
         }
-        await Future.wait([
-          for (int i = 0; i < result.length; i++)
-            // copied into the file just created: moving would leave the
-            // cache entry without its file
-            result[i].$1.openRead().pipe(targets[i].openWrite()),
-        ]);
       }
       SmartDialog.showToast(' 已保存 ');
       return true;

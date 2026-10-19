@@ -127,7 +127,8 @@ class ParallelFetch {
     _client.maxConnectionsPerHost = connections * 3;
     _server = server;
     server.listen(
-      (request) => unawaited(_serve(request)),
+      (request) =>
+          unawaited(_serve(request).catchError((Object _) => _end(request))),
       onError: (_) {},
     );
   }
@@ -249,6 +250,19 @@ class ParallelFetch {
 
   // ---------------------------------------------------------------- serving
 
+  /// A request [_serve] threw on (a header sent twice, say) is answered and
+  /// closed, not left open with the error in the zone's handler.
+  static Future<void> _end(HttpRequest request) async {
+    try {
+      request.response.statusCode = HttpStatus.badRequest;
+    } catch (_) {
+      // the answer had begun
+    }
+    try {
+      await request.response.close();
+    } catch (_) {}
+  }
+
   Future<void> _serve(HttpRequest request) async {
     final segments = request.uri.pathSegments;
     // only as this address itself: a page that rebinds a name of its own to
@@ -267,7 +281,15 @@ class ParallelFetch {
       debugStallFirst = null;
       await Future<void>.delayed(stall);
     }
-    final asked = _parseRange(request.headers.value(HttpHeaders.rangeHeader));
+    final ({int from, int? to})? asked;
+    try {
+      asked = _parseRange(request.headers.value(HttpHeaders.rangeHeader));
+    } on FormatException {
+      // a byte position past what an int holds
+      response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      await response.close();
+      return;
+    }
     final from = asked?.from ?? 0;
 
     final reader = _Reader(from);

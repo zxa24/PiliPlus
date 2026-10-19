@@ -101,7 +101,7 @@ class DownloadTranscripts {
           kept.coveredSeconds,
           kept.mediaEnd,
         );
-      } else if (entry.transcriptPending) {
+      } else if (entry.transcriptPending && !_inSegments(entry)) {
         progress[entry.cid] = 0;
       }
     }
@@ -109,7 +109,7 @@ class DownloadTranscripts {
 
   /// [entry] just finished: marked, and transcribed in its turn.
   Future<void> finished(BiliDownloadEntryInfo entry) async {
-    if (!Pref.dlTranscribe) return;
+    if (!Pref.dlTranscribe || _inSegments(entry)) return;
     entry.transcriptPending = true;
     progress.putIfAbsent(entry.cid, () => 0);
     await save(entry);
@@ -163,9 +163,20 @@ class DownloadTranscripts {
     _retry = Timer(_again, kick);
   }
 
+  /// Kept as separate segments (no common MP4 mapping): the merged file is
+  /// only the first of them, so a transcript of it would stop at its end
+  /// and still read as complete (its length is that segment's). Not
+  /// transcribed in the background.
+  static bool _inSegments(BiliDownloadEntryInfo entry) =>
+      entry.mergedParts != null;
+
   BiliDownloadEntryInfo? _pending() {
     for (final entry in entries()) {
-      if (!entry.transcriptPending || !entry.isCompleted) continue;
+      if (!entry.transcriptPending ||
+          !entry.isCompleted ||
+          _inSegments(entry)) {
+        continue;
+      }
       final merged = entry.mergedPath;
       if (merged != null && File(merged).existsSync()) return entry;
     }

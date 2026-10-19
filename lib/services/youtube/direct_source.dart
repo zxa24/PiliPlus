@@ -152,9 +152,14 @@ class YtDirectSource implements YouTubeVideoSource {
 
     final picked = selectYtFormats(detail.formats, preference);
     if (picked == null) {
+      // a strict preference (the download's MP4) nothing here meets, while
+      // a pair plays: what this video offers, not a change in YouTube
+      final offered =
+          preference.listedCodecsOnly &&
+          selectYtFormats(detail.formats) != null;
       return YtResult.failed(
         YtVerdict(
-          YtCause.clientBroken,
+          offered ? YtCause.contentUnavailable : YtCause.clientBroken,
           'no-playable-pair',
           'codecs offered: '
               '${detail.formats.map((f) => f.codecFamily).toSet().join(', ')}',

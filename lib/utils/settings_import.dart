@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:path/path.dart' as path;
 
@@ -28,10 +29,10 @@ class SettingsImportResult {
 }
 
 abstract final class SettingsImport {
-  /// Keys that must not travel. Nothing here is a credential — those live in
-  /// their own boxes — but these describe *this* installation rather than a
-  /// preference, and copying them makes the app point at the other app's
-  /// files or claim its state.
+  /// Keys that must not travel: these describe *this* installation rather
+  /// than a preference, and copying them makes the app point at the other
+  /// app's files or claim its state. (The credentials and device keys of
+  /// [GStorage] are left out as well, see [run].)
   static const _notPreferences = {
     'downloadPath',
     'appFont', // a path to a font file inside the other app's directory
@@ -108,8 +109,15 @@ abstract final class SettingsImport {
         'piliplusImport',
         path: copyDir.path,
       );
+      final values = <String, dynamic>{};
       for (final key in box.keys) {
-        if (key is! String || _notPreferences.contains(key)) {
+        if (key is! String ||
+            _notPreferences.contains(key) ||
+            // this device's credentials, paths and login opt-in: the
+            // dialog promises 不含账号, and the JSON import keeps them too
+            GStorage.credentialKeys.contains(key) ||
+            GStorage.deviceKeys.contains(key) ||
+            key == SettingBoxKey.loginMode) {
           skipped++;
           continue;
         }
@@ -117,8 +125,18 @@ abstract final class SettingsImport {
           skipped++;
           continue;
         }
-        await GStorage.setting.put(key, box.get(key));
-        imported++;
+        values[key] = box.get(key);
+      }
+      // a value of another kind than this device's (a String where a number
+      // is read, ...) would throw wherever the getter casts it
+      final mismatched = GStorage.mismatched(GStorage.setting, values);
+      skipped += mismatched.length;
+      values.removeWhere((key, _) => mismatched.containsKey(key));
+      if (values.isNotEmpty) {
+        // like every other import path, so 恢复到导入前 can undo it
+        await GStorage.saveSnapshot();
+        await GStorage.setting.putAll(values);
+        imported = values.length;
       }
     } finally {
       await box?.close();

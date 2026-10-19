@@ -295,7 +295,7 @@ abstract final class LocalPlayer {
   }) {
     BiliDownloadEntryInfo? entry;
     final info = File(path.join(folder, DownloadExtras.infoName));
-    if (info.existsSync()) {
+    if (info.existsSync() && _isRecordOf(folder, video)) {
       try {
         final parsed = BiliDownloadEntryInfo.fromJson(
           jsonDecode(info.readAsStringSync()) as Map<String, dynamic>,
@@ -314,6 +314,27 @@ abstract final class LocalPlayer {
       ..isCompleted = true
       ..entryDirPath = folder
       ..pageDirPath = path.dirname(folder);
+  }
+
+  /// Whether the record in [folder] is [video]'s own: another video in
+  /// that folder must not take its cid, title and resume key (its
+  /// transcript would be kept under the download's). The record does not
+  /// name its file, but the intro written beside it is `<base>.intro.json`,
+  /// as the video is `<base>.mp4` (`<base>.2.flv`, ... for segments). A
+  /// folder without an intro (it could not be saved) is taken as before.
+  static bool _isRecordOf(String folder, String video) {
+    final intros = Directory(folder).existsSync()
+        ? Directory(folder)
+              .listSync()
+              .map((e) => path.basename(e.path))
+              .where((n) => n.endsWith(DownloadExtras.introSuffix))
+              .toList()
+        : const <String>[];
+    if (intros.isEmpty) return true;
+    final name = path.basenameWithoutExtension(video);
+    final base = name.replaceFirst(RegExp(r'\.\d+$'), '');
+    return intros.contains('$name${DownloadExtras.introSuffix}') ||
+        intros.contains('$base${DownloadExtras.introSuffix}');
   }
 
   static BiliDownloadEntryInfo _plainEntry(String title, int size) {

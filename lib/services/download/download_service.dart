@@ -93,7 +93,44 @@ class DownloadService extends GetxService {
   /// its awaits return.
   int _startGen = 0;
 
-  late Future<void> waitForInitialization;
+  late Future<void> _initialization;
+
+  /// The download list read. Awaited by the download pages and the video
+  /// page: the service is in use from then on ([_releaseExtras]).
+  Future<void> get waitForInitialization {
+    _releaseExtras();
+    return _initialization;
+  }
+
+  /// Created at start-up by [startInBackground]: only the list, the
+  /// transcripts and the subtitle hook run then. Extras an earlier run left
+  /// unsaved need requests: they wait in [_heldExtras] until the download
+  /// UI or a download action first uses the service, as before it was
+  /// created at start-up.
+  bool _holdExtras = false;
+  final _heldExtras = <BiliDownloadEntryInfo>[];
+  static bool _startingInBackground = false;
+
+  /// For the app's start: the background transcription of finished
+  /// downloads carries on after a restart, and a transcript made while
+  /// watching is written beside the download, without waiting for a
+  /// download page to create the service.
+  static void startInBackground() {
+    _startingInBackground = true;
+    try {
+      Get.find<DownloadService>();
+    } finally {
+      _startingInBackground = false;
+    }
+  }
+
+  void _releaseExtras() {
+    if (!_holdExtras) return;
+    _holdExtras = false;
+    final held = [..._heldExtras];
+    _heldExtras.clear();
+    held.forEach(_resumeExtras);
+  }
 
   /// Finished downloads transcribed to their end in the background, and
   /// how far each has got.
@@ -105,6 +142,7 @@ class DownloadService extends GetxService {
   @override
   void onInit() {
     super.onInit();
+    _holdExtras = _startingInBackground;
     initDownloadList();
     SubtitleCache.onSaved = _keepTranscript;
   }
@@ -134,15 +172,16 @@ class DownloadService extends GetxService {
   }
 
   void initDownloadList() {
-    waitForInitialization = _readDownloadList();
+    _initialization = _readDownloadList();
   }
 
   /// The download folder changed: the running transfer (it writes into the
   /// old folder) is paused, and the list and queue are re-read from the new
   /// folder.
   void reloadDownloadList() {
-    waitForInitialization = () async {
-      await waitForInitialization;
+    _releaseExtras();
+    _initialization = () async {
+      await _initialization;
       await cancelDownload(isDelete: false, downloadNext: false);
       // a merge still in progress completes its entry on its own
       if (!_mergingCids.contains(_curCid)) {
@@ -243,6 +282,7 @@ class DownloadService extends GetxService {
     ugc.EpisodeItem? videoArc,
     VideoQuality videoQuality,
   ) {
+    _releaseExtras();
     final cid = page.cid!;
     if (downloadList.indexWhere((e) => e.cid == cid) != -1) {
       return;
@@ -303,6 +343,7 @@ class DownloadService extends GetxService {
     pgc.EpisodeItem episode,
     VideoQuality quality,
   ) {
+    _releaseExtras();
     final cid = episode.cid!;
     if (downloadList.indexWhere((e) => e.cid == cid) != -1) {
       return;
@@ -446,6 +487,7 @@ class DownloadService extends GetxService {
   }
 
   Future<void> startDownload(BiliDownloadEntryInfo entry) {
+    _releaseExtras();
     // already finished downloading; the merge completes it
     if (_mergingCids.contains(entry.cid)) return Future.value();
     final gen = ++_startGen;
@@ -473,6 +515,7 @@ class DownloadService extends GetxService {
     required BiliDownloadEntryInfo entry,
     bool isUpdate = false,
   }) async {
+    _releaseExtras();
     final cid = entry.pageData?.cid ?? entry.source?.cid;
     if (cid == null) {
       return false;
@@ -873,7 +916,8 @@ class DownloadService extends GetxService {
 
   Future<void> _completeDownload() async {
     final entry = curDownload.value;
-    if (entry == null) {
+    // the video and audio callbacks can both get here: one merge per entry
+    if (entry == null || _mergingCids.contains(entry.cid)) {
       return;
     }
     _downloadManager = null;
@@ -962,6 +1006,10 @@ class DownloadService extends GetxService {
 
   /// Saves the extras of [entry] that an earlier run did not finish.
   void _resumeExtras(BiliDownloadEntryInfo entry) {
+    if (_holdExtras) {
+      _heldExtras.add(entry);
+      return;
+    }
     final merged = entry.mergedPath;
     if (_extrasJobs.containsKey(entry.cid)) return;
     if (merged == null || !File(merged).existsSync()) {
@@ -1454,6 +1502,11 @@ class DownloadService extends GetxService {
     return _getDownloadPath();
   }
 
+  /// [_exportDir] and [_scanMedia] for the YouTube downloader: its files go
+  /// where these do, not into the app-private folder on Android.
+  static Future<String> exportDir() => _exportDir();
+  static Future<void> scanMedia(String path) => _scanMedia(path);
+
   static final _illegalFileChars = RegExp(r'[\\/:*?"<>|\x00-\x1F]');
 
   /// Export folders a merge is currently writing into.
@@ -1576,6 +1629,7 @@ class DownloadService extends GetxService {
     // the exported video folder is the user's own copy: kept unless asked
     bool deleteExported = false,
   }) async {
+    _releaseExtras();
     if (removeList) {
       downloadList.remove(entry);
     }
@@ -1620,6 +1674,7 @@ class DownloadService extends GetxService {
     bool refresh = true,
     bool deleteExported = false,
   }) async {
+    _releaseExtras();
     // pages of one video share the folder: a page still downloading or
     // merging must be stopped first, or it recreates what is deleted here
     for (final entry in [...downloadList, ...waitDownloadQueue]) {
