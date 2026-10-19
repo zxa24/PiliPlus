@@ -21,8 +21,43 @@ class DownloadManager {
   /// The stream is resolved again on every start, and the saved index only
   /// identifies it by id / codec / resolution: a different length means
   /// different bytes, so the partial file is dropped instead of resumed
-  /// (LibrePili).
+  /// (LibrePili). The size each partial was written for is also kept
+  /// beside it ([_sizeFile]) and wins over this: a stream folder can be
+  /// resumed after another quality ran in between, whose size is the one
+  /// the entry then records.
   final int expectedTotal;
+
+  /// `<path>.size`: the stream size the bytes in [path] belong to, written
+  /// once the size is known and removed when the file is complete.
+  File get _sizeFile => File('$path.size');
+
+  int get _knownTotal {
+    try {
+      final f = _sizeFile;
+      if (f.existsSync()) {
+        final v = int.tryParse(f.readAsStringSync().trim());
+        if (v != null && v > 0) return v;
+      }
+    } catch (_) {}
+    return expectedTotal;
+  }
+
+  void _recordTotal(int total) {
+    try {
+      _sizeFile.writeAsStringSync('$total', flush: true);
+    } catch (_) {}
+  }
+
+  Future<void> _completed() async {
+    await _sizeFile.tryDel();
+    _status = DownloadStatus.completed;
+    _reported = true;
+    onDone();
+  }
+
+  /// [onDone] was called: an error thrown after it (by the callback) must
+  /// not report the transfer a second time.
+  bool _reported = false;
 
   static const _maxAttempts = 6;
 
@@ -50,6 +85,16 @@ class DownloadManager {
   }
 
   Future<void> _start() async {
+    try {
+      await _run();
+    } catch (e) {
+      // the address resolver, or the file itself (creating / reading it):
+      // reported like a failed transfer, so the entry gets a final status
+      if (!_reported) await _fail(e);
+    }
+  }
+
+  Future<void> _run() async {
     final via = await fetch?.call();
     final urls = [
       for (final u in [
@@ -97,10 +142,13 @@ class DownloadManager {
     if (_status == DownloadStatus.downloading) {
       _status = DownloadStatus.failDownload;
       // keep any saved bytes: a later start resumes from them
-      if (file.existsSync() && file.lengthSync() == 0) {
-        await file.tryDel();
-      }
+      try {
+        if (file.existsSync() && file.lengthSync() == 0) {
+          await file.tryDel();
+        }
+      } catch (_) {}
     }
+    _reported = true;
     onDone(e);
   }
 
@@ -183,8 +231,7 @@ class DownloadManager {
       // no usable Content-Range: ask for the size instead of guessing
       if (total == null && received > 0) total = await _probeTotal(url);
       if (total != null && total == received) {
-        _status = DownloadStatus.completed;
-        onDone();
+        await _completed();
         return null;
       }
       if (total == null) {
@@ -213,14 +260,22 @@ class DownloadManager {
         expected = int.tryParse(match[2]!) ?? expected;
         // same quality and codec but another length: another stream, the
         // bytes on disk do not belong to it
-        if (expectedTotal > 0 && expected > 0 && expected != expectedTotal) {
+        final known = _knownTotal;
+        if (known > 0 && expected > 0 && expected != known) {
           await discard();
           await file.writeAsBytes(const []);
-          return 'stream size changed ($expected, had $expectedTotal)';
+          await _sizeFile.tryDel();
+          return 'stream size changed ($expected, had $known)';
         }
       }
     }
 
+    if (expected > 0) {
+      _recordTotal(expected);
+    } else if (received == 0) {
+      // written from 0 for a size not known yet: an older record is not it
+      await _sizeFile.tryDel();
+    }
     final sink = file.openWrite(
       mode: received == 0 ? FileMode.writeOnly : FileMode.writeOnlyAppend,
     );
@@ -251,8 +306,7 @@ class DownloadManager {
       // clean early EOF: retry from what was saved
       return 'incomplete transfer: $received of $expected bytes';
     }
-    _status = DownloadStatus.completed;
-    onDone();
+    await _completed();
     return null;
   }
 

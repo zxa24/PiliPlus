@@ -124,25 +124,33 @@ class ShutdownTimerService {
   }
 
   void _syncProgressAndExit() {
-    if (PlPlayerController.instance case final player?) {
-      final res = player.makeHeartBeat(
-        player.position.value,
-        type: .completed,
-        isManual: true,
-      );
-      if (res != null) {
-        res.whenComplete(_flushAndExit);
-        return;
+    // a heartbeat that fails, at once or later, must not keep the app from
+    // exiting: it threw on a YouTube page, and the timer never exited
+    Future<void>? res;
+    try {
+      if (PlPlayerController.instance case final player?) {
+        res = player.makeHeartBeat(
+          player.position.value,
+          type: .completed,
+          isManual: true,
+        );
       }
+    } catch (_) {}
+    if (res != null) {
+      res.catchError((Object _) {}).whenComplete(flushAndExit);
+      return;
     }
-    _flushAndExit();
+    flushAndExit();
   }
 
   /// What closing the window does first (the main page's `_onClose`), as
   /// app_exit.dart asks: what transcription and translation made since the
   /// last save, and Hive's pending writes (the local watch history), on
   /// disk before the process is ended.
-  static Future<void> _flushAndExit() async {
+  ///
+  /// Public for the other ways out that end the app at once (the player's
+  /// ⌘Q on macOS): the same saves first, not a bare `exit(0)`.
+  static Future<void> flushAndExit() async {
     try {
       if (Get.isRegistered<TranslationService>()) {
         TranslationService.to.keepCache();

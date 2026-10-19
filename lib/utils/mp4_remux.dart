@@ -303,6 +303,9 @@ abstract final class Mp4Remuxer {
         onProgress?.call(copied, payloadSize);
       }
       await flushOut();
+      // on disk before it replaces the output: the caller deletes the
+      // stream files once this returns
+      await out.flush();
     } catch (_) {
       await out.close();
       for (final s in sources.values) {
@@ -315,8 +318,8 @@ abstract final class Mp4Remuxer {
     for (final s in sources.values) {
       await s.close();
     }
-    final dest = File(output);
-    if (dest.existsSync()) await dest.delete();
+    // over an existing output (rename replaces it): deleting it first
+    // would leave neither should the rename fail
     await tmp.rename(output);
   }
 
@@ -466,6 +469,10 @@ class _Track {
   /// would be decoded with the first VPS/SPS/PPS. The first sample after
   /// each switch therefore also carries its configuration's parameter sets
   /// in-band, and the entries become `hev1` (parameter sets may be in-band).
+  /// Switches are found per chunk: a chunk has one sample entry
+  /// ([_Chunk.descIndex], as `stsc` maps them in MP4), so the first sample of
+  /// a chunk whose entry differs from the previous chunk's is the first
+  /// after a switch.
   void _inlineParameterSets() {
     final entries = sampleEntries;
     if (_inlined || entries == null || entries.length < 2) return;
@@ -583,7 +590,12 @@ class _Track {
         } else if (type == 'moof') {
           if (!sawMoov) throw FormatException('moof before moov in $path');
           await raf.setPosition(pos + headerSize);
-          dts = t._parseMoof(await raf.read(size - headerSize), pos, dts);
+          dts = t._parseMoof(
+            await raf.read(size - headerSize),
+            pos,
+            dts,
+            length,
+          );
         }
         pos += size;
       }
@@ -686,8 +698,9 @@ class _Track {
     }
   }
 
-  /// Returns the decode time after this fragment.
-  int _parseMoof(Uint8List moof, int moofOffset, int dts) {
+  /// Returns the decode time after this fragment. [fileLength] bounds the
+  /// sample count: a damaged count must not loop for billions of samples.
+  int _parseMoof(Uint8List moof, int moofOffset, int dts, int fileLength) {
     for (final (type, body) in _R(moof).boxes()) {
       if (type != 'traf') continue;
       var baseOffset = moofOffset;
@@ -715,6 +728,21 @@ class _Track {
             final version = vf >>> 24;
             final flags = vf & 0xFFFFFF;
             final n = b.u32();
+            // each sample takes 4 bytes per field it carries here, else at
+            // least its default size in the file
+            final perSample =
+                4 *
+                [
+                  0x100,
+                  0x200,
+                  0x400,
+                  0x800,
+                ].where((f) => flags & f != 0).length;
+            if (perSample > 0
+                ? n * perSample > b.remaining
+                : n * max(defSize, 1) > fileLength) {
+              throw FormatException('bad trun sample count $n in $path');
+            }
             var dataOffset = nextDataOffset ?? baseOffset;
             if (flags & 0x1 != 0) dataOffset = baseOffset + b.i32();
             int? firstFlags;
@@ -1119,6 +1147,7 @@ class _R {
   }
 
   void skip(int n) => pos += n;
+  int get remaining => data.length - pos;
   Uint8List bytes(int n) {
     final v = Uint8List.sublistView(data, pos, pos + n);
     pos += n;

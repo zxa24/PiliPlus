@@ -11,6 +11,7 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/services/translate/translation_unit.dart';
+import 'package:PiliPlus/utils/subtitle_utils.dart';
 
 final _timing = RegExp(
   r'((?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*((?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3})',
@@ -79,7 +80,8 @@ List<AsrCue> parseCaptionCues(String text) {
       if (blocks.isNotEmpty &&
           blocks.last.body.isNotEmpty &&
           raw.trim().isNotEmpty &&
-          blocks.last.body.last == raw.replaceAll(_tag, '').trim()) {
+          blocks.last.body.last ==
+              SubtitleUtils.vttUnescape(raw.replaceAll(_tag, '').trim())) {
         blocks.last.body.removeLast();
       }
       blocks.add((
@@ -89,7 +91,8 @@ List<AsrCue> parseCaptionCues(String text) {
       ));
       continue;
     }
-    final clean = line.replaceAll(_tag, '').trim();
+    // what json2Vtt escaped (and a VTT's own `&amp;`) read as text again
+    final clean = SubtitleUtils.vttUnescape(line.replaceAll(_tag, '').trim());
     if (clean.isNotEmpty && blocks.isNotEmpty) blocks.last.body.add(clean);
   }
 

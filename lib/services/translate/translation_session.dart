@@ -163,9 +163,26 @@ TranscriptView transcriptView(
     return (units: withUniqueKeys(units), trailing: trailing);
   }
 
+  // Cut once per change, not on every read: a session reads the units and
+  // the trailing cues several times per publish and per poll.
+  ({int revision, int finished, bool done})? cutFor;
+  ({List<TranslationUnit> units, List<AsrCue> trailing})? lastCut;
+  ({List<TranslationUnit> units, List<AsrCue> trailing}) cached() {
+    final key = (
+      revision: store.revision,
+      finished: store.runs.where((run) => run.finished).length,
+      done: complete(),
+    );
+    if (key != cutFor || lastCut == null) {
+      lastCut = cut();
+      cutFor = key;
+    }
+    return lastCut!;
+  }
+
   return (
-    units: () => cut().units,
-    trailing: () => cut().trailing,
+    units: () => cached().units,
+    trailing: () => cached().trailing,
     covered: () => store.covered,
     complete: complete,
     resting: resting ?? () => false,
@@ -676,6 +693,12 @@ class TranslationSession {
     if (extrasOnly) _set(const TranslationState(TranslationStage.translating));
     try {
       final checked = await _translateChecked(extra.text, extra.target);
+      // cut short by the cancel of a park or a stop, which ends the reply
+      // as if it were finished: handed back, not kept
+      if (_closed || _parking != null) {
+        giveBack?.call(extra);
+        return;
+      }
       if (checked.flaw case final flaw?) {
         EventLog.add(
           'translate',
@@ -913,6 +936,10 @@ class TranslationSession {
           }
         }
         if (_closed) return;
+        // A park cancels the reply, and a cancelled reply ends like a
+        // finished one: what came back is cut short (or empty), not the
+        // translation. The unit is translated later.
+        if (_parking != null) continue;
         _logUnitStats(unit, text);
         results.record(unit, text);
         revision.value++;

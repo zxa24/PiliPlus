@@ -16,6 +16,7 @@ import 'package:PiliPlus/common/widgets/sliver_wrap.dart';
 import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
 import 'package:PiliPlus/pages/search/widgets/search_text.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
+import 'package:PiliPlus/utils/utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -27,7 +28,11 @@ class YtSearchPage extends StatefulWidget {
 }
 
 class _YtSearchPageState extends State<YtSearchPage> {
-  final _tag = 'yt';
+  // a search page opened from the result page (its keyword) sits over the
+  // first: each has its own, or the second's close disposed the first's
+  late final _tag = Get.isRegistered<YtSearchController>(tag: 'yt')
+      ? Utils.makeHeroTag('yt')
+      : 'yt';
   late final YtSearchController _controller = Get.put(
     YtSearchController(),
     tag: _tag,

@@ -134,8 +134,9 @@ abstract final class _Mp4Joiner {
   static List<_Track> _readProgressive(String path) {
     final raf = File(path).openSync();
     Uint8List? moov;
+    var length = 0;
     try {
-      final length = raf.lengthSync();
+      length = raf.lengthSync();
       var pos = 0;
       while (pos + 8 <= length) {
         raf.setPositionSync(pos);
@@ -187,7 +188,7 @@ abstract final class _Mp4Joiner {
       final t = _Track(path)
         ..sourceMovieTimescale = movieTimescale
         .._parseTrak(trak);
-      _readSampleTables(t, trak);
+      _readSampleTables(t, trak, length);
       if (t.sizes.isNotEmpty) tracks.add(t..index = tracks.length);
     }
     if (tracks.isEmpty) throw FormatException('no samples in $path');
@@ -209,7 +210,9 @@ abstract final class _Mp4Joiner {
     return const {};
   }
 
-  static void _readSampleTables(_Track t, Uint8List trak) {
+  /// [fileLength] bounds the sample count: a damaged count must not
+  /// allocate or loop without end.
+  static void _readSampleTables(_Track t, Uint8List trak, int fileLength) {
     final stbl = _stbl(trak);
 
     // sample sizes
@@ -218,6 +221,9 @@ abstract final class _Mp4Joiner {
       final b = _R(body)..skip(4);
       final fixed = b.u32();
       final n = b.u32();
+      if (fixed != 0 ? n * fixed > fileLength : n * 4 > b.remaining) {
+        throw FormatException('bad stsz sample count $n in ${t.path}');
+      }
       for (var i = 0; i < n; i++) {
         sizes.add(fixed != 0 ? fixed : b.u32());
       }
@@ -225,6 +231,9 @@ abstract final class _Mp4Joiner {
       final b = _R(body)..skip(7);
       final field = b.u8();
       final n = b.u32();
+      if (n * field > b.remaining * 8) {
+        throw FormatException('bad stz2 sample count $n in ${t.path}');
+      }
       for (var i = 0; i < n; i++) {
         switch (field) {
           case 4:

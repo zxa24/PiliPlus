@@ -18,23 +18,28 @@ import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
+import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
+import 'package:PiliPlus/utils/extension/file_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/update.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart' as web;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:material_ui/material_ui.dart' hide ListTile;
+import 'package:path/path.dart' as path;
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key, this.showAppBar = true});
@@ -199,10 +204,10 @@ Commit Hash: ${BuildConfig.commitHash}''',
           ),
           ListTile(
             onTap: () => Get.toNamed('/logs'),
-            onLongPress: LoggerUtils.clearLogs,
+            onLongPress: () => _clearLogs(context),
             onSecondaryTap: PlatformUtils.isMobile
                 ? null
-                : LoggerUtils.clearLogs,
+                : () => _clearLogs(context),
             leading: const Icon(Icons.bug_report_outlined),
             title: const Text('错误日志'),
             subtitle: Text('长按清除日志', style: subTitleStyle),
@@ -387,6 +392,7 @@ Commit Hash: ${BuildConfig.commitHash}''',
                           SettingBoxKey.loginMode,
                           loginMode,
                         );
+                        _syncDocProvider();
                         SmartDialog.showToast(
                           '重置成功（重启生效），重置前的数据已保存至 $snapshot',
                         );
@@ -411,6 +417,11 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // the pieces of streams kept on disk: each folder
                         // names the stream it is of
                         await (await PlPlayerController.videoCache())?.clear();
+                        // thumbnails and avatars of what was watched, and
+                        // the in-app browser's cache and site storage
+                        await CacheManager.manager.emptyCache();
+                        await _clearWebViewData();
+                        _syncDocProvider();
                         SmartDialog.showToast('重置成功（重启生效）');
                       },
                       child: const Text(
@@ -427,4 +438,49 @@ Commit Hash: ${BuildConfig.commitHash}''',
       ),
     );
   }
+}
+
+/// The documents provider as the (now reset) setting says: PackageManager
+/// keeps the component's state, the switch only reads the key.
+void _syncDocProvider() {
+  if (Platform.isAndroid) {
+    AndroidHelper.updateDocProvider(Pref.enableDocProvider);
+  }
+}
+
+/// Asks first: the log is what a bug report needs, and a long press is
+/// easily made by accident.
+Future<void> _clearLogs(BuildContext context) async {
+  if (await showConfirmDialog(
+    context: context,
+    title: const Text('清除错误日志？'),
+  )) {
+    await LoggerUtils.clearLogs();
+  }
+}
+
+/// The in-app WebView's cache and site storage (its cookies are cleared
+/// with the accounts). Best effort: each platform keeps them differently.
+Future<void> _clearWebViewData() async {
+  try {
+    if (Platform.isWindows) {
+      // WebView2 keeps everything in the user data folder given at start-up
+      // (main.dart); there is no API for its cache or storage here
+      await Directory(
+        path.join(appSupportDirPath, 'flutter_inappwebview'),
+      ).tryDel(recursive: true);
+      return;
+    }
+    if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+      await web.InAppWebViewController.clearAllCache();
+    }
+    if (Platform.isAndroid) {
+      await web.WebStorageManager.instance().deleteAllData();
+    } else if (Platform.isIOS || Platform.isMacOS) {
+      await web.WebStorageManager.instance().removeDataModifiedSince(
+        dataTypes: web.WebsiteDataType.ALL,
+        date: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+    }
+  } catch (_) {}
 }

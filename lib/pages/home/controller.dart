@@ -65,7 +65,12 @@ class HomeController extends GetxController
   }
 
   void setTabConfig() {
-    final tabs = GStorage.setting.get(SettingBoxKey.tabBarSort) as List?;
+    // an index that is no tab (an import from another build) is left out:
+    // it threw at launch
+    final tabs = (GStorage.setting.get(SettingBoxKey.tabBarSort) as List?)
+        ?.whereType<int>()
+        .where((i) => i >= 0 && i < HomeTabType.values.length)
+        .toList();
     // an empty list (a pre-pass-3 build, a settings import, a WebDAV
     // restore) would make `tabs[tabController.index]` throw on the home page
     if (tabs != null && tabs.isNotEmpty) {

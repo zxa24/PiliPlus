@@ -74,7 +74,8 @@ abstract final class IdUtils {
     if (bvid != null) {
       return (av: null, bv: bvid);
     } else if (aid != null) {
-      return (av: int.parse(aid), bv: null);
+      // an av number past int64 is no av number: no match, not a throw
+      if (int.tryParse(aid) case final av?) return (av: av, bv: null);
     }
     return const (av: null, bv: null);
   }

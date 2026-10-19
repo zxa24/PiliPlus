@@ -202,10 +202,6 @@ abstract final class AsrAudioExtractor {
     final ctx = mpv.create();
     if (ctx == nullptr) throw const AsrExtractException('无法创建解码实例');
     try {
-      final headers = [
-        if (args.referer != null) 'Referer: ${args.referer}',
-        if (args.userAgent != null) 'User-Agent: ${args.userAgent}',
-      ];
       final options = {
         'vid': 'no',
         'sid': 'no',
@@ -237,7 +233,10 @@ abstract final class AsrAudioExtractor {
           'demuxer-max-bytes': '2MiB',
         'terminal': 'no',
         'msg-level': 'all=warn',
-        if (headers.isNotEmpty) 'http-header-fields': headers.join(','),
+        // their own options, not `http-header-fields`: that list is split
+        // at commas, and the browser user agent has one in it
+        'referrer': ?args.referer,
+        'user-agent': ?args.userAgent,
       };
       for (final option in options.entries) {
         final rc = mpv.setOption(ctx, option.key, option.value);

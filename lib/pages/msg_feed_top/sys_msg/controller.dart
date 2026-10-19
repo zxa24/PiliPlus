@@ -36,10 +36,12 @@ class SysMsgController
 
   Future<void> onRemove(dynamic id, int index) async {
     try {
+      // the item, not its position: the list may change while this runs
+      final item = loadingState.value.dataOrNull?[index];
       final res = await MsgHttp.delSysMsg(id);
       if (res.isSuccess) {
         loadingState
-          ..value.data!.removeAt(index)
+          ..value.dataOrNull?.remove(item)
           ..refresh();
         SmartDialog.showToast('删除成功');
       } else {

@@ -127,7 +127,9 @@ abstract final class SponsorBlock {
       },
       options: options,
     );
-    if (res.statusCode == 200) {
+    // a 200 that is not the JSON object (a proxy's page, a plain string)
+    // is 意料之外的响应, not a cast error
+    if (res.statusCode == 200 && res.data is Map) {
       return Success(UserInfo.fromJson(res.data));
     }
     return getErrMsg(res);

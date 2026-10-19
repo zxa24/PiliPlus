@@ -92,6 +92,9 @@ abstract final class Anubis {
     int difficulty, {
     int maxHashes = 4000000,
   }) {
+    // a SHA-256 hash has 64 hex digits: a difficulty outside them is a
+    // challenge that cannot be met (and would index past the hash)
+    if (difficulty < 0 || difficulty > 64) return null;
     final zeroBytes = difficulty ~/ 2;
     final halfByte = difficulty.isOdd;
     for (var nonce = 0; nonce < maxHashes; nonce++) {

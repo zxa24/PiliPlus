@@ -15,7 +15,6 @@ import 'package:PiliPlus/pages/mine/view.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/extension/get_ext.dart';
-import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -223,8 +222,13 @@ class MainController extends GetxController
   }
 
   void setNavBarConfig() {
+    // an index that is no tab (an import from another build) is left out:
+    // it threw at launch
     List<int>? navBarSort =
-        (GStorage.setting.get(SettingBoxKey.navBarSort) as List?)?.fromCast();
+        (GStorage.setting.get(SettingBoxKey.navBarSort) as List?)
+            ?.whereType<int>()
+            .where((i) => i >= 0 && i < NavigationBarType.values.length)
+            .toList();
     late final List<NavigationBarType> navigationBars;
     if (navBarSort == null || navBarSort.isEmpty) {
       navigationBars = NavigationBarType.defaultOrder;

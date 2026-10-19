@@ -376,7 +376,11 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onDestroy() {
-        stopService(Intent(this, com.ryanheise.audioservice.AudioService::class.java))
+        // the app closed (upstream: it could not be closed while the audio
+        // service ran), not an activity recreated with playback going on
+        if (isFinishing && !isChangingConfigurations) {
+            stopService(Intent(this, com.ryanheise.audioservice.AudioService::class.java))
+        }
         if (isFinishing) {
             // gone for good (not recreated): no picker result will come
             pendingPick?.success(null)

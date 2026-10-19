@@ -13,10 +13,12 @@ abstract class CommonWhisperController<R>
   SessionPageType get sessionPageType;
 
   Future<void> onRemove(int index, int talkerId) async {
+    // the item, not its position: the list may change while the request runs
+    final item = loadingState.value.dataOrNull?[index];
     final res = await MsgHttp.removeMsg(talkerId);
     if (res.isSuccess) {
       loadingState
-        ..value.data!.removeAt(index)
+        ..value.dataOrNull?.remove(item)
         ..refresh();
       SmartDialog.showToast('删除成功');
     } else {
@@ -37,8 +39,9 @@ abstract class CommonWhisperController<R>
     if (res.isSuccess) {
       List<Session> list = loadingState.value.data!;
       item.isPinned = isTop ? false : true;
-      if (!isTop) {
-        list.insert(0, list.removeAt(index));
+      // by the item: the list may have changed while the request ran
+      if (!isTop && list.remove(item)) {
+        list.insert(0, item);
       }
       loadingState.refresh();
       SmartDialog.showToast('${isTop ? '移除' : ''}置顶成功');

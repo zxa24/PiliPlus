@@ -67,6 +67,15 @@ List<AliveDanmaku> aliveDanmakuAt(
   return alive;
 }
 
+/// How long (ms) a scrolling danmaku can still be partly on screen, for
+/// picking what a refill looks at: [duration] itself, or with a fixed
+/// velocity — the view's width in [duration], its own width on top — until
+/// its tail has crossed too, taken as twice that (no wider than the view).
+/// Taken as [duration], one was dropped while still showing; where each
+/// one really is is worked out with [scrollOffsetAfter].
+double scrollShownFor(double duration, {required bool fixedVelocity}) =>
+    fixedVelocity ? duration * 2 : duration;
+
 /// How far left of the right edge a scrolling danmaku is after [elapsed] ms
 /// on screen, the way canvas_danmaku moves it: across the view plus its own
 /// width in [duration] ms, or, with a fixed velocity, the view's width in

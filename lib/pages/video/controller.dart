@@ -797,6 +797,9 @@ class VideoDetailController extends GetxController
   BlockConfigMixin get blockConfig => plPlayerController;
   @override
   Player? get player => plPlayerController.videoPlayerController;
+
+  @override
+  RxInt? get playerEpoch => plPlayerController.videoControllerEpoch;
   @override
   bool get isFullScreen => plPlayerController.isFullScreen.value;
   @override
@@ -840,7 +843,7 @@ class VideoDetailController extends GetxController
               fontSize: 14,
               text: item is SegmentModel
                   ? '跳过: ${item.segmentType.shortTitle}'
-                  : '上次看到第${(item as int) + 1}P，点击跳转',
+                  : '上次看到第${_partNumber(item as int)}P，点击跳转',
               onTap: (_) {
                 if (item is int) {
                   try {
@@ -849,7 +852,7 @@ class VideoDetailController extends GetxController
                     Part part =
                         ugcIntroController.videoDetail.value.pages![item];
                     ugcIntroController.onChangeEpisode(part);
-                    SmartDialog.showToast('已跳至第${item + 1}P');
+                    SmartDialog.showToast('已跳至第${_partNumber(item)}P');
                   } catch (e) {
                     if (kDebugMode) debugPrint('$e');
                     SmartDialog.showToast('跳转失败');
@@ -865,6 +868,20 @@ class VideoDetailController extends GetxController
         ),
       ),
     );
+  }
+
+  /// The number a part at [index] of the list goes by (第NP): the list can
+  /// be shown reversed, and its index counted from the last part then.
+  int _partNumber(int index) {
+    try {
+      final detail = Get.find<UgcIntroController>(
+        tag: heroTag,
+      ).videoDetail.value;
+      if (detail.isPageReversed) {
+        return (detail.pages?.length ?? index + 1) - index;
+      }
+    } catch (_) {}
+    return index + 1;
   }
 
   ({int mode, int fontSize, Color color})? dmConfig;
@@ -1713,6 +1730,9 @@ class VideoDetailController extends GetxController
     bool? autoplay,
     bool autoFullScreenFlag = false,
   }) async {
+    // closed while its play URL was on the way: the player belongs to the
+    // page below now
+    if (isClosed) return;
     Duration? seek = defaultST ?? playedTime;
     if (seek == .zero) seek = null;
     seek ??= getFirstSegment();
@@ -2037,14 +2057,18 @@ class VideoDetailController extends GetxController
 
     final result = await _getVideoUrl(VideoQuality.hdrVivid.code);
 
-    // superseded meanwhile: the queued request fetches the current episode
-    if (cid.value != queryCid) {
+    // superseded meanwhile: the queued request fetches the current episode.
+    // A page closed meanwhile must not load its stream into the shared player
+    if (isClosed || cid.value != queryCid) {
       return;
     }
 
     if (result case Success(:final response)) {
       data = response;
-      if (data.dash != null) await _supplementVideoQualities();
+      if (data.dash != null) {
+        await _supplementVideoQualities();
+        if (isClosed || cid.value != queryCid) return;
+      }
 
       languages.value = data.language?.items;
       currLang.value = data.curLanguage;
@@ -2190,6 +2214,7 @@ class VideoDetailController extends GetxController
         audioUrl = '';
       }
       await _pickFastestHost();
+      if (isClosed || cid.value != queryCid) return;
       await _initPlayerIfNeeded(autoFullScreenFlag);
     } else {
       _autoPlay.value = false;
@@ -2444,6 +2469,9 @@ class VideoDetailController extends GetxController
         );
 
   Future<void> startAsr({bool auto = false}) async {
+    // the part this start is for: a part switch during an await below must
+    // not file this part's audio under the next part's cache key
+    final part = cid.value;
     var source = _asrSource;
     if (source == null || source.isEmpty) {
       SmartDialog.showToast('没有可转录的音频');
@@ -2464,7 +2492,7 @@ class VideoDetailController extends GetxController
         return;
       }
       // closed meanwhile: nothing will hand the descriptor to mpv to close
-      if (isClosed) {
+      if (isClosed || cid.value != part) {
         LocalDocuments.closeFd(fd);
         return;
       }
@@ -2473,7 +2501,7 @@ class VideoDetailController extends GetxController
     await stopAsr(keepGate: holding);
     // closed meanwhile: no gate for a page that is gone, and no start that
     // would end whichever transcription is running now
-    if (isClosed) return;
+    if (isClosed || cid.value != part) return;
     if (auto) _openAsrGate();
     final service = AsrService.to;
     final session = await service.start(
@@ -2507,8 +2535,9 @@ class VideoDetailController extends GetxController
       cache: _asrCacheKey,
     );
     // closed meanwhile: onClose found no session to stop, and nothing else
-    // would ever stop this one
-    if (isClosed) {
+    // would ever stop this one. Another part meanwhile: its source is not
+    // this one's
+    if (isClosed || cid.value != part) {
       AsrService.to.stop(only: session);
       return;
     }
@@ -3946,7 +3975,14 @@ class VideoDetailController extends GetxController
   late final RxBool showDmTrendChart = true.obs;
 
   Future<void> _getDmTrend() async {
-    dmTrend.value = LoadingState<List<double>>.loading();
+    final pending = LoadingState<List<double>>.loading();
+    dmTrend.value = pending;
+    // a part switch meanwhile cleared it for the new part: this answer is
+    // the old one's
+    void set(LoadingState<List<double>> state) {
+      if (identical(dmTrend.value, pending)) dmTrend.value = state;
+    }
+
     try {
       final res = await Request().get(
         'https://bvc.bilivideo.com/pbp/data',
@@ -3973,12 +4009,12 @@ class VideoDetailController extends GetxController
       final data = PbpData.fromJson(json);
       final stepSec = data.stepSec ?? 0;
       if (stepSec != 0 && data.events?.eDefault?.isNotEmpty == true) {
-        dmTrend.value = Success(data.events!.eDefault!);
+        set(Success(data.events!.eDefault!));
         return;
       }
-      dmTrend.value = const Error(null);
+      set(const Error(null));
     } catch (e) {
-      dmTrend.value = const Error(null);
+      set(const Error(null));
       if (kDebugMode) debugPrint('_getDmTrend: $e');
     }
   }

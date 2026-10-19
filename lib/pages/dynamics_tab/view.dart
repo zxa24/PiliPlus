@@ -101,7 +101,7 @@ class _DynamicsTabPageState extends State<DynamicsTabPage>
     return DynamicPanel(
       item: item,
       onRemove: (idStr) => controller.onRemove(index, idStr),
-      onBlock: () => controller.onBlock(index),
+      onBlock: () => controller.onBlock(item),
       onUnfold: () => controller.onUnfold(item, index),
     );
   }

@@ -205,7 +205,9 @@ class IoYtTransport implements YtTransport {
       }
       final res = await req.close().timeout(timeout);
       final bytes = <int>[];
-      await for (final chunk in res) {
+      // the body too: a server that stops sending mid-body is a timeout,
+      // not a request that never ends
+      await for (final chunk in res.timeout(timeout)) {
         bytes.addAll(chunk);
         if (bytes.length >= maxBytes) break;
       }

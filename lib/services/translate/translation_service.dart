@@ -142,7 +142,12 @@ class TranslationService extends GetxService {
   var _stops = 0;
   String? _stopReason;
 
-  bool get isBusy => _pending > 0 || (_current?.isRunning ?? false);
+  /// The session kept for comment texts alone counts too: it loads the same
+  /// model, and the model guard reads this to know what to stop.
+  bool get isBusy =>
+      _pending > 0 ||
+      (_current?.isRunning ?? false) ||
+      (_extrasSession?.isRunning ?? false);
 
   /// The language translations are made into unless another is asked for:
   /// the app's.

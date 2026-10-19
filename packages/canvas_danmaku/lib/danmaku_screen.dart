@@ -166,6 +166,9 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
     bool Function(int, double) canAdd, {
     bool scroll = false,
   }) {
+    // no track fits (a view shorter than one line): nothing to put it in,
+    // and the self-sent / massive fallbacks below indexed an empty list
+    if (_trackCount == 0) return false;
     bool added = false;
 
     final paragraph = DmUtils.generateParagraph(
@@ -322,13 +325,9 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
           : option.durationInMilliseconds;
     }
 
+    // goes on with the rest below: returning here dropped whatever else the
+    // same update changed (hiding a kind, the stroke)
     final lineHeightChanged = option.lineHeight != _option.lineHeight;
-    if (lineHeightChanged) {
-      _option = option;
-      _danmakuHeight = _textPainter.height;
-      _calcTracks();
-      return;
-    }
 
     final fontSizeChanged = option.fontSize != _option.fontSize;
 
@@ -371,7 +370,8 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
 
     /// 清理已经存在的 Paragraph 缓存
     if (clearParagraph) {
-      DmUtils.updateSelfSendPaint(_option.strokeWidth);
+      // the new stroke: [_option] is still the old one here
+      DmUtils.updateSelfSendPaint(option.strokeWidth);
       for (var i in _scrollDanmakuItems) {
         for (var e in i) {
           e.dispose();
@@ -388,10 +388,13 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
     final areaChanged = option.area != _option.area;
     final safeAreaChanged = option.safeArea != _option.safeArea;
     _option = option;
-    if (fontSizeChanged) {
+    if (fontSizeChanged || lineHeightChanged) {
       _danmakuHeight = _textPainter.height;
     }
-    if (fontSizeChanged || areaChanged || safeAreaChanged) {
+    if (fontSizeChanged ||
+        lineHeightChanged ||
+        areaChanged ||
+        safeAreaChanged) {
       _calcTracks();
     }
 
@@ -484,8 +487,20 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
     if (_option.safeArea && _option.area == 1.0) {
       newTrackCount--;
     }
+    // a view shorter than one line had -1 tracks: setting a list length to
+    // that threw
+    if (newTrackCount < 0) newTrackCount = 0;
     if (newTrackCount != _trackCount) {
-      // 丢弃超出屏幕范围的弹幕
+      // 丢弃超出屏幕范围的弹幕 — their images disposed, not just dropped
+      final statics = _staticDanmakuItems.value;
+      for (var i = newTrackCount; i < statics.length; i++) {
+        statics[i]?.dispose();
+      }
+      for (var i = newTrackCount; i < _scrollDanmakuItems.length; i++) {
+        for (var e in _scrollDanmakuItems[i]) {
+          e.dispose();
+        }
+      }
       _staticDanmakuItems.value.length = newTrackCount;
       _scrollDanmakuItems.changeLength(newTrackCount);
       _trackCount = newTrackCount;

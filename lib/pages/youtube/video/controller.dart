@@ -430,6 +430,7 @@ class YtVideoController extends GetxController
     if (maxHeight.value == height) return;
     // the viewer's: nothing changes it by itself from now on
     _heightChosen = true;
+    final before = maxHeight.value;
     maxHeight.value = height;
     // not mpv's own position: it reads 0 while a source is opening
     final position = plPlayerController.resumePosition;
@@ -443,8 +444,14 @@ class YtVideoController extends GetxController
     if (streams.ok && streams.value != null) {
       _streams = streams.value;
       await _open(streams.value!, seekTo: position);
-    } else {
+    } else if (stage.value != YtPageStage.ready) {
       _fail(streams.verdict);
+    } else {
+      // the video playing now goes on: a failed pick put the error panel
+      // in place of a player that worked. The cap stays as it was
+      maxHeight.value = before;
+      SmartDialog.showToast('切换画质失败：${_messageFor(streams.verdict)}');
+      EventLog.add('failure', 'youtube $videoId quality: ${streams.verdict}');
     }
   }
 
@@ -579,7 +586,10 @@ class YtVideoController extends GetxController
     final now = await YtSubscriptions.toggle(
       channelId,
       name: info.author,
-      avatar: info.thumbnails.isEmpty ? null : info.thumbnails.first.url,
+      // the channel's own avatar, from the watch page's `next` response:
+      // the video's thumbnail was stored as it, and the 订阅 list showed
+      // the video's picture as the channel. None yet: none kept
+      avatar: extra.value?.ownerAvatar?.url,
     );
     subscribed.value = now;
     SmartDialog.showToast(now ? '已订阅 ${info.author}' : '已取消订阅');

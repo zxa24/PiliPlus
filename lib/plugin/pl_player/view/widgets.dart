@@ -78,7 +78,6 @@ Widget buildSeekPreviewWidget(
         }
 
         final int imgXLen = data.imgXLen;
-        final int imgYLen = data.imgYLen;
         final int totalPerImage = data.totalPerImage;
         double imgXSize = data.imgXSize;
         double imgYSize = data.imgYSize;
@@ -94,7 +93,8 @@ Widget buildSeekPreviewWidget(
               );
               int align = index % totalPerImage;
               int x = align % imgXLen;
-              int y = align ~/ imgYLen;
+              // the row: tiles run across first, imgXLen of them per row
+              int y = align ~/ imgXLen;
               final url = data.image[pageIndex];
 
               return ClipRRect(

@@ -50,9 +50,17 @@ class _YtVideoPageState extends State<YtVideoPage>
     with TickerProviderStateMixin {
   late final String videoId =
       Get.parameters['id'] ?? (Get.arguments as String? ?? '');
+
+  /// This page's own: the same video opened again over it got the first
+  /// page's controller, and its close disposed what the page under it
+  /// still used. The first keeps the bare id, which the self-test and the
+  /// control server find it by (as the channel page).
+  late final String tag = Get.isRegistered<YtVideoController>(tag: videoId)
+      ? Utils.makeHeroTag(videoId)
+      : videoId;
   late final YtVideoController controller = Get.put(
     YtVideoController(videoId: videoId),
-    tag: videoId,
+    tag: tag,
   );
   late final TabController _sideTabs = TabController(length: 2, vsync: this)
     ..addListener(() {
@@ -162,7 +170,10 @@ class _YtVideoPageState extends State<YtVideoPage>
       Expanded(
         child: TabBarView(
           controller: _sideTabs,
-          children: [_relatedList(theme), YtCommentPane(controller: controller)],
+          children: [
+            _relatedList(theme),
+            YtCommentPane(controller: controller),
+          ],
         ),
       ),
     ],
@@ -325,7 +336,10 @@ class _YtVideoPageState extends State<YtVideoPage>
       Expanded(
         child: TabBarView(
           controller: _tabs,
-          children: [_intro(theme, inSidePanel: false), YtCommentPane(controller: controller)],
+          children: [
+            _intro(theme, inSidePanel: false),
+            YtCommentPane(controller: controller),
+          ],
         ),
       ),
     ],
@@ -809,7 +823,7 @@ class _YtVideoPageState extends State<YtVideoPage>
   void dispose() {
     _tabs.dispose();
     _sideTabs.dispose();
-    Get.delete<YtVideoController>(tag: videoId);
+    Get.delete<YtVideoController>(tag: tag);
     super.dispose();
   }
 }

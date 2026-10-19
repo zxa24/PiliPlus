@@ -71,10 +71,11 @@ class DynamicsTabController
     return super.onReload();
   }
 
-  void onBlock(int index) {
+  void onBlock(DynamicItemModel item) {
     if (dynamicsType != .up) {
+      // the item, not the position it had when its sheet was opened
       loadingState
-        ..value.data!.removeAt(index)
+        ..value.dataOrNull?.remove(item)
         ..refresh();
     }
   }

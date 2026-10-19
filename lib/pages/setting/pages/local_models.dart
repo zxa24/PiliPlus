@@ -133,7 +133,14 @@ class _LocalModelsPageState extends State<LocalModelsPage> {
       ),
     );
     if (confirmed != true) return;
-    await _store.remove(model);
+    try {
+      // a transcription may be using or downloading it; its page hears why
+      // it ended (as 已下载的翻译模型 does for translation)
+      await AsrService.to.stop(reason: '识别模型已删除');
+      await _store.remove(model);
+    } catch (e) {
+      SmartDialog.showToast('删除失败: $e');
+    }
     if (mounted) setState(() {});
   }
 

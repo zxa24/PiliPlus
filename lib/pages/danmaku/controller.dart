@@ -96,6 +96,12 @@ class PlDanmakuController {
       }
 
       if (!element.isSelf) {
+        // filtered first: a blocked one kept as the merge's representative
+        // hid every copy of its text (a filter on the sender, say)
+        if (shouldFilter && filters.remove(element)) {
+          continue;
+        }
+
         if (_mergeDanmaku) {
           final elem = uniques[element.content];
           if (elem == null) {
@@ -104,10 +110,6 @@ class PlDanmakuController {
             elem.count++;
             continue;
           }
-        }
-
-        if (shouldFilter && filters.remove(element)) {
-          continue;
         }
       }
 

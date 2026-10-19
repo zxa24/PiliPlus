@@ -70,8 +70,25 @@ class CommentTranslator {
   /// comment's own id is a string already).
   static String idOf(ReplyInfo reply) => '${reply.id}';
 
-  /// Forgets [key]'s translations, and drops what it had not done yet.
-  static void release(Object key) => _all.remove('$key')?._stop();
+  /// Forgets [key]'s translations, and drops what it had not done yet —
+  /// once the last list that [hold]s it lets go: two pages of the same
+  /// video share one, and the first one closed stopped the other's.
+  static void release(Object key) {
+    final k = '$key';
+    final held = _holders[k];
+    if (held != null && held > 1) {
+      _holders[k] = held - 1;
+      return;
+    }
+    _holders.remove(k);
+    _all.remove(k)?._stop();
+  }
+
+  /// A list showing [key]'s comments, until its [release].
+  static void hold(Object key) =>
+      _holders.update('$key', (n) => n + 1, ifAbsent: () => 1);
+
+  static final _holders = <String, int>{};
 
   /// Any change to what a comment shows: rebuilds read it.
   static final revision = 0.obs;
@@ -344,6 +361,9 @@ class CommentTranslator {
     // (ReplyItemGrpc._buildMessage)
     final pattern = RegExp(
       [
+        // a mark the commenter wrote is kept like the rest: left in the
+        // text, it was read as one of these and pointed past [kept]
+        r'⟦\d+⟧',
         ...tokens.map(RegExp.escape),
         r'(?:\d+[:：])?\d+[:：]\d+',
         r'\{vote:\d+?\}',

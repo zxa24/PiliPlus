@@ -1,16 +1,15 @@
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
-import 'package:PiliPlus/utils/accounts.dart';
 import 'package:dio/dio.dart';
 
+/// The risk-control captcha of a blocked search: the search goes out
+/// anonymously, so the captcha does too (no csrf, which would bind it to the
+/// account in login mode and tie the anonymous session to it).
 abstract final class ValidateHttp {
   static Future<LoadingState<Map?>> gaiaVgateRegister(String vVoucher) async {
     final res = await Request().post(
       Api.gaiaVgateRegister,
-      queryParameters: {
-        if (Accounts.main.isLogin) 'csrf': Accounts.main.csrf,
-      },
       data: {
         'v_voucher': vVoucher,
       },
@@ -33,9 +32,6 @@ abstract final class ValidateHttp {
   }) async {
     final res = await Request().post(
       Api.gaiaVgateValidate,
-      queryParameters: {
-        if (Accounts.main.isLogin) 'csrf': Accounts.main.csrf,
-      },
       data: {
         'challenge': challenge,
         'seccode': seccode,

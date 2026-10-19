@@ -81,6 +81,12 @@ class DownloadService extends GetxService {
   DownloadManager? _downloadManager;
   DownloadManager? _audioDownloadManager;
 
+  /// Bumped by every start, pause and delete: a start still fetching the
+  /// danmaku or the play URL when it is paused or deleted has no managers
+  /// to cancel yet, and must not go on writing and starting transfers once
+  /// its awaits return.
+  int _startGen = 0;
+
   late Future<void> waitForInitialization;
 
   /// Finished downloads transcribed to their end in the background, and
@@ -170,43 +176,51 @@ class DownloadService extends GetxService {
       return result;
     }
 
-    await for (final entryDir in pageDir.list()) {
-      if (entryDir is Directory) {
-        final entryFile = File(path.join(entryDir.path, _entryFile));
-        final tmpFile = File('${entryFile.path}.tmp');
-        if (entryFile.existsSync() || tmpFile.existsSync()) {
-          try {
-            // a write interrupted before the rename leaves the previous
-            // (complete) entry.json in place; only a file torn by an older
-            // build needs the .tmp copy
-            String entryJson;
+    // one folder that cannot be listed (permissions, a broken link) must
+    // not hide the downloads in the folders after it
+    try {
+      await for (final entryDir in pageDir.list()) {
+        if (entryDir is Directory) {
+          final entryFile = File(path.join(entryDir.path, _entryFile));
+          final tmpFile = File('${entryFile.path}.tmp');
+          if (entryFile.existsSync() || tmpFile.existsSync()) {
             try {
-              entryJson = await entryFile.readAsString();
-              jsonDecode(entryJson);
-            } catch (_) {
-              entryJson = await tmpFile.readAsString();
+              // a write interrupted before the rename leaves the previous
+              // (complete) entry.json in place; only a file torn by an older
+              // build needs the .tmp copy
+              String entryJson;
+              try {
+                entryJson = await entryFile.readAsString();
+                jsonDecode(entryJson);
+              } catch (_) {
+                entryJson = await tmpFile.readAsString();
+              }
+              final entry =
+                  BiliDownloadEntryInfo.fromJson(jsonDecode(entryJson))
+                    ..pageDirPath = pageDir.path
+                    ..entryDirPath = entryDir.path;
+              if (entry.isCompleted) {
+                result.add(entry);
+                // the app closed while they were being saved
+                if (entry.extrasPending) _resumeExtras(entry);
+              } else {
+                entry.progress
+                  ..planExtras(DownloadExtras.plan())
+                  ..video(entry.downloadedBytes, entry.totalBytes);
+                waitDownloadQueue.add(entry..status = DownloadStatus.wait);
+              }
+            } catch (e) {
+              // a record this build cannot read: left out of the list, its
+              // files stay on disk
+              lastError = 'entry.json (${entryDir.path}): $e';
+              debugPrint('skipped download entry: $lastError');
             }
-            final entry = BiliDownloadEntryInfo.fromJson(jsonDecode(entryJson))
-              ..pageDirPath = pageDir.path
-              ..entryDirPath = entryDir.path;
-            if (entry.isCompleted) {
-              result.add(entry);
-              // the app closed while they were being saved
-              if (entry.extrasPending) _resumeExtras(entry);
-            } else {
-              entry.progress
-                ..planExtras(DownloadExtras.plan())
-                ..video(entry.downloadedBytes, entry.totalBytes);
-              waitDownloadQueue.add(entry..status = DownloadStatus.wait);
-            }
-          } catch (e) {
-            // a record this build cannot read: left out of the list, its
-            // files stay on disk
-            lastError = 'entry.json (${entryDir.path}): $e';
-            debugPrint('skipped download entry: $lastError');
           }
         }
       }
+    } catch (e) {
+      lastError = 'download folder (${pageDir.path}): $e';
+      debugPrint('skipped download folder: $lastError');
     }
 
     return result;
@@ -294,7 +308,7 @@ class DownloadService extends GetxService {
       avId: source.avId,
       page: index,
       danmaku: source.cid,
-      cover: episode.cover!,
+      cover: episode.cover!.http2https,
       episodeId: episode.id!,
       index: episode.title!,
       indexTitle: episode.longTitle ?? '',
@@ -316,7 +330,7 @@ class DownloadService extends GetxService {
       downloadedBytes: 0,
       title: pgcItem.seasonTitle ?? pgcItem.title ?? '',
       typeTag: quality.code.toString(),
-      cover: episode.cover!,
+      cover: episode.cover!.http2https,
       preferedVideoQuality: quality.code,
       qualityPithyDescription: quality.desc,
       guessedTotalBytes: 0,
@@ -372,7 +386,7 @@ class DownloadService extends GetxService {
     // cannot take the export with it)
     final page = Directory(path.join(root, dirName));
     if (page.existsSync() &&
-        _isForeignFolder(page) &&
+        _isOldExport(page) &&
         // already holds downloads (made before this guard): leave it, the
         // deletion guard keeps the export's files
         !page.listSync().any(
@@ -423,7 +437,10 @@ class DownloadService extends GetxService {
   Future<void> startDownload(BiliDownloadEntryInfo entry) {
     // already finished downloading; the merge completes it
     if (_mergingCids.contains(entry.cid)) return Future.value();
+    final gen = ++_startGen;
     return _lock.synchronized(() async {
+      // paused, deleted or started again while waiting for the lock
+      if (gen != _startGen) return;
       await _downloadManager?.cancel(isDelete: false);
       await _audioDownloadManager?.cancel(isDelete: false);
       _downloadManager = null;
@@ -437,7 +454,7 @@ class DownloadService extends GetxService {
       _curCid = entry.cid;
       curDownload.value = entry;
       waitDownloadQueue.refresh();
-      await _startDownload(entry);
+      await _startDownload(entry, gen);
     });
   }
 
@@ -453,6 +470,7 @@ class DownloadService extends GetxService {
       path.join(entry.entryDirPath, PathUtils.danmakuName),
     );
     if (isUpdate || !danmakuFile.existsSync()) {
+      final gen = _startGen;
       try {
         if (!isUpdate) {
           _updateCurStatus(DownloadStatus.getDanmaku);
@@ -492,11 +510,16 @@ class DownloadService extends GetxService {
           round++;
           reported();
         }
-        await danmakuFile.writeAsBytes(danmaku.writeToBuffer());
+        // through `.tmp` + rename: "更新弹幕" rewrites it under a playing
+        // (or later killed) app, and a torn file would lose the old danmaku
+        final tmp = File('${danmakuFile.path}.tmp');
+        await tmp.writeAsBytes(danmaku.writeToBuffer(), flush: true);
+        await tmp.rename(danmakuFile.path);
 
         return true;
       } catch (e) {
-        if (!isUpdate) {
+        // not over the pause of a start that was fetching it
+        if (!isUpdate && gen == _startGen) {
           _updateCurStatus(DownloadStatus.failDanmaku);
         }
         if (kDebugMode) SmartDialog.showToast(e.toString());
@@ -514,13 +537,15 @@ class DownloadService extends GetxService {
       if (File(filePath).existsSync()) {
         return true;
       }
+      // over https also for entries saved with an http cover
+      final cover = entry.cover.http2https;
       final file = (await CacheManager.manager.getFileFromCache(
-        entry.cover,
+        cover,
       ))?.file;
       if (file != null) {
         await file.copy(filePath);
       } else {
-        await Request.dio.download(entry.cover, filePath);
+        await Request.dio.download(cover, filePath);
       }
       return true;
     } catch (_) {
@@ -528,7 +553,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  Future<void> _startDownload(BiliDownloadEntryInfo entry) async {
+  Future<void> _startDownload(BiliDownloadEntryInfo entry, int gen) async {
     entry.progress
       ..restart()
       ..planExtras(DownloadExtras.plan())
@@ -539,6 +564,7 @@ class DownloadService extends GetxService {
       // danmaku is optional: a failed fetch must not block the video (it
       // can be fetched again later with "update danmaku")
       await downloadDanmaku(entry: entry);
+      if (gen != _startGen) return;
 
       _updateCurStatus(DownloadStatus.getPlayUrl);
 
@@ -549,6 +575,7 @@ class DownloadService extends GetxService {
         source: entry.source,
         pageData: entry.pageData,
       );
+      if (gen != _startGen) return;
 
       // the stream is picked again on every start (codec / login / quality
       // settings may have changed). Each quality has its own folder, so the
@@ -575,6 +602,7 @@ class DownloadService extends GetxService {
           await videoDir.tryDel(recursive: true);
         }
       }
+      if (gen != _startGen) return;
       if (!videoDir.existsSync()) {
         await videoDir.create(recursive: true);
       }
@@ -584,6 +612,14 @@ class DownloadService extends GetxService {
         _downloadCover(entry: entry),
       ]);
 
+      if (gen != _startGen) {
+        // deleted meanwhile: what was written here (the cover's download
+        // creates its folder) would be left behind as an orphan
+        if (!File(path.join(entry.entryDirPath, _entryFile)).existsSync()) {
+          await Directory(entry.entryDirPath).tryDel(recursive: true);
+        }
+        return;
+      }
       if (curDownload.value?.cid != entry.cid) {
         return;
       }
@@ -612,8 +648,11 @@ class DownloadService extends GetxService {
             onReceiveProgress: _onReceive,
             onDone: _onDone,
             // the size the saved partial was written for ([_streamKey] only
-            // compares id / codec / resolution)
-            expectedTotal: entry.totalBytes,
+            // compares id / codec / resolution). The manager's own record
+            // beside the file wins; this is for partials saved before it,
+            // and only while the entry's size is this quality's: after
+            // another quality ran it is that one's
+            expectedTotal: oldTypeTag == entry.typeTag ? entry.totalBytes : 0,
           );
           final audio = mediaFileInfo.audio;
           if (audio != null && audio.isNotEmpty) {
@@ -638,7 +677,7 @@ class DownloadService extends GetxService {
           break;
       }
     } catch (e) {
-      _updateCurStatus(DownloadStatus.failPlayUrl);
+      if (gen == _startGen) _updateCurStatus(DownloadStatus.failPlayUrl);
       if (kDebugMode) {
         debugPrint('get download url error: $e');
       }
@@ -1203,7 +1242,8 @@ class DownloadService extends GetxService {
       final error = await done.future;
       if (error != null) throw FormatException('segment re-download: $error');
       if (!resume) {
-        await File(file).tryDel();
+        // over the old copy (rename replaces it): deleting it first would
+        // lose both should the rename fail
         await File(target).rename(file);
       }
     } finally {
@@ -1215,7 +1255,7 @@ class DownloadService extends GetxService {
   /// Old single-URL (durl) streams. FLV (H.264 / HEVC + AAC) is remuxed into
   /// a real mp4 and MP4 segments are joined, all segments in timeline order,
   /// also when the codec configuration changes between or within segments;
-  /// a single mp4 segment is moved as is. Damaged data ([FormatException])
+  /// a single mp4 segment is copied as is. Damaged data ([FormatException])
   /// is rethrown: [_repairSegments] has already re-downloaded what it could,
   /// so the merge fails rather than splitting the video. Only what has no
   /// MP4 mapping here ([UnsupportedError]: other codecs, a codec or the set
@@ -1226,7 +1266,7 @@ class DownloadService extends GetxService {
     final allFlv = inputs.every(Mp4Remuxer.isFlv);
     if (!allFlv && inputs.length == 1) {
       final kept = '${path.withoutExtension(output)}${_sniffExt(inputs.first)}';
-      await _moveFile(inputs.first, kept);
+      await _copyFile(inputs.first, kept);
       return kept;
     }
     if (allFlv || inputs.every(Mp4Remuxer.isMp4)) {
@@ -1243,17 +1283,26 @@ class DownloadService extends GetxService {
       }
     }
     final base = path.withoutExtension(output);
-    String? first;
-    for (var i = 0; i < inputs.length; i++) {
-      final ext = _sniffExt(inputs[i]);
-      final to = i == 0 ? '$base$ext' : '$base.${i + 1}$ext';
-      await _moveFile(inputs[i], to);
-      first ??= to;
+    final copied = <String>[];
+    try {
+      for (var i = 0; i < inputs.length; i++) {
+        final ext = _sniffExt(inputs[i]);
+        final to = i == 0 ? '$base$ext' : '$base.${i + 1}$ext';
+        await _copyFile(inputs[i], to);
+        copied.add(to);
+      }
+    } catch (_) {
+      // none of them is the export until all are there
+      for (final f in copied) {
+        await File(f).tryDel();
+      }
+      rethrow;
     }
+    final first = copied.first;
     if (inputs.length > 1) {
       SmartDialog.showToast('分段无法合并，已按原格式分为${inputs.length}个文件保存');
     }
-    return first!;
+    return first;
   }
 
   /// Extension for stream data kept as it is, from its content.
@@ -1312,13 +1361,19 @@ class DownloadService extends GetxService {
   static Future<void> _remuxInBackground(List<String> inputs, String output) =>
       Isolate.run(() => Mp4Remuxer.remux(inputs: inputs, output: output));
 
-  static Future<void> _moveFile(String from, String to) async {
+  /// Copies a stream file kept as it is into the export folder. Copied, not
+  /// moved: the stream files are the entry's data until its completion is
+  /// recorded, and the caller removes them only after that
+  /// ([_completeDownload]). Through `<to>.part`, so a copy cut short is a
+  /// leftover the next merge reuses (see [_exportFilePath]).
+  static Future<void> _copyFile(String from, String to) async {
+    final part = '$to.part';
     try {
-      await File(from).rename(to);
-    } on FileSystemException {
-      // across volumes
-      await File(from).copy(to);
-      await File(from).tryDel();
+      await File(from).copy(part);
+      await File(part).rename(to);
+    } catch (_) {
+      await File(part).tryDel();
+      rethrow;
     }
   }
 
@@ -1403,6 +1458,20 @@ class DownloadService extends GetxService {
   static bool _isForeignFolder(Directory dir) => dir.listSync().any(
     (e) => e is File && !_isOsClutter(path.basename(e.path)),
   );
+
+  /// Whether [dir] is an export of this app (not just a folder with files
+  /// that happens to be named like an avid / season, which may be the
+  /// user's own): it holds `<its name>.<ext>`, the video, or the download
+  /// record ([DownloadExtras.infoName]).
+  static bool _isOldExport(Directory dir) {
+    final name = path.basename(dir.path);
+    return dir.listSync().any((e) {
+      if (e is! File) return false;
+      final file = path.basename(e.path);
+      return file == DownloadExtras.infoName ||
+          path.basenameWithoutExtension(file) == name;
+    });
+  }
 
   /// Files the OS / file managers drop into folders on their own.
   static bool _isOsClutter(String name) {
@@ -1578,6 +1647,7 @@ class DownloadService extends GetxService {
     if (!isDelete && _mergingCids.contains(curDownload.value?.cid)) {
       return;
     }
+    _startGen++;
     await _downloadManager?.cancel(isDelete: isDelete);
     await _audioDownloadManager?.cancel(isDelete: isDelete);
     _downloadManager = null;

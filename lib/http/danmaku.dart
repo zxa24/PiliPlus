@@ -173,7 +173,8 @@ abstract final class DanmakuHttp {
       'csrf': Accounts.main.csrf,
     };
     final res = await Request().post(
-      Api.danmakuRecall,
+      // its own endpoint (upstream sent it to recall, a copy slip)
+      Api.danmakuEditState,
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
     );

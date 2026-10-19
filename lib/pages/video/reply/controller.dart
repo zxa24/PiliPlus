@@ -21,6 +21,10 @@ class VideoReplyController extends ReplyController<MainListReply>
   final VideoType videoType;
   late final isPugv = videoType == VideoType.pugv;
 
+  /// What this list's comments hang on: a course's episode, else the video.
+  /// Listed, posted and pinned under the same one (posting used [aid]).
+  int get oid => isPugv ? videoCtr.epId! : aid;
+
   final String heroTag;
   late final videoCtr = Get.find<VideoDetailController>(tag: heroTag);
 
@@ -34,10 +38,15 @@ class VideoReplyController extends ReplyController<MainListReply>
   String get translatorKey {
     final key = CommentTranslator.keyOf(
       videoType.replyType,
-      isPugv ? videoCtr.epId! : aid,
+      oid,
     );
     final before = _translatorKey;
-    if (before != null && before != key) CommentTranslator.release(before);
+    if (before != key) {
+      if (before != null) CommentTranslator.release(before);
+      // held while this list shows it: the same video's list on a page
+      // below keeps its translator when this one closes
+      CommentTranslator.hold(key);
+    }
     return _translatorKey = key;
   }
 
@@ -66,7 +75,7 @@ class VideoReplyController extends ReplyController<MainListReply>
 
   @override
   Future<LoadingState<MainListReply>> customGetData() => ReplyGrpc.mainList(
-    oid: isPugv ? videoCtr.epId! : aid,
+    oid: oid,
     type: videoType.replyType,
     mode: mode,
     cursorNext: cursorNext,

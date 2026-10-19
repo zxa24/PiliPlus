@@ -81,7 +81,11 @@ abstract final class LocalPlayer {
       path.basenameWithoutExtension(doc.name),
       doc.size,
     );
-    await _openDocument(entry, mirror: mirror, video: doc, mirrored: false);
+    try {
+      await _openDocument(entry, mirror: mirror, video: doc, mirrored: false);
+    } finally {
+      release(mirror);
+    }
     SmartDialog.showToast('Android 上单个文件无法读取同目录的弹幕/字幕/评论，请用「打开视频文件夹」');
   }
 
@@ -102,32 +106,39 @@ abstract final class LocalPlayer {
     }
     final video = match.video;
     final mirror = await _mirrorDir(video.key ?? video.uri);
-    final images = match.imagesDir;
-    var imageFiles = const <LocalDocument>[];
-    if (images?.docId case final docId?) {
-      try {
-        imageFiles = await LocalDocuments.list(tree.treeUri, docId);
-      } catch (e) {
-        // comments still load, just without their pictures
-        if (kDebugMode) debugPrint('list comment images: $e');
+    try {
+      final images = match.imagesDir;
+      var imageFiles = const <LocalDocument>[];
+      if (images?.docId case final docId?) {
+        try {
+          imageFiles = await LocalDocuments.list(tree.treeUri, docId);
+        } catch (e) {
+          // comments still load, just without their pictures
+          if (kDebugMode) debugPrint('list comment images: $e');
+        }
       }
+      await LocalDocuments.copy([
+        for (final f in match.sideFiles)
+          (uri: f.uri, path: path.join(mirror, f.name)),
+        for (final f in imageFiles)
+          if (!f.isDir)
+            (
+              uri: f.uri,
+              path: path.join(mirror, CommentImages.dirName, f.name),
+            ),
+      ]);
+      await _openDocument(
+        _entryFor(
+          folder: mirror,
+          video: path.join(mirror, video.name),
+          size: video.size,
+        ),
+        mirror: mirror,
+        video: video,
+      );
+    } finally {
+      release(mirror);
     }
-    await LocalDocuments.copy([
-      for (final f in match.sideFiles)
-        (uri: f.uri, path: path.join(mirror, f.name)),
-      for (final f in imageFiles)
-        if (!f.isDir)
-          (uri: f.uri, path: path.join(mirror, CommentImages.dirName, f.name)),
-    ]);
-    await _openDocument(
-      _entryFor(
-        folder: mirror,
-        video: path.join(mirror, video.name),
-        size: video.size,
-      ),
-      mirror: mirror,
-      video: video,
-    );
   }
 
   static Future<void> _openDocument(
@@ -165,20 +176,33 @@ abstract final class LocalPlayer {
 
   /// Cache folder for one document's side files. Folders no open page
   /// shows are removed here (on the next open); this one is refilled.
+  /// It is returned retained (the caller [release]s it once the page has
+  /// taken its own count): an open running at the same time, still copying
+  /// or not yet on its page, must not have its folder removed by this one.
   static Future<String> _mirrorDir(String key) async {
     final root = Directory(path.join(tmpDirPath, 'local_documents'));
     final dir = Directory(
       path.join(root.path, md5.convert(utf8.encode(key)).toString()),
     );
+    final wasInUse = _mirrorsInUse.containsKey(dir.path);
+    retain(dir.path);
     if (root.existsSync()) {
       for (final e in root.listSync()) {
-        if (_mirrorsInUse.containsKey(e.path)) continue;
+        if (_mirrorsInUse.containsKey(e.path) &&
+            (e.path != dir.path || wasInUse)) {
+          continue;
+        }
         try {
           await e.delete(recursive: true);
         } catch (_) {}
       }
     }
-    await dir.create(recursive: true);
+    try {
+      await dir.create(recursive: true);
+    } catch (_) {
+      release(dir.path);
+      rethrow;
+    }
     return dir.path;
   }
 

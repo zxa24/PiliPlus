@@ -142,7 +142,7 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
                         feedBack();
                         _videoReplyController.onReply(
                           null,
-                          oid: _videoReplyController.aid,
+                          oid: _videoReplyController.oid,
                           replyType: _videoReplyController.videoType.replyType,
                         );
                       },
@@ -236,7 +236,7 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
                   onToggleTop: (item) => _videoReplyController.onToggleTop(
                     item,
                     index,
-                    _videoReplyController.aid,
+                    _videoReplyController.oid,
                     _videoReplyController.videoType.replyType,
                   ),
                 );

@@ -64,6 +64,9 @@ class PgcController
       LoadingState<List<FavPgcItemModel>?>.loading().obs;
   final followController = ScrollController();
 
+  /// Bumped by each refresh of 我的订阅 (see [queryPgcFollow]).
+  int _followGeneration = 0;
+
   // timeline
   late Rx<LoadingState<List<TimelineResult>?>> timelineState =
       LoadingState<List<TimelineResult>?>.loading().obs;
@@ -79,7 +82,9 @@ class PgcController
         list2 != null &&
         list1.isNotEmpty &&
         list2.isNotEmpty) {
-      for (var i = 0; i < list1.length; i++) {
+      // the two can cover a different number of days: indexing past the
+      // shorter threw, and the timeline stayed loading for good
+      for (var i = 0; i < list1.length && i < list2.length; i++) {
         list1[i].addAll(list2[i]);
       }
     }
@@ -88,16 +93,19 @@ class PgcController
 
   // 我的订阅
   Future<void> queryPgcFollow([bool isRefresh = true]) async {
+    // a refresh is not dropped for a load-more in flight (it was): it goes
+    // ahead, and the load-more's answer is dropped instead
     if (!accountService.isLogin.value ||
-        followLoading ||
-        (!isRefresh && followEnd)) {
+        (!isRefresh && (followLoading || followEnd))) {
       return;
     }
+    final generation = isRefresh ? ++_followGeneration : _followGeneration;
     followLoading = true;
     final res = await FavHttp.favPgc(
       type: tabType == HomeTabType.bangumi ? 1 : 2,
       pn: followPage,
     );
+    if (generation != _followGeneration) return;
 
     if (res case Success(:final response)) {
       final list = response.list;

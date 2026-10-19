@@ -130,10 +130,13 @@ class _HotPageState extends State<HotPage>
                   if (index == response.length - 1) {
                     controller.onLoadMore();
                   }
+                  final item = response[index];
                   return VideoCardH(
-                    videoItem: response[index],
+                    videoItem: item,
+                    // the item, not this build's position: the removal comes
+                    // after a request, and the list may have changed
                     onRemove: () => controller.loadingState
-                      ..value.data!.removeAt(index)
+                      ..value.dataOrNull?.remove(item)
                       ..refresh(),
                   );
                 },

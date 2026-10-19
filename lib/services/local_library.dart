@@ -69,11 +69,13 @@ abstract final class LocalLibrary {
       if (map[box.name] case final Map data) {
         await box.clear();
         await box.putAll(
-          // follows are looked up by '$mid' and items by their own `key`:
-          // key them that way, so a hand-edited backup cannot hold an entry
-          // unfollow / un-favorite cannot reach
+          // follows are looked up by '$mid', folders by '$id' and items by
+          // their own `key`: key them that way, so a hand-edited backup
+          // cannot hold an entry unfollow / un-favorite / delete cannot reach
           identical(box, _follows)
               ? {for (final v in data.values) '${(v as Map)['mid']}': v}
+              : identical(box, _folders)
+              ? {for (final v in data.values) '${(v as Map)['id']}': v}
               : identical(box, _items)
               ? {for (final v in data.values) '${(v as Map)['key']}': v}
               : data,
@@ -84,17 +86,25 @@ abstract final class LocalLibrary {
   }
 
   /// Checks that every box in [map] parses the way the app reads it, that
-  /// no two follows share a mid and no two items a key ([importAll] keys
-  /// both by their own field, so duplicates would be dropped without the
-  /// user noticing), and that no item references a folder the backup does
-  /// not have: such an item would show in no folder and in no count while
-  /// staying favorited, with no way to clear it.
+  /// no two follows share a mid, no two folders an id and no two items a
+  /// key ([importAll] keys them by their own field, so duplicates would be
+  /// dropped without the user noticing), and that no item references a
+  /// folder the backup does not have: such an item would show in no folder
+  /// and in no count while staying favorited, with no way to clear it.
   static void checkImport(Map<String, dynamic> map) {
     if (map[_follows.name] case final Map data) {
       final mids = <Object?>{};
       for (final v in data.values) {
         if (v is Map && !mids.add(v['mid'])) {
           throw FormatException('本地关注数据有重复的 mid: ${v['mid']}');
+        }
+      }
+    }
+    if (map[_folders.name] case final Map data) {
+      final ids = <Object?>{};
+      for (final v in data.values) {
+        if (v is Map && !ids.add(v['id'])) {
+          throw FormatException('本地收藏夹数据有重复的 id: ${v['id']}');
         }
       }
     }

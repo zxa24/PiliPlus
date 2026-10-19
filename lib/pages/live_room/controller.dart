@@ -218,7 +218,9 @@ class LiveRoomController extends GetxController {
     bool autoplay = true,
     bool autoFullScreenFlag = false,
   }) {
-    if (videoUrl == null) {
+    // closed while the room info was on the way: the player is another
+    // page's now
+    if (videoUrl == null || isClosed) {
       return null;
     }
     return plPlayerController.setDataSource(
@@ -239,6 +241,7 @@ class LiveRoomController extends GetxController {
       qn: currentQn,
       onlyAudio: plPlayerController.onlyPlayAudio.value,
     );
+    if (isClosed) return;
     if (res case Success(:final response)) {
       if (response.liveStatus != 1) {
         _showDialog('当前直播间未开播');
@@ -339,6 +342,7 @@ class LiveRoomController extends GetxController {
 
   Future<void> queryLiveInfoH5() async {
     final res = await LiveHttp.liveRoomInfoH5(roomId: roomId);
+    if (isClosed) return;
     if (res case Success(:final response)) {
       roomInfoH5.value = response;
       title.value = response.roomInfo?.title ?? '';
@@ -350,6 +354,8 @@ class LiveRoomController extends GetxController {
   }
 
   void _showDialog(String title) {
+    // its 退出 pops two routes: from a closed room those are other pages
+    if (isClosed) return;
     showDialog(
       context: Get.context!,
       builder: (_) => AlertDialog(

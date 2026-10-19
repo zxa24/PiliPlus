@@ -39,6 +39,8 @@ abstract final class LoginPolicy {
     Api.sameFollowing, Api.followedUp, Api.followSearch, Api.blackLst,
     Api.followUpTag, Api.followUpGroup, Api.danmakuFilter,
     Api.replyInteraction, Api.danmakuEditState,
+    // the @ picker: the user's followings and recent @s, as followSearch is
+    Api.dynMention,
     // own favorites / later / history
     Api.favFolder, Api.userFavFolder, Api.favFolderInfo, Api.userSubFolder,
     Api.favPgc, Api.favArticle, Api.favPugv, Api.favTopicList,
@@ -114,8 +116,12 @@ abstract final class LoginPolicy {
     bool? loginMode,
   }) {
     if (account is LoginAccount &&
-        (!(loginMode ?? LoginPolicy.loginMode) ||
-            (!requiresAccount(options) &&
+        // an expired account is never used for a request, even one a call
+        // site passed itself (see [Accounts.markExpired]; the logout that
+        // ends it is bound before this, in AccountManager)
+        (account.expired ||
+            !(loginMode ?? LoginPolicy.loginMode) ||
+            (!requiresAccount(options, account: account) &&
                 options.extra[explicitAccount] != true))) {
       return AnonymousAccount();
     }
@@ -129,8 +135,10 @@ abstract final class LoginPolicy {
       _accountApis.contains(path) || _recommendApis.contains(path);
 
   /// Whether [options] may carry the logged-in account. False means it is
-  /// sent anonymously even in login mode.
-  static bool requiresAccount(RequestOptions options) {
+  /// sent anonymously even in login mode. [account] is the one the request
+  /// would go out as (its role's), for the own-mid reads; the main account
+  /// when not given.
+  static bool requiresAccount(RequestOptions options, {Account? account}) {
     final path = options.path;
     // gRPC requests are sent as `appBaseUrl + GrpcUrl.x`
     final grpcPath = path.startsWith(HttpString.appBaseUrl)
@@ -153,8 +161,9 @@ abstract final class LoginPolicy {
                 data.fields.any((e) => _csrfKeys.contains(e.key))))) {
       return true;
     }
-    // reads scoped to the user themself (own space, own followings...)
-    final mid = Accounts.main.mid;
+    // reads scoped to the user themself (own space, own followings...): the
+    // account the request is bound to, which may not be the main one
+    final mid = (account ?? Accounts.main).mid;
     if (mid != 0) {
       for (final key in _selfKeys) {
         final v = query[key] ?? (data is Map ? data[key] : null);

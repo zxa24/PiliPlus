@@ -40,12 +40,26 @@ abstract final class SettingsImport {
     'userInfoCache',
   };
 
+  /// Where PiliPlus keeps its data, relative to a parent of ours.
+  static final _otherDirs = Platform.isWindows
+      ? const [
+          ['com.example', 'piliplus'],
+        ]
+      : [
+          const ['com.example.piliplus'],
+          if (!Platform.isMacOS) const ['piliplus'],
+        ];
+
   /// The PiliPlus settings box, if one is there.
   ///
-  /// Our support directory is `<vendor>/<product>`; PiliPlus's is
-  /// `com.example/piliplus`, a sibling two levels up. Derived rather than
-  /// hardcoded to an absolute path so it follows wherever the platform puts
-  /// application support.
+  /// On Windows our support directory is `<vendor>/<product>` and
+  /// PiliPlus's is `com.example/piliplus`, a sibling two levels up; on Linux
+  /// and macOS it is named by the application id, `com.example.piliplus`
+  /// (Linux: or, from older builds, the executable name `piliplus`), a
+  /// sibling one level up. Derived rather than hardcoded to an absolute path
+  /// so it follows wherever the platform puts application support. (A
+  /// sandboxed macOS build cannot read another app's container: nothing is
+  /// found there.)
   static File? findBox() {
     if (!PlatformUtils.isDesktop) return null;
     // Walked up rather than computed: our own support path is
@@ -54,10 +68,12 @@ abstract final class SettingsImport {
     // for one profile and silently wrong for the other.
     var dir = Directory(appSupportDirPath);
     for (var i = 0; i < 4; i++) {
-      final file = File(
-        path.join(dir.path, 'com.example', 'piliplus', 'hive', 'setting.hive'),
-      );
-      if (file.existsSync()) return file;
+      for (final other in _otherDirs) {
+        final file = File(
+          path.joinAll([dir.path, ...other, 'hive', 'setting.hive']),
+        );
+        if (file.existsSync()) return file;
+      }
       final parent = dir.parent;
       if (parent.path == dir.path) break;
       dir = parent;

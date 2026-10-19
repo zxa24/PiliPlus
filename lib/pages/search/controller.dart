@@ -265,7 +265,8 @@ class SSearchController extends GetxController
       arguments: {'initIndex': initIndex, 'fromSearch': true},
     )?.then((val) {
       searchFocusNode.requestFocus();
-      if (val is bool && val) {
+      // with 搜索建议 off there is no suggestion list to fill
+      if (val is bool && val && searchSuggestion) {
         onValueChanged(text);
       }
     });
@@ -286,6 +287,9 @@ class SSearchController extends GetxController
   @override
   Future<void> onValueChanged(String value) async {
     final res = await SearchHttp.searchSuggest(term: value);
+    // an answer for what the box held before: a later one is on its way
+    // (or the box was cleared), and this must not replace it
+    if (value != controller.text) return;
     if (res case Success(:final response)) {
       if (response.tag?.isNotEmpty == true) {
         searchSuggestList.value = response.tag!;

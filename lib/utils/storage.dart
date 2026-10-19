@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show Directory, File;
+import 'dart:io' show Directory, File, Platform;
 import 'dart:typed_data';
 
 import 'package:PiliPlus/models/model_owner.dart';
@@ -12,6 +12,7 @@ import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account_adapter.dart';
 import 'package:PiliPlus/utils/accounts/account_type_adapter.dart';
 import 'package:PiliPlus/utils/accounts/cookie_jar_adapter.dart';
+import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/set_int_adapter.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -96,12 +97,17 @@ abstract final class GStorage {
   /// `_progressKey`): nothing can tell from the key whether the target
   /// still exists, and renaming or moving a file leaves its row behind for
   /// good. Cap them so the box cannot grow with every file ever opened.
-  /// The box is key-ordered ([_intStrDescKeyComparator] puts the cid rows
-  /// first), so this is a stable subset rather than a random one.
+  /// Download rows are String keys too (`cid.toString()`), so only the
+  /// hashed shape is counted: a prefix and a 32-digit md5. The box is
+  /// key-ordered ([_intStrDescKeyComparator]), so which hashed rows go is
+  /// fixed by their hash, not by when they were last used.
   static Future<void> _capLocalProgress() async {
     final hashed = [
       for (final key in watchProgress.keys)
-        if (key is String) key,
+        if (key is String &&
+            key.length == 33 &&
+            (key.startsWith('f') || key.startsWith('u')))
+          key,
     ];
     if (hashed.length <= _maxLocalProgress) return;
     await watchProgress.deleteAll(hashed.skip(_maxLocalProgress));
@@ -115,20 +121,33 @@ abstract final class GStorage {
     SettingBoxKey.blockUserID,
   ];
 
+  /// Setting keys that describe this installation rather than a preference
+  /// (paths on this device): left out of a backup, and this device's values
+  /// kept on import, as the PiliPlus settings import does. Snapshots carry
+  /// them, so an undo restores them too.
+  static const deviceKeys = [
+    SettingBoxKey.downloadPath,
+    SettingBoxKey.appFont,
+  ];
+
   /// Whether a backup [map] carries any of the [credentialKeys].
   static bool hasCredentials(Map<String, dynamic> map) {
     final settingMap = map[setting.name];
     return settingMap is Map && credentialKeys.any(settingMap.containsKey);
   }
 
-  static String exportAllSettings({bool includeCredentials = false}) {
+  static String exportAllSettings({
+    bool includeCredentials = false,
+    bool includeDeviceKeys = false,
+  }) {
     return Utils.jsonEncoder.convert({
       setting.name: {
         for (final e in setting.toMap().entries)
           // login mode is a per-device opt-in, never part of a backup
           // (see [importAllJsonSettings])
           if (e.key != SettingBoxKey.loginMode &&
-              (includeCredentials || !credentialKeys.contains(e.key)))
+              (includeCredentials || !credentialKeys.contains(e.key)) &&
+              (includeDeviceKeys || !deviceKeys.contains(e.key)))
             e.key: e.value,
       },
       video.name: video.toMap(),
@@ -136,6 +155,8 @@ abstract final class GStorage {
       for (final box in LocalLibrary.boxes) box.name: box.toMap(),
       // the watch history kept on this device: likewise its only copy
       LocalHistory.boxName: LocalHistory.box.toMap(),
+      // followed YouTube channels: likewise
+      YtSubscriptions.box.name: YtSubscriptions.box.toMap(),
     });
   }
 
@@ -155,8 +176,9 @@ abstract final class GStorage {
   /// them, [credentialKeys] included: an import the user answered
   /// 使用备份中的凭据 to overwrites this device's, so leaving them out of the
   /// snapshot would make the undo unable to bring them back. The file stays
-  /// in the app's own data dir, which the optional Documents provider does
-  /// not serve.
+  /// in the app's own data dir; note that the optional Documents provider
+  /// (third-party apps reading private storage) serves that whole dir, these
+  /// snapshots and the account box included.
   /// Returns the file path; only the newest [_maxSnapshots] are kept.
   static Future<String> saveSnapshot() async {
     final dir = Directory(_snapshotDir);
@@ -176,7 +198,9 @@ abstract final class GStorage {
     for (var i = 1; file.existsSync(); i++) {
       file = File(path.join(dir.path, '$_snapshotPrefix${stamp}_$i.json'));
     }
-    await file.writeAsString(exportAllSettings(includeCredentials: true));
+    await file.writeAsString(
+      exportAllSettings(includeCredentials: true, includeDeviceKeys: true),
+    );
     final old = await _snapshots();
     for (final f in old.skip(_maxSnapshots)) {
       try {
@@ -211,6 +235,7 @@ abstract final class GStorage {
     await importAllJsonSettings(
       jsonDecode(await file.readAsString()),
       importCredentials: true,
+      importDeviceKeys: true,
     );
     await file.delete();
   }
@@ -219,10 +244,12 @@ abstract final class GStorage {
   /// with [map]. Unless [snapshot] is false, the current state is saved
   /// first (see [saveSnapshot]) and the snapshot path is returned. This
   /// device's [credentialKeys] are kept unless [importCredentials] (the user
-  /// agreed) and [map] has them.
+  /// agreed) and [map] has them; its [deviceKeys] are kept unless
+  /// [importDeviceKeys] (an undo from a snapshot).
   static Future<String?> importAllJsonSettings(
     Map<String, dynamic> map, {
     bool importCredentials = false,
+    bool importDeviceKeys = false,
     bool snapshot = true,
   }) async {
     // login mode is a per-device opt-in: a backup must not switch it (the
@@ -239,11 +266,23 @@ abstract final class GStorage {
     }
     LocalLibrary.checkImport(map);
     LocalHistory.checkImport(map);
+    YtSubscriptions.checkImport(map);
     final snapshotPath = snapshot ? await saveSnapshot() : null;
     final credentials = {
       for (final key in credentialKeys)
         if (setting.containsKey(key)) key: setting.get(key),
     };
+    final device = {
+      for (final key in deviceKeys)
+        if (setting.containsKey(key)) key: setting.get(key),
+    };
+    // values the getters could not read: kept as this device has them
+    final settingKept = settingMap is Map
+        ? _mismatched(setting, settingMap)
+        : const <dynamic, dynamic>{};
+    final videoKept = videoMap is Map
+        ? _mismatched(video, videoMap)
+        : const <dynamic, dynamic>{};
     await Future.wait([
       if (settingMap is Map)
         setting
@@ -251,8 +290,11 @@ abstract final class GStorage {
             .then(
               (_) => setting.putAll({
                 for (final e in settingMap.entries)
-                  if (importCredentials || !credentialKeys.contains(e.key))
+                  if ((importCredentials || !credentialKeys.contains(e.key)) &&
+                      (importDeviceKeys || !deviceKeys.contains(e.key)) &&
+                      !settingKept.containsKey(e.key))
                     e.key: e.value,
+                ...settingKept,
               }),
             )
             .then(
@@ -262,13 +304,54 @@ abstract final class GStorage {
                 for (final e in credentials.entries)
                   if (!importCredentials || !settingMap.containsKey(e.key))
                     e.key: e.value,
+                // so do this installation's paths
+                if (!importDeviceKeys) ...device,
               }),
             ),
-      if (videoMap is Map) video.clear().then((_) => video.putAll(videoMap)),
+      if (videoMap is Map)
+        video.clear().then(
+          (_) => video.putAll({
+            for (final e in videoMap.entries)
+              if (!videoKept.containsKey(e.key)) e.key: e.value,
+            ...videoKept,
+          }),
+        ),
       LocalLibrary.importAll(map),
       LocalHistory.importAll(map),
+      YtSubscriptions.importAll(map),
     ]);
+    // the documents provider as the imported setting says: PackageManager
+    // keeps the component's state, the switch only reads the key
+    if (Platform.isAndroid && settingMap is Map) {
+      AndroidHelper.updateDocProvider(Pref.enableDocProvider);
+    }
     return snapshotPath;
+  }
+
+  /// The entries of [box] whose value is of another kind than the one
+  /// [imported] has for that key (a hand-edited or damaged backup: a
+  /// String where a number is read, ...). The getters cast what they read,
+  /// so such a value would throw wherever the setting is used. Only keys
+  /// this device has a value for can be checked. int and double are told
+  /// apart (a getter of a double setting cannot take an int); a backup the
+  /// app wrote keeps the kind each value was saved with.
+  static Map<dynamic, dynamic> _mismatched(Box box, Map imported) {
+    String kind(Object? v) => switch (v) {
+      null => 'null',
+      bool() => 'bool',
+      int() => 'int',
+      double() => 'double',
+      String() => 'String',
+      Iterable() => 'List',
+      Map() => 'Map',
+      _ => v.runtimeType.toString(),
+    };
+    return {
+      for (final e in imported.entries)
+        if (box.get(e.key) case final Object local
+            when e.value != null && kind(local) != kind(e.value))
+          e.key: local,
+    };
   }
 
   static void regAdapter() {
@@ -294,6 +377,7 @@ abstract final class GStorage {
       watchProgress.compact(),
       for (final box in LocalLibrary.boxes) box.compact(),
       LocalHistory.box.compact(),
+      YtSubscriptions.box.compact(),
       ?reply?.compact(),
     ]);
   }
@@ -309,6 +393,7 @@ abstract final class GStorage {
       watchProgress.close(),
       for (final box in LocalLibrary.boxes) box.close(),
       LocalHistory.box.close(),
+      YtSubscriptions.box.close(),
       ?reply?.close(),
     ]);
   }
@@ -324,6 +409,7 @@ abstract final class GStorage {
       watchProgress.clear(),
       LocalLibrary.clear(),
       LocalHistory.clear(),
+      YtSubscriptions.clear(),
       clearReply(),
       // "reset all data" must not leave the pre-import snapshots behind
       _clearSnapshots(),

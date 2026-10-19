@@ -126,12 +126,18 @@ abstract final class ImageUtils {
         }
       } else {
         if (!silentDownImg) SmartDialog.showLoading(msg: '正在保存');
-        await saveFileImg(
-          filePath: videoPath,
-          fileName: videoName,
-          type: FileType.video,
-          needToast: true,
-        );
+        try {
+          await saveFileImg(
+            filePath: videoPath,
+            fileName: videoName,
+            type: FileType.video,
+            needToast: true,
+          );
+        } finally {
+          // the gallery keeps its own copy, and 清除缓存 does not reach
+          // this folder
+          await File(videoPath).tryDel();
+        }
       }
       return true;
     } catch (err) {

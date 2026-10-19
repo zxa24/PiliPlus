@@ -128,12 +128,20 @@ bool FlutterWindow::OnCreate() {
   self_test_channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
         const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        // a missing or non-int size is answered as an error, not an
+        // uncaught std::out_of_range / bad_variant_access
+        const auto int_arg = [args](const char* key) -> const int* {
+          const auto it = args->find(flutter::EncodableValue(key));
+          return it == args->end() ? nullptr : std::get_if<int>(&it->second);
+        };
         if (call.method_name() == "resize" && args) {
-          const int width =
-              std::get<int>(args->at(flutter::EncodableValue("width")));
-          const int height =
-              std::get<int>(args->at(flutter::EncodableValue("height")));
-          ::SetWindowPos(GetHandle(), nullptr, 0, 0, width, height,
+          const int* width = int_arg("width");
+          const int* height = int_arg("height");
+          if (!width || !height) {
+            result->Error("bad-arguments", "resize takes int width, height");
+            return;
+          }
+          ::SetWindowPos(GetHandle(), nullptr, 0, 0, *width, *height,
                          SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
           result->Success();
         } else {

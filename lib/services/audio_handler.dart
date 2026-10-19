@@ -229,9 +229,9 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
         final coverFile = File(
           path.join(data.entryDirPath, PathUtils.coverName),
         );
-        final uri = coverFile.existsSync()
-            ? coverFile.absolute.uri
-            : getUri(data.cover);
+        // offline: never the CDN's copy (the system's media session would
+        // fetch it and say what is being watched)
+        final uri = coverFile.existsSync() ? coverFile.absolute.uri : null;
         mediaItem = MediaItem(
           id: id,
           title: data.showTitle,

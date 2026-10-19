@@ -41,6 +41,9 @@ mixin YtCommentsMixin on GetxController {
   @override
   void onInit() {
     super.onInit();
+    // released in onClose: another page of the same video keeps its own
+    // use of the translator (see [CommentTranslator.hold])
+    CommentTranslator.hold(commentsKey);
     // comments loaded while translation is on are translated too
     // (user 2026-09-25, 1A)
     ever(comments, (_) => translateLoadedComments());

@@ -97,24 +97,31 @@ class _RcmdPageState extends State<RcmdPage>
                     final actualIndex = index > controller.lastRefreshAt!
                         ? index - 1
                         : index;
+                    final item = response[actualIndex];
                     return VideoCardV(
-                      videoItem: response[actualIndex],
+                      videoItem: item,
+                      // the item, not this build's position: the removal
+                      // comes after a request, and the list may have changed
                       onRemove: () {
+                        final list = controller.loadingState.value.dataOrNull;
+                        final at = list?.indexOf(item) ?? -1;
+                        if (at == -1) return;
                         if (controller.lastRefreshAt != null &&
-                            actualIndex < controller.lastRefreshAt!) {
+                            at < controller.lastRefreshAt!) {
                           controller.lastRefreshAt =
                               controller.lastRefreshAt! - 1;
                         }
                         controller.loadingState
-                          ..value.data!.removeAt(actualIndex)
+                          ..value.data!.removeAt(at)
                           ..refresh();
                       },
                     );
                   } else {
+                    final item = response[index];
                     return VideoCardV(
-                      videoItem: response[index],
+                      videoItem: item,
                       onRemove: () => controller.loadingState
-                        ..value.data!.removeAt(index)
+                        ..value.dataOrNull?.remove(item)
                         ..refresh(),
                     );
                   }

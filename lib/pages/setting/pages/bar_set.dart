@@ -3,6 +3,7 @@ import 'package:PiliPlus/common/widgets/reorder_mixin.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/models/common/enum_with_label.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -55,6 +56,11 @@ class _BarSetPageState extends State<BarSetPage> with ReorderMixin {
       return;
     }
     GStorage.setting.put(key, checked.toList());
+    // the 本地 tab was in the list to choose from: left out, it stays out
+    // (the launch adds it only to an order saved before it existed)
+    if (key == SettingBoxKey.navBarSort) {
+      GStorage.setting.put(SettingBoxKey.navBarLocalAdded, true);
+    }
     SmartDialog.showToast('保存成功，下次启动时生效');
   }
 

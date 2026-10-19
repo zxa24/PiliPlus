@@ -45,6 +45,7 @@ class WhisperDetailController extends CommonListController<RspSessionMsg, Msg> {
   @override
   bool customHandleResponse(bool isRefresh, Success<RspSessionMsg> response) {
     List<Msg> msgs = response.response.messages;
+    final hadMessages = msgs.isNotEmpty;
     if (msgs.isNotEmpty) {
       msgSeqno = msgs.last.msgSeqno;
       if (msgs.length == 1 &&
@@ -57,6 +58,13 @@ class WhisperDetailController extends CommonListController<RspSessionMsg, Msg> {
       msgs.removeWhere((e) => e.msgType == MsgType.EN_MSG_TYPE_DRAW_BACK.value);
       eInfos ??= <EmotionInfo>[];
       eInfos!.addAll(response.response.eInfos);
+    }
+    // a page of only recalled messages is not the end: the paging has moved
+    // on past them (see [msgSeqno]), and the next page is asked for
+    if (hadMessages && msgs.isEmpty && response.response.hasMore != 0) {
+      if (isRefresh) loadingState.value = Success(msgs);
+      Future.microtask(() => queryData(false));
+      return true;
     }
     return false;
   }
@@ -107,37 +115,45 @@ class WhisperDetailController extends CommonListController<RspSessionMsg, Msg> {
     assert((message != null) ^ (picMsg != null));
     if (_isSending) return;
     _isSending = true;
-    feedBack();
-    SmartDialog.dismiss();
-    if (!account.isLogin) {
-      SmartDialog.showToast('请先登录');
-      return;
-    }
-    final res = await ImGrpc.sendMsg(
-      senderUid: account.mid,
-      receiverId: mid!,
-      content: msgType == .EN_MSG_TYPE_DRAW_BACK
-          ? message!
-          : jsonEncode(picMsg ?? {"content": message!}),
-      msgType:
-          msgType ?? (picMsg != null ? .EN_MSG_TYPE_PIC : .EN_MSG_TYPE_TEXT),
-    );
-    SmartDialog.dismiss();
-    if (res.isSuccess) {
-      if (msgType == .EN_MSG_TYPE_DRAW_BACK) {
-        loadingState
-          ..value.data![index!].msgStatus = 1
-          ..refresh();
-        SmartDialog.showToast('撤回成功');
-      } else {
-        onRefresh();
-        onClearText();
-        SmartDialog.showToast('发送成功');
+    // cleared on every way out: a return before the request or an error in
+    // it left it set, and nothing could be sent again
+    try {
+      feedBack();
+      SmartDialog.dismiss();
+      if (!account.isLogin) {
+        SmartDialog.showToast('请先登录');
+        return;
       }
-    } else {
-      res.toast();
+      // the message, not its position: the list may change while this runs
+      final recalled = msgType == .EN_MSG_TYPE_DRAW_BACK
+          ? (loadingState.value.dataOrNull?[index!])
+          : null;
+      final res = await ImGrpc.sendMsg(
+        senderUid: account.mid,
+        receiverId: mid!,
+        content: msgType == .EN_MSG_TYPE_DRAW_BACK
+            ? message!
+            : jsonEncode(picMsg ?? {"content": message!}),
+        msgType:
+            msgType ?? (picMsg != null ? .EN_MSG_TYPE_PIC : .EN_MSG_TYPE_TEXT),
+      );
+      SmartDialog.dismiss();
+      if (res.isSuccess) {
+        if (msgType == .EN_MSG_TYPE_DRAW_BACK) {
+          recalled?.msgStatus = 1;
+          loadingState.refresh();
+          SmartDialog.showToast('撤回成功');
+        } else {
+          onRefresh();
+          onClearText();
+          SmartDialog.showToast('发送成功');
+        }
+      } else {
+        res.toast();
+      }
+    } finally {
+      _isSending = false;
     }
-    _isSending = false;
   }
 
   @override

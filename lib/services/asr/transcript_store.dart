@@ -102,6 +102,12 @@ class TranscriptStore {
   final _segments = <TranscriptSegment>[];
   final _runs = <TranscriptRun>[];
 
+  /// Bumped by every change to the runs' segments and cues, so what is
+  /// worked out from them can be kept until it changes (a run finishing is
+  /// not counted: see [TranscriptRun.finished]).
+  int get revision => _revision;
+  var _revision = 0;
+
   /// Every segment, sorted by start.
   List<TranscriptSegment> get segments => List.unmodifiable(_segments);
 
@@ -131,6 +137,7 @@ class TranscriptStore {
   /// Begins a run from [start] and returns it; segments are added to it
   /// with [addSegment].
   TranscriptRun startRun(double start) {
+    _revision++;
     final run = TranscriptRun._(_runs.length, start);
     var at = _runs.length;
     while (at > 0 && _runs[at - 1].start > start) {
@@ -153,6 +160,7 @@ class TranscriptStore {
     String language = '',
     int weight = 0,
   }) {
+    _revision++;
     final segment = (
       start: start,
       duration: duration,
@@ -200,6 +208,7 @@ class TranscriptStore {
     List<SeamSegment> segments,
     bool Function(TranscriptSegment segment) removes,
   ) {
+    _revision++;
     for (final other in _runs) {
       var cueAt = 0;
       for (var i = 0; i < other.segments.length;) {

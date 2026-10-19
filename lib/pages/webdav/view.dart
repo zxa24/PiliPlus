@@ -102,14 +102,49 @@ class _WebDavSettingPageState extends State<WebDavSettingPage> {
                       ),
                     ),
                     onPressed: () async {
-                      final includeCredentials = await showConfirmDialog(
+                      // three answers: closing the dialog cancels the backup
+                      final includeCredentials = await showDialog<bool>(
                         context: context,
-                        title: const Text('备份中包含凭据？'),
-                        content: const Text(
-                          'WebDAV 用户名/密码、空降助手用户 ID。点「取消」则不包含（推荐）',
+                        builder: (context) => AlertDialog(
+                          title: const Text('备份中包含凭据？'),
+                          content: const Text(
+                            'WebDAV 用户名/密码、空降助手用户 ID。推荐不包含',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: Navigator.of(context).pop,
+                              child: Text(
+                                '取消备份',
+                                style: TextStyle(
+                                  color: ColorScheme.of(context).outline,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              child: const Text('包含'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('不包含'),
+                            ),
+                          ],
                         ),
                       );
-                      WebDav().backup(includeCredentials: includeCredentials);
+                      if (includeCredentials == null || !context.mounted) {
+                        return;
+                      }
+                      WebDav().backup(
+                        includeCredentials: includeCredentials,
+                        confirmDropCredentials: () => showConfirmDialog(
+                          context: context,
+                          title: const Text('替换含凭据的备份？'),
+                          content: const Text(
+                            'WebDAV 上现有的备份含有凭据，这次的备份不含。'
+                            '替换后服务器上不再有凭据的副本',
+                          ),
+                        ),
+                      );
                     },
                     child: const Text('备份设置'),
                   ),

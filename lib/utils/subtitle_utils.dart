@@ -24,12 +24,28 @@ abstract final class SubtitleUtils {
     return "$h:$m:$sec.$ms";
   }
 
+  static final _blankLines = RegExp(r'\n\s*\n');
+
+  /// A cue's text as WebVTT holds it: `&` and `<` start an entity or a tag
+  /// there (and `-->` a timing), and a blank line ends the cue.
+  static String _vttText(String text) => text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll(_blankLines, '\n');
+
+  /// [_vttText] backwards, for text read out of a VTT.
+  static String vttUnescape(String text) => text
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
+
   static String json2Vtt(List list) {
     final sb = StringBuffer('WEBVTT\n\n')
       ..writeAll(
         list.map(
           (item) =>
-              '${_vttTimecode(item['from'])} --> ${_vttTimecode(item['to'])}\n${item['content'].trim()}',
+              '${_vttTimecode(item['from'])} --> ${_vttTimecode(item['to'])}\n${_vttText(item['content'].trim())}',
         ),
         '\n\n',
       );
@@ -60,7 +76,7 @@ abstract final class SubtitleUtils {
       out.add({
         'from': _vttSeconds(m, 1),
         'to': _vttSeconds(m, 5),
-        'content': lines.skip(at + 1).join('\n').trim(),
+        'content': vttUnescape(lines.skip(at + 1).join('\n').trim()),
       });
     }
     return out;

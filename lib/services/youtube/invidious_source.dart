@@ -458,7 +458,14 @@ class YtInvidiousSource implements YouTubeVideoSource {
     if (r.status != HttpStatus.ok || r.body.isEmpty) {
       return YtResult.failed(_verdictOf(r, 'manifest'));
     }
-    final formats = parseInvidiousDash(r.body, base: manifest);
+    // a stream URL is named by the manifest as the manifest is by the page:
+    // the same rule ([_isPublic]), each host looked up once
+    final public = <String, Future<bool?>>{};
+    final formats = [
+      for (final f in parseInvidiousDash(r.body, base: manifest))
+        if (Uri.tryParse(f.url ?? '') case final u?)
+          if (await (public[u.host] ??= _isPublic(u)) == true) f,
+    ];
     if (formats.isEmpty) {
       return const YtResult.failed(
         YtVerdict(
@@ -477,6 +484,9 @@ class YtInvidiousSource implements YouTubeVideoSource {
   Future<bool> _refusedHere(String url) async {
     var uri = Uri.parse(url);
     for (var hop = 0; hop < 4; hop++) {
+      // every hop as the stream URL itself ([_isPublic]): a redirect to
+      // this machine or the local network is not followed
+      if (await _isPublic(uri) != true) return false;
       final r = await _fetch(
         uri,
         method: 'GET',
@@ -498,6 +508,8 @@ class YtInvidiousSource implements YouTubeVideoSource {
   Future<int?> _companionRefuses(String url) async {
     var uri = Uri.parse(url);
     for (var hop = 0; hop < 4; hop++) {
+      // as in [_refusedHere]: a hop that is not public is no answer
+      if (await _isPublic(uri) != true) return 0;
       final r = await _fetch(
         uri,
         method: 'GET',
@@ -705,6 +717,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
           continue;
         }
         if (GoAway.refreshUrl(r.body) case final url?) {
+          // named by the gate's page: the rule the page's manifest follows
+          if (await _isPublic(base.resolve(url)) != true) {
+            return YtResult.failed(_foreignGate(base.resolve(url)));
+          }
           final answer = await _get(base.resolve(url));
           final next = answer.location;
           if (answer.status ~/ 100 != 3 || next == null) {
@@ -848,6 +864,14 @@ class YtInvidiousSource implements YouTubeVideoSource {
   static Future<String?> _solveGoAway(String challenge, String target) =>
       Isolate.run(() => GoAway.solve(challenge, target));
 
+  /// A gate's page that names a script or a refresh this machine must not
+  /// ask for (see [_isPublic]).
+  static YtVerdict _foreignGate(Uri to) => YtVerdict(
+    YtCause.transient,
+    'invidious:gate:foreign',
+    'the gate points at ${to.host}',
+  );
+
   /// One go-away `js-pow-sha256`: null when passed, why when not.
   Future<YtVerdict?> _passGoAwayPow(
     String host,
@@ -855,6 +879,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
     String page,
   ) async {
     final base = Uri.parse(host);
+    // named by the gate's page: the rule the page's manifest follows
+    if (await _isPublic(base.resolve(script)) != true) {
+      return _foreignGate(base.resolve(script));
+    }
     final js = await _get(base.resolve(script), referer: page);
     final challengeId = js.status == HttpStatus.ok
         ? GoAway.powId(js.body)
@@ -985,6 +1013,9 @@ class YtInvidiousSource implements YouTubeVideoSource {
 class IoInvidiousFetch {
   final _client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
 
+  /// The most of a ranged answer that is read.
+  static const _probeCap = 64 << 10;
+
   Future<InvidiousAnswer> call(
     Uri uri, {
     required String method,
@@ -1000,10 +1031,24 @@ class IoInvidiousFetch {
       final response = await request.close().timeout(
         const Duration(seconds: 15),
       );
-      final body = await const Utf8Decoder(allowMalformed: true)
-          .bind(response)
-          .join()
-          .timeout(const Duration(seconds: 20));
+      // a probe asks for a few bytes ([_refusedHere]): a server that ignores
+      // the range is not read to the end of a whole stream
+      final String body;
+      if (headers.containsKey(HttpHeaders.rangeHeader)) {
+        final bytes = <int>[];
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 20),
+        )) {
+          bytes.addAll(chunk);
+          if (bytes.length >= _probeCap) break;
+        }
+        body = utf8.decode(bytes, allowMalformed: true);
+      } else {
+        body = await const Utf8Decoder(allowMalformed: true)
+            .bind(response)
+            .join()
+            .timeout(const Duration(seconds: 20));
+      }
       return InvidiousAnswer(
         response.statusCode,
         body,

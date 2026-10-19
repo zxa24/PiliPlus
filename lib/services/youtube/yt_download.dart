@@ -188,6 +188,8 @@ abstract final class YtDownloader {
     final sink = File(output).openWrite();
     try {
       var received = 0;
+      // the HEAD's length, else the first 206's Content-Range total
+      var total = contentLength;
       while (true) {
         if (token?.isCancelled ?? false) throw const YtDownloadCancelled();
         final end = received + _chunkSize - 1;
@@ -203,6 +205,29 @@ abstract final class YtDownloader {
           }
           throw HttpException('HTTP ${response.statusCode}', uri: uri);
         }
+        final whole = response.statusCode == HttpStatus.ok;
+        if (whole) {
+          // the range ignored: the whole file, which can only follow nothing
+          // (after a first chunk it would be appended to it)
+          if (received != 0) {
+            await response.drain<void>();
+            throw HttpException('range ignored at $received', uri: uri);
+          }
+        } else {
+          // the bytes asked for, not others
+          final range = response.headers.value(HttpHeaders.contentRangeHeader);
+          final m = range == null
+              ? null
+              : RegExp(r'^bytes (\d+)-\d+/(\d+|\*)').firstMatch(range);
+          if (m == null || int.tryParse(m[1]!) != received) {
+            await response.drain<void>();
+            throw HttpException(
+              'unexpected range $range at $received',
+              uri: uri,
+            );
+          }
+          total ??= int.tryParse(m[2]!);
+        }
         var inChunk = 0;
         await for (final bytes in response.timeout(_idleTimeout)) {
           if (token?.isCancelled ?? false) throw const YtDownloadCancelled();
@@ -211,10 +236,17 @@ abstract final class YtDownloader {
           onBytes(received + inChunk);
         }
         received += inChunk;
+        if (total != null) {
+          // the length is known: until all of it, a short reply included
+          if (received >= total) break;
+          if (whole || inChunk == 0) {
+            throw HttpException('ended at $received of $total', uri: uri);
+          }
+          continue;
+        }
         // a server that ignored the range and sent the whole file, or a
         // short read at the end, both mean there is nothing more to ask for
-        if (inChunk == 0 || inChunk < _chunkSize) break;
-        if (contentLength != null && received >= contentLength) break;
+        if (whole || inChunk == 0 || inChunk < _chunkSize) break;
       }
       await sink.flush();
     } finally {

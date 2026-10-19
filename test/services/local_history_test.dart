@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
+import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +52,7 @@ void main() {
     GStorage.video = await Hive.openBox('video');
     await LocalLibrary.init();
     await LocalHistory.init();
+    await YtSubscriptions.init();
     LocalHistory.clock = () => now;
   });
 

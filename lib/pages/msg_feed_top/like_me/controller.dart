@@ -57,6 +57,8 @@ class LikeMeController
   Future<void> onRefresh() {
     cursor = null;
     cursorTime = null;
+    // a refresh starts from the first page again: more may follow it
+    isEnd = false;
     return super.onRefresh();
   }
 
@@ -66,14 +68,16 @@ class LikeMeController
 
   Future<void> onRemove(dynamic id, int index, bool isLatest) async {
     try {
+      // the item, not its position: the list may change while this runs
+      final before = loadingState.value.dataOrNull;
+      final item = isLatest ? before?.first[index] : before?.second[index];
       final res = await MsgHttp.delMsgfeed(0, id);
       if (res.isSuccess) {
-        Pair<List<MsgLikeItem>, List<MsgLikeItem>> pair =
-            loadingState.value.data;
+        final pair = loadingState.value.dataOrNull;
         if (isLatest) {
-          pair.first.removeAt(index);
+          pair?.first.remove(item);
         } else {
-          pair.second.removeAt(index);
+          pair?.second.remove(item);
         }
         loadingState.refresh();
         SmartDialog.showToast('删除成功');

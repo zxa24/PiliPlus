@@ -18,6 +18,8 @@ import 'package:PiliPlus/models/user/danmaku_rule.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
+import 'package:PiliPlus/pages/setting/models/play_settings.dart'
+    show kMaxVolume;
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/dry_watch.dart';
@@ -46,6 +48,7 @@ import 'package:PiliPlus/utils/codec_support.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/box_ext.dart';
+import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
@@ -503,7 +506,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     letterSpacing: 0.1,
     wordSpacing: 0.1,
     color: Colors.white,
-    fontWeight: FontWeight.values[subtitleFontWeight],
+    // a stored index out of range (an imported setting) falls back on the
+    // default, w400, rather than throwing on every subtitle frame
+    fontWeight: FontWeight.values.getOrNull(subtitleFontWeight) ?? .w400,
     backgroundColor: subtitleBgOpacity == 0
         ? null
         : Colors.black.withValues(alpha: subtitleBgOpacity),
@@ -715,6 +720,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     Volume? volume,
     bool autoFullScreenFlag = false,
   }) async {
+    // a newer open while this one awaits owns the player from then on: this
+    // one stops at its next await, and leaves `_processing` to it
+    final open = ++_openSeq;
     try {
       _processing = true;
       // another video: its page says which subtitle it shows (a reopen of
@@ -726,6 +734,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       final sameVideo =
           (cid != null || bvid != null) && cid == this.cid && bvid == _bvid;
       if (!sameVideo) _dropPicture();
+      // a seek waiting for the video before was for it, not this one. Not
+      // between two opens without ids (YouTube): a quality switch is one
+      if (cid != this.cid || bvid != _bvid) {
+        _pendingSeek = null;
+        _cancelSubForSeek();
+      }
       _holdOnOpen = sameVideo;
       // `vid` is an option as well: left off, the new file has no picture
       _videoBack('a new source');
@@ -782,6 +796,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             : SuperResolutionType.disable;
         if (_videoPlayerController != null) {
           await setShader();
+          if (open != _openSeq) return;
         }
       }
 
@@ -792,6 +807,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (_videoPlayerController != null &&
           _videoPlayerController!.state.playing) {
         await pause(notify: false);
+        if (open != _openSeq) return;
       }
 
       if (_playerCount == 0) {
@@ -799,6 +815,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       // 配置Player 音轨、字幕等等
       await _createVideoController(dataSource, seekTo, volume);
+      if (open != _openSeq) return;
 
       if (_playerCount == 0) {
         _removeListeners();
@@ -818,17 +835,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
 
       await _initializePlayer();
+      if (open != _openSeq) return;
       onInit?.call();
     } catch (err, stackTrace) {
-      dataStatus.value = DataStatus.error;
+      if (open == _openSeq) dataStatus.value = DataStatus.error;
       if (kDebugMode) {
         debugPrint(stackTrace.toString());
         debugPrint('plPlayer err:  $err');
       }
     } finally {
-      _processing = false;
+      if (open == _openSeq) _processing = false;
     }
   }
+
+  /// Counts [setDataSource] calls (see there).
+  int _openSeq = 0;
 
   String? shadersDirPath;
   Future<String> get copyShadersToExternalDirectory async {
@@ -904,6 +925,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (Platform.isAndroid) 'ao': Pref.audioOutput,
       'volume':
           (PlatformUtils.isMobile ? Pref.playerVolume : volume.value * 100)
+              .toString(),
+      // mpv's own cap is 130 %: the volume slider (desktop, up to
+      // [maxVolume]) and the 播放器音量 setting (mobile) go further
+      'volume-max':
+          (PlatformUtils.isMobile ? kMaxVolume : max(100.0, maxVolume * 100))
               .toString(),
       'stream-lavf-o': 'reconnect=1,reconnect_max_retries=${Pref.retryCount}',
       // a self-test plays muted unless asked for sound (see selfTestSound)
@@ -1164,6 +1190,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (!isLive && pending != null) {
       seekTo = pending;
       _pendingSeek = null;
+      // the danmaku were reset to where it was going to open
+      _resetDanmaku(to: seekTo);
     }
     _openedAt = seekTo;
     // where it opens, after a pending seek had its say
@@ -1186,6 +1214,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       );
     } catch (_) {
       _reopening = false;
+      // the open ends in the error state: the picture held over it is of
+      // nothing now (a reopen's failure keeps it, for the retry after)
+      _dropPicture();
       // mpv never took the descriptor: close it here
       if (fd != null) await LocalDocuments.closeFd(fd);
       rethrow;
@@ -1511,6 +1542,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         isBuffering.value = buffering && !_replacing;
         if (buffering) _stopWakeLockTimer();
         final playerStatus = this.playerStatus.value;
+        // a pause followed by buffering cancelled the pause's release, and
+        // nothing armed it again: the screen stayed on for good
+        if (!buffering && !playerStatus.isPlaying) {
+          _wakeLockTimer?.cancel();
+          _wakeLockTimer = Timer(
+            const Duration(milliseconds: 500),
+            _stopWakeLock,
+          );
+        }
         if (!playerStatus.isCompleted) {
           videoPlayerServiceHandler?.onStatusChange(
             playerStatus,
@@ -2220,7 +2260,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// could take over: the page puts back what it played before.
   VoidCallback? onStepUpDropped;
 
-  var _replacing = false;
+  /// The source whose streams [_replaceStreams] is replacing. Tied to it: a
+  /// replacement still asking the page when another video opened held that
+  /// one's spinner and recovery back until it ended.
+  DataSource? _replacingFor;
+  bool get _replacing =>
+      _replacingFor != null && identical(_replacingFor, dataSource);
 
   /// For the self-test's control (`--no-recovery`): playback as it was
   /// before any recovery. Nothing else sets it.
@@ -2254,8 +2299,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }) async {
     if (debugDisableRecovery) return;
     if (_replacing) return;
-    _replacing = true;
     final source = dataSource;
+    _replacingFor = source;
     try {
       final urls = await ask();
       final player = _videoPlayerController;
@@ -2298,9 +2343,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } catch (_) {
       if (reopen && identical(dataSource, source)) _switchCdn(fallback: true);
     } finally {
-      _replacing = false;
-      // what was held back while replacing
-      isBuffering.value = _videoPlayerController?.state.buffering ?? false;
+      // a replacement for the source now in place is that one's own
+      if (identical(_replacingFor, source)) {
+        _replacingFor = null;
+        // what was held back while replacing
+        isBuffering.value = _videoPlayerController?.state.buffering ?? false;
+      }
     }
   }
 
@@ -2522,9 +2570,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     required DataSource source,
     required bool play,
   }) async {
+    // the rate again too: one changed while [next] got ready (a long press,
+    // the speed menu) was copied over only at the start
     next
       ..setProperty('volume', old.getProperty('volume'))
-      ..setProperty('mute', old.getProperty('mute'));
+      ..setProperty('mute', old.getProperty('mute'))
+      ..setProperty('speed', old.getProperty('speed'));
     // not when a pause was asked for meanwhile ([pause] marks it first): the
     // new player came up playing and the video played on, 16 ms after the
     // viewer paused (self test, 2026-10-17)
@@ -3290,8 +3341,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // the seek would be a new request on an expired URL
     if (_renewIfExpired(position)) return;
     Future<void> seek() async {
+      // a seek with [isSeek] waits for mpv's next buffer report first; one
+      // without it (a step, a drag's end) does not — 拖动进度条调节时，
+      // 不等待第一帧，防止抖动 is about that case
       if (isSeek) {
-        /// 拖动进度条调节时，不等待第一帧，防止抖动
         await _videoPlayerController?.stream.buffer.first;
       }
       _resetDanmaku(to: position);
@@ -3430,15 +3483,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> setPlaybackSpeed(double speed) async {
     lastPlaybackSpeed = playbackSpeed;
 
-    if (speed == _videoPlayerController?.state.rate) {
+    // mpv can be at the rate already (copied over by a handover, say)
+    // while the speed kept is another: that one is still brought along
+    final rateSet = speed == _videoPlayerController?.state.rate;
+    if (rateSet && speed == playbackSpeed) {
       return;
     }
 
-    final from = _videoPlayerController?.state.rate ?? 1;
-    final before = double.tryParse(_read('time-pos'));
-    final asked = DateTime.now();
-    await _videoPlayerController?.setRate(speed);
-    _watchSpeedJump(from, speed, before, asked, DateTime.now());
+    if (!rateSet) {
+      final from = _videoPlayerController?.state.rate ?? 1;
+      final before = double.tryParse(_read('time-pos'));
+      final asked = DateTime.now();
+      await _videoPlayerController?.setRate(speed);
+      _watchSpeedJump(from, speed, before, asked, DateTime.now());
+    }
     _playbackSpeed.value = speed;
     _resizeBuffer(speed);
     if (danmakuController != null) {
@@ -3755,7 +3813,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   /// 读取fit
-  var _prefFit = VideoFitType.values[Pref.cacheVideoFit];
+  // out of range (an imported setting): the default, as Pref has it
+  var _prefFit =
+      VideoFitType.values.getOrNull(Pref.cacheVideoFit) ??
+      VideoFitType.values[1];
   void _initVideoFit() {
     if (_prefFit == .fill && _isVertical) {
       videoFit.value = .contain;
@@ -4078,17 +4139,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     mountSeekForwardButton.value = true;
   }
 
+  // from [resumePosition]: mpv's position reads 0 while a source is opening,
+  // and a step from there sent the viewer to the start
   void onForward(Duration duration) {
-    onForwardBackward(videoPlayerController!.state.position + duration);
+    onForwardBackward(resumePosition + duration);
   }
 
   void onBackward(Duration duration) {
-    onForwardBackward(videoPlayerController!.state.position - duration);
+    onForwardBackward(resumePosition - duration);
   }
 
   void onForwardBackward(Duration duration) {
+    // the length is 0 until the first file is in: only the start bounds it
+    final length = videoPlayerController!.state.duration;
     seekTo(
-      duration.clamp(Duration.zero, videoPlayerController!.state.duration),
+      length > Duration.zero
+          ? duration.clamp(Duration.zero, length)
+          : (duration < Duration.zero ? Duration.zero : duration),
       isSeek: false,
     ).whenComplete(play);
   }
@@ -4243,7 +4310,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         progress == 0 ||
         (playerStatus.isPaused && !isManual) ||
         // LibrePili: offline / local files are not reported to the account
-        isFileSource) {
+        isFileSource ||
+        // nor a source with no bilibili part (YouTube): the request needs
+        // a cid, and threw on every tick without one
+        (cid ?? this.cid) == null) {
       return null;
     }
 
@@ -4329,9 +4399,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     resetScreenRotation();
     cancelLongPressTimer();
     _restoreFrames();
-    _debugStatusTimer?.cancel();
-    _debugStatusTimer = null;
-    DebugOverlay.drop('player');
     _cancelSubForSeek();
     if (!_isCloseAll && _playerCount > 1) {
       _playerCount -= 1;
@@ -4339,6 +4406,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
 
+    // the player's, not a page's: a nested page closing stopped the
+    // overlay for the page under it, still playing
+    _debugStatusTimer?.cancel();
+    _debugStatusTimer = null;
+    DebugOverlay.drop('player');
     _playerCount = 0;
     _recoveryCheck?.cancel();
     _recoveryCheck = null;
@@ -4444,7 +4516,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   Future<void> getVideoShot() async {
-    videoShot = await VideoHttp.videoshot(bvid: bvid, cid: cid!);
+    // no bilibili ids (a YouTube source): no preview, and the request is
+    // not sent (it hit a null check). It stays "loading" until the source
+    // changes
+    final cid = this.cid;
+    if (_bvid == null || cid == null) return;
+    final pending = videoShot;
+    final res = await VideoHttp.videoshot(bvid: bvid, cid: cid);
+    // cleared meanwhile (another source): this answer is the old one's
+    if (identical(videoShot, pending)) videoShot = res;
   }
 
   Future<void> takeScreenshot() async {

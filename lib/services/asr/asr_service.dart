@@ -1082,7 +1082,8 @@ class AsrSession {
   Future<AsrTranscriber> _recogniser() {
     final open = _transcriber;
     if (open != null) return Future.value(open);
-    return _opening ??= () async {
+    late final Future<AsrTranscriber> opening;
+    return _opening ??= opening = () async {
       var models = _models!;
       var transcriber = await AsrTranscriber.open(models);
       if (models.englishFirst) {
@@ -1098,7 +1099,9 @@ class AsrSession {
           transcriber = await AsrTranscriber.open(models);
         }
       }
-      if (_closed || _suspended) {
+      // a suspend and resume while this loaded let go of it and started
+      // another open: that one is the session's, this one is closed
+      if (_closed || _suspended || !identical(_opening, opening)) {
         transcriber.close();
         throw const AsrCancelled();
       }
@@ -1998,7 +2001,12 @@ class AsrService extends GetxService {
     final session = _current;
     if (only != null && session != only) return;
     _current = null;
-    if (reason != null && session != null && session.isRunning) {
+    // Not only a running job: one in standby is alive too, and closed
+    // unmarked its page would keep it as if it were (wasDisplaced false).
+    if (reason != null &&
+        session != null &&
+        session.state.value.stage != AsrStage.done &&
+        session.state.value.stage != AsrStage.failed) {
       session._set(AsrState(stage: AsrStage.failed, message: reason));
     }
     await session?.dispose();

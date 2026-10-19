@@ -49,6 +49,11 @@ mixin BlockMixin on GetxController {
 
   RxString? get videoLabel => null;
   Player? get player;
+
+  /// Bumped when [player] is replaced by another instance (the shared
+  /// player's handover): the auto-skip moves over to the new one.
+  RxInt? get playerEpoch => null;
+  Worker? _playerWorker;
   bool get autoPlay;
   int? get timeLength;
   bool get preInitPlayer;
@@ -117,6 +122,13 @@ mixin BlockMixin on GetxController {
           }
         }
       });
+      // the listener above is on this instance only: after a handover it
+      // heard nothing more, and auto-skip silently stopped
+      if (playerEpoch case final epoch?) {
+        _playerWorker ??= ever(epoch, (_) {
+          if (_blockListener != null) initSkip();
+        });
+      }
     }
   }
 
@@ -512,6 +524,7 @@ mixin BlockMixin on GetxController {
 
   @override
   void onClose() {
+    _playerWorker?.dispose();
     _stopSkipTimer();
     if (blockConfig.enableBlock) {
       resetBlock();

@@ -244,11 +244,13 @@ class _MainAppState extends PopScopeState<MainApp>
 
   Future<void> _onClose() async {
     // LibrePili: what transcription and translation made so far, on disk
-    // before the process ends (the subtitle cache)
-    if (Get.isRegistered<TranslationService>()) {
+    // before the process ends (the subtitle cache). Lazily registered and
+    // never created means nothing to keep: finding one here would create it
+    bool live<S>() => Get.isRegistered<S>() && !Get.isPrepared<S>();
+    if (live<TranslationService>()) {
       TranslationService.to.keepCache();
     }
-    if (Get.isRegistered<AsrService>()) {
+    if (live<AsrService>()) {
       await AsrService.to.keepCache().timeout(
         const Duration(seconds: 2),
         onTimeout: () {},

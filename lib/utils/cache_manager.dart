@@ -42,6 +42,12 @@ abstract final class CacheManager {
       } else if (child is Directory) {
         if (path.equals(child.path, manager.cacheDir)) {
           total += manager.getTotalLength();
+        } else if (path.equals(child.path, tmpDirPath) ||
+            path.isWithin(child.path, tmpDirPath)) {
+          // this app's own folder: [clearLibraryCache] empties only the
+          // image cache in it (the stored video pieces, scratch files and
+          // subtitles stay), so only that is counted
+          total += manager.getTotalLength();
         } else {
           // the subtitle cache is not cleared with the rest (it has its own
           // 清除字幕缓存, and is minutes of work per video to make again),

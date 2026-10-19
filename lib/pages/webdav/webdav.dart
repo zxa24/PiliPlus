@@ -80,7 +80,12 @@ class WebDav {
     return 'piliplus_settings_${DeviceUtils.platformName}.json';
   }
 
-  Future<void> backup({bool includeCredentials = false}) async {
+  /// [confirmDropCredentials]: asked when a backup without credentials
+  /// would replace one on the server that has them; false keeps that one.
+  Future<void> backup({
+    bool includeCredentials = false,
+    Future<bool> Function()? confirmDropCredentials,
+  }) async {
     // Keep the payload bound to the same settings snapshot as the connection.
     final config = _getConfig();
     final data = GStorage.exportAllSettings(
@@ -94,6 +99,19 @@ class WebDav {
       return;
     }
     final path = '${config.directory}/${_getFileName()}';
+    if (!includeCredentials && confirmDropCredentials != null) {
+      bool had = false;
+      try {
+        final old = jsonDecode(utf8.decode(await client.read(path)));
+        had = old is Map<String, dynamic> && GStorage.hasCredentials(old);
+      } catch (_) {
+        // no backup there yet, or not one this app can read
+      }
+      if (had && !await confirmDropCredentials()) {
+        SmartDialog.showToast('已取消备份');
+        return;
+      }
+    }
     // write a new file first and move it over the old one: a failed upload
     // must not lose the existing backup
     final tmpPath = '$path.tmp';

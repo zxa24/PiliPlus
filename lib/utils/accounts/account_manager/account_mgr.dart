@@ -10,6 +10,7 @@ import 'package:PiliPlus/utils/accounts/api_type.dart';
 import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/app_sign.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
+import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -75,6 +76,13 @@ class AccountManager extends Interceptor {
     options.headers
       ..addAll(account.headers)
       ..['referer'] ??= HttpString.baseUrl;
+
+    // a call site's device id is the per-launch anonymous one; with the
+    // account it is the account's own (as in its gRPC headers), so the
+    // anonymous id is never sent together with the account
+    if (account is LoginAccount && options.headers.containsKey('buvid')) {
+      options.headers['buvid'] = LoginUtils.buvid;
+    }
 
     // app端不需要管理cookie
     if (isApp) {

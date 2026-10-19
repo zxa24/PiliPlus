@@ -158,8 +158,9 @@ abstract final class PiliScheme {
     final String host = uri.host;
     final String path = uri.path;
 
-    // LibrePili: a YouTube link opens the YouTube page, never the bilibili one
-    if (tryParseYouTubeVideoId(uri.toString()) case final videoId?) {
+    // LibrePili: a YouTube link opens the YouTube page, never the bilibili
+    // one — a link only, not any 11-character string (yt_video_id's rule)
+    if (tryParseYouTubeLink(uri.toString()) case final videoId?) {
       Get.toNamed('/ytVideo', parameters: {'id': videoId});
       return true;
     }
@@ -318,7 +319,9 @@ abstract final class PiliScheme {
                 rpIdStr:
                     queryParameters['anchor'] ?? pathSegments[3], // source_id
                 type: type,
-                uri: enterUri != null
+                // a malformed enterUri falls back to the default, not a
+                // FormatException out of routePush
+                uri: enterUri != null && Uri.tryParse(enterUri) != null
                     ? Uri.parse(enterUri)
                     : const [11, 16, 17].contains(type)
                     ? Uri(

@@ -243,7 +243,10 @@ class _PlDanmakuState extends State<PlDanmaku> {
     final alive = aliveDanmakuAt(
       position,
       bucketAt: _plDanmakuController.bucketAt,
-      scrollLifetime: scrollLifetime.round(),
+      scrollLifetime: scrollShownFor(
+        scrollLifetime,
+        fixedVelocity: option.scrollFixedVelocity,
+      ).round(),
       staticLifetime: staticLifetime.round(),
       minWeight: DanmakuOptions.danmakuWeight,
     );
@@ -285,11 +288,14 @@ class _PlDanmakuState extends State<PlDanmaku> {
       final (:elem, :shownAt) = _queue.removeFirst();
       final elapsed = position - shownAt;
       final lifetime = switch (DmUtils.getPosition(elem.mode)) {
-        DanmakuItemType.scroll => scrollLifetime,
+        DanmakuItemType.scroll => scrollShownFor(
+          scrollLifetime,
+          fixedVelocity: option.scrollFixedVelocity,
+        ),
         DanmakuItemType.top || DanmakuItemType.bottom => staticLifetime,
         DanmakuItemType.special => double.infinity,
       };
-      // gone meanwhile
+      // gone meanwhile (where it is exactly: [_addAlive])
       if (elapsed >= lifetime) continue;
       if (_addAlive(
         controller,

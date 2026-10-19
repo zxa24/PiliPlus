@@ -244,6 +244,7 @@ class AsrModelStore {
                     pending,
                     report,
                     token,
+                    retry: attempt + 1 < _attemptsPerSource,
                   );
             break outer;
           } on AsrCancelled {
@@ -340,8 +341,9 @@ class AsrModelStore {
     AsrSource source,
     List<AsrModelFile> pending,
     void Function(AsrModelFile, int, {bool verifying}) report,
-    AsrCancelToken? token,
-  ) async {
+    AsrCancelToken? token, {
+    bool retry = false,
+  }) async {
     final wanted = <String, AsrModelFile>{};
     for (final file in pending) {
       for (final candidate in file.sources) {
@@ -357,11 +359,21 @@ class AsrModelStore {
     final tmp = Directory(path.join(dirOf(model).path, '.tmp'));
     await tmp.create(recursive: true);
     final first = wanted.values.first;
+    final archive = File(path.join(tmp.path, 'download'));
+    // what a failed download of this source got so far: kept for its
+    // retry to resume, as a direct file's `.part` is
+    var keep = false;
     try {
-      final archive = File(path.join(tmp.path, 'download'));
-      await _download(source.url, archive, source.archiveSize, (received) {
-        report(first, received.clamp(0, first.size));
-      }, token);
+      try {
+        await _download(source.url, archive, source.archiveSize, (received) {
+          report(first, received.clamp(0, first.size));
+        }, token);
+      } on AsrCancelled {
+        rethrow;
+      } catch (_) {
+        keep = retry;
+        rethrow;
+      }
 
       token?.throwIfCancelled();
       final tar = File(path.join(tmp.path, 'archive.tar'));
@@ -399,7 +411,13 @@ class AsrModelStore {
       }
       return got;
     } finally {
-      if (tmp.existsSync()) await tmp.delete(recursive: true);
+      if (keep) {
+        await for (final entry in tmp.list()) {
+          if (entry.path != archive.path) await entry.delete(recursive: true);
+        }
+      } else if (tmp.existsSync()) {
+        await tmp.delete(recursive: true);
+      }
     }
   }
 

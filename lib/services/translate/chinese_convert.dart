@@ -148,12 +148,19 @@ final class S2twpConverter {
 
   /// The converter, its dictionaries read once and parsed off the UI
   /// isolate: about 1 MB of text, 50 000 phrases.
+  ///
+  /// A load that failed is not kept: the next call tries again.
   static Future<S2twpConverter> load() => _loading ??= () async {
-    final texts = {
-      for (final name in files)
-        name: await rootBundle.loadString('assets/opencc/$name.txt'),
-    };
-    return compute(S2twpConverter.fromTexts, texts);
+    try {
+      final texts = {
+        for (final name in files)
+          name: await rootBundle.loadString('assets/opencc/$name.txt'),
+      };
+      return await compute(S2twpConverter.fromTexts, texts);
+    } catch (_) {
+      _loading = null;
+      rethrow;
+    }
   }();
 
   String convert(String text) {

@@ -89,7 +89,11 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   @override
   Future<void> queryVideoIntro() async {
     queryVideoTags();
+    final bvid = this.bvid;
     final res = await VideoHttp.videoIntro(bvid: bvid);
+    // another video picked meanwhile (or the page closed): its own request
+    // answers for it
+    if (isClosed || bvid != this.bvid) return;
     if (res case Success(:final response)) {
       if (response.redirectUrl != null &&
           videoDetailCtr.epId == null &&
@@ -174,7 +178,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   }
 
   Future<void> queryAllStatus() async {
+    final bvid = this.bvid;
     final result = await VideoHttp.videoRelation(bvid: bvid);
+    if (bvid != this.bvid) return;
     if (result case Success(:final response)) {
       late final stat = videoDetail.value.stat;
       if (response.like!) {
@@ -571,6 +577,11 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       if (this.bvid != bvid) {
         reload = true;
         aiConclusionResult = null;
+        // the previous video's: the new one's arrive with its status
+        hasLike.value = false;
+        hasDislike.value = false;
+        coinNum.value = 0;
+        hasFav.value = false;
 
         if (cover != null && cover.isNotEmpty) {
           videoDetailCtr.cover.value = cover;
@@ -579,8 +590,11 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         // 重新请求相关视频
         if (videoDetailCtr.plPlayerController.showRelatedVideo) {
           try {
+            // a refresh still in flight is for the previous video: not
+            // joined (see markRefreshStale)
             Get.find<RelatedController>(tag: heroTag)
               ..bvid = bvid
+              ..markRefreshStale()
               ..queryData();
           } catch (_) {}
         }
@@ -588,11 +602,11 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         // 重新请求评论
         if (videoDetailCtr.showReply) {
           try {
-            final replyCtr = Get.find<VideoReplyController>(tag: heroTag)
-              ..aid = aid;
-            if (replyCtr.loadingState.value is! Loading) {
-              replyCtr.onReload();
-            }
+            // also while loading: that answer is the previous video's, and
+            // the reload's generation drops it
+            Get.find<VideoReplyController>(tag: heroTag)
+              ..aid = aid
+              ..onReload();
           } catch (_) {}
         }
 

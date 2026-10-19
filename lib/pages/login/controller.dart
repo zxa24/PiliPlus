@@ -170,7 +170,9 @@ class LoginPageController extends GetxController
           headers: {
             "cookie": validateCookie(cookieTextController.text),
           },
-          extra: {'account': AnonymousAccount()},
+          // the pasted cookie only: as the anonymous account the jar's
+          // per-launch buvid3 would be sent with the SESSDATA
+          extra: {'account': const NoAccount()},
         ),
       );
       if (result.data['code'] == 0) {
@@ -195,6 +197,8 @@ class LoginPageController extends GetxController
             null,
             null,
           ).onChange();
+          // as after any login: the anonymous identity is not kept beside it
+          await AnonymousAccount().delete();
           // LibrePili: finishing a login is the explicit opt-in to login
           // mode — only after the account is saved, so a cookie text
           // without DedeUserID (which throws above) cannot leave the app
@@ -652,8 +656,6 @@ class LoginPageController extends GetxController
   }
 
   Future<void> setAccount(Map tokenInfo, List cookieInfo) async {
-    // LibrePili: finishing a login is the explicit opt-in to login mode
-    await GStorage.setting.put(SettingBoxKey.loginMode, true);
     final account = LoginAccount(
       BiliCookieJar.fromList(cookieInfo),
       tokenInfo['access_token'],
@@ -664,6 +666,9 @@ class LoginPageController extends GetxController
       if (a.mid == account.mid) account.type.addAll(a.type);
     }
     await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
+    // LibrePili: finishing a login is the explicit opt-in to login mode —
+    // only once the account is saved, as for a cookie login
+    await GStorage.setting.put(SettingBoxKey.loginMode, true);
     // login mode was just turned on: activate the saved roles
     await Accounts.refresh();
     MineController.anonymity.value = false;

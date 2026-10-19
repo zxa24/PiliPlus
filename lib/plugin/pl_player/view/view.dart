@@ -241,8 +241,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     }
 
     if (widget.videoDetailController case final controller?) {
-      if (controller.vttSubtitlesIndex.value != 0) {
-        if (visible) {
+      if (visible) {
+        if (controller.vttSubtitlesIndex.value != 0) {
           const int minPadding = 70;
           if (plPlayerController.subtitlePaddingB < minPadding) {
             tmpSubtitlePaddingB = plPlayerController.subtitlePaddingB;
@@ -250,14 +250,14 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
               ..subtitlePaddingB = minPadding
               ..subtitleConfig.value = plPlayerController.getSubConfig;
           }
-        } else {
-          if (tmpSubtitlePaddingB != null) {
-            plPlayerController
-              ..subtitlePaddingB = tmpSubtitlePaddingB!
-              ..subtitleConfig.value = plPlayerController.getSubConfig;
-            tmpSubtitlePaddingB = null;
-          }
         }
+        // a lift is let go of whatever the subtitle is now: turned off while
+        // the controls showed, it stayed and became the stored padding
+      } else if (tmpSubtitlePaddingB != null) {
+        plPlayerController
+          ..subtitlePaddingB = tmpSubtitlePaddingB!
+          ..subtitleConfig.value = plPlayerController.getSubConfig;
+        tmpSubtitlePaddingB = null;
       }
     }
   }
@@ -367,7 +367,14 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       } else {
         if (_pauseDueToPauseUponEnteringBackgroundMode) {
           _pauseDueToPauseUponEnteringBackgroundMode = false;
-          player?.play();
+          // through [PlPlayerController.play], as onDoubleTapCenter says
+          // every play goes: after a long time away the URLs may have
+          // expired. The controls stay as they are
+          if (player != null) {
+            plPlayerController.play(
+              hideControls: !plPlayerController.showControls.value,
+            );
+          }
         }
       }
     }
@@ -404,6 +411,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     removeObserverMobile(this);
     _danmakuListener?.cancel();
     _tapGestureRecognizer.dispose();
+    if (_longPressing) {
+      _longPressing = false;
+      plPlayerController.setLongPressStatus(false);
+    }
     _longPressRecognizer?.dispose();
     _doubleTapGestureRecognizer.dispose();
     _scaleGestureRecognizer.dispose();
@@ -413,6 +424,14 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     _transformationController.dispose();
     _removeDmAction();
     _volumeListener?.cancel();
+    // the lift above the controls is this view's: closed with them shown,
+    // it stayed, and was saved as the subtitle padding
+    if (tmpSubtitlePaddingB case final padding?) {
+      plPlayerController
+        ..subtitlePaddingB = padding
+        ..subtitleConfig.value = plPlayerController.getSubConfig;
+      tmpSubtitlePaddingB = null;
+    }
     super.dispose();
   }
 
@@ -967,10 +986,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         plPlayerController.seekToPos?.inMilliseconds ??
         plPlayerController.seekPosition.value * 1000;
     final posDelta = (plPlayerController.sliderScale * dx / maxWidth).round();
-    final newPos = (curPos + posDelta).clamp(
-      0,
-      plPlayerController.durationInMilliseconds,
-    );
+    // the length is 0 before the first file is in: only the start bounds it
+    final length = plPlayerController.durationInMilliseconds;
+    final to = curPos + posDelta;
+    final newPos = length > 0 ? to.clamp(0, length) : (to < 0 ? 0 : to);
     final seconds = newPos ~/ 1000;
     plPlayerController
       ..seekToPos = Duration(milliseconds: newPos)
@@ -1211,11 +1230,23 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
               ? const Duration(milliseconds: 300)
               : null,
         )
-        ..onLongPressStart = ((_) =>
-            plPlayerController.setLongPressStatus(true))
-        ..onLongPressEnd = ((_) => plPlayerController.setLongPressStatus(false))
-        ..onLongPressCancel = (() =>
-            plPlayerController.setLongPressStatus(false));
+        ..onLongPressStart = ((_) {
+          _longPressing = true;
+          plPlayerController.setLongPressStatus(true);
+        })
+        ..onLongPressEnd = ((_) {
+          _longPressing = false;
+          plPlayerController.setLongPressStatus(false);
+        })
+        ..onLongPressCancel = (() {
+          _longPressing = false;
+          plPlayerController.setLongPressStatus(false);
+        });
+
+  /// A press of [longPressRecognizer] under way. Disposed during one (a
+  /// switch to or from fullscreen), the recognizer tells neither its end
+  /// nor a cancel, and playback stayed fast.
+  bool _longPressing = false;
   late final ImmediateTapGestureRecognizer _tapGestureRecognizer;
   late final DoubleTapGestureRecognizer _doubleTapGestureRecognizer;
   late final PlayerScaleGestureRecognizer _scaleGestureRecognizer;

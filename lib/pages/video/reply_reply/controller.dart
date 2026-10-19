@@ -223,6 +223,8 @@ class VideoReplyReplyController extends ReplyController
   void onClose() {
     _controller?.dispose();
     _controller = null;
-    super.dispose();
+    // onClose, not dispose: the base's onClose disposes the scroll
+    // controller, and was never reached
+    super.onClose();
   }
 }

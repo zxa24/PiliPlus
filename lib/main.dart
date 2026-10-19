@@ -28,6 +28,7 @@ import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/power_events.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
+import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/codec_support.dart';
@@ -48,7 +49,6 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
-import 'package:PiliPlus/utils/utils.dart';
 import 'package:canvas_danmaku/utils/utils.dart' as danmaku;
 import 'package:catcher_2/catcher_2.dart';
 import 'package:collection/collection.dart';
@@ -64,6 +64,9 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
+import 'package:win32/win32.dart'
+    as win32
+    show MB_ICONERROR, MessageBox, StringExtension;
 import 'package:window_manager/window_manager.dart' hide calcWindowPosition;
 import 'package:PiliPlus/utils/app_exit.dart';
 
@@ -137,7 +140,18 @@ void main(List<String> args) async {
   try {
     await GStorage.init();
   } catch (e) {
-    await Utils.copyText(e.toString(), needToast: false);
+    // shown, not put on the clipboard (which overwrote whatever the user
+    // had there): most often a second copy started on the same profile
+    final message = '无法打开数据目录（可能已有一个 LibrePili 在使用它）\n\n$e';
+    stderr.writeln(message);
+    if (Platform.isWindows && !isSelfTestProfile) {
+      win32.MessageBox(
+        null,
+        message.toPcwstr(),
+        'LibrePili'.toPcwstr(),
+        win32.MB_ICONERROR,
+      );
+    }
     if (kDebugMode) debugPrint('GStorage init error: $e');
     if (isSelfTestProfile) SelfTest.abort(args, e);
     appExit();
@@ -182,7 +196,13 @@ void main(List<String> args) async {
   HttpOverrides.global = _CustomHttpOverrides();
 
   if (PlatformUtils.isMobile) {
-    if (Platform.isAndroid) MaxScreenSize.init();
+    if (Platform.isAndroid) {
+      MaxScreenSize.init();
+      // the documents provider as the setting says: PackageManager keeps the
+      // component's state, and a reset or import (重启生效) changes the key
+      // without touching it
+      AndroidHelper.updateDocProvider(Pref.enableDocProvider);
+    }
     await Future.wait([
       if (Pref.horizontalScreen) ?fullMode() else ?portraitUpMode(),
       setupServiceLocator(),
@@ -483,7 +503,9 @@ class _CustomHttpOverrides extends HttpOverrides {
     // ..maxConnectionsPerHost = 32
     /// The default value is 15 seconds.
     //   ..idleTimeout = const Duration(seconds: 15);
-    if (kDebugMode || Pref.badCertificateCallback) {
+    // the setting only: a debug build (the self-test instances are) checks
+    // certificates as a release one does
+    if (Pref.badCertificateCallback) {
       client.badCertificateCallback = (cert, host, port) => true;
     }
     return client;

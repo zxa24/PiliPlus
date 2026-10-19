@@ -25,6 +25,11 @@ class DynamicsController
   String? _offset;
   late int _page = 1;
   late bool _isEnd = false;
+
+  /// A refresh asked for while a load is out: run once that is back, and a
+  /// load-more's answer then dropped, since it was asked with the paging
+  /// the refresh has reset.
+  var _refreshWaiting = false;
   Set<UpItem>? _cacheUpList;
   late int hostMid = -1, currentMid = -1;
   late bool showLiveUp = Pref.expandDynLivePanel;
@@ -158,14 +163,23 @@ class DynamicsController
   }
 
   @override
-  Future<void> queryData([bool isRefresh = true]) {
-    if (!isRefresh && _isEnd) return Future.value();
-    return super.queryData(isRefresh);
+  Future<void> queryData([bool isRefresh = true]) async {
+    if (!isRefresh && _isEnd) return;
+    if (isRefresh && isLoading) {
+      _refreshWaiting = true;
+      return;
+    }
+    await super.queryData(isRefresh);
+    if (_refreshWaiting) {
+      _refreshWaiting = false;
+      await super.queryData(true);
+    }
   }
 
   @override
   bool customHandleResponse(bool isRefresh, Success<FollowUpModel> response) {
     final res = response.response;
+    if (!isRefresh && _refreshWaiting) return true;
 
     if (_showAllUp) {
       if (res.upList?.isNotEmpty != true) {
