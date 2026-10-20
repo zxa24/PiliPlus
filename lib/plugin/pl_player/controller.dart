@@ -62,6 +62,7 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:archive/archive.dart' show getCrc32;
 import 'package:canvas_danmaku/canvas_danmaku.dart';
+import 'package:canvas_danmaku/utils/utils.dart' show DmUtils;
 import 'package:easy_debounce/easy_throttle.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/scheduler.dart' show SchedulerBinding;
@@ -1451,6 +1452,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     SchedulerBinding.instance.addTimingsCallback((timings) {
       for (final t in timings) {
         final span = t.totalSpan.inMilliseconds;
+        // a self test: also the frames that made many danmaku images, long
+        // or not, to weigh them against the long ones
+        if (isSelfTestProfile && span <= 100) {
+          if (DmUtils.madeByFrame[t.frameNumber] case (final n, final px)
+              when n >= 8) {
+            EventLog.add(
+              'ui',
+              '新弹幕 $n 条 ${(px / 1e6).toStringAsFixed(2)} MP · '
+                  '绘制 ${t.rasterDuration.inMilliseconds} ms',
+            );
+          }
+        }
         if (span > 100) {
           int ms(ui.FramePhase from, ui.FramePhase to) =>
               (t.timestampInMicroseconds(to) -
@@ -1461,7 +1474,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             '界面卡 $span ms (开始前 ${ms(ui.FramePhase.vsyncStart, ui.FramePhase.buildStart)} ms'
                 ' · 构建 ${t.buildDuration.inMilliseconds} ms'
                 ' · 排队 ${ms(ui.FramePhase.buildFinish, ui.FramePhase.rasterStart)} ms'
-                ' · 绘制 ${t.rasterDuration.inMilliseconds} ms)',
+                ' · 绘制 ${t.rasterDuration.inMilliseconds} ms'
+                '${switch (DmUtils.madeByFrame[t.frameNumber]) {
+                  (final n, final px)? => ' · 新弹幕 $n 条 ${(px / 1e6).toStringAsFixed(2)} MP',
+                  null => '',
+                }})',
           );
         }
       }
@@ -1661,14 +1678,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // reconnect mpv makes of itself has stopped at the same byte, the
         // host is changed at once, while what is buffered still plays
         if (prematureEndAt(event) case final at? when !closing) {
-          // a sign of a cut copy already: a verdict that playback is not
-          // keeping up which follows it is this (see [_replaceIfCut]) —
-          // the reconnect that times out on it read as a slow host
-          _cutSign = (at: int.parse(at), seen: now);
           // twice at one byte, or once after mpv's own reconnect found
           // nothing there (the size it expects is then unknown): the copy
           // ends there. A seek past the cut shows only the second kind
           if (!_cutAt.add(at) || event.contains(_unknownSize)) {
+            // a sign of a cut copy: a verdict that playback is not keeping
+            // up which follows it is this (see [_replaceIfCut]). Not once:
+            // a host closing a connection mid-body (akam does every few
+            // seconds) makes mpv say the same, and a slow host would be
+            // changed instead of stepped down (audit H3)
+            _cutSign = (at: int.parse(at), seen: now);
             _firmCutAt = int.parse(at);
             if (_holdWhilePaused) {
               _cutOnPlay = int.parse(at);
@@ -2075,7 +2094,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final hosts = <String>{};
     if (source is NetworkSource) {
       for (final url in [source.videoSource, ?source.audioSource]) {
-        final host = Uri.tryParse(url)?.host;
+        final uri = Uri.tryParse(url);
+        var host = uri?.host;
+        // a loopback stream (the parallel fetch, the YouTube relay) names
+        // its upstream's host in the path: `/<token>/<host>`
+        if (host == '127.0.0.1') {
+          final segments = uri!.pathSegments;
+          host = segments.length >= 2 ? segments[1] : null;
+        }
         if (host != null && host.isNotEmpty && host != '127.0.0.1') {
           hosts.add(host);
         }
@@ -2297,7 +2323,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   final _cutAt = <String>{};
 
   /// The last sign that a stream of the current source is a copy cut short
-  /// (mpv's `Stream ends prematurely` once, or the parallel fetch's
+  /// (mpv's `Stream ends prematurely` twice at one byte, or the parallel
+  /// fetch's
   /// [ParallelFetch.onCut]); taken by the first verdict it outweighs (see
   /// [_replaceIfCut]).
   CutSign? _cutSign;
@@ -2326,7 +2353,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           uri.path == upstream.path;
     }
 
-    if (!ours(source.videoSource) && !ours(source.audioSource)) return;
+    // a handover plays another host's copy without changing [dataSource]:
+    // the URLs now played say whose it is
+    final video = _playingVideo ?? source.videoSource;
+    final audio = _playingVideo != null ? _playingAudio : source.audioSource;
+    if (!ours(video) && !ours(audio)) return;
     // the pieces past the cut are given up on too, one after another: the
     // first is acted on
     if (_replacing) return;

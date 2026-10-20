@@ -164,6 +164,12 @@ class DownloadManager {
       DioExceptionType.receiveTimeout ||
       DioExceptionType.connectionError => true,
       DioExceptionType.unknown => isNetworkFailure(inner),
+      // the parallel fetch on the loopback answers 502 when the host could
+      // not be reached at all; a refusal it passes on (403) stays the
+      // server's answer
+      DioExceptionType.badResponse =>
+        _isLoopback(error.requestOptions.uri) &&
+            (error.response?.statusCode ?? 0) >= 500,
       _ => false,
     },
     SocketException() ||
@@ -174,6 +180,8 @@ class DownloadManager {
     String() => error.startsWith('incomplete transfer'),
     _ => false,
   };
+
+  static bool _isLoopback(Uri uri) => uri.host == '127.0.0.1';
 
   /// [url] over https, unless it is the parallel fetch's on the loopback.
   static String _https(String url) =>

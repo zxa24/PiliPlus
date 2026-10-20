@@ -54,10 +54,26 @@ abstract final class SponsorBlock {
 
   static String _api(String url) => '$blockServer/api/$url';
 
-  /// Servers that answered the hash-prefix lookup with 400, or with 404 for
-  /// a video the plain query then found segments for: asked the plain way
-  /// for the rest of the run.
+  /// Servers known to lack the hash-prefix lookup: asked the plain way for
+  /// the rest of the run.
   static final _noPrefix = <String>{};
+
+  /// Servers known to have it, having answered a prefix with 200 or refused
+  /// [probePrefix] as malformed: their 404 means no video under the prefix,
+  /// and the plain query is not sent.
+  static final _withPrefix = <String>{};
+
+  /// The check of a server whose support is not known yet, one per server.
+  static final _probes = <String, Future<bool?>>{};
+
+  /// Asked once per server on a 404 while its support is unknown: not hex,
+  /// so it matches no video and says nothing of the user's. A server with
+  /// the lookup refuses it as malformed (400); one without has no such
+  /// route (404). The default server, probed 2026-10-20: `zzzz` 400, `0000`
+  /// 200, an unknown route 404. A prefix that is hex may simply be empty,
+  /// which a 404 cannot tell from a missing route.
+  @visibleForTesting
+  static const probePrefix = 'zzzz';
 
   /// The first four hex digits of the SHA-256 of [bvid]: all the server is
   /// told of the video (oct-pass3-D6). It answers with every video sharing
@@ -99,14 +115,40 @@ abstract final class SponsorBlock {
   static Future<LoadingState<List<SegmentItemModel>>> getSkipSegments({
     required String bvid,
     required int cid,
+  }) => lookup(
+    server: blockServer,
+    bvid: bvid,
+    cid: cid,
+    get: (url, query) =>
+        Request().get(url, queryParameters: query, options: options),
+  );
+
+  /// [getSkipSegments] on [server], each request made through [get].
+  @visibleForTesting
+  static Future<LoadingState<List<SegmentItemModel>>> lookup({
+    required String server,
+    required String bvid,
+    required int cid,
+    required Future<Response> Function(String url, Map<String, dynamic>? query)
+    get,
   }) async {
-    final server = blockServer;
-    if (_noPrefix.contains(server)) return _segmentsByVideo(bvid, cid);
-    final res = await Request().get(
-      _api('${SponsorBlockApi.skipSegments}/${hashPrefix(bvid)}'),
-      options: options,
-    );
+    final base = '$server/api/${SponsorBlockApi.skipSegments}';
+    Future<LoadingState<List<SegmentItemModel>>> plain() async {
+      final res = await get(base, {'videoID': bvid, 'cid': cid});
+      if (res.statusCode == 200) {
+        if (res.data case final List list) {
+          return Success(
+            list.map((i) => SegmentItemModel.fromJson(i)).toList(),
+          );
+        }
+      }
+      return getErrMsg(res);
+    }
+
+    if (_noPrefix.contains(server)) return plain();
+    final res = await get('$base/${hashPrefix(bvid)}', null);
     if (res.statusCode == 200) {
+      _withPrefix.add(server);
       if (pickSegments(res.data, bvid: bvid, cid: cid) case final picked?) {
         return Success(picked.map(SegmentItemModel.fromJson).toList());
       }
@@ -114,37 +156,46 @@ abstract final class SponsorBlock {
     }
     if (res.statusCode != 404 && res.statusCode != 400) return getErrMsg(res);
     // A server without the lookup — or, on one with it, no video at all
-    // under the prefix, which upstream answers with 404 too: asked the
-    // plain way. Kept to that only once it is clear the lookup is missing,
-    // not the video.
-    final plain = await _segmentsByVideo(bvid, cid);
-    if (res.statusCode == 400 ||
-        (plain is Success<List<SegmentItemModel>> &&
-            plain.response.isNotEmpty)) {
-      _noPrefix.add(server);
+    // under the prefix (404), or a refusal of a prefix it should take (400:
+    // four hex digits are valid where the lookup is, upstream takes 4 to
+    // 32). The plain query, which names the video, only once the lookup is
+    // known missing.
+    LoadingState<List<SegmentItemModel>> withLookup() =>
+        res.statusCode == 404 ? const Success([]) : getErrMsg(res);
+    if (_withPrefix.contains(server)) return withLookup();
+    final supported = await (_probes[server] ??= _probe(base, get));
+    if (supported == null) {
+      // not learnt (the check itself failed): asked again next time
+      _probes.remove(server);
+      return getErrMsg(res);
     }
-    return plain;
+    if (supported) {
+      _withPrefix.add(server);
+      return withLookup();
+    }
+    _noPrefix.add(server);
+    return plain();
   }
 
-  static Future<LoadingState<List<SegmentItemModel>>> _segmentsByVideo(
-    String bvid,
-    int cid,
+  /// Whether the server at [base] has the prefix lookup, by [probePrefix]:
+  /// 400 yes, 404 no, anything else (no answer included) not learnt.
+  static Future<bool?> _probe(
+    String base,
+    Future<Response> Function(String url, Map<String, dynamic>? query) get,
   ) async {
-    final res = await Request().get(
-      _api(SponsorBlockApi.skipSegments),
-      queryParameters: {
-        'videoID': bvid,
-        'cid': cid,
-      },
-      options: options,
-    );
+    final res = await get('$base/$probePrefix', null);
+    return switch (res.statusCode) {
+      400 => true,
+      404 => false,
+      _ => null,
+    };
+  }
 
-    if (res.statusCode == 200) {
-      if (res.data case final List list) {
-        return Success(list.map((i) => SegmentItemModel.fromJson(i)).toList());
-      }
-    }
-    return getErrMsg(res);
+  @visibleForTesting
+  static void resetServers() {
+    _noPrefix.clear();
+    _withPrefix.clear();
+    _probes.clear();
   }
 
   static Future<LoadingState<void>> voteOnSponsorTime({

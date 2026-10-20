@@ -73,14 +73,16 @@ class SpacedSubtitleView extends SubtitleView {
   static double sizeFor(double height, double scale) =>
       clampDouble(40 * math.sqrt(math.max(0, height) / 1080), 14, 64) * scale;
 
-  /// The size the 描边粗细 setting was made for: subtitles were 16 px (times
-  /// 字体大小) before [sizeFor].
+  /// The size the 描边粗细 setting was made for: subtitles were 16 px at
+  /// 字体大小 1.0 before [sizeFor]. The text size includes 字体大小, so the
+  /// outline scales with it too: at 1.5, 1.5 times its width at 1.0.
   static const strokeReference = 16.0;
 
   /// [stroke] — the outline drawn under the text — for text [em] px: its
   /// width the setting's times [em] / [strokeReference], so the outline keeps
   /// its share of the glyph at any size rather than going heavy in a small
-  /// window and hairline at 4K (oct-pass2-D3). At 16 px, as before.
+  /// window and hairline at 4K (oct-pass2-D3). At 16 px, the setting's
+  /// width.
   static TextStyle strokeFor(TextStyle stroke, double em) {
     final paint = stroke.foreground;
     if (paint == null || paint.style != PaintingStyle.stroke) return stroke;

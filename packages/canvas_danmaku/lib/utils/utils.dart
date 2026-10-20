@@ -18,6 +18,25 @@ abstract final class DmUtils {
 
   static String? fontFamily;
 
+  /// LibrePili: the danmaku images made in each of the recent frames, by
+  /// frame number, with their area in device pixels — each is drawn on the
+  /// raster thread in the frame that made it, so a frame that made many
+  /// can be told from one that made none when it runs long.
+  static final madeByFrame = <int, (int count, int pixels)>{};
+
+  /// Whether [madeByFrame] is kept: a self test only (off in a build used).
+  static bool debugCountMade = false;
+
+  static void _made(double w, double h) {
+    if (!debugCountMade) return;
+    final frame = ui.PlatformDispatcher.instance.frameData.frameNumber;
+    final (count, pixels) = madeByFrame[frame] ?? (0, 0);
+    madeByFrame[frame] = (count + 1, pixels + (w * h).round());
+    if (madeByFrame.length > 600) {
+      madeByFrame.remove(madeByFrame.keys.first);
+    }
+  }
+
   /// LibrePili: where a gap goes in a danmaku's text — for each, the UTF-16
   /// range of the character it follows — set by the app (its 中英文间距,
   /// a little space between Chinese and Latin letters or digits, user
@@ -158,6 +177,7 @@ abstract final class DmUtils {
       (w * devicePixelRatio).ceil(),
       (h * devicePixelRatio).ceil(),
     );
+    _made(w * devicePixelRatio, h * devicePixelRatio);
     pic.dispose();
     return img;
   }

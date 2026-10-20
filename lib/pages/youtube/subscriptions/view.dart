@@ -62,6 +62,10 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
   /// them have answered so far.
   var _asked = 0;
   var _answered = 0;
+
+  /// A refresh asked for while one runs: run again once it ends, with the
+  /// list as it is then.
+  var _again = false;
   late final _gridDelegate = Grid.videoCardHDelegate();
   StreamSubscription? _boxSub;
 
@@ -70,14 +74,16 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
     super.initState();
     _subs = YtSubscriptions.all();
     if (_subs.isNotEmpty) _refresh();
-    // a channel followed from a video page while this (kept-alive) page
-    // showed 「还没有订阅的频道」 must bring the feed up
+    // a channel followed from a video page or imported while this
+    // (kept-alive) page is up must bring its uploads in — the feed itself
+    // on a page that showed 「还没有订阅的频道」
     _boxSub = YtSubscriptions.watch().listen((_) {
       if (!mounted) return;
       final subs = YtSubscriptions.all();
-      final wasEmpty = _subs.isEmpty;
+      final known = {for (final s in _subs) s.channelId};
+      final added = subs.any((s) => !known.contains(s.channelId));
       setState(() => _subs = subs);
-      if (wasEmpty && subs.isNotEmpty) _refresh();
+      if (added) _refresh();
     });
   }
 
@@ -88,7 +94,15 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
   }
 
   /// One channel's newest uploads, or null when it could not be fetched.
-  Future<List<YtSearchItem>?> _fetch(YtSubscription sub, bool isolate) async {
+  ///
+  /// [health] is the refresh's: one transient streak for all its channels,
+  /// so with YouTube not answering the retries are spent once, not again
+  /// for every channel (about a minute each).
+  Future<List<YtSearchItem>?> _fetch(
+    YtSubscription sub,
+    bool isolate,
+    Map<String, YtSourceHealth> health,
+  ) async {
     final source = isolate ? YtDirectSource.create() : _source;
     try {
       if (isolate) {
@@ -96,7 +110,7 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
         // one, over this channel's own connection
         await source.client.ensureVisitorData(YtClients.web);
       }
-      final result = await YtSourceRouter(source).run(
+      final result = await YtSourceRouter(source, health: health).run(
         (s) => (s as YtDirectSource).channelVideos(sub.channelId),
       );
       if (!result.ok || result.value == null) return null;
@@ -110,9 +124,14 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
   }
 
   Future<void> _refresh() async {
-    if (_loading) return;
+    if (_loading) {
+      _again = true;
+      return;
+    }
+    _again = false;
     final subs = YtSubscriptions.all();
     final isolate = Pref.ytSubIsolate;
+    final health = <String, YtSourceHealth>{};
     setState(() {
       _loading = true;
       _failed = 0;
@@ -120,7 +139,9 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
       _answered = 0;
     });
     final answers = await runYtPooled(subs, _concurrency, (sub) async {
-      final items = await _fetch(sub, isolate);
+      // the page is gone: no channel more is asked about
+      if (!mounted) return null;
+      final items = await _fetch(sub, isolate, health);
       if (mounted) setState(() => _answered++);
       return items;
     });
@@ -135,6 +156,7 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
       _loading = false;
       _failed = answers.where((e) => e == null).length;
     });
+    if (_again) _refresh();
   }
 
   // ------------------------------------------------------ import / export
@@ -164,8 +186,7 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
         if (file.otherService > 0) '${file.otherService} 个非 YouTube 已跳过',
       ].join('，'),
     );
-    // the box watcher only refreshes an empty page
-    if (added > 0 && _subs.isNotEmpty) _refresh();
+    // the channels added are brought in by the box watcher
   }
 
   void _export() {

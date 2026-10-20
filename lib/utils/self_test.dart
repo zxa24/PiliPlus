@@ -56,6 +56,7 @@ import 'package:PiliPlus/pages/danmaku/view.dart' show PlDanmaku;
 import 'package:canvas_danmaku/base_danmaku_painter.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart' show DanmakuScreen;
 import 'package:canvas_danmaku/scroll_danmaku_painter.dart';
+import 'package:canvas_danmaku/utils/utils.dart' show DmUtils;
 import 'package:PiliPlus/common/widgets/video_card/video_card_h.dart';
 import 'package:PiliPlus/pages/local/favs.dart';
 import 'package:PiliPlus/pages/local/feed.dart';
@@ -1099,9 +1100,19 @@ abstract final class SelfTest {
       _rateAt = int.tryParse(_arg(args, '--rate-at') ?? '') ?? 5;
       _playAt = int.tryParse(_arg(args, '--play-at') ?? '');
       _pauseAt = int.tryParse(_arg(args, '--pause-at') ?? '');
+      // `--jumps 40+95,110+230`: 40 s in, a jump 95 s forward from wherever
+      // playback is, then 110 s in another 230 s on — as a viewer drags the
+      // bar, whether or not the first has finished buffering
+      _jumps = [
+        for (final jump in (_arg(args, '--jumps') ?? '').split(','))
+          if (jump.split('+') case [final at, final by]
+              when int.tryParse(at) != null && int.tryParse(by) != null)
+            (int.parse(at), int.parse(by)),
+      ];
       _frameProbeAt = int.tryParse(_arg(args, '--frame-probe') ?? '');
       _fullScreenAt = int.tryParse(_arg(args, '--fullscreen-at') ?? '');
       BaseDanmakuPainter.debugLegacyMotion = args.contains('--danmaku-legacy');
+      DmUtils.debugCountMade = true;
       PlPlayerController.debugNoHeldPicture = args.contains('--no-hold');
       _shots = _arg(args, '--shots') ?? _shots;
       _switches = [
@@ -5702,6 +5713,7 @@ abstract final class SelfTest {
   static int _rateAt = 5;
   static int? _playAt;
   static int? _pauseAt;
+  static var _jumps = <(int, int)>[];
 
   /// `--frame-probe S`: from S s on, 10 s of the frames the page drew (the
   /// danmaku moving over the video): their intervals, build and raster
@@ -6084,6 +6096,16 @@ abstract final class SelfTest {
       unawaited(() async {
         await Future.delayed(Duration(seconds: at));
         await _probeFrames();
+      }());
+    }
+    for (final (at, by) in _jumps) {
+      unawaited(() async {
+        await Future.delayed(Duration(seconds: at));
+        final from = player.position.value;
+        final total = player.duration.value;
+        final to = total > 20 ? math.min(from + by, total - 15) : from + by;
+        EventLog.add('selftest', 'jump +$by s: $from s -> $to s');
+        await player.seekTo(Duration(seconds: to), isSeek: false);
       }());
     }
     if (_pauseAt case final at?) {

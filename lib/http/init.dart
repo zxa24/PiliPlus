@@ -184,6 +184,10 @@ class Request {
     return (http11Adapter, connectionManager);
   }
 
+  /// The pools built again for a change of 设置代理: the HTTP/2 one takes
+  /// the proxy when it is built, and kept the old one until a restart.
+  static void onProxyChanged() => _resetAdaptersForNetworkChange();
+
   @pragma('vm:notify-debugger-on-exception')
   static void _resetAdaptersForNetworkChange() {
     try {

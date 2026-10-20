@@ -129,5 +129,25 @@ void main() {
       expect(relay.running, isFalse);
       expect(() => status(url), throwsA(isA<SocketException>()));
     });
+
+    test('closed while starting, it is not left listening', () async {
+      final pending = relay.wrap('https://public.example/a');
+      await relay.close();
+      final url = await pending;
+      expect(relay.running, isFalse);
+      expect(() => status(url), throwsA(isA<SocketException>()));
+    });
+
+    test("the stream's expiry goes on the URL, for the player", () async {
+      final url = Uri.parse(
+        await relay.wrap(
+          'https://public.example/videoplayback?expire=1760000000&id=1',
+        ),
+      );
+      expect(url.queryParameters, {'expire': '1760000000'});
+      expect(url.pathSegments.last, 'public.example');
+      final none = Uri.parse(await relay.wrap('https://public.example/a'));
+      expect(none.hasQuery, isFalse);
+    });
   });
 }

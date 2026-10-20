@@ -103,12 +103,25 @@ YtSubscriptionFile parseTakeoutSubscriptionsCsv(String text) {
     out.add(id, row.length > 2 ? row[2] : null);
   }
   // a file of nothing but unreadable rows is not a subscription list (a
-  // header alone is: an account that followed no one)
-  if (out.channels.isEmpty && rows.length != 1) {
+  // header alone is: an account that followed no one — but only a row that
+  // reads as one, not any one line, such as a minified JSON array)
+  if (out.channels.isEmpty &&
+      (rows.length != 1 || !_looksLikeTakeoutHeader(rows.single))) {
     throw const FormatException('不是可识别的订阅文件');
   }
   return out.result();
 }
+
+/// Takeout's header, in whatever language: three named columns, none of
+/// them a channel or a URL.
+bool _looksLikeTakeoutHeader(List<String> row) =>
+    row.length == 3 &&
+    row.every(
+      (c) =>
+          c.trim().isNotEmpty &&
+          !c.contains('://') &&
+          ytChannelIdFrom(c) == null,
+    );
 
 /// The NewPipe JSON for [channels]; `app_version` names this app, which
 /// neither reader checks.

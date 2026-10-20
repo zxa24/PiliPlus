@@ -1878,6 +1878,9 @@ class YtVideoController extends GetxController
     }
     if (next == null) return null;
     final height = next;
+    // the source of the streams playing: a step served by another (after a
+    // fall-through, the direct source is asked first again) is not mixed in
+    final playingFrom = _streams?.sourceId;
     final result = await play.run(
       (s) =>
           s.streams(videoId, preference: YtFormatPreference(maxHeight: height)),
@@ -1932,8 +1935,13 @@ class YtVideoController extends GetxController
       EventLog.add('player', 'the step up stalled: no step up for 10 min');
     }
     final video = await _playable(pair, _videoUrlOf(pair));
+    // from another source, its audio too: a relay URL and a googlevideo one
+    // in one file left the latter outside 设置代理 (AppProxy.mpvFor)
+    final audio = pair.sourceId == playingFrom
+        ? null
+        : await _playable(pair, pair.audioUrl);
     if (isClosed) return null;
-    return (video: video, audio: null);
+    return (video: video, audio: audio);
   }
 
   /// Puts back what a step up changed, for one the player could not make

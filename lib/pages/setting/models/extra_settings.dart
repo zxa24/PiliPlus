@@ -14,6 +14,7 @@ import 'package:PiliPlus/common/widgets/image_grid/image_grid_view.dart'
 import 'package:PiliPlus/common/widgets/pendant_avatar.dart';
 import 'package:PiliPlus/grpc/reply.dart';
 import 'package:PiliPlus/http/fav.dart';
+import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/audio_normalization.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamics_type.dart';
@@ -696,6 +697,7 @@ List<SettingsModel> get extraSettings => [
     switchModel: SwitchModel.split(
       defaultVal: false,
       setKey: SettingBoxKey.enableSystemProxy,
+      onChanged: _proxyChanged,
       onTap: _showProxyDialog,
     ),
   ),
@@ -1193,6 +1195,9 @@ Future<void> _showMemberTabDialog(
   }
 }
 
+/// The bilibili pools take the proxy when they are built: built again.
+void _proxyChanged(_) => Request.onProxyChanged();
+
 void _showProxyDialog(BuildContext context) {
   String systemProxyHost = Pref.systemProxyHost;
   String systemProxyPort = Pref.systemProxyPort;
@@ -1244,16 +1249,20 @@ void _showProxyDialog(BuildContext context) {
           ),
         ),
         TextButton(
-          onPressed: () {
+          onPressed: () async {
             Get.back();
-            GStorage.setting.put(
+            final changed =
+                systemProxyHost != Pref.systemProxyHost ||
+                systemProxyPort != Pref.systemProxyPort;
+            await GStorage.setting.put(
               SettingBoxKey.systemProxyHost,
               systemProxyHost,
             );
-            GStorage.setting.put(
+            await GStorage.setting.put(
               SettingBoxKey.systemProxyPort,
               systemProxyPort,
             );
+            if (changed) Request.onProxyChanged();
           },
           child: const Text('确认'),
         ),

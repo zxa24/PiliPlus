@@ -104,6 +104,21 @@ void main() {
     );
   });
 
+  test('a header alone is an empty list, any other one line is refused', () {
+    expect(
+      parseYtSubscriptionFile('频道 ID,频道网址,频道标题\n').channels,
+      isEmpty,
+    );
+    expect(
+      () => parseYtSubscriptionFile('just one line of text'),
+      throwsFormatException,
+    );
+    expect(
+      () => parseYtSubscriptionFile('a,b,http://example.com/x'),
+      throwsFormatException,
+    );
+  });
+
   test('channel ids', () {
     expect(ytChannelIdFrom(_a), _a);
     expect(ytChannelIdFrom('https://www.youtube.com/channel/$_a?x=1'), _a);

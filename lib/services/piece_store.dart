@@ -273,8 +273,8 @@ class PieceStore {
         if (identical(_streams[stream.key], stream)) await _drop(stream);
       });
     }
-    _lru.clear();
-    _bytes = 0;
+    // each dropped stream took its own pieces off the count: one written
+    // while this ran (another stream's) stays counted, and is trimmed
   }
 
   /// Down to [maxBytes] (after it was lowered, too).

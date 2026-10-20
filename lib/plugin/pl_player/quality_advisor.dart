@@ -101,7 +101,8 @@ abstract final class QualityAdvisor {
   /// Whether what reads as "not keeping up" — the buffer running down, a
   /// stall, mpv's reconnect timing out — is a copy cut short instead: the
   /// byte it ends at when a sign of one ([sign]: a piece the host ended
-  /// below the file's size, or mpv's `Stream ends prematurely`) came within
+  /// below the file's size, or mpv's `Stream ends prematurely` twice at one
+  /// byte) came within
   /// [cutOutweighs] of [now]; null when there is none, and the verdict
   /// stands. A cut copy runs dry behind the cut on any connection: it is
   /// replaced by another host's at the same quality, and only a host that

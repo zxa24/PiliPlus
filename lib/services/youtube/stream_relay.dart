@@ -131,39 +131,106 @@ class YtCheckedHops {
       throw YtHopRefused(uri, 'not checked');
     }
     var cancelled = false;
+    // every socket opened and not handed on, closed when it is not needed
+    final opened = <Socket>{};
     Socket? connected;
-    Future<Socket> open() async {
-      Object? error;
-      // in the order the lookup gave them, as dart:io's own connect does
-      for (final address in pinned) {
-        if (cancelled) break;
+    final won = Completer<Socket>();
+    var next = 0;
+    var live = 0;
+    Object? lastError;
+
+    // Staggered, as dart:io's own connect: the next address once the last
+    // has failed — in TLS too — or 250 ms on while none has won, TCP or
+    // TLS still pending (a TLS that stalls is no better than a dead
+    // address); the first through TLS wins and the rest are closed. One at a time, a dead
+    // first address used up the client's whole timeout (10 s) and the
+    // second was never tried. The client's timeout bounds it all.
+    void startNext() {
+      if (cancelled || won.isCompleted) return;
+      if (next >= pinned.length) {
+        if (live == 0) {
+          won.completeError(
+            lastError ?? const SocketException('connection failed'),
+          );
+        }
+        return;
+      }
+      final address = pinned[next++];
+      live++;
+      var handedOn = false;
+      void handOn() {
+        if (handedOn) return;
+        handedOn = true;
+        startNext();
+      }
+
+      final stagger = Timer(const Duration(milliseconds: 250), () {
+        if (!won.isCompleted) handOn();
+      });
+      () async {
+        Socket? raw;
         try {
-          final socket = await Socket.connect(
+          raw = await Socket.connect(
             address,
             uri.port,
             timeout: const Duration(seconds: 10),
           );
-          if (cancelled) {
-            socket.destroy();
-            break;
+          opened.add(raw);
+          if (cancelled || won.isCompleted) {
+            throw const SocketException('connection not needed');
           }
-          connected = socket;
-          if (uri.scheme != 'https') return socket;
           // TLS for the URL's host: its name is what the certificate must
           // carry, whatever address the connection went to
-          return await SecureSocket.secure(socket, host: uri.host);
+          final socket = uri.scheme == 'https'
+              ? await SecureSocket.secure(raw, host: uri.host)
+              : raw;
+          if (cancelled || won.isCompleted) {
+            socket.destroy();
+            throw const SocketException('connection not needed');
+          }
+          opened.remove(raw);
+          live--;
+          stagger.cancel();
+          won.complete(socket);
         } catch (e) {
-          connected?.destroy();
-          connected = null;
-          error = e;
+          if (raw != null) {
+            raw.destroy();
+            opened.remove(raw);
+          }
+          lastError = e;
+          live--;
+          stagger.cancel();
+          if (handedOn) {
+            // the next address at once; the failure once all have failed
+            startNext();
+          } else {
+            handOn();
+          }
         }
+      }();
+    }
+
+    Future<Socket> open() async {
+      startNext();
+      final socket = await won.future;
+      connected = socket;
+      if (cancelled) {
+        socket.destroy();
+        throw const SocketException('connection cancelled');
       }
-      throw error ?? const SocketException('connection cancelled');
+      return socket;
     }
 
     return ConnectionTask.fromSocket(open(), () {
       cancelled = true;
       connected?.destroy();
+      for (final socket in [...opened]) {
+        socket.destroy();
+      }
+      opened.clear();
+      if (!won.isCompleted) {
+        won.completeError(const SocketException('connection cancelled'));
+      }
     });
   }
 
@@ -185,6 +252,9 @@ class YtStreamRelay {
 
   HttpServer? _server;
   Future<HttpServer>? _starting;
+
+  /// Counts the [close]s: a bind that finishes after one is closed again.
+  var _generation = 0;
   YtCheckedHops _hops = _newHops();
 
   static YtCheckedHops _newHops() => YtCheckedHops(
@@ -212,6 +282,8 @@ class YtStreamRelay {
   /// it is not running.
   Future<String> wrap(String url) async {
     final server = _server ?? await (_starting ??= _start());
+    // closed meanwhile: a URL that leads nowhere, the page being gone
+    if (!identical(server, _server)) return 'http://127.0.0.1:0/';
     return _urlFor(server, url);
   }
 
@@ -225,8 +297,15 @@ class YtStreamRelay {
     final uri = Uri.parse(url);
     final token = _tokenOf[url] ??= _newToken();
     _upstream[token] = uri;
-    return 'http://127.0.0.1:${server.port}/$token/${uri.host}';
+    // the upstream's expiry, which the player reads to ask for new URLs
+    // before a long pause outlives them (PlPlayerController.sourceExpiry);
+    // the relay itself reads only the token
+    final expire = _expire.firstMatch(url)?.group(1);
+    return 'http://127.0.0.1:${server.port}/$token/${uri.host}'
+        '${expire == null ? '' : '?expire=$expire'}';
   }
+
+  static final _expire = RegExp(r'(?:[?&]expire=|/expire/)(\d{9,11})');
 
   /// The streams now played are [urls]: what is still being fetched for
   /// any other is stopped (a quality change, new URLs). Their tokens stay
@@ -243,13 +322,20 @@ class YtStreamRelay {
   }
 
   Future<HttpServer> _start() async {
+    final generation = _generation;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    if (generation != _generation) {
+      // the page closed while binding: nothing is to listen
+      await server.close(force: true);
+      return server;
+    }
     server.listen(_serve, onError: (_) {});
     return _server = server;
   }
 
   /// Every stream let go and the server closed: the page is gone.
   Future<void> close() async {
+    _generation++;
     final server = _server;
     _server = null;
     _starting = null;

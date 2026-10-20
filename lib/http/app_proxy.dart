@@ -1,11 +1,12 @@
 /// The 设置代理 setting, for every connection the app opens (user
 /// 2026-10-19: all of them, the player included).
 ///
-/// One rule, read at each request so a change applies as it did for the
-/// bilibili requests before: the app's own servers on the loopback (the
-/// parallel fetch, the Invidious relay, the command-line reader) are reached
-/// directly; everything else goes through the proxy while the setting is on
-/// and complete, and as the environment says otherwise.
+/// One rule, read at each request so a change applies at once: the app's
+/// own servers on the loopback (the parallel fetch, the Invidious relay, the
+/// command-line reader) are reached directly; everything else goes through
+/// the proxy while the setting is on and complete, and as the environment
+/// says otherwise. The bilibili HTTP/2 pool takes the proxy when it is
+/// built instead, and is built again on a change (Request.onProxyChanged).
 ///
 /// Where it is applied: every `dart:io` [HttpClient] through the app's
 /// [HttpOverrides] (main.dart); the bilibili clients that set their own
