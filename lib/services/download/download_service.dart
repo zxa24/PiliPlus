@@ -175,7 +175,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// notification's 「暂停」 pauses the running download.
   late final keepAlive = DownloadKeepAlive(
     onPause: () {
-      if (curDownload.value?.status.isDownloading ?? false) {
+      final entry = curDownload.value;
+      // a merge cannot be paused (and the job is already gone): it finishes,
+      // but the queue does not carry on after it
+      if (entry != null && _mergingCids.contains(entry.cid)) {
+        _pauseAfterMergeCid = entry.cid;
+      } else if (entry?.status.isDownloading ?? false) {
         cancelDownload(isDelete: false, downloadNext: false);
       }
     },
@@ -1058,6 +1063,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     _updateCurStatus(DownloadStatus.merging);
     final (:output, :inputs, :damaged) = await _mergeDownload(entry);
     _mergingCids.remove(cid);
+    final pauseNext = _pauseAfterMergeCid == cid;
+    if (pauseNext) _pauseAfterMergeCid = null;
     if (!damaged && output != null) entry.progress.mergeDone();
     final deleted = _mergeDeletedCids.remove(cid);
     if (deleted || !Directory(entry.entryDirPath).existsSync()) {
@@ -1066,7 +1073,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       await _deleteMerged(entry);
       await Directory(entry.entryDirPath).tryDel(recursive: true);
       waitDownloadQueue.remove(entry);
-      if (curDownload.value == null) nextDownload();
+      if (curDownload.value == null && !pauseNext) nextDownload();
       return;
     }
     if (damaged) {
@@ -1120,7 +1127,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     if (curDownload.value?.cid == entry.cid) {
       _curCid = null;
       curDownload.value = null;
-      nextDownload();
+      if (!pauseNext) nextDownload();
     }
     if (output != null) {
       // the transcript only needs the video file: it does not wait for the
@@ -1245,6 +1252,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// cids of the entries being merged (a deleted entry's merge can overlap
   /// the next one's); pause/start requests for them are ignored.
   final _mergingCids = <int>{};
+
+  /// cid of the entry being merged when the notification's 「暂停」 was
+  /// tapped: the next download is not started after its merge.
+  int? _pauseAfterMergeCid;
 
   /// cids of entries deleted while they were being merged.
   final _mergeDeletedCids = <int>{};

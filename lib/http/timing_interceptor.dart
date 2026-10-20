@@ -69,13 +69,8 @@ class TimingInterceptor extends Interceptor {
     var s = text;
     final query = options.uri.query;
     if (query.isNotEmpty) s = s.replaceAll(query, '…');
-    return s.replaceAllMapped(
-      _urlQuery,
-      (m) => '${m[1]}?…',
-    );
+    return EventLog.withoutQuery(s);
   }
-
-  static final _urlQuery = RegExp(r'(\w+://[^\s?#]+)\?[^\s#]*');
 
   static String _what(RequestOptions options) {
     final uri = options.uri;

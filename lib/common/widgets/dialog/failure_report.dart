@@ -26,6 +26,8 @@ abstract final class FailureReport {
   /// Shows that [title] ("视频无法播放") has stopped working, with [detail]
   /// and the recent events.
   static void show(String title, String detail) {
+    // an error's words can quote a signed URL whole (see EventLog.add)
+    detail = EventLog.withoutQuery(detail);
     EventLog.add('failure', '$title: $detail');
     if (!_open.add(title)) return;
     final report = [

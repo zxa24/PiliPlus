@@ -381,7 +381,8 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // (the running account state is not re-applied)
                         final loginMode = Pref.loginMode;
                         // nor are this installation's own keys (paths, the
-                        // documents provider), nor its credentials, which
+                        // documents provider, the decoders measured here),
+                        // nor its credentials, which
                         // export and import leave alone too
                         final device = {
                           for (final key in [

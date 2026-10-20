@@ -143,8 +143,20 @@ abstract final class YtDownloader {
       onProgress?.call(0.92, '合成中');
       final out = await _outputPath(title, videoId);
       if (muxed) {
-        // itag 18 and friends are already one progressive mp4
-        await File(videoFile).copy(out);
+        // itag 18 and friends are already one progressive mp4. Through
+        // `<out>.part` (as the remuxer writes): a copy cut short must not
+        // leave a torn file in the public folder, nor truncate an earlier
+        // finished one of the same name
+        final part = File('$out.part');
+        try {
+          await File(videoFile).copy(part.path);
+          await part.rename(out);
+        } catch (_) {
+          try {
+            await part.delete();
+          } catch (_) {}
+          rethrow;
+        }
       } else {
         await Mp4Remuxer.remux(
           inputs: [videoFile, audioFile],

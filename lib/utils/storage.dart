@@ -126,11 +126,17 @@ abstract final class GStorage {
   /// kept on import, as the PiliPlus settings import does. Snapshots carry
   /// them, so an undo restores them too. The documents provider is one too:
   /// a backup from another device must not open this device's data folder
-  /// to other apps without asking.
+  /// to other apps without asking. So are what was measured on this device
+  /// (its decoders, the models page's test): another device's "AV1 decoded
+  /// in software" would stop this one asking its own hardware.
   static const deviceKeys = [
     SettingBoxKey.downloadPath,
     SettingBoxKey.appFont,
     SettingBoxKey.enableDocProvider,
+    SettingBoxKey.av1Hardware,
+    SettingBoxKey.av1Software,
+    SettingBoxKey.hardwareDecoders,
+    SettingBoxKey.modelBench,
   ];
 
   /// Whether a backup [map] carries any of the [credentialKeys].

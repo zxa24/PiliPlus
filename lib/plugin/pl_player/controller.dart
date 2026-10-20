@@ -1609,8 +1609,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           );
         }
       }),
-      // what mpv reports (warnings and up in a debug build, errors in a
-      // release one) goes to the events a failure report shows
+      // what mpv reports (warnings and up in a debug build; errors and the
+      // connection warnings in a release one) goes to the events a failure
+      // report shows
       stream.log.listen((PlayerLog log) {
         final text = log.text.trim();
         // a read given up on ends the file there (see [_endedEarly])

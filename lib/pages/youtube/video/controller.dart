@@ -8,7 +8,7 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show HttpException, Platform;
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
@@ -757,7 +757,10 @@ class YtVideoController extends GetxController
       SmartDialog.showToast('$e');
     } catch (e) {
       SmartDialog.dismiss(status: SmartStatus.loading);
-      SmartDialog.showToast('下载失败: $e');
+      // not the URL: googlevideo's carries the viewer's address and a
+      // signature, and HttpException's words quote it whole
+      final why = e is HttpException ? e.message : EventLog.withoutQuery('$e');
+      SmartDialog.showToast('下载失败: $why');
     } finally {
       downloading.value = false;
       _downloadToken = null;

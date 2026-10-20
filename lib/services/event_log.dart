@@ -23,8 +23,9 @@ abstract final class EventLog {
   static final _times = <DateTime>[];
 
   /// Records [message] under [area] (`player`, `asr`, `mpv`…), and prints it
-  /// in a debug build.
+  /// in a debug build. Any URL in it loses its query (see [withoutQuery]).
   static void add(String area, String message) {
+    message = withoutQuery(message);
     final at = DateTime.now();
     final line = '${at.toIso8601String().substring(11, 23)} [$area] $message';
     _lines.add(line);
@@ -37,6 +38,15 @@ abstract final class EventLog {
     // only built when someone listens: 调试模式 off, nothing more is done
     if (_added.hasListener) _added.add((at: at, area: area, message: message));
   }
+
+  /// [text] with every URL in it cut to scheme://host/path: a stream URL's
+  /// query carries the viewer's address and a signature (googlevideo
+  /// `ip=`/`sig=`, bilibili `oi=`/`upsig=`), and mpv quotes it whole in
+  /// `Failed to open <url>`; the lines can go out in a failure report.
+  static String withoutQuery(String text) =>
+      text.replaceAllMapped(_urlQuery, (m) => '${m[1]}?…');
+
+  static final _urlQuery = RegExp(r'(\w+://[^\s?#]+)\?[^\s#]*');
 
   /// Not synchronous: a line added while a frame is being built must not
   /// rebuild a listener (the debug overlay) in that same build.
