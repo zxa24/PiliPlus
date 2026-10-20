@@ -23,8 +23,9 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 // LibrePili: a user-initiated data transfer job (Android 14+) held around a
-// model download that Dart does itself (lib/services/background_transfer.dart),
-// and around the video download queue while it has downloads running
+// model download or a YouTube video download that Dart does itself
+// (lib/services/background_transfer.dart), and around the video download
+// queue while it has downloads running
 // (lib/services/download/download_keepalive.dart; user 2026-10-19, D8 C).
 // Each has its own method channel and notification channel; the jobs are the
 // same.

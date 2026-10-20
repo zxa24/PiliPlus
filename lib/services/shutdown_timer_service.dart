@@ -199,10 +199,15 @@ class ShutdownTimerService {
           final id =
               Uri.tryParse(name)?.queryParameters['id'] ??
               (args is String ? args : null);
-          if (id == null || !Get.isRegistered<YtVideoController>(tag: id)) {
-            return;
-          }
-          Get.find<YtVideoController>(tag: id).saveHistoryOnExit();
+          if (id == null) return;
+          // the page holding the player: a second page of the same video
+          // is not under the bare id
+          final page =
+              YtVideoController.owningPlayer(id) ??
+              (Get.isRegistered<YtVideoController>(tag: id)
+                  ? Get.find<YtVideoController>(tag: id)
+                  : null);
+          page?.saveHistoryOnExit();
           return;
         }
       }

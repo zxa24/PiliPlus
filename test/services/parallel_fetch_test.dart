@@ -153,6 +153,25 @@ void main() {
     expect(cuts.every((c) => c.$1.path == Uri.parse(upstream.url).path), isTrue);
   });
 
+  test('connections refused (the network gone): not a cut copy', () async {
+    // a network drop or handover: three refused connections read as a cut
+    // and switched host (audit 2026-10-20)
+    final local = fetch.wrap(upstream.url)!;
+    final first = await get(local, range: 'bytes=0-99');
+    expect(first.body, data.sublist(0, 100));
+    // the pieces fetched ahead of it whole first: one closed mid-body is
+    // a cut (the host ended it), not what this asks
+    while (upstream._atOnce > 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    await upstream.close();
+    await get(
+      local,
+      range: 'bytes=2000000-2000099',
+    ).timeout(const Duration(seconds: 30));
+    expect(cuts, isEmpty);
+  });
+
   test('cut: the host ended it below the size; timeouts alone are slow', () {
     expect(ParallelFetch.isCut(shortEnds: 1, at: 100, size: 1000), isTrue);
     expect(ParallelFetch.isCut(shortEnds: 0, at: 100, size: 1000), isFalse);

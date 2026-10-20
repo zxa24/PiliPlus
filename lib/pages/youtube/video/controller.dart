@@ -80,6 +80,19 @@ class YtVideoController extends GetxController
 
   final String videoId;
 
+  /// The open pages: a second page of the same video registers under a hero
+  /// tag, and the bare id finds the covered one, whose position stopped
+  /// when it lost the player (audit 2026-10-20).
+  static final _openPages = <YtVideoController>[];
+
+  /// The page of [videoId] that holds the player, if one does.
+  static YtVideoController? owningPlayer(String videoId) {
+    for (final c in _openPages) {
+      if (c.videoId == videoId && c._ownsPlayer) return c;
+    }
+    return null;
+  }
+
   /// The direct source alone: related videos and comments, which only it
   /// answers.
   @override
@@ -125,6 +138,7 @@ class YtVideoController extends GetxController
   @override
   void onInit() {
     super.onInit();
+    _openPages.add(this);
     _historyWorkers = [
       ever<int>(plPlayerController.position, (sec) {
         if (!_ownsPlayer) return;
@@ -697,35 +711,18 @@ class YtVideoController extends GetxController
       _downloadToken?.cancel();
       return;
     }
-    var pair = _streams;
+    final pair = _streams;
     if (pair == null) {
       SmartDialog.showToast('还没有可下载的流');
       return;
     }
-    final token = _downloadToken = YtDownloadToken();
+    final token = _downloadToken = _YtDownloadToken();
     downloading.value = true;
     SmartDialog.showLoading(
       msg: '准备下载',
       onDismiss: token.cancel,
     );
     try {
-      if (!YtDownloader.remuxable(pair)) {
-        // what plays (VP9 above 1080p, say) is WebM, which the remuxer cannot
-        // read: an MP4 pair of its own, as close to the cap as MP4 goes
-        final mp4 = await play.run(
-          (s) => s.streams(
-            videoId,
-            preference: YtFormatPreference.mp4Download(maxHeight.value),
-          ),
-        );
-        if (token.isCancelled) throw const YtDownloadCancelled();
-        if (!mp4.ok || mp4.value == null) {
-          throw mp4.verdict.signal.endsWith('no-playable-pair')
-              ? const YtDownloadNotMp4()
-              : _messageFor(mp4.verdict);
-        }
-        pair = mp4.value!;
-      }
       String? shownMsg;
       String? shownStage;
       DateTime? shownAt;
@@ -749,7 +746,6 @@ class YtVideoController extends GetxController
       }
 
       final title = detail.value?.title ?? videoId;
-      final streams = pair;
       // the formats' own sizes, which the job's notification counts
       // against; without one, bitrate × duration. None at all: no job, the
       // download runs as it did before
@@ -762,9 +758,12 @@ class YtVideoController extends GetxController
         return rate > 0 && ms > 0 ? rate * ms ~/ 8000 : 0;
       }
 
-      final bytes =
-          sizeOf(streams.video) +
-          (streams.videoUrl == streams.audioUrl ? 0 : sizeOf(streams.audio));
+      int sizeOfPair(YtStreamPair p) =>
+          sizeOf(p.video) + (p.videoUrl == p.audioUrl ? 0 : sizeOf(p.audio));
+
+      // what plays, for the job: an MP4 pair looked up below is about as
+      // big, and the job must be asked for straight from the tap
+      final bytes = sizeOfPair(pair);
       if (bytes <= 0 && Platform.isAndroid) {
         EventLog.add(
           'transfer',
@@ -780,6 +779,35 @@ class YtVideoController extends GetxController
         token: _YtJobToken(token),
         body: (keepAlive) async {
           try {
+            var streams = pair;
+            if (!YtDownloader.remuxable(streams)) {
+              // what plays (VP9 above 1080p, say) is WebM, which the remuxer
+              // cannot read: an MP4 pair of its own, as close to the cap as
+              // MP4 goes
+              // a cancel ends the job now, not when the lookup and its
+              // retries return; what the lookup brings later is dropped
+              final mp4 = await Future.any([
+                play.run(
+                  (s) => s.streams(
+                    videoId,
+                    preference: YtFormatPreference.mp4Download(maxHeight.value),
+                  ),
+                ),
+                token.cancelled.then<YtRoutedResult<YtStreamPair>>(
+                  (_) => throw const YtDownloadCancelled(),
+                ),
+              ]);
+              if (token.isCancelled) throw const YtDownloadCancelled();
+              if (!mp4.ok || mp4.value == null) {
+                throw mp4.verdict.signal.endsWith('no-playable-pair')
+                    ? const YtDownloadNotMp4()
+                    : _messageFor(mp4.verdict);
+              }
+              streams = mp4.value!;
+            }
+            // the pair downloaded, once it is known
+            final own = sizeOfPair(streams);
+            final total = own > 0 ? own : bytes;
             return await YtDownloader.download(
               pair: streams,
               videoId: videoId,
@@ -788,8 +816,8 @@ class YtVideoController extends GetxController
               onProgress: (fraction, stage) {
                 keepAlive((
                   label: 'YouTube 视频',
-                  received: (fraction.clamp(0, 1) * bytes).round(),
-                  total: bytes,
+                  received: (fraction.clamp(0, 1) * total).round(),
+                  total: total,
                   verifying: false,
                 ));
                 showProgress(fraction, stage);
@@ -2115,6 +2143,7 @@ class YtVideoController extends GetxController
 
   @override
   void onClose() {
+    _openPages.remove(this);
     _saveHistory();
     for (final w in _historyWorkers) {
       w.dispose();
@@ -2142,6 +2171,20 @@ class YtVideoController extends GetxController
 
 /// The job's cancel (its notification's button, the system's task manager)
 /// reaches the download's own token.
+/// A download token that can also be awaited: the MP4 lookup before a
+/// download races it.
+class _YtDownloadToken extends YtDownloadToken {
+  final _cancel = Completer<void>();
+
+  Future<void> get cancelled => _cancel.future;
+
+  @override
+  void cancel() {
+    super.cancel();
+    if (!_cancel.isCompleted) _cancel.complete();
+  }
+}
+
 class _YtJobToken extends AsrCancelToken {
   _YtJobToken(this._download);
 

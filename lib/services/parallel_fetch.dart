@@ -692,6 +692,9 @@ class ParallelFetch {
   /// One request for bytes [from]-[to] of [chunk]: null when the piece is
   /// whole, the status (or 0) when it is not.
   Future<int?> _get(_Remote remote, _Chunk chunk, int from, int to) async {
+    // the answer's headers came: a socket error after that is the host
+    // closing the body, one before it the network (no route, refused)
+    var answered = false;
     try {
       final request = await _client
           .getUrl(debugUpstream?.call(remote.uri) ?? remote.uri)
@@ -702,6 +705,7 @@ class ParallelFetch {
       final response = await request.close().timeout(
         const Duration(seconds: 15),
       );
+      answered = true;
       final status = response.statusCode;
       if (status != HttpStatus.partialContent && status != HttpStatus.ok) {
         await response.drain<void>().catchError((_) {});
@@ -793,8 +797,10 @@ class ParallelFetch {
       chunk.lastError = _Failure(
         null,
         e.runtimeType.toString(),
-        // the host closed it (a cut copy); not a timeout (a slow one)
-        short: e is HttpException || e is SocketException,
+        // the host closed it (a cut copy); not a timeout (a slow one), nor
+        // a connection that never came (a network drop or handover: three
+        // of those read as a cut copy and switched host, audit 2026-10-20)
+        short: e is HttpException || (e is SocketException && answered),
       );
       return 0;
     } finally {

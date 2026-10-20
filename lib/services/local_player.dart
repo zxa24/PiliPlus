@@ -81,12 +81,13 @@ abstract final class LocalPlayer {
       path.basenameWithoutExtension(doc.name),
       doc.size,
     );
+    // before the page: the navigation's future ends only when it is closed
+    SmartDialog.showToast('Android 上单个文件无法读取同目录的弹幕/字幕/评论，请用「打开视频文件夹」');
     try {
       await _openDocument(entry, mirror: mirror, video: doc, mirrored: false);
     } finally {
       release(mirror);
     }
-    SmartDialog.showToast('Android 上单个文件无法读取同目录的弹幕/字幕/评论，请用「打开视频文件夹」');
   }
 
   /// Picks a folder (e.g. one exported by a LibrePili download).
@@ -158,7 +159,8 @@ abstract final class LocalPlayer {
       ..isCompleted = true
       ..entryDirPath = mirror
       ..pageDirPath = path.dirname(mirror);
-    // held only for the navigation: the page itself takes its own count
+    // held until the navigation's future ends — when the page is closed,
+    // not when it opens; the page itself takes its own count
     // ([VideoDetailController.initFileSource]), so a `toVideoPage` that
     // returns without ever building a controller cannot leave the folder
     // counted for the rest of the session

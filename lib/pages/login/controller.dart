@@ -177,7 +177,7 @@ class LoginPageController extends GetxController
       );
       if (result.data['code'] == 0) {
         try {
-          await LoginAccount(
+          final account = LoginAccount(
             BiliCookieJar.fromJson(
               Map.fromEntries(
                 cookieTextController.text
@@ -196,7 +196,13 @@ class LoginPageController extends GetxController
             ),
             null,
             null,
-          ).onChange();
+          );
+          // re-login of a stored account keeps its saved roles (see
+          // [setAccount]): the record under its mid is replaced
+          for (final a in Accounts.account.values) {
+            if (a.mid == account.mid) account.type.addAll(a.type);
+          }
+          await account.onChange();
           // as after any login: the anonymous identity is not kept beside it
           await AnonymousAccount().delete();
           // LibrePili: finishing a login is the explicit opt-in to login

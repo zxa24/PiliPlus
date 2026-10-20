@@ -260,6 +260,23 @@ class YtSourceRouter {
       last = res;
       lastSource = source;
 
+      // the (c) answers this call had
+      var failures = 1;
+      if (res.verdict.cause == YtCause.transient && source.id != fallback?.id) {
+        // Retried before the switch, so an answer a retry brings is handled
+        // as a first answer would be: a block the retry met still starts
+        // the cooldown and falls through (audit 2026-10-20).
+        while (h.transientStreak < ytTransientRetryLimit) {
+          h.transientStreak++;
+          await _sleep(ytTransientBackoffStep * h.transientStreak);
+          res = await call(source);
+          h.last = res.verdict;
+          last = res;
+          if (res.verdict.cause != YtCause.transient) break;
+          failures++;
+        }
+      }
+
       switch (res.verdict.cause) {
         case YtCause.ok:
           h
@@ -332,32 +349,6 @@ class YtSourceRouter {
             // the page said so (audit 2026-10-19). Its (c) is its answer
             h.transientStreak++;
             continue;
-          }
-          var retried = false;
-          // the (c) answers this call had
-          var failures = 1;
-          while (h.transientStreak < ytTransientRetryLimit) {
-            h.transientStreak++;
-            await _sleep(ytTransientBackoffStep * h.transientStreak);
-            res = await call(source);
-            h.last = res.verdict;
-            last = res;
-            retried = true;
-            if (res.verdict.cause != YtCause.transient) break;
-            failures++;
-          }
-          if (res.verdict.cause == YtCause.ok) {
-            h.transientStreak = 0;
-            activeOverrideReason = source.id == direct.id
-                ? null
-                : activeOverrideReason;
-            return YtRoutedResult(res, source);
-          }
-          if (retried && res.verdict.cause != YtCause.transient) {
-            // The retry produced a different, decisive verdict. Do not keep
-            // walking the list on a stale (c).
-            h.transientStreak = 0;
-            return YtRoutedResult(res, source);
           }
           // Still transient after the retries: try the next source rather than
           // failing outright, but do NOT mark this one blocked. What is

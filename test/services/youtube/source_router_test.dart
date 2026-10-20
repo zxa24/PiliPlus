@@ -443,6 +443,31 @@ void main() {
       expect(r.verdict.cause, YtCause.contentUnavailable);
       expect(h.fallback!.calls, 0);
     });
+
+    test('a block a retry meets is handled as a first one would be', () async {
+      final h = _Harness(
+        directScript: [_transient, _walled],
+        fallbackScript: [_ok],
+      );
+      final r = await h.call();
+      expect(r.ok, isTrue);
+      expect(r.source!.id, 'spy');
+      expect(h.fallback!.calls, 1);
+      expect(h.router.healthOf('direct').cooldownUntil, isNotNull);
+      expect(h.router.healthOf('direct').transientStreak, 0);
+      expect(h.router.fellThroughFor, YtCause.ipBlocked);
+    });
+
+    test('a (d) a retry meets is counted as one', () async {
+      final h = _Harness(
+        directScript: [_transient, _broken],
+        fallbackScript: [_ok],
+      );
+      final r = await h.call();
+      expect(r.verdict.cause, YtCause.clientBroken);
+      expect(h.fallback!.calls, 0);
+      expect(h.router.healthOf('direct').brokenStreak, 1);
+    });
   });
 
   group('clientBroken — (d) is loud and never falls through', () {

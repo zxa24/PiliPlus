@@ -233,10 +233,14 @@ abstract final class Ctl {
       final id =
           Uri.tryParse(name)?.queryParameters['id'] ??
           (args is String ? args : null);
-      if (id == null || !Get.isRegistered<YtVideoController>(tag: id)) {
-        return null;
-      }
-      return _ytPage(Get.find<YtVideoController>(tag: id));
+      if (id == null) return null;
+      // the page holding the player, as saveOpenVideo picks it
+      final page =
+          YtVideoController.owningPlayer(id) ??
+          (Get.isRegistered<YtVideoController>(tag: id)
+              ? Get.find<YtVideoController>(tag: id)
+              : null);
+      return page == null ? null : _ytPage(page);
     }
     return null;
   }
