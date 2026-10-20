@@ -52,7 +52,7 @@ class YtHopRefused implements Exception {
 class YtCheckedHops {
   YtCheckedHops(this.client) {
     client
-      ..findProxy = _proxyOf
+      ..findProxy = proxyOf
       ..connectionFactory = _connect;
   }
 
@@ -61,7 +61,9 @@ class YtCheckedHops {
   /// The addresses each host was last checked at.
   final _pins = <String, List<InternetAddress>>{};
 
-  static String _proxyOf(Uri uri) =>
+  /// How [uri] is reached (`DIRECT` / `PROXY host:port`): the listing's
+  /// check ([YtInvidiousSource.isPublicUrl]) follows the same rule.
+  static String proxyOf(Uri uri) =>
       YtStreamRelay.proxyFor?.call(uri) ??
       HttpClient.findProxyFromEnvironment(uri);
 
@@ -74,7 +76,7 @@ class YtCheckedHops {
     if (uri.scheme != 'https' || uri.host.isEmpty) {
       throw YtHopRefused(uri, 'not https');
     }
-    if (_proxyOf(uri) != 'DIRECT') {
+    if (proxyOf(uri) != 'DIRECT') {
       // the proxy looks the name up and connects: what is left to check is
       // the name, and an address written as one
       final literal = InternetAddress.tryParse(uri.host);
@@ -92,19 +94,34 @@ class YtCheckedHops {
 
   /// [method] on [uri] with [headers], its redirects followed here, every
   /// hop checked. The response is the first that is not a redirect.
+  /// [timeout] bounds each hop's wait for its headers, the request aborted
+  /// when it runs out; [onRequest] is given each hop's request as it opens,
+  /// so a caller can abort one still waiting.
   Future<(HttpClientRequest, HttpClientResponse)> send(
     String method,
     Uri uri, {
     Map<String, String> headers = const {},
     Duration? timeout,
+    void Function(HttpClientRequest request)? onRequest,
   }) async {
     for (var hop = 0; hop <= maxHops; hop++) {
       await check(uri);
       final request = await client.openUrl(method, uri);
+      onRequest?.call(request);
       request.followRedirects = false;
       headers.forEach(request.headers.set);
       var future = request.close();
-      if (timeout != null) future = future.timeout(timeout);
+      if (timeout != null) {
+        future = future.timeout(
+          timeout,
+          onTimeout: () {
+            // the connection let go, not left waiting upstream
+            final e = TimeoutException('no response headers', timeout);
+            request.abort(e);
+            throw e;
+          },
+        );
+      }
       final response = await future;
       final location = response.headers.value(HttpHeaders.locationHeader);
       if (response.statusCode ~/ 100 != 3 || location == null) {
@@ -192,6 +209,12 @@ class YtCheckedHops {
           live--;
           stagger.cancel();
           won.complete(socket);
+          // the race is won: a loser still in TLS (which has no timeout of
+          // its own) is closed now, not left open until the peer ends it
+          for (final loser in [...opened]) {
+            loser.destroy();
+          }
+          opened.clear();
         } catch (e) {
           if (raw != null) {
             raw.destroy();
@@ -376,11 +399,36 @@ class YtStreamRelay {
     // nothing more is read from the player's request
     unawaited(request.drain<void>().catchError((_) {}));
 
-    void Function()? stop;
+    // stoppable from the start: a request still waiting for its headers is
+    // let go too (a quality change), not only one already streaming
+    HttpClientRequest? pending;
+    StreamSubscription<List<int>>? body;
+    StreamController<List<int>>? out;
+    var stopped = false;
+    void stop() {
+      stopped = true;
+      pending?.abort(const HttpException('let go'));
+      body?.cancel();
+      final sink = out;
+      if (sink != null && !sink.isClosed) {
+        sink
+          ..addError(const HttpException('let go'))
+          ..close();
+      }
+    }
+
+    (_active[token] ??= {}).add(stop);
     try {
       final (_, answer) = await _hops.send(
         request.method,
         upstream,
+        // the client's idle timeout: an upstream that answers nothing in
+        // that long is let go, as one that goes quiet mid-body is
+        timeout: const Duration(seconds: 15),
+        onRequest: (r) {
+          pending = r;
+          if (stopped) r.abort(const HttpException('let go'));
+        },
         headers: {
           HttpHeaders.userAgentHeader: ?request.headers.value(
             HttpHeaders.userAgentHeader,
@@ -391,6 +439,10 @@ class YtStreamRelay {
           HttpHeaders.acceptEncodingHeader: 'identity',
         },
       );
+      if (stopped) {
+        await answer.drain<void>().catchError((_) {});
+        throw const HttpException('let go');
+      }
       response.statusCode = answer.statusCode;
       for (final name in _passed) {
         final value = answer.headers.value(name);
@@ -409,26 +461,17 @@ class YtStreamRelay {
       }
       // the body as it comes, at the player's pace (a paused player pauses
       // the read upstream), and stoppable
-      final body = answer.listen(null);
-      final out = StreamController<List<int>>(
-        onPause: body.pause,
-        onResume: body.resume,
-        onCancel: body.cancel,
+      final upstreamBody = body = answer.listen(null);
+      final sink = out = StreamController<List<int>>(
+        onPause: upstreamBody.pause,
+        onResume: upstreamBody.resume,
+        onCancel: upstreamBody.cancel,
       );
-      body
-        ..onData(out.add)
-        ..onError(out.addError)
-        ..onDone(out.close);
-      stop = () {
-        body.cancel();
-        if (!out.isClosed) {
-          out
-            ..addError(const HttpException('let go'))
-            ..close();
-        }
-      };
-      (_active[token] ??= {}).add(stop);
-      await response.addStream(out.stream);
+      upstreamBody
+        ..onData(sink.add)
+        ..onError(sink.addError)
+        ..onDone(sink.close);
+      await response.addStream(sink.stream);
       await response.close();
     } on YtHopRefused catch (e) {
       log?.call('refused: $e');
@@ -437,7 +480,7 @@ class YtStreamRelay {
       log?.call('${upstream.host}: $e');
       await _fail(response, HttpStatus.badGateway);
     } finally {
-      if (stop != null) _active[token]?.remove(stop);
+      _active[token]?.remove(stop);
     }
   }
 

@@ -2088,7 +2088,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Whether the hosts of [source] can be reached at all: the stream's own
   /// host or one of its platform's (never the other platform's: YouTube is
   /// asked nothing of bilibili and the other way round). A TCP connect, 3 s
-  /// at most each.
+  /// at most each (through the proxy: [_reachableVia]).
   static Future<bool> _reachable(DataSource source) async {
     if (debugReachable case final reachable?) return reachable();
     final hosts = <String>{};
@@ -2114,24 +2114,50 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // with the 设置代理 setting on, the proxy is what must answer: the
     // streams go through it, and a connect of its own to the stream's host
     // would leave the proxy (user 2026-10-19)
-    final proxy = AppProxy.address;
+    final proxy = AppProxy.hostPort;
     final tries = [
-      for (final host in proxy == null ? hosts : {proxy.host})
-        Socket.connect(
-              host,
-              proxy?.port ?? 443,
-              timeout: const Duration(seconds: 3),
-            )
-            .then((socket) {
-              socket.destroy();
-              return true;
-            })
-            .catchError((Object _) => false),
+      for (final host in hosts)
+        if (proxy == null)
+          Socket.connect(host, 443, timeout: const Duration(seconds: 3))
+              .then((socket) {
+                socket.destroy();
+                return true;
+              })
+              .catchError((Object _) => false)
+        else
+          _reachableVia(proxy, host),
     ];
     for (final ok in await Future.wait(tries)) {
       if (ok) return true;
     }
     return false;
+  }
+
+  /// [host] through the proxy at [hostPort], 3 s at most: a connect to a
+  /// proxy client on this machine (127.0.0.1:7890) answered with the
+  /// internet down, so a Wi-Fi drop never waited for the network (audit
+  /// oct-pass-7 X3). A `CONNECT host:443` answered 200 and a TLS handshake
+  /// through it, as [HttpClient] does before it hands the request over —
+  /// the handshake too, since such clients answer the CONNECT before they
+  /// reach the host. Nothing is sent once it is open. The setting is an
+  /// HTTP proxy only (AppProxy.findProxy, mpvFor).
+  static Future<bool> _reachableVia(String hostPort, String host) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 3)
+      ..findProxy = ((_) => 'PROXY $hostPort');
+    try {
+      final request = await client
+          .openUrl('HEAD', Uri.https(host))
+          .timeout(const Duration(seconds: 3));
+      request
+        ..done.ignore()
+        ..abort();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   /// No host answers: playback waits for the network, looking every 3 s,

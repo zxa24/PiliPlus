@@ -448,6 +448,31 @@ void main() {
       });
     });
 
+    test('an unmatched reason in Chinese, Japanese or Korean is not suspect; '
+        'in English it still is', () {
+      // Synthetic text in each script, not YouTube's own wordings (none are
+      // recorded): the signals are English only, so these match none.
+      for (final reason in const ['合成的原因文本', '合成的原因文字', 'テスト用の理由', '테스트 사유']) {
+        final v = classifyYtPlayer(
+          syntheticPlayer(
+            status: 'UNPLAYABLE',
+            reason: reason,
+            videoDetails: const {'videoId': 'aaaaaaaaaaa'},
+          ),
+        );
+        expect(v.signal, 'playability:unplayable-generic', reason: reason);
+        expect(v.suspectClient, isFalse, reason: reason);
+      }
+      final english = classifyYtPlayer(
+        syntheticPlayer(
+          status: 'UNPLAYABLE',
+          reason: 'Video unavailable',
+          videoDetails: const {'videoId': 'aaaaaaaaaaa'},
+        ),
+      );
+      expect(english.suspectClient, isTrue);
+    });
+
     test('the reason can also come out of errorScreen', () {
       final v = classifyYtPlayer(
         syntheticPlayer(

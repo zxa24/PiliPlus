@@ -255,11 +255,16 @@ YtVerdict classifyYtPlayer(YtResponse r) {
       }
       // Nothing specific matched. If the server nevertheless handed us the
       // video's own metadata, "unavailable" is a statement about US.
+      // The signals above are English only, and the reason comes in the
+      // language asked for (`hl`, zh-CN by default): a members-only, geo or
+      // processing reason in Chinese, Japanese or Korean matches none of
+      // them. Such a reason is not counted as suspect, so three of them do
+      // not report the client broken; in English the test stands.
       return YtVerdict(
         YtCause.contentUnavailable,
         hasDetails ? 'playability:$s-generic' : 'playability:$s',
         reason.isEmpty ? '(no reason)' : reason,
-        hasDetails,
+        hasDetails && !_cjk.hasMatch(all),
       );
     }
     return YtVerdict(
@@ -395,3 +400,7 @@ const _botWords = ['a bot', '机器人', '機器人', 'ボット', '봇'];
 
 /// "your age", the age gate's wording, in the same languages.
 const _ageWords = ['your age', '年龄', '年齡', '年齢', '나이', '연령'];
+
+/// Kana, CJK ideographs and Hangul: a reason in one of the non-English
+/// languages the app asks YouTube in (zh-CN, zh-TW, ja, ko).
+final _cjk = RegExp('[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]');

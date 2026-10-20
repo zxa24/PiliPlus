@@ -82,7 +82,12 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
       final subs = YtSubscriptions.all();
       final known = {for (final s in _subs) s.channelId};
       final added = subs.any((s) => !known.contains(s.channelId));
-      setState(() => _subs = subs);
+      setState(() {
+        _subs = subs;
+        // an unfollow takes that channel's uploads out at once, with no
+        // network asked
+        _feed = _followed(_feed);
+      });
       if (added) _refresh();
     });
   }
@@ -90,7 +95,20 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
   @override
   void dispose() {
     _boxSub?.cancel();
+    // a refresh under way still asks with it: it closes it when it ends
+    if (!_loading) _source.close();
     super.dispose();
+  }
+
+  /// [feed] without the uploads of channels no longer followed.
+  List<(YtSubscription, YtSearchItem)> _followed(
+    List<(YtSubscription, YtSearchItem)> feed,
+  ) {
+    final ids = {for (final s in _subs) s.channelId};
+    return [
+      for (final e in feed)
+        if (ids.contains(e.$1.channelId)) e,
+    ];
   }
 
   /// One channel's newest uploads, or null when it could not be fetched.
@@ -145,14 +163,21 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
       if (mounted) setState(() => _answered++);
       return items;
     });
-    if (!mounted) return;
+    if (!mounted) {
+      // the page closed during the refresh, which no longer asks
+      _source.close();
+      return;
+    }
     final collected = <(YtSubscription, YtSearchItem)>[
       for (final (i, items) in answers.indexed)
         for (final item in items ?? const <YtSearchItem>[]) (subs[i], item),
     ];
     setState(() {
       _subs = YtSubscriptions.all();
-      _feed = sortYtFeedByAge(collected, (e) => e.$2.publishedText);
+      // a channel unfollowed while it was asked about stays out
+      _feed = _followed(
+        sortYtFeedByAge(collected, (e) => e.$2.publishedText),
+      );
       _loading = false;
       _failed = answers.where((e) => e == null).length;
     });

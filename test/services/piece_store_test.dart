@@ -129,6 +129,33 @@ void main() {
     expect(store.meta(key)?.size, 100000);
   });
 
+  // audit oct-pass-7 H1: a longer piece at the start of a shorter one (a
+  // seek split the first) left the old file untracked and, when it was the
+  // stream's only piece, forgot the stream with the new one still counted
+  group('a longer piece at the start of a shorter one', () {
+    Future<void> check({required bool another}) async {
+      final store = await open(1 << 20);
+      await store.sized(key, uri, 100000, 'video/mp4');
+      if (another) await store.write(key, 5000, bytes(500, 9));
+      await store.write(key, 0, bytes(100, 0));
+      await store.write(key, 0, bytes(200, 1));
+      expect(store.bytes, another ? 700 : 200);
+      expect(store.meta(key), (size: 100000, type: 'video/mp4'));
+      expect(await store.read(key, 150, 10), bytes(200, 1).sublist(150, 160));
+      expect(File('${dir.path}/$key/0-100').existsSync(), isFalse);
+      expect(File('${dir.path}/$key/0-200').existsSync(), isTrue);
+      // a restart reads back only what was counted
+      final again = await open(1 << 20);
+      expect(again.bytes, another ? 700 : 200);
+      await store.clear();
+      expect(store.bytes, 0);
+      expect(Directory('${dir.path}/$key').existsSync(), isFalse);
+    }
+
+    test('its only piece', () => check(another: false));
+    test('one of two pieces', () => check(another: true));
+  });
+
   // audit F25 (user 2026-10-19 14B): writes and re-sizes of one stream are
   // serialised
   group('a re-size during a piece being renamed into place', () {

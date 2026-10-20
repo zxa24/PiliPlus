@@ -321,10 +321,11 @@ String _text(String? html) => _unescape(
   (html ?? '').replaceAll(RegExp(r'<[^>]*>'), ''),
 ).replaceAll('\u00a0', ' ').trim();
 
+// `&amp;` last: done first, `&amp;lt;` (a written "&lt;") came out as `<`
 String _unescape(String s) => s
-    .replaceAll('&amp;', '&')
     .replaceAll('&quot;', '"')
     .replaceAll('&#39;', "'")
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
-    .replaceAll('&nbsp;', '\u00a0');
+    .replaceAll('&nbsp;', '\u00a0')
+    .replaceAll('&amp;', '&');

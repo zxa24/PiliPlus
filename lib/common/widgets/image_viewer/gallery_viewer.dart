@@ -25,6 +25,7 @@ import 'package:PiliPlus/common/widgets/image_viewer/loading_indicator.dart';
 import 'package:PiliPlus/common/widgets/image_viewer/viewer.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show tabBarScrollPhysics;
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/main.dart' show tmpPadding;
 import 'package:PiliPlus/models/common/image_preview_type.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
@@ -111,6 +112,11 @@ class _GalleryViewerState extends State<GalleryViewer>
         : url.http2https;
   }
 
+  // the 设置代理 setting, as the player has it (AppProxy.mpvFor): a
+  // 实况照片 went straight to the CDN
+  static Media _liveMedia(String url) =>
+      Media(url, extras: {'http-proxy': AppProxy.mpvFor(url)});
+
   Future<void> _initPlayer() async {
     assert(_player == null);
     final player = await Player.create();
@@ -123,7 +129,7 @@ class _GalleryViewerState extends State<GalleryViewer>
     _player = player;
     final currItem = widget.sources[_currIndex.value];
     if (currItem.sourceType == .livePhoto) {
-      player.open(Media(currItem.liveUrl!));
+      player.open(_liveMedia(currItem.liveUrl!));
       _currIndex.refresh();
     }
   }
@@ -386,7 +392,7 @@ class _GalleryViewerState extends State<GalleryViewer>
   void _playIfNeeded(SourceModel item) {
     if (item.sourceType == .livePhoto) {
       if (_player != null) {
-        _player!.open(Media(item.liveUrl!));
+        _player!.open(_liveMedia(item.liveUrl!));
       } else if (!_hasInit) {
         _hasInit = true;
         _initPlayer();

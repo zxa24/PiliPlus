@@ -56,6 +56,7 @@ import 'package:PiliPlus/services/youtube/anubis.dart';
 import 'package:PiliPlus/services/youtube/go_away.dart';
 import 'package:PiliPlus/services/youtube/invidious_instances.dart';
 import 'package:PiliPlus/services/youtube/invidious_parser.dart';
+import 'package:PiliPlus/services/youtube/stream_relay.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_format_select.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
@@ -415,7 +416,18 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// already picks which public hosts the streams come from; what its page
   /// must not do is send this machine to a service beside it. Redirects are
   /// not followed ([_get]). Null when the host has no address.
+  /// With the 设置代理 setting on, the proxy looks the names up, as the
+  /// relay's do ([YtCheckedHops.check]): only the scheme and the host (not
+  /// this machine, not a local address written as one) are checked, and
+  /// nothing is looked up here.
   static Future<bool?> _isPublic(Uri uri) async {
+    if (uri.scheme == 'https' &&
+        uri.host.isNotEmpty &&
+        YtCheckedHops.proxyOf(uri) != 'DIRECT') {
+      final literal = InternetAddress.tryParse(uri.host);
+      return uri.host.toLowerCase() != 'localhost' &&
+          (literal == null || !isLocal(literal));
+    }
     final addresses = await publicAddresses(uri);
     return addresses?.isNotEmpty;
   }

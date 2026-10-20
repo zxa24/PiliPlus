@@ -255,9 +255,13 @@ class PieceStore {
         await scratch.delete().catchError((_) => scratch);
         return false;
       }
-      // written meanwhile by another (the same piece twice): the one kept
-      if (stream.pieces[start] case final had?) _remove(had, delete: false);
+      // written meanwhile by another (the same piece twice), or a shorter one
+      // at this start: replaced. Filed first, so the stream never goes empty
+      // and is not forgotten (its folder, this file with it); the old file
+      // is another one when its length differs, and goes
+      final had = stream.pieces[start];
       stream.pieces[start] = piece;
+      if (had != null) _remove(had, delete: had.length != piece.length);
       _lru.add(piece);
       _bytes += piece.length;
       return true;

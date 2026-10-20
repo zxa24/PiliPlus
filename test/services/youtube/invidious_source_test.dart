@@ -93,6 +93,17 @@ void main() {
       expect(watch.dashUrl, contains('check='));
     });
 
+    test('page text is unescaped once: a written "&lt;" stays as written', () {
+      final html = fixture('watch_dQw4w9WgXcQ.html').replaceFirst(
+        'class="channel-name">Rick Astley&nbsp;',
+        'class="channel-name">A &amp;lt;3 &amp;amp; B&nbsp;',
+      );
+      expect(
+        parseInvidiousWatch(html, 'dQw4w9WgXcQ')!.author,
+        'A &lt;3 &amp; B',
+      );
+    });
+
     test('a challenge page is not a watch page', () {
       expect(parseInvidiousWatch(fixture('goaway_pow.html'), 'x'), isNull);
     });
