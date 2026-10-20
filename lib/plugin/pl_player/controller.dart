@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -755,6 +756,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.height = height;
       this.dataSource = dataSource;
       _cutAt.clear();
+      _cutSign = null;
+      _firmCutAt = null;
       _bufferFell = false;
       // what the source before lost is told as it ends
       _smooth.flush();
@@ -1024,15 +1027,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     ParallelFetch.log ??= (line) => EventLog.add('fetch', line);
     ParallelFetch.onRefused ??= (uri, status) =>
         _instance?.onHostRefused?.call(uri.host, status);
-    // the 设置代理 setting, as Request's own client reads it
-    ParallelFetch.proxyFor ??= (uri) {
-      final port = int.tryParse(Pref.systemProxyPort);
-      final host = Pref.systemProxyHost;
-      if (!Pref.enableSystemProxy || port == null || host.isEmpty) {
-        return HttpClient.findProxyFromEnvironment(uri);
-      }
-      return uri.host == '127.0.0.1' ? 'DIRECT' : 'PROXY $host:$port';
-    };
+    ParallelFetch.onCut ??= (uri, at) => _instance?._fetchCut(uri, at);
     try {
       await _parallel.start();
     } catch (e) {
@@ -1235,6 +1230,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         return;
       }
     }
+    // the 设置代理 setting, per file: not for one read from the app's own
+    // loopback servers (see AppProxy.mpvFor)
+    extras['http-proxy'] = AppProxy.mpvFor(video);
     _setHeaders(player, dataSource);
     _reopening = true;
     _openStartedAt = DateTime.now();
@@ -1663,10 +1661,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // reconnect mpv makes of itself has stopped at the same byte, the
         // host is changed at once, while what is buffered still plays
         if (prematureEndAt(event) case final at? when !closing) {
+          // a sign of a cut copy already: a verdict that playback is not
+          // keeping up which follows it is this (see [_replaceIfCut]) —
+          // the reconnect that times out on it read as a slow host
+          _cutSign = (at: int.parse(at), seen: now);
           // twice at one byte, or once after mpv's own reconnect found
           // nothing there (the size it expects is then unknown): the copy
           // ends there. A seek past the cut shows only the second kind
           if (!_cutAt.add(at) || event.contains(_unknownSize)) {
+            _firmCutAt = int.parse(at);
             if (_holdWhilePaused) {
               _cutOnPlay = int.parse(at);
               EventLog.add(
@@ -2024,6 +2027,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
     if (!identical(dataSource, source) || _replacing) return;
+    // the same URL again reads the same cut copy to the same byte
+    if (_replaceIfCut('stream failed')) return;
     // a host that drops the connection on a seek into the file does it again
     // on a reopen there: the user's copy and the tour both lost 10-20 s to
     // the retry before another host played at once (`Seek failed (to N, size
@@ -2080,9 +2085,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // YouTube's streams too
     final youtube = source is NetworkSource && source.youtube;
     hosts.add(youtube ? 'www.youtube.com' : 'api.bilibili.com');
+    // with the 设置代理 setting on, the proxy is what must answer: the
+    // streams go through it, and a connect of its own to the stream's host
+    // would leave the proxy (user 2026-10-19)
+    final proxy = AppProxy.address;
     final tries = [
-      for (final host in hosts)
-        Socket.connect(host, 443, timeout: const Duration(seconds: 3))
+      for (final host in proxy == null ? hosts : {proxy.host})
+        Socket.connect(
+              host,
+              proxy?.port ?? 443,
+              timeout: const Duration(seconds: 3),
+            )
             .then((socket) {
               socket.destroy();
               return true;
@@ -2283,6 +2296,79 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Byte offsets where a stream of the current source ended early.
   final _cutAt = <String>{};
 
+  /// The last sign that a stream of the current source is a copy cut short
+  /// (mpv's `Stream ends prematurely` once, or the parallel fetch's
+  /// [ParallelFetch.onCut]); taken by the first verdict it outweighs (see
+  /// [_replaceIfCut]).
+  CutSign? _cutSign;
+
+  /// The byte a stream of the current source is known to be cut at: the
+  /// parallel fetch saw the host end it there, or mpv twice.
+  int? _firmCutAt;
+
+  /// Whether the copy being replaced at [at] (see [onStreamCut]) is known
+  /// to be cut there, not merely slow to answer: for the page, whose own
+  /// check of the byte reads a timeout as a slow host (audit F27) — a cut
+  /// host is not to be gone back to for this part.
+  bool cutConfirmed(int at) => _firmCutAt == at;
+
+  /// The parallel fetch gave up on a piece of [upstream] that its host
+  /// ended at byte [at], below the file's size: a copy cut short, replaced
+  /// at once by another host's at the same quality (user 2026-10-19, 15A).
+  void _fetchCut(Uri upstream, int at) {
+    final source = dataSource;
+    if (source is! NetworkSource || isLive) return;
+    bool ours(String? url) {
+      final uri = url == null ? null : Uri.tryParse(url);
+      // one path on every host: the host says whose copy it is
+      return uri != null &&
+          uri.host == upstream.host &&
+          uri.path == upstream.path;
+    }
+
+    if (!ours(source.videoSource) && !ours(source.audioSource)) return;
+    // the pieces past the cut are given up on too, one after another: the
+    // first is acted on
+    if (_replacing) return;
+    if (_holdWhilePaused && _cutOnPlay != null) {
+      _cutOnPlay = _firmCutAt = min(_cutOnPlay!, at);
+      return;
+    }
+    EventLog.add(
+      'player',
+      'cut copy: ${upstream.host} ended ${upstream.pathSegments.last} at $at',
+    );
+    _firmCutAt = at;
+    _cutSign = (at: at, seen: DateTime.now());
+    if (_holdWhilePaused) {
+      _cutOnPlay = at;
+      return;
+    }
+    _cutSign = null;
+    unawaited(_replaceCutStreams(at));
+  }
+
+  /// A verdict of [why] (playback not keeping up, a stream failing) that
+  /// follows a sign of a cut copy: the copy is replaced by another host's
+  /// at the same quality instead (see [QualityAdvisor.cutBeforeSlow]), and
+  /// true is returned. The sign is taken: a slow verdict after that stands.
+  bool _replaceIfCut(String why) {
+    final at = QualityAdvisor.cutBeforeSlow(
+      sign: _cutSign,
+      now: DateTime.now(),
+    );
+    if (at == null) return false;
+    _cutSign = null;
+    EventLog.add(
+      'player',
+      '$why after a cut at $at: another host, the same quality',
+    );
+    _health.clear();
+    _healthRest = 30;
+    unawaited(_replaceCutStreams(at));
+    return true;
+  }
+
   /// Asked for streams to take the place of those a CDN cut short at
   /// [cutAt], each checked to serve past it; null for one that is fine.
   /// Null when there is nothing to put in place.
@@ -2356,6 +2442,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _delivered.clear();
       if (!debugNoHandover && await _handOver(urls, source, why: why)) {
         _cutAt.clear();
+        _cutSign = null;
         _dry.grace();
         // measured on the streams replaced
         _delivered.clear();
@@ -2375,6 +2462,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             'at ${resumePosition.inMilliseconds / 1000} s',
       );
       _cutAt.clear();
+      _cutSign = null;
       _resumeAt = resumePosition;
       // the new streams take a moment to fill the cache, as after a switch:
       // without it the watch took the streams of a step down at 159 s for a
@@ -2503,11 +2591,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // the first standing still, and had to seek back to it (3 s more)
       var target = here + _handOverLead;
       if (cacheEnd - 0.5 < target) target = cacheEnd - 0.5;
-      final extras = <String, String>{...buffer};
+      final media = _edl(video, audio);
+      final extras = <String, String>{
+        ...buffer,
+        // as [_open] does
+        'http-proxy': AppProxy.mpvFor(media),
+      };
       audioFilterExtras(_openVolume, map: extras);
       await next.open(
         Media(
-          _edl(video, audio),
+          media,
           start: Duration(milliseconds: (target * 1000).round()),
           extras: extras,
         ),
@@ -2875,6 +2968,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         'buffer fell to ${_health.last.cacheSeconds.toStringAsFixed(1)} s '
             'of ${target.toStringAsFixed(1)} s: not keeping up',
       );
+      if (_replaceIfCut('not keeping up')) return;
       _health.clear();
       _healthRest = 30;
       _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
@@ -2902,6 +2996,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         'delivered ${(delivered * 8 / 1e6).toStringAsFixed(1)} Mbps for a '
             '${(rate / 1e6).toStringAsFixed(1)} Mbps stream: stepping down early',
       );
+      if (_replaceIfCut('not keeping up')) return;
       _health.clear();
       _healthRest = 30;
       _replaceStreams(onStreamSlow!, why: 'slow', reopen: false);
@@ -2916,6 +3011,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       allowStepUp: false,
     );
     if (advice != QualityAdvice.stepDown) return;
+    if (_replaceIfCut('not keeping up')) return;
     _health.clear();
     // one look at the hosts per half minute at most
     _healthRest = 30;
@@ -3224,6 +3320,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             'standing ${_dry.slowSeconds} s behind the cache: playhead $pos s, '
                 'cache to $cacheEnd s',
           );
+          if (_replaceIfCut('standing behind the cache')) return;
           // what arrives arrives too slowly: the page weighs the hosts and
           // the quality, as for a buffer that will not keep up
           if (onStreamSlow case final slow?) {

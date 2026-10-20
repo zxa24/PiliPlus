@@ -23,9 +23,11 @@ import 'package:PiliPlus/models_new/pgc/pgc_info_model/result.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/episode.dart' as ugc;
 import 'package:PiliPlus/models_new/video/video_detail/page.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
+import 'package:PiliPlus/services/download/download_keepalive.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -40,6 +42,8 @@ import 'package:PiliPlus/utils/permission_handler.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart'
+    show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
@@ -47,7 +51,7 @@ import 'package:synchronized/synchronized.dart';
 
 // ref https://github.com/10miaomiao/bilimiao2/blob/master/bilimiao-download/src/main/java/cn/a10miaomiao/bilimiao/download/DownloadService.kt
 
-class DownloadService extends GetxService {
+class DownloadService extends GetxService with WidgetsBindingObserver {
   static const _entryFile = 'entry.json';
   static const _indexFile = 'index.json';
   static const _maxDanmakuConcurrency = 4;
@@ -145,13 +149,133 @@ class DownloadService extends GetxService {
     _holdExtras = _startingInBackground;
     initDownloadList();
     SubtitleCache.onSaved = _keepTranscript;
+    if (Platform.isAndroid) {
+      WidgetsBinding.instance.addObserver(this);
+      _keepAliveWorkers = [
+        ever(curDownload, (_) => _syncKeepAlive()),
+        ever(extrasQueue, (_) => _syncKeepAlive()),
+      ];
+    }
   }
 
   @override
   void onClose() {
     if (SubtitleCache.onSaved == _keepTranscript) SubtitleCache.onSaved = null;
     transcripts.dispose();
+    if (Platform.isAndroid) WidgetsBinding.instance.removeObserver(this);
+    for (final worker in _keepAliveWorkers) {
+      worker.dispose();
+    }
+    keepAlive.update(null, visible: !_away);
     super.onClose();
+  }
+
+  /// LibrePili (Android): the queue keeps the network with the app off
+  /// screen (user 2026-10-19, D8 C; see [DownloadKeepAlive]). Its
+  /// notification's 「暂停」 pauses the running download.
+  late final keepAlive = DownloadKeepAlive(
+    onPause: () {
+      if (curDownload.value?.status.isDownloading ?? false) {
+        cancelDownload(isDelete: false, downloadNext: false);
+      }
+    },
+  );
+  var _keepAliveWorkers = <Worker>[];
+
+  /// The app is off screen (Android): a job cannot be had then, and a
+  /// download the network failed meanwhile is started again on the return.
+  bool _away = false;
+
+  /// cids of downloads that failed for the network while [_away].
+  final _failedAway = <int>{};
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        if (!_away) return;
+        _away = false;
+        keepAlive.resumed();
+        _syncKeepAlive();
+        _resumeFailedAway();
+      case AppLifecycleState.hidden ||
+          AppLifecycleState.paused ||
+          AppLifecycleState.detached:
+        _away = true;
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
+  void _syncKeepAlive() => keepAlive.update(_keepAliveState, visible: !_away);
+
+  /// What the job's notification shows; null while nothing downloads.
+  DownloadKeepAliveState? get _keepAliveState {
+    final entry = curDownload.value;
+    if (entry != null && entry.status.isDownloading) {
+      final progress = entry.progress;
+      final received = progress.mediaReceived;
+      final total = progress.mediaTotal;
+      final size = total > 0
+          ? '${CacheManager.formatSize(received)} / '
+                '${CacheManager.formatSize(total)}'
+          : CacheManager.formatSize(received);
+      final more = waitDownloadQueue.where((e) => e.cid != entry.cid).length;
+      return (
+        title: entry.showTitle,
+        text:
+            '${entry.status.message} · $size'
+            '${more > 0 ? ' · 还有 $more 个' : ''}',
+        received: received,
+        total: total,
+      );
+    }
+    // comments, subtitles ... saved after a video: requests too
+    if (!_holdExtras && extrasQueue.isNotEmpty) {
+      return (
+        title: extrasQueue.first.showTitle,
+        text: DownloadStatus.savingExtras.message,
+        received: 0,
+        total: 0,
+      );
+    }
+    return null;
+  }
+
+  /// A download stopped by the network while the app was off screen (no
+  /// job to be had, or the system took it back): the queue stops on a
+  /// failure and waits for the user, so it is started again once the app is
+  /// back — once per return, not a retry loop: one that fails again with
+  /// the app on screen stays failed (user 2026-10-19, D8 C).
+  void _noteFailure(Object error, {bool playUrl = false}) {
+    if (!_away) return;
+    // the play URL's request gives no error to tell the network by
+    if (!playUrl && !DownloadManager.isNetworkFailure(error)) return;
+    if (curDownload.value case final entry?) _failedAway.add(entry.cid);
+  }
+
+  void _resumeFailedAway() {
+    if (_failedAway.isEmpty) return;
+    final cids = {..._failedAway};
+    _failedAway.clear();
+    // started meanwhile (the user's tap, a notification)
+    if (curDownload.value?.status.isDownloading ?? false) return;
+    for (final entry in waitDownloadQueue) {
+      if (cids.contains(entry.cid) &&
+          const {
+            DownloadStatus.failDownload,
+            DownloadStatus.failDownloadAudio,
+            DownloadStatus.failPlayUrl,
+          }.contains(entry.status)) {
+        EventLog.add(
+          'download',
+          '${entry.cid}: failed off screen (${entry.status.name}), '
+              'started again',
+        );
+        startDownload(entry);
+        return;
+      }
+    }
   }
 
   /// The transcript of a part kept by the subtitle cache: how far it got,
@@ -731,7 +855,10 @@ class DownloadService extends GetxService {
           break;
       }
     } catch (e) {
-      if (gen == _startGen) _updateCurStatus(DownloadStatus.failPlayUrl);
+      if (gen == _startGen) {
+        _noteFailure(e, playUrl: true);
+        _updateCurStatus(DownloadStatus.failPlayUrl);
+      }
       if (kDebugMode) {
         debugPrint('get download url error: $e');
       }
@@ -866,6 +993,7 @@ class DownloadService extends GetxService {
       debugPrint('download failed: $lastError');
     }
     if (error != null) {
+      _noteFailure(error);
       // the entry has failed: stop the audio stream too (its bytes are kept
       // for the resume), instead of letting it download and retry on its own
       _audioDownloadManager?.cancel(isDelete: false);
@@ -898,6 +1026,7 @@ class DownloadService extends GetxService {
     if (error != null) {
       lastError = 'audio: $error';
       debugPrint('download failed: $lastError');
+      _noteFailure(error);
     }
     if (error == null) curDownload.value?.progress.audioDone();
     if (_downloadManager?.status == DownloadStatus.completed) {

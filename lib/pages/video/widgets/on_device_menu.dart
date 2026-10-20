@@ -185,6 +185,7 @@ abstract final class OnDeviceMenu {
           host.chooseLanguage(code, plan, mayTranscribe: mayTranscribe),
       needsTranscript:
           !host.hasTranscription && host.captionToTranslateInto(code) == null,
+      withoutModel: TranslateEntry.needsNoModel(host, code),
     );
   }
 

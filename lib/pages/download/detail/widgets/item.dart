@@ -346,7 +346,7 @@ class DetailItem extends StatelessWidget {
                             // segments kept apart: only the first part plays
                             '${entry.mergedParts != null ? '分${entry.mergedParts!.length + 1}段  ' : ''}'
                             '${CacheManager.formatSize(entry.totalBytes)}${entry.ownerName != null ? '  ${entry.ownerName}' : ''}'
-                            '${transcriptLabel(downloadService.transcripts.stateOf(entry.cid), pending: entry.transcriptPending)}',
+                            '${transcriptLabel(downloadService.transcripts.stateOf(entry.cid), pending: entry.transcriptPending, appOpenOnly: PlatformUtils.isMobile)}',
                             style: TextStyle(
                               fontSize: 12,
                               height: 1.6,

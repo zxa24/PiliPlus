@@ -14,6 +14,7 @@ import 'package:PiliPlus/grpc/bilibili/app/listener/v1.pb.dart'
         ListOrder,
         DashItem,
         ResponseUrl;
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -368,7 +369,12 @@ class AudioController extends GetxController
     http_model.Volume? volume,
   }) async {
     await _initPlayerIfNeeded();
-    final extras = audioFilterExtras(volume);
+    final extras = audioFilterExtras(
+      volume,
+      // the 设置代理 setting, per file, as the video player has it: not for
+      // one read from the app's own loopback servers (see AppProxy.mpvFor)
+      map: {'http-proxy': AppProxy.mpvFor(url)},
+    );
     player
       ?..setMediaHeader(
         userAgent: ua,

@@ -25,6 +25,7 @@ import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
+import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/youtube/comments/yt_comments_controller.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
@@ -71,6 +72,7 @@ class YtVideoController extends GetxController
       health: source == null ? YtSourceRouter.sharedHealth : null,
     );
     YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
+    YtStreamRelay.log ??= (line) => EventLog.add('relay', line);
   }
 
   final String videoId;
@@ -90,8 +92,8 @@ class YtVideoController extends GetxController
   /// Who served the video's detail: its captions are fetched from the same.
   YouTubeVideoSource? _detailSource;
 
-  /// The viewer has been told once that YouTube refused this network and
-  /// the video came from Invidious.
+  /// The viewer has been told once that YouTube refused or did not answer
+  /// this network and the video came from Invidious.
   static bool _toldFallback = false;
 
   final plPlayerController = PlPlayerController.getInstance();
@@ -339,6 +341,12 @@ class YtVideoController extends GetxController
       videoUrl = spoil(videoUrl);
       audioUrl = spoil(audioUrl);
     }
+    // an Invidious instance's streams through the app's relay, every hop
+    // and address checked; googlevideo's from the direct source as they are
+    final raw = (videoUrl, audioUrl);
+    videoUrl = await _playable(pair, videoUrl);
+    audioUrl = await _playable(pair, audioUrl);
+    if (isClosed) return;
     final source = NetworkSource(
       videoSource: videoUrl,
       audioSource: audioUrl,
@@ -413,7 +421,22 @@ class YtVideoController extends GetxController
         _mediaTag,
       );
     }
+    // what the relay still fetches for the streams played before is let go
+    _relay?.retain([raw.$1, raw.$2]);
     _maybeAutoTranscribe();
+  }
+
+  /// The relay of this page's Invidious streams ([YtStreamRelay]): made at
+  /// the first one, closed with the page.
+  YtStreamRelay? _relay;
+
+  /// [url], one of [pair]'s streams, as the player and this page's own
+  /// probes ask for it: an Invidious instance's through [_relay] (user
+  /// 2026-10-19: mpv followed its redirects unchecked, and looked the name
+  /// up again itself); googlevideo's from the direct source as it is.
+  Future<String> _playable(YtStreamPair pair, String url) async {
+    if (pair.sourceId != YtInvidiousSource.shared.id) return url;
+    return (_relay ??= YtStreamRelay()).wrap(url);
   }
 
   /// This page's entry in the media session, removed as it closes.
@@ -441,17 +464,25 @@ class YtVideoController extends GetxController
     );
     if (!_toldFallback) {
       _toldFallback = true;
-      SmartDialog.showToast('YouTube 拒绝了当前网络，改由 ${source.label} 提供');
+      SmartDialog.showToast('$_whyFallback改由 ${source.label} 提供');
     }
   }
+
+  /// Why the video is on the fallback, as the toast and a failure put it:
+  /// YouTube not answering is not YouTube refusing this network.
+  String get _whyFallback => play.mode == YtSourceMode.fallbackOnly
+      ? ''
+      : play.fellThroughFor == YtCause.transient
+      ? 'YouTube 暂时连不上，'
+      : 'YouTube 拒绝了当前网络，';
 
   /// The UI's reading of a verdict. Kept here rather than in the data layer,
   /// which stays free of presentation — and the diagnostic signal is appended
   /// so a report says which of the four causes fired.
-  static String _messageFor(YtVerdict verdict) => switch (verdict.cause) {
+  String _messageFor(YtVerdict verdict) => switch (verdict.cause) {
     // the fallback could not serve either: say so, not 网络错误
     YtCause.transient when verdict.signal.startsWith('invidious:') =>
-      'YouTube 拒绝了当前网络，备用线路（Invidious）现在也都不可用，可稍后重试，或在浏览器中打开',
+      '$_whyFallback备用线路（Invidious）现在也都不可用，可稍后重试，或在浏览器中打开',
     YtCause.ok => '',
     YtCause.contentUnavailable => '该视频无法播放（已删除、私有、年龄限制或地区限制）',
     YtCause.ipBlocked => 'YouTube 暂时拒绝了当前网络，可稍后重试，或在浏览器、Invidious 中打开',
@@ -971,7 +1002,16 @@ class YtVideoController extends GetxController
 
   /// The audio stream on its own: handing the recogniser the video as well
   /// would download it a second time for nothing.
-  String? get asrSource => _streams?.audioUrl;
+  ///
+  /// An Invidious instance's through the relay, as the player has it
+  /// ([_playable]); none while the relay is not running, rather than the
+  /// instance's URL unchecked.
+  String? get asrSource {
+    final pair = _streams;
+    if (pair == null) return null;
+    if (pair.sourceId != YtInvidiousSource.shared.id) return pair.audioUrl;
+    return _relay?.wrapNow(pair.audioUrl);
+  }
 
   @override
   bool get canTranscribe => asrSource?.isNotEmpty == true;
@@ -1368,9 +1408,17 @@ class YtVideoController extends GetxController
     ];
   }
 
-  bool get _translateReady =>
-      Get.isRegistered<TranslationService>() &&
-      TranslationService.to.readyToStart;
+  /// Whether the remembered language can be made without downloading
+  /// anything: the model is here, or it is 繁体中文 made by conversion alone
+  /// (oct-pass1-D2, see [TranslateEntry.needsNoModel]).
+  bool get _translateReady {
+    if (!Get.isRegistered<TranslationService>()) return false;
+    if (TranslationService.to.readyToStart) return true;
+    final code = SubtitleChoice.codeOf(Pref.subtitleChoice);
+    return code != null &&
+        TranslationService.supported &&
+        TranslateEntry.needsNoModel(this, code);
+  }
 
   /// See [VideoDetailController._openPlan].
   OpenPlan _openPlan() => decideOnOpen(
@@ -1842,7 +1890,7 @@ class YtVideoController extends GetxController
       // in while playing never shows room for more (see the bilibili page's
       // raiseQuality). No bilibili referer goes to googlevideo
       final capacity = await CdnProbe.speed(
-        pair.videoUrl,
+        await _playable(pair, pair.videoUrl),
         length: 1 << 20,
         timeout: const Duration(seconds: 4),
         bilibili: false,
@@ -1883,7 +1931,9 @@ class YtVideoController extends GetxController
       _steppedUpAt = null;
       EventLog.add('player', 'the step up stalled: no step up for 10 min');
     }
-    return (video: _videoUrlOf(pair), audio: null);
+    final video = await _playable(pair, _videoUrlOf(pair));
+    if (isClosed) return null;
+    return (video: video, audio: null);
   }
 
   /// Puts back what a step up changed, for one the player could not make
@@ -2016,6 +2066,8 @@ class YtVideoController extends GetxController
     }
     videoPlayerServiceHandler?.onVideoDetailDispose(_mediaTag);
     plPlayerController.dispose();
+    // after the player let go of its streams
+    unawaited(_relay?.close());
     super.onClose();
   }
 }

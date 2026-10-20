@@ -690,7 +690,7 @@ List<SettingsModel> get extraSettings => [
   const SplitModel(
     normalModel: NormalModel.split(
       title: '设置代理',
-      subtitle: '设置代理 host:port',
+      subtitle: '应用的所有连接（含播放器、下载、YouTube）都经过此代理 host:port',
       leading: Icon(Icons.airplane_ticket_outlined),
     ),
     switchModel: SwitchModel.split(
@@ -1230,7 +1230,7 @@ void _showProxyDialog(BuildContext context) {
           ),
           const SizedBox(height: 10),
           const Text(
-            '使用代理时仍会校验 HTTPS 证书；若代理需要替换证书（如抓包工具），须另行开启「禁用 SSL 证书验证」，此时经过代理的登录凭据可被截获',
+            '应用的所有连接都经过此代理：B站、YouTube 与 Invidious、下载、模型下载、WebDAV、图片和播放器本身；只有本机回环地址（127.0.0.1）直连；应用内打开的网页（WebView）不经过它。使用代理时仍会校验 HTTPS 证书；若代理需要替换证书（如抓包工具），须另行开启「禁用 SSL 证书验证」，此时经过代理的登录凭据可被截获',
             style: TextStyle(fontSize: 12),
           ),
         ],

@@ -10,12 +10,24 @@ part of 'mp4_remux.dart';
 /// sample entry, which chunks of that segment point at, and a differing
 /// media timescale is converted. Only different tracks or codecs throw
 /// [UnsupportedError], and the caller keeps the segments as separate files.
+///
+/// Each segment's leading edit is kept in the timing (user 2026-10-19, D9 A):
+/// the first segment's edit list becomes the joined track's, and a later
+/// segment is placed so that its own edit's media time plays at the join —
+/// an empty edit (a late start) becomes a gap, and an edit that skips the
+/// segment's first media time (AAC encoder priming) drops the audio samples
+/// wholly before it and takes the rest off the previous sample's duration,
+/// so the tracks stay in step at every join instead of drifting by 20-50 ms
+/// and playing the priming (audit A37).
 abstract final class _Mp4Joiner {
   static List<_Track> join(List<String> inputs) {
     final tracks = _readProgressive(inputs.first);
     for (final t in tracks) {
       _openEndedEdits(t);
     }
+    // the first segment's edit, which the joined edit list is: its lead
+    // (seconds) and the media time it starts playing at, per track
+    final leads = [for (final t in tracks) _leadOf(t)];
     for (final input in inputs.skip(1)) {
       final segment = _readProgressive(input);
       if (segment.length != tracks.length) {
@@ -33,12 +45,29 @@ abstract final class _Mp4Joiner {
             '(${t.sampleEntryType} -> ${s.sampleEntryType}): $input',
           );
         }
-        if (s.timescale != t.timescale) _rescale(s, t.timescale);
       }
-      // start where the longest track ended, so the tracks stay in sync
-      final start = tracks
-          .map((t) => t.mediaDuration / t.timescale)
-          .reduce(max);
+      // its own leading edit, read before its times are converted
+      final own = [
+        for (var i = 0; i < tracks.length; i++)
+          _leadOf(segment[i], timescale: tracks[i].timescale),
+      ];
+      for (var i = 0; i < tracks.length; i++) {
+        final s = segment[i];
+        final timescale = tracks[i].timescale;
+        if (s.timescale != timescale) _rescale(s, timescale);
+      }
+      // start where the track that plays longest ends, so the tracks stay
+      // in sync
+      final start = [
+        for (var i = 0; i < tracks.length; i++)
+          playedEnd(
+            lead: leads[i].lead,
+            mediaTime: leads[i].mediaTime,
+            mediaEnd: tracks[i].mediaDuration,
+            firstOffset: tracks[i].ctos.first,
+            timescale: tracks[i].timescale,
+          ),
+      ].reduce(max);
       for (var i = 0; i < tracks.length; i++) {
         final t = tracks[i];
         final s = segment[i];
@@ -47,8 +76,24 @@ abstract final class _Mp4Joiner {
         final descIndex = [
           for (final e in _sampleEntriesOf(s.stsd)) _entryIndex(entries, e),
         ];
-        final gap = (start * t.timescale).round() - t.mediaDuration;
-        if (gap > 0) t.durations.last += gap;
+        final fit = fitSegment(
+          offset:
+              placeAt(
+                start: start,
+                lead: leads[i].lead,
+                mediaTime: leads[i].mediaTime,
+                ownLead: own[i].lead,
+                ownMediaTime: own[i].mediaTime,
+                timescale: t.timescale,
+              ) -
+              t.mediaDuration,
+          mediaTime: own[i].mediaTime,
+          durations: s.durations,
+          syncs: s.syncs,
+          lastDuration: t.durations.last,
+        );
+        if (fit.drop > 0) _dropLeading(s, fit.drop);
+        t.durations.last += fit.extend - fit.shorten;
         final firstSample = t.sizes.length;
         final dts = t.mediaDuration;
         for (final c in s.chunks) {
@@ -79,6 +124,120 @@ abstract final class _Mp4Joiner {
       if (t.sampleEntries?.length == 1) t.sampleEntries = null;
     }
     return tracks;
+  }
+
+  /// The lead (seconds of empty edits) of [t]'s edit list and the media
+  /// time its first playing edit starts at, in [timescale] (the track's own
+  /// when null): (0, 0) without an edit list.
+  static ({double lead, int mediaTime}) _leadOf(_Track t, {int? timescale}) {
+    var lead = 0.0;
+    for (final e in t.edits) {
+      if (e.mediaTime < 0) {
+        lead += e.segmentDuration / t.sourceMovieTimescale;
+        continue;
+      }
+      return (
+        lead: lead,
+        mediaTime: _scale(e.mediaTime, t.timescale, timescale ?? t.timescale),
+      );
+    }
+    return (lead: lead, mediaTime: 0);
+  }
+
+  /// When a track of the joined file stops playing, in seconds: its
+  /// [lead], then its media from [mediaTime] to [mediaEnd] (decode times).
+  /// [firstOffset], the first sample's composition offset, is the delay a
+  /// B-frame stream presents everything by: an edit that starts there skips
+  /// nothing of its end (one that starts later, AAC priming, does). Without
+  /// an edit this is the decode end, as joins have always been placed.
+  static double playedEnd({
+    required double lead,
+    required int mediaTime,
+    required int mediaEnd,
+    required int firstOffset,
+    required int timescale,
+  }) =>
+      lead +
+      (mediaEnd - mediaTime + min(max(0, firstOffset), mediaTime)) / timescale;
+
+  /// The joined decode time a later segment's own times are offset by, so
+  /// that its own edit's [ownMediaTime] plays [ownLead] after [start] (the
+  /// join, seconds) under the joined edit list ([lead], [mediaTime]).
+  static int placeAt({
+    required double start,
+    required double lead,
+    required int mediaTime,
+    required double ownLead,
+    required int ownMediaTime,
+    required int timescale,
+  }) =>
+      ((start - lead + ownLead) * timescale).round() + mediaTime - ownMediaTime;
+
+  /// How a later segment is fitted on to the joined track, whose own times
+  /// are to be offset by [offset] from the joined track's end ([placeAt]
+  /// less that end); [mediaTime] is where its own edit starts playing and
+  /// [durations] and [syncs] are its samples'. The samples wholly before
+  /// [mediaTime] never play (AAC priming): they are dropped while the next
+  /// one is a sync sample (audio; a video starts on its key frame, so
+  /// nothing of it goes). The first sample kept then starts a gap after the
+  /// end, added to the previous sample's duration, or overlaps it, taken
+  /// off that duration ([lastDuration], which keeps at least 1).
+  static ({int drop, int extend, int shorten}) fitSegment({
+    required int offset,
+    required int mediaTime,
+    required List<int> durations,
+    required List<bool> syncs,
+    required int lastDuration,
+  }) {
+    var drop = 0;
+    var dropped = 0;
+    while (drop + 1 < durations.length &&
+        dropped + durations[drop] <= mediaTime &&
+        syncs[drop + 1]) {
+      dropped += durations[drop];
+      drop++;
+    }
+    final at = offset + dropped;
+    return (
+      drop: drop,
+      extend: max(0, at),
+      shorten: at < 0 ? min(-at, max(0, lastDuration - 1)) : 0,
+    );
+  }
+
+  /// [s] without its first [n] samples: its times start at the next one.
+  static void _dropLeading(_Track s, int n) {
+    var shift = 0;
+    for (var i = 0; i < n; i++) {
+      shift += s.durations[i];
+    }
+    final chunks = <_Chunk>[];
+    for (final c in s.chunks) {
+      final end = c.firstSample + c.sampleCount;
+      if (end <= n) continue;
+      var offset = c.sourceOffset;
+      var length = c.length;
+      var startDts = c.startDts;
+      var first = c.firstSample;
+      for (; first < n; first++) {
+        offset += s.sizes[first];
+        length -= s.sizes[first];
+        startDts += s.durations[first];
+      }
+      chunks.add(
+        _Chunk(s, offset, first - n, startDts - shift, c.sourcePath)
+          ..length = length
+          ..sampleCount = end - first
+          ..descIndex = c.descIndex,
+      );
+    }
+    s.chunks
+      ..clear()
+      ..addAll(chunks);
+    s.durations.removeRange(0, n);
+    s.sizes.removeRange(0, n);
+    s.ctos.removeRange(0, n);
+    s.syncs.removeRange(0, n);
   }
 
   /// handler_type of the track's `hdlr` (vide / soun ...).

@@ -97,6 +97,9 @@ abstract final class SettingBoxKey {
       // LibrePili: the region and language asked of YouTube
       ytRegion = 'ytRegion',
       ytLanguage = 'ytLanguage',
+      // LibrePili: each channel of a subscription refresh asked as its own
+      // visitor (see the subscriptions page)
+      ytSubIsolate = 'ytSubIsolate',
       asrAsked = 'asrAsked',
       asrLanguage = 'asrLanguage',
       asrThreads = 'asrThreads',

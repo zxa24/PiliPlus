@@ -42,6 +42,27 @@ class PieceStore {
   /// Numbers each scratch file [write] makes.
   var _scratchSerial = 0;
 
+  /// The disk work on each stream's folder, one step at a time, by key: a
+  /// piece renamed into place, the stream re-sized ([sized]) or dropped
+  /// ([clear]). A re-size waits for a rename under way, and no piece of the
+  /// old size can land in the new size's folder after it — which the next
+  /// [open] took for the new file's (audit F25, user 2026-10-19 14B). Per
+  /// stream: the others' pieces go on being written meanwhile.
+  final _queues = <String, Future<void>>{};
+
+  Future<T> _serial<T>(String key, Future<T> Function() step) {
+    final run = (_queues[key] ?? Future<void>.value()).then((_) => step());
+    final done = run.then<void>((_) {}, onError: (_) {});
+    _queues[key] = done;
+    done.whenComplete(() {
+      if (identical(_queues[key], done)) _queues.remove(key);
+    });
+    return run;
+  }
+
+  /// For tests only: awaited just before a piece is renamed into place.
+  static Future<void> Function()? debugBeforeRename;
+
   /// What the pieces kept take now.
   int get bytes => _bytes;
 
@@ -120,6 +141,12 @@ class PieceStore {
   /// another file, and go.
   Future<void> sized(String key, Uri uri, int size, String? type) async {
     if (!_ready || maxBytes <= 0) return;
+    // every piece fetched asks: the size it has is not waited in line for
+    if (_streams[key]?.size == size) return;
+    await _serial(key, () => _sized(key, uri, size, type));
+  }
+
+  Future<void> _sized(String key, Uri uri, int size, String? type) async {
     final known = _streams[key];
     if (known != null && known.size == size) return;
     if (known != null) await _drop(known);
@@ -204,34 +231,47 @@ class PieceStore {
     // full-length piece of garbage (a crash under delayed allocation) would
     // pass [read]'s length check, and be played and copied into downloads
     final name = '${dir.path}/$key/$start-${data.length}';
+    final File scratch;
     try {
       // its own scratch name: two writers of one piece (the stream re-sized
       // between them) never share or remove each other's file
-      final scratch = await File(
+      scratch = await File(
         '$name.${_scratchSerial++}.tmp',
       ).writeAsBytes(data, flush: true);
-      // the stream re-sized (another file) during the write: these bytes
-      // are the old one's, not to be filed under the new
-      if (!identical(_streams[key], stream)) {
-        await scratch.delete().catchError((_) => scratch);
-        return;
-      }
-      await scratch.rename(name);
     } catch (_) {
       return;
     }
-    // written meanwhile by another (the same piece twice): the one kept
-    if (stream.pieces[start] case final had?) _remove(had, delete: false);
-    stream.pieces[start] = piece;
-    _lru.add(piece);
-    _bytes += piece.length;
-    await _trim();
+    final kept = await _serial(key, () async {
+      // the stream re-sized (another file) or dropped during the write:
+      // these bytes are the old one's, not to be filed under the new
+      if (!identical(_streams[key], stream)) {
+        await scratch.delete().catchError((_) => scratch);
+        return false;
+      }
+      try {
+        await debugBeforeRename?.call();
+        await scratch.rename(name);
+      } catch (_) {
+        await scratch.delete().catchError((_) => scratch);
+        return false;
+      }
+      // written meanwhile by another (the same piece twice): the one kept
+      if (stream.pieces[start] case final had?) _remove(had, delete: false);
+      stream.pieces[start] = piece;
+      _lru.add(piece);
+      _bytes += piece.length;
+      return true;
+    });
+    if (kept) await _trim();
   }
 
   /// Everything kept, gone.
   Future<void> clear() async {
     for (final stream in _streams.values.toList()) {
-      await _drop(stream);
+      // after a piece being renamed into its folder
+      await _serial(stream.key, () async {
+        if (identical(_streams[stream.key], stream)) await _drop(stream);
+      });
     }
     _lru.clear();
     _bytes = 0;
@@ -282,10 +322,16 @@ class PieceStore {
   Future<void> _forget(_Stream stream) {
     _streams.remove(stream.key);
     final key = stream.key;
-    final gone = Directory('${dir.path}/$key')
+    late final Future<void> gone;
+    gone = Directory('${dir.path}/$key')
         .delete(recursive: true)
         .then<void>((_) {}, onError: (_) {})
-        .whenComplete(() => _deleting.remove(key));
+        // a block, not `=> _deleting.remove(key)`: whenComplete waits for a
+        // future its callback returns, and that one was [gone] itself — no
+        // delete ever completed, and a re-size or [clear] waited for ever
+        .whenComplete(() {
+          if (identical(_deleting[key], gone)) _deleting.remove(key);
+        });
     return _deleting[key] = gone;
   }
 

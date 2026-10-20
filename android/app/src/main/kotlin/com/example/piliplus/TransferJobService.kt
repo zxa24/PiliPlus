@@ -23,7 +23,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 // LibrePili: a user-initiated data transfer job (Android 14+) held around a
-// model download that Dart does itself (lib/services/background_transfer.dart).
+// model download that Dart does itself (lib/services/background_transfer.dart),
+// and around the video download queue while it has downloads running
+// (lib/services/download/download_keepalive.dart; user 2026-10-19, D8 C).
+// Each has its own method channel and notification channel; the jobs are the
+// same.
 //
 // Android 15 takes the network from an app that is not on screen
 // (BLOCKED_REASON_APP_BACKGROUND, measured on a Pixel 6 Pro 2026-09-29).
@@ -61,9 +65,21 @@ class TransferCancelReceiver : BroadcastReceiver() {
 
 object TransferJobs {
     private const val TAG = "TransferJobs"
-    private const val METHOD_CHANNEL = "librepili/transfer"
-    private const val NOTIFICATION_CHANNEL = "model_download"
     const val EXTRA_ID = "id"
+
+    /** Who a job is for: its method channel, notification channel and button. */
+    private enum class Kind(
+        val methodChannel: String,
+        val notificationChannel: String,
+        val channelName: String,
+        val action: String,
+    ) {
+        MODEL("librepili/transfer", "model_download", "模型下载", "取消"),
+
+        // the button pauses the queue: what was downloaded stays, and a tap
+        // in the download list goes on from there
+        VIDEO("librepili/transfer/downloads", "video_download", "视频下载", "暂停"),
+    }
 
     // job ids double as notification ids; clear of anything else the app
     // schedules or posts (it schedules no other jobs today)
@@ -76,7 +92,7 @@ object TransferJobs {
     private const val SILENCE_LIMIT_MS = 3 * 60 * 1000L
     private const val WATCHDOG_PERIOD_MS = 60 * 1000L
 
-    private class Transfer(val id: Int, val title: String) {
+    private class Transfer(val id: Int, val title: String, val kind: Kind) {
         var text = ""
         var received = 0L
         var total = 0L
@@ -88,7 +104,7 @@ object TransferJobs {
     private val transfers = HashMap<Int, Transfer>()
     private var nextId = FIRST_ID
     private var appContext: Context? = null
-    private var channel: MethodChannel? = null
+    private val channels = HashMap<Kind, MethodChannel>()
     private var engine: FlutterEngine? = null
     private var swept = false
     private var watching = false
@@ -101,11 +117,27 @@ object TransferJobs {
      */
     fun attach(context: Context, flutterEngine: FlutterEngine) {
         appContext = context.applicationContext
-        val methods = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
+        for (kind in Kind.values()) {
+            channels[kind] = channelFor(kind, flutterEngine)
+        }
+        if (engine !== flutterEngine) {
+            engine = flutterEngine
+            // the Dart download dies with its engine: nothing will say
+            // "finish", so end every job now
+            flutterEngine.addEngineLifecycleListener(object : FlutterEngine.EngineLifecycleListener {
+                override fun onPreEngineRestart() = endAll("engine restarted")
+                override fun onEngineWillDestroy() = endAll("engine destroyed")
+            })
+        }
+    }
+
+    private fun channelFor(kind: Kind, flutterEngine: FlutterEngine): MethodChannel {
+        val methods = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, kind.methodChannel)
         methods.setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> result.success(
                     start(
+                        kind,
                         call.argument<String>("title") ?: "",
                         call.argument<String>("text") ?: "",
                         call.argument<Number>("total")?.toLong() ?: 0L,
@@ -130,19 +162,10 @@ object TransferJobs {
                 else -> result.notImplemented()
             }
         }
-        channel = methods
-        if (engine !== flutterEngine) {
-            engine = flutterEngine
-            // the Dart download dies with its engine: nothing will say
-            // "finish", so end every job now
-            flutterEngine.addEngineLifecycleListener(object : FlutterEngine.EngineLifecycleListener {
-                override fun onPreEngineRestart() = endAll("engine restarted")
-                override fun onEngineWillDestroy() = endAll("engine destroyed")
-            })
-        }
+        return methods
     }
 
-    private fun start(title: String, text: String, total: Long): Map<String, Any?> {
+    private fun start(kind: Kind, title: String, text: String, total: Long): Map<String, Any?> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             return refused("Android ${Build.VERSION.SDK_INT} has no user-initiated jobs")
         }
@@ -153,7 +176,7 @@ object TransferJobs {
         if (!scheduler.canRunUserInitiatedJobs()) {
             return refused("RUN_USER_INITIATED_JOBS not granted")
         }
-        ensureChannel(context)
+        ensureChannel(context, kind)
         val id = nextId++
         val info = JobInfo.Builder(id, ComponentName(context, TransferJobService::class.java))
             .setUserInitiated(true)
@@ -174,7 +197,7 @@ object TransferJobs {
             // app is not in a state to schedule one (not visible)
             return refused("schedule() refused: app not visible?")
         }
-        transfers[id] = Transfer(id, title).also {
+        transfers[id] = Transfer(id, title, kind).also {
             it.text = text
             it.total = total
         }
@@ -215,7 +238,7 @@ object TransferJobs {
         val transfer = transfers.remove(params.jobId) ?: return
         val reason = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) params.stopReason else 0
         Log.i(TAG, "job ${transfer.id} stopped by the system, reason $reason")
-        channel?.invokeMethod("stopped", mapOf("id" to transfer.id, "reason" to reason))
+        channels[transfer.kind]?.invokeMethod("stopped", mapOf("id" to transfer.id, "reason" to reason))
     }
 
     private fun progress(id: Int, text: String?, received: Long, total: Long) {
@@ -246,10 +269,10 @@ object TransferJobs {
     }
 
     fun cancelFromNotification(id: Int) {
-        if (!transfers.containsKey(id)) return
+        val transfer = transfers[id] ?: return
         // the job ends at once, whether or not Dart is there to hear it;
         // Dart's own "finish" that follows finds nothing left to end
-        channel?.invokeMethod("cancel", mapOf("id" to id))
+        channels[transfer.kind]?.invokeMethod("cancel", mapOf("id" to id))
         end(id, "cancelled from the notification")
     }
 
@@ -273,12 +296,12 @@ object TransferJobs {
         }, WATCHDOG_PERIOD_MS)
     }
 
-    private fun ensureChannel(context: Context) {
+    private fun ensureChannel(context: Context, kind: Kind) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(NOTIFICATION_CHANNEL) != null) return
+        if (manager.getNotificationChannel(kind.notificationChannel) != null) return
         // low: a progress bar the user asked for, no sound, no heads-up
         manager.createNotificationChannel(
-            NotificationChannel(NOTIFICATION_CHANNEL, "模型下载", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(kind.notificationChannel, kind.channelName, NotificationManager.IMPORTANCE_LOW),
         )
     }
 
@@ -287,7 +310,7 @@ object TransferJobs {
         val service = transfer.service ?: return
         val params = transfer.params ?: return
         val context = appContext ?: service.applicationContext
-        val builder = Notification.Builder(context, NOTIFICATION_CHANNEL)
+        val builder = Notification.Builder(context, transfer.kind.notificationChannel)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(transfer.title)
             .setContentText(transfer.text)
@@ -310,7 +333,7 @@ object TransferJobs {
         builder.addAction(
             Notification.Action.Builder(
                 null as Icon?,
-                "取消",
+                transfer.kind.action,
                 PendingIntent.getBroadcast(
                     context,
                     transfer.id,

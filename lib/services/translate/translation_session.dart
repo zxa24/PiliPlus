@@ -215,9 +215,53 @@ class TranslationSession {
     this.convert,
     this.modelFree = false,
     this.routeOf,
+    this.mayLoadModel,
     this.extrasOnly = false,
     this.linger = extraLinger,
   });
+
+  /// Whether a unit for the model may load it — and download it first —
+  /// now; always without it. Traditional Chinese of a transcript made by
+  /// conversion starts without the model (oct-pass1-D2): a unit in another
+  /// language is then shown in its own words, never a silent 1–3 GB
+  /// download, and [onModelWanted] offers the model once. Read again for
+  /// each unit, so the model asked for since is used (see [retranslate]).
+  final bool Function()? mayLoadModel;
+
+  /// Called once, the first time a unit in a known language other than
+  /// Chinese is shown in its own words for want of the model.
+  VoidCallback? onModelWanted;
+  var _offered = false;
+
+  /// The keys of units shown in their own words for want of the model:
+  /// recorded with no text, as a failure is — so the subtitle cache keeps
+  /// none of them — and dropped again by [retranslate].
+  final _asOriginal = <int>{};
+
+  bool get _modelHeldBack => !(mayLoadModel?.call() ?? true);
+
+  /// What [routeOf] makes of [unit]; the model without one.
+  UnitRoute _routeOf(TranslationUnit unit) =>
+      routeOf?.call(unit.language) ?? UnitRoute.model;
+
+  /// The model may be loaded now: the units shown in their own words for
+  /// want of it are translated after all, the viewer's first. A session
+  /// that had finished with them goes on again.
+  void retranslate() {
+    if (_asOriginal.isEmpty || _closed) return;
+    for (final key in _asOriginal) {
+      final result = results[key];
+      if (result != null && result.text == null) results.remove(key);
+    }
+    _asOriginal.clear();
+    revision.value++;
+    if (_ended && _loop != null) {
+      _ended = false;
+      _loop = _run();
+    } else {
+      poke();
+    }
+  }
 
   /// How long a session [extrasOnly] holds the model after its last text.
   final Duration linger;
@@ -438,10 +482,12 @@ class TranslationSession {
       if (unit.from > horizon) break;
       if (!results.settles(unit)) return unit;
     }
-    final route = routeOf;
-    if (route != null && !modelFree) {
+    // a unit for a model held back is shown in its own words: as cheap
+    if (routeOf != null && !modelFree) {
+      final heldBack = _modelHeldBack;
       for (final unit in units) {
-        if (!results.settles(unit) && route(unit.language) != UnitRoute.model) {
+        if (!results.settles(unit) &&
+            (heldBack || _routeOf(unit) != UnitRoute.model)) {
           return unit;
         }
       }
@@ -850,9 +896,27 @@ class TranslationSession {
           await _nap();
           continue;
         }
-        final route = due == null || modelFree
-            ? null
-            : (routeOf?.call(due.language) ?? UnitRoute.model);
+        final route = due == null || modelFree ? null : _routeOf(due);
+        if (due != null && route == UnitRoute.model && _modelHeldBack) {
+          // Not downloaded, nor asked for: shown in its own words. A unit
+          // whose language is not known is too — its tag never comes later,
+          // so held it would wait for ever — but is no reason to offer the
+          // model.
+          _set(const TranslationState(TranslationStage.translating));
+          results.record(due, null);
+          _asOriginal.add(due.key);
+          revision.value++;
+          if (!_offered && due.language.isNotEmpty) {
+            _offered = true;
+            EventLog.add(
+              'translate',
+              'a unit in ${due.language} at ${due.from.toStringAsFixed(1)} s '
+                  'shown as it is: the model is not downloaded',
+            );
+            onModelWanted?.call();
+          }
+          continue;
+        }
         if (route == UnitRoute.pass) {
           // already in the language asked for: shown as it is
           _set(const TranslationState(TranslationStage.translating));

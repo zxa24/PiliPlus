@@ -5,6 +5,7 @@ import 'package:PiliPlus/http/live.dart';
 import 'package:PiliPlus/models_new/live/live_feed_index/card_data_list_item.dart';
 import 'package:PiliPlus/models_new/live/live_feed_index/feedback.dart';
 import 'package:PiliPlus/pages/search/widgets/search_text.dart';
+import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -68,7 +69,7 @@ class LiveCardVApp extends StatelessWidget {
             ),
           ),
         ),
-        if (!item.feedback.isNullOrEmpty)
+        if (!item.feedback.isNullOrEmpty && LoginPolicy.recommendPersonal)
           Positioned(
             right: -5,
             bottom: -2,

@@ -1,6 +1,12 @@
-/// LibrePili: a finished download transcribed to its end in the background,
-/// and how far each download's transcript has got (user 2026-10-16:
+/// LibrePili: a finished download transcribed to its end while the app is
+/// open, and how far each download's transcript has got (user 2026-10-16:
 /// 「下载完自动在后台把转录补完、下载列表里显示转录到了百分之多少」).
+///
+/// "In the background" means behind the other pages, not with the app off
+/// screen: on a phone the on-device work stops when the app leaves the
+/// screen (OnDeviceModelGuard suspends the run) and carries on from the
+/// cache once it is back. Only the video downloads keep going off screen
+/// (user 2026-10-19, D8 C: the list says 仅在应用打开时进行).
 ///
 /// A download that finishes is marked (`transcript_pending` in its
 /// entry.json) and transcribed from its file, one at a time, under its
@@ -37,14 +43,20 @@ import 'package:get/get.dart';
 typedef TranscriptState = ({double fraction, bool running});
 
 /// What the list says after a download's size: '' when it has no
-/// transcript and is not waiting for one.
-String transcriptLabel(TranscriptState? state, {bool pending = false}) {
+/// transcript and is not waiting for one. [appOpenOnly] (a phone): one
+/// waiting for its turn says that it is made only with the app open.
+String transcriptLabel(
+  TranscriptState? state, {
+  bool pending = false,
+  bool appOpenOnly = false,
+}) {
   if (state == null) return '';
   final percent = (state.fraction * 100).floor();
   if (state.running) return '  转录中 $percent%';
   if (state.fraction >= 1) return '  已转录';
-  if (pending && percent == 0) return '  等待转录';
-  return '  转录 $percent%';
+  final waiting = pending && appOpenOnly ? '（仅在应用打开时进行）' : '';
+  if (pending && percent == 0) return '  等待转录$waiting';
+  return '  转录 $percent%$waiting';
 }
 
 class DownloadTranscripts {

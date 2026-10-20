@@ -16,6 +16,7 @@ import 'package:PiliPlus/pages/video/widgets/asr_entry.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/model_download_copy.dart';
+import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
@@ -40,13 +41,18 @@ abstract final class TranslateEntry {
   /// fetched and the page falls back to transcribing, which then asks what
   /// any start of transcription asks before it downloads anything. Scoped to
   /// this one start, so an overlapping one cannot take it away.
+  ///
+  /// [withoutModel]: what is asked for is made by conversion alone (see
+  /// [needsNoModel]), and nothing is asked about the model; speech in
+  /// another language later is offered it then (see TranslateModelNotice).
   static Future<void> startFor(
     BuildContext context,
     Future<void> Function({Future<bool> Function()? mayTranscribe}) start, {
     required bool needsTranscript,
+    bool withoutModel = false,
   }) async {
     final service = TranslationService.to;
-    if (!service.modelReady) {
+    if (!service.modelReady && !withoutModel) {
       final proceed = await _askForModel(context, service);
       if (proceed != true || !context.mounted) return;
     }
@@ -67,6 +73,22 @@ abstract final class TranslateEntry {
     );
   }
 
+  /// Whether picking [code] on [host]'s page needs no model to start:
+  /// Traditional Chinese from a Chinese caption track, or from a transcript
+  /// of speech mostly in Chinese (see TranslationService.startsWithoutModel).
+  static bool needsNoModel(SubtitleMenuHost host, String code) {
+    if (code != TranslationService.traditionalChinese) return false;
+    final caption = host.captionToTranslateInto(code);
+    final tracks = host.platformTracks;
+    return TranslationService.startsWithoutModel(
+      code,
+      caption: caption != null && caption < tracks.length
+          ? tracks[caption].language
+          : null,
+      spoken: host.spoken,
+    );
+  }
+
   /// Asks before the model is downloaded, if it is not there: for what
   /// translates without a subtitle menu (the comments). Whether to go on.
   static Future<bool> ensureModel(BuildContext context) async {
@@ -75,7 +97,31 @@ abstract final class TranslateEntry {
     return await _askForModel(context, service) == true;
   }
 
+  /// The model offered by a translation started without it (see
+  /// TranslateModelNotice): asked about as any first download is, and a
+  /// yes lets that translation go on with it.
+  static Future<void> offerModel(BuildContext context) async {
+    final service = TranslationService.to;
+    if (service.modelReady) {
+      // downloaded or imported since: nothing to ask
+      service.agreeToDownload();
+    } else {
+      await _askForModel(context, service);
+    }
+  }
+
+  /// [_ask], and a yes remembered: whatever starts after it, or was started
+  /// without the model, may download it — the user said so.
   static Future<bool?> _askForModel(
+    BuildContext context,
+    TranslationService service,
+  ) async {
+    final agreed = await _ask(context, service);
+    if (agreed == true) service.agreeToDownload();
+    return agreed;
+  }
+
+  static Future<bool?> _ask(
     BuildContext context,
     TranslationService service,
   ) async {

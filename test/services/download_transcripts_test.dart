@@ -30,4 +30,42 @@ void main() {
       '  转录中 99%',
     );
   });
+
+  // on a phone the work stops with the app off screen (D8 C)
+  test('a phone says a waiting one is made only with the app open', () {
+    const note = '（仅在应用打开时进行）';
+    expect(
+      transcriptLabel(
+        (fraction: 0, running: false),
+        pending: true,
+        appOpenOnly: true,
+      ),
+      '  等待转录$note',
+    );
+    expect(
+      transcriptLabel(
+        (fraction: 0.4, running: false),
+        pending: true,
+        appOpenOnly: true,
+      ),
+      '  转录 40%$note',
+    );
+    // running, done, or not to be finished: nothing to add
+    expect(
+      transcriptLabel(
+        (fraction: 0.4, running: true),
+        pending: true,
+        appOpenOnly: true,
+      ),
+      '  转录中 40%',
+    );
+    expect(
+      transcriptLabel((fraction: 1, running: false), appOpenOnly: true),
+      '  已转录',
+    );
+    expect(
+      transcriptLabel((fraction: 0.2, running: false), appOpenOnly: true),
+      '  转录 20%',
+    );
+  });
 }

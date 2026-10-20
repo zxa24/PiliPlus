@@ -152,6 +152,29 @@ class DownloadManager {
     onDone(e);
   }
 
+  /// Whether [error], as [onDone] reports it, is the network failing —
+  /// the connection lost, refused, timed out or cut short — rather than the
+  /// server's answer (an HTTP status) or the disk. A download that failed so
+  /// while the app was off screen is started again once it is back (see
+  /// DownloadService).
+  static bool isNetworkFailure(Object? error) => switch (error) {
+    DioException(:final type, error: final inner) => switch (type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.connectionError => true,
+      DioExceptionType.unknown => isNetworkFailure(inner),
+      _ => false,
+    },
+    SocketException() ||
+    HttpException() ||
+    TlsException() ||
+    TimeoutException() => true,
+    // a body that ended before its length (see [_attempt])
+    String() => error.startsWith('incomplete transfer'),
+    _ => false,
+  };
+
   /// [url] over https, unless it is the parallel fetch's on the loopback.
   static String _https(String url) =>
       url.startsWith('http://127.0.0.1') ? url : url.http2https;

@@ -15,8 +15,11 @@ void main() {
 
   late _Upstream upstream;
   late ParallelFetch fetch;
+  late List<(Uri, int)> cuts;
 
   setUp(() async {
+    cuts = [];
+    ParallelFetch.onCut = (uri, at) => cuts.add((uri, at));
     upstream = _Upstream(data);
     await upstream.start();
     fetch = ParallelFetch(chunkBytes: 256 * 1024, aheadChunks: 8);
@@ -24,6 +27,7 @@ void main() {
   });
 
   tearDown(() async {
+    ParallelFetch.onCut = null;
     await fetch.close();
     await upstream.close();
   });
@@ -142,12 +146,28 @@ void main() {
     expect(r.body.length, 1500000);
     expect(r.body, data.sublist(0, 1500000));
     expect(r.whole, isFalse, reason: 'the content length promised more');
+    // and the player is told the copy is cut there (15A): the pieces past
+    // it too, each where it starts
+    expect(cuts, isNotEmpty);
+    expect(cuts.map((c) => c.$2).reduce(min), 1500000);
+    expect(cuts.every((c) => c.$1.path == Uri.parse(upstream.url).path), isTrue);
+  });
+
+  test('cut: the host ended it below the size; timeouts alone are slow', () {
+    expect(ParallelFetch.isCut(shortEnds: 1, at: 100, size: 1000), isTrue);
+    expect(ParallelFetch.isCut(shortEnds: 0, at: 100, size: 1000), isFalse);
+    // at the end of the file: nothing more to have
+    expect(ParallelFetch.isCut(shortEnds: 3, at: 1000, size: 1000), isFalse);
+    // no size known: nothing to measure it by
+    expect(ParallelFetch.isCut(shortEnds: 3, at: 100, size: null), isFalse);
   });
 
   test('a refusal is passed on as it was: expired URLs answer 403', () async {
     upstream.status = HttpStatus.forbidden;
     final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
     expect(r.status, HttpStatus.forbidden);
+    // a URL refused, not a copy cut short
+    expect(cuts, isEmpty);
   });
 
   test('HEAD: the size, no body', () async {

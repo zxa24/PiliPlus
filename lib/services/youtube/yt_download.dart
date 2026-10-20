@@ -18,7 +18,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:PiliPlus/services/download/download_service.dart';
-import 'package:PiliPlus/services/youtube/invidious_source.dart';
+import 'package:PiliPlus/services/youtube/stream_relay.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_video_id.dart';
 import 'package:PiliPlus/utils/mp4_remux.dart';
@@ -195,37 +195,30 @@ abstract final class YtDownloader {
   }
 
   /// [method] on [uri], its redirects followed here rather than by the
-  /// client: each hop must be public https ([YtInvidiousSource.isPublicUrl]),
-  /// as the stream URL itself had to be when it was listed.
+  /// client, every hop checked and connected at the address checked
+  /// ([YtCheckedHops]: public https) — as the stream URL had to be when it
+  /// was listed, and as the player's Invidious streams go (the relay).
   static Future<HttpClientResponse> _send(
-    HttpClient client,
+    YtCheckedHops hops,
     String method,
     Uri uri, {
     String? range,
   }) async {
-    for (var hop = 0; hop < 5; hop++) {
-      if (hop > 0 && await YtInvidiousSource.isPublicUrl(uri) != true) {
-        throw HttpException('redirected to a non-public address', uri: uri);
-      }
-      final request = await client.openUrl(method, uri)
-        ..followRedirects = false;
-      if (range != null) request.headers.set(HttpHeaders.rangeHeader, range);
-      final response = await request.close().timeout(_idleTimeout);
-      final location = response.headers.value(HttpHeaders.locationHeader);
-      if (response.statusCode ~/ 100 != 3 || location == null) {
-        return response;
-      }
-      await response.drain<void>();
-      uri = uri.resolve(location);
-    }
-    throw HttpException('too many redirects', uri: uri);
+    final (_, response) = await hops.send(
+      method,
+      uri,
+      headers: {HttpHeaders.rangeHeader: ?range},
+      timeout: _idleTimeout,
+    );
+    return response;
   }
 
   static Future<int?> _contentLength(String url, YtDownloadToken? token) async {
     final client = HttpClient()..idleTimeout = _idleTimeout;
+    final hops = YtCheckedHops(client);
     token?._register(() => client.close(force: true));
     try {
-      final response = await _send(client, 'HEAD', Uri.parse(url));
+      final response = await _send(hops, 'HEAD', Uri.parse(url));
       await response.drain<void>();
       final length = response.headers.contentLength;
       return length > 0 ? length : null;
@@ -256,6 +249,7 @@ abstract final class YtDownloader {
     if (token?.isCancelled ?? false) throw const YtDownloadCancelled();
     final uri = Uri.parse(url);
     final client = HttpClient()..idleTimeout = _idleTimeout;
+    final hops = YtCheckedHops(client);
     token?._register(() => client.close(force: true));
     final sink = File(output).openWrite();
     try {
@@ -266,7 +260,7 @@ abstract final class YtDownloader {
         if (token?.isCancelled ?? false) throw const YtDownloadCancelled();
         final end = received + _chunkSize - 1;
         final response = await _send(
-          client,
+          hops,
           'GET',
           uri,
           range: 'bytes=$received-$end',

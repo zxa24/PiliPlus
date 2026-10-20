@@ -1,6 +1,7 @@
 import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/constants.dart';
+import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -78,6 +79,11 @@ abstract final class LoginPolicy {
     Api.feedDislikeCancel,
     // 直播「不感兴趣」: signed with the recommend role's access_key
     Api.liveFeedback,
+    // the live feed it rates, personalised by the same account (user
+    // decision: in login mode as the home feed is; otherwise the item is
+    // hidden, see [recommendPersonal])
+    Api.liveFeedIndex,
+    Api.liveSecondList,
   };
 
   static const Set<String> _grpcAccountApis = {
@@ -91,6 +97,17 @@ abstract final class LoginPolicy {
   };
 
   static const List<String> _grpcAccountPrefixes = [GrpcUrl.im, GrpcUrl.im2];
+
+  /// Whether the recommend role's feeds go out as an account: login mode
+  /// on and that role assigned a logged-in, unexpired account. Feedback that
+  /// can only work on a personalised feed (直播「不感兴趣」) is shown only then.
+  static bool get recommendPersonal {
+    final account = Accounts.get(AccountType.recommend);
+    return loginMode &&
+        account is LoginAccount &&
+        account.isLogin &&
+        !account.expired;
+  }
 
   static const _csrfKeys = {'csrf', 'biliCSRF', 'csrf_token'};
   static const _selfKeys = ['mid', 'vmid', 'up_mid'];

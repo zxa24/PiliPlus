@@ -51,7 +51,6 @@ import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flex_seed_scheme/flex_seed_scheme.dart' show FlexSchemeVariant;
-import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:material_ui/material_ui.dart';
@@ -395,8 +394,11 @@ abstract final class Pref {
     defaultValue: HttpString.sponsorBlockBaseUrl,
   );
 
+  /// 跳过次数统计跟踪: off unless turned on (oct-pass3-D6) — each skip told
+  /// the server which segment of which video was watched. Stored only when
+  /// toggled, so a choice made before keeps.
   static bool get blockTrack =>
-      _setting.get(SettingBoxKey.blockTrack, defaultValue: !kDebugMode);
+      _setting.get(SettingBoxKey.blockTrack, defaultValue: false);
 
   static bool get checkDynamic =>
       _setting.get(SettingBoxKey.checkDynamic, defaultValue: true);
@@ -896,6 +898,11 @@ abstract final class Pref {
   static YtLanguage get ytLanguage => YtLanguage.fromCode(
     _setting.get(SettingBoxKey.ytLanguage, defaultValue: defaultHl),
   );
+
+  /// LibrePili: 「订阅刷新时每个频道使用独立身份」, on unless turned off
+  /// (user 2026-10-19).
+  static bool get ytSubIsolate =>
+      _setting.get(SettingBoxKey.ytSubIsolate, defaultValue: true);
 
   static double get uiScale =>
       _setting.get(SettingBoxKey.uiScale, defaultValue: 1.0);

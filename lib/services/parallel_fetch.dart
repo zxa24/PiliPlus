@@ -80,6 +80,25 @@ class ParallelFetch {
   /// streams only (`keep`), not a download's.
   static void Function(Uri upstream, int status)? onRefused;
 
+  /// Told of a copy cut short — a piece given up on where the host ended
+  /// it (the body short of its range, the connection closed, a server
+  /// error) below the size the host gave for the file — with the stream's
+  /// address and the byte (see [isCut]); playback's streams only. The
+  /// player hands over to another host at the same quality, rather than
+  /// taking the stall behind the cut for a slow host (user 2026-10-19, 15A).
+  static void Function(Uri upstream, int at)? onCut;
+
+  /// Whether a piece given up on at byte [at] of a file of [size] bytes is
+  /// a copy cut short: some of the tries that brought nothing were ended by
+  /// the host ([shortEnds]), not timed out, and the file goes on past it.
+  /// Timeouts alone are a slow host (audit F27).
+  @visibleForTesting
+  static bool isCut({
+    required int shortEnds,
+    required int at,
+    required int? size,
+  }) => shortEnds > 0 && size != null && at < size;
+
   /// Pieces kept on disk (see the library's doc); none when null.
   PieceStore? store;
 
@@ -538,6 +557,8 @@ class ParallelFetch {
       // tries that bring nothing count; one that brings bytes does not (akam
       // closes connections every few seconds, measured 2026-10-12)
       var fruitless = 0;
+      // of those, the ones the host ended (see [isCut])
+      var shortEnds = 0;
       var tries = 0;
       while (!chunk.done && fruitless < 3 && tries < 30) {
         tries++;
@@ -558,8 +579,10 @@ class ParallelFetch {
         }
         if (chunk.received > before) {
           fruitless = 0;
+          shortEnds = 0;
         } else {
           fruitless++;
+          if (chunk.lastError?.short ?? false) shortEnds++;
           if (fruitless < 3) {
             await Future<void>.delayed(Duration(milliseconds: 300 * fruitless));
           }
@@ -568,6 +591,17 @@ class ParallelFetch {
       chunk.attempts = tries;
       if (!chunk.done) {
         chunk.failure = chunk.lastError ?? const _Failure(null, 'gave up');
+        final at = chunk.start + chunk.received;
+        // closed meanwhile: its own client cut the pieces under way short
+        if (running &&
+            remote.keep &&
+            isCut(shortEnds: shortEnds, at: at, size: remote.size)) {
+          log?.call(
+            '${remote.uri.host}: ${remote.uri.pathSegments.last} cut at $at '
+            'of ${remote.size}',
+          );
+          onCut?.call(remote.uri, at);
+        }
       }
       // what the store gave, unless it was dropped as another file's
       final fromStore = chunk.fromStore ? kept : 0;
@@ -671,7 +705,13 @@ class ParallelFetch {
       final status = response.statusCode;
       if (status != HttpStatus.partialContent && status != HttpStatus.ok) {
         await response.drain<void>().catchError((_) {});
-        chunk.lastError = _Failure(status, 'HTTP $status');
+        // a server error inside the file: akamai answered 502 at the byte a
+        // cut copy ended at (2026-10-17)
+        chunk.lastError = _Failure(
+          status,
+          'HTTP $status',
+          short: status >= 500,
+        );
         // playback's own (a download's are not kept): a download's refusal
         // put the host among the playing part's cut ones
         if (remote.keep) onRefused?.call(remote.uri, status);
@@ -747,10 +787,15 @@ class ParallelFetch {
         chunk.finish(chunk.received);
         return null;
       }
-      chunk.lastError = _Failure(null, 'ended at ${from + got}');
+      chunk.lastError = _Failure(null, 'ended at ${from + got}', short: true);
       return 0;
     } catch (e) {
-      chunk.lastError = _Failure(null, e.runtimeType.toString());
+      chunk.lastError = _Failure(
+        null,
+        e.runtimeType.toString(),
+        // the host closed it (a cut copy); not a timeout (a slow one)
+        short: e is HttpException || e is SocketException,
+      );
       return 0;
     } finally {
       chunk.notify();
@@ -857,10 +902,14 @@ class _Reader {
 }
 
 class _Failure {
-  const _Failure(this.status, this.why);
+  const _Failure(this.status, this.why, {this.short = false});
 
   final int? status;
   final String why;
+
+  /// The host ended it — the body short, the connection closed, a server
+  /// error — rather than it timing out (see [ParallelFetch.isCut]).
+  final bool short;
 
   @override
   String toString() => why;

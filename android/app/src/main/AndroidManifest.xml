@@ -234,8 +234,9 @@
             </intent-filter>
         </service>
 
-        <!-- LibrePili: holds the network for a model download while the app
-             is off screen (Android 14+; TransferJobService.kt) -->
+        <!-- LibrePili: holds the network for a model download, and for the
+             video download queue, while the app is off screen (Android 14+;
+             TransferJobService.kt) -->
         <service
             android:name=".TransferJobService"
             android:exported="false"

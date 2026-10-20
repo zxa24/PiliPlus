@@ -18,6 +18,10 @@
 /// the quality come down. A dead CDN must never cost the viewer resolution.
 library;
 
+/// A sign that a stream of the playing source is a copy cut short: the byte
+/// it ends at, and when it was seen (see [QualityAdvisor.cutBeforeSlow]).
+typedef CutSign = ({int at, DateTime seen});
+
 /// One second of playback health.
 typedef PlaybackHealth = ({
   /// Seconds of media buffered ahead (`demuxer-cache-duration`).
@@ -88,6 +92,27 @@ abstract final class QualityAdvisor {
     }
 
     return QualityAdvice.keep;
+  }
+
+  /// How long a sign of a cut copy outweighs a verdict that playback is not
+  /// keeping up.
+  static const cutOutweighs = Duration(seconds: 60);
+
+  /// Whether what reads as "not keeping up" — the buffer running down, a
+  /// stall, mpv's reconnect timing out — is a copy cut short instead: the
+  /// byte it ends at when a sign of one ([sign]: a piece the host ended
+  /// below the file's size, or mpv's `Stream ends prematurely`) came within
+  /// [cutOutweighs] of [now]; null when there is none, and the verdict
+  /// stands. A cut copy runs dry behind the cut on any connection: it is
+  /// replaced by another host's at the same quality, and only a host that
+  /// is slow by measurement steps the quality down (user 2026-10-19, 15A:
+  /// BV1fgJd6rEkq cut on akamai stepped down to 720P on the same host, five
+  /// times out of five).
+  static int? cutBeforeSlow({required CutSign? sign, required DateTime now}) {
+    if (sign == null) return null;
+    final age = now.difference(sign.seen);
+    if (age.isNegative || age > cutOutweighs) return null;
+    return sign.at;
   }
 
   /// Falling across the window as a whole, rather than between two adjacent

@@ -75,6 +75,7 @@ import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
+import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
@@ -1044,20 +1045,32 @@ class VideoDetailController extends GetxController
       return null;
     }
     if (videoUrl != video || audioUrl != audio) return null;
-    if (newVideo != null) {
-      if (_hostOf(video) case final cut?) {
-        _triedHosts.add(cut);
-        // only a copy that answered short is cut for the part; one that
-        // timed out is slow, and gone back to once that has passed
-        if (videoServes == false) {
-          _cutHosts.add(cut);
-        } else {
-          _noteSlow(cut);
-        }
+    // the player saw the host end a stream at [cutAt] (its parallel fetch,
+    // or mpv twice at the byte): cut, though this check of it timed out
+    // (user 2026-10-19, 15A). The byte is one stream's: it is the one that
+    // did not answer when the other did
+    final confirmed = plPlayerController.cutConfirmed(cutAt);
+    void leave(String url, {required bool cut}) {
+      final host = _hostOf(url);
+      if (host == null) return;
+      _triedHosts.add(host);
+      // only a copy known cut is left for the part; one that timed out is
+      // slow, and gone back to once that has passed
+      if (cut) {
+        _cutHosts.add(host);
+      } else {
+        _noteSlow(host);
       }
+    }
+
+    if (newVideo != null) {
+      leave(video, cut: videoServes == false || (confirmed && audioOk));
       videoUrl = newVideo;
     }
-    if (newAudio != null) audioUrl = newAudio;
+    if (newAudio != null) {
+      leave(audio!, cut: audioServes == false || (confirmed && videoOk));
+      audioUrl = newAudio;
+    }
     return (video: newVideo, audio: newAudio);
   }
 
@@ -3821,9 +3834,17 @@ class VideoDetailController extends GetxController
         ),
   ];
 
-  bool get _translateReady =>
-      Get.isRegistered<TranslationService>() &&
-      TranslationService.to.readyToStart;
+  /// Whether the remembered language can be made without downloading
+  /// anything: the model is here, or it is 繁体中文 made by conversion alone
+  /// (oct-pass1-D2, see [TranslateEntry.needsNoModel]).
+  bool get _translateReady {
+    if (!Get.isRegistered<TranslationService>()) return false;
+    if (TranslationService.to.readyToStart) return true;
+    final code = SubtitleChoice.codeOf(Pref.subtitleChoice);
+    return code != null &&
+        TranslationService.supported &&
+        TranslateEntry.needsNoModel(this, code);
+  }
 
   /// What the remembered switch makes of this part, with nothing to
   /// download (see [decideOnOpen]).

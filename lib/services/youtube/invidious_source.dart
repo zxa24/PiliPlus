@@ -416,9 +416,17 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// must not do is send this machine to a service beside it. Redirects are
   /// not followed ([_get]). Null when the host has no address.
   static Future<bool?> _isPublic(Uri uri) async {
-    if (uri.scheme != 'https' || uri.host.isEmpty) return false;
+    final addresses = await publicAddresses(uri);
+    return addresses?.isNotEmpty;
+  }
+
+  /// [_isPublic] with the addresses it found: empty when [uri] may not be
+  /// asked for, null when its host has no address. The stream relay
+  /// connects to one of these, not to a second lookup's answer.
+  static Future<List<InternetAddress>?> publicAddresses(Uri uri) async {
+    if (uri.scheme != 'https' || uri.host.isEmpty) return const [];
     final literal = InternetAddress.tryParse(uri.host);
-    if (literal != null) return !_isLocal(literal);
+    if (literal != null) return isLocal(literal) ? const [] : [literal];
     final List<InternetAddress> addresses;
     try {
       addresses = await lookup(uri.host);
@@ -426,10 +434,11 @@ class YtInvidiousSource implements YouTubeVideoSource {
       return null;
     }
     if (addresses.isEmpty) return null;
-    return !addresses.any(_isLocal);
+    return addresses.any(isLocal) ? const [] : addresses;
   }
 
-  static bool _isLocal(InternetAddress address) {
+  /// This machine or the local network (see [_isPublic]).
+  static bool isLocal(InternetAddress address) {
     var b = address.rawAddress;
     if (b.length == 16) {
       // an IPv4 address written as IPv6 (::ffff:a.b.c.d)
@@ -490,9 +499,11 @@ class YtInvidiousSource implements YouTubeVideoSource {
     var uri = Uri.parse(url);
     for (var hop = 0; hop < 4; hop++) {
       // every hop as the stream URL itself ([_isPublic]): a redirect to
-      // this machine or the local network is not followed — and not left to
-      // mpv either, which would follow it there: refused, so the streams go
-      // through the companion or not at all
+      // this machine or the local network is not followed: refused, so the
+      // streams go through the companion or not at all. The player's own
+      // reads go through the relay (YtStreamRelay), which checks every hop
+      // again; this probe stays for what it finds out — whether googlevideo
+      // serves this machine — not as the guard
       if (await _isPublic(uri) != true) return true;
       final r = await _fetch(
         uri,
@@ -507,8 +518,8 @@ class YtInvidiousSource implements YouTubeVideoSource {
       if (r.status ~/ 100 != 3 || next == null) return r.status == 403;
       uri = uri.resolve(next);
     }
-    // out of hops: mpv would follow the rest unchecked, as it would a
-    // redirect that is not public (as [_companionRefuses] counts it)
+    // out of hops: counted as refused, as a redirect that is not public is
+    // (as [_companionRefuses] counts it)
     return true;
   }
 

@@ -1,18 +1,36 @@
 /// LibrePili — YouTube subscriptions.
 ///
 /// The list lives on this device; YouTube has no idea it exists. The feed is
-/// built by asking each followed channel for its uploads and interleaving
-/// them, which is also why it is capped: a hundred channels would be a
-/// hundred requests.
+/// built by asking every followed channel for its uploads, a few channels at
+/// a time, and merging them into one list ordered by publish time (user
+/// 2026-10-19: all channels each refresh, newest first). A hundred channels
+/// is still a hundred requests — the price of not having an account.
+///
+/// With 「订阅刷新时每个频道使用独立身份」 on (the default) each channel gets
+/// a source of its own: a new connection and a visitorData minted for it
+/// (one `visitor_id` POST), so a channel costs two requests instead of one.
+/// Off, every channel goes over the page's one source and connection, which
+/// sends WEB browse requests with no visitorData at all (only the stream
+/// identity's is ever minted; YouTube hands each answer a new one, which
+/// is not kept). The IP is the same either way.
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:PiliPlus/build_config.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
+import 'package:PiliPlus/services/youtube/yt_subscription_feed.dart';
+import 'package:PiliPlus/services/youtube/yt_subscription_io.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/grid.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/storage_utils.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 class YtSubscriptionsPage extends StatefulWidget {
@@ -26,11 +44,10 @@ class YtSubscriptionsPage extends StatefulWidget {
 
 class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
   final _source = YtDirectSource.create();
-  late final _router = YtSourceRouter(_source);
 
-  /// How many channels one refresh will ask about. Each is a request, and a
-  /// feed that takes a minute to appear is not a feed.
-  static const _channelsPerRefresh = 12;
+  /// Channels asked at once. Enough that a long list does not take minutes,
+  /// few enough not to look like a burst.
+  static const _concurrency = 4;
 
   /// Newest uploads kept per channel, so one prolific channel cannot fill the
   /// whole feed.
@@ -40,6 +57,11 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
   var _feed = <(YtSubscription, YtSearchItem)>[];
   var _loading = false;
   var _failed = 0;
+
+  /// Channels the last (or the running) refresh asks about, and how many of
+  /// them have answered so far.
+  var _asked = 0;
+  var _answered = 0;
   late final _gridDelegate = Grid.videoCardHDelegate();
   StreamSubscription? _boxSub;
 
@@ -65,36 +87,122 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
     super.dispose();
   }
 
+  /// One channel's newest uploads, or null when it could not be fetched.
+  Future<List<YtSearchItem>?> _fetch(YtSubscription sub, bool isolate) async {
+    final source = isolate ? YtDirectSource.create() : _source;
+    try {
+      if (isolate) {
+        // the browse calls go out as WEB; a failed mint still asks, without
+        // one, over this channel's own connection
+        await source.client.ensureVisitorData(YtClients.web);
+      }
+      final result = await YtSourceRouter(source).run(
+        (s) => (s as YtDirectSource).channelVideos(sub.channelId),
+      );
+      if (!result.ok || result.value == null) return null;
+      return result.value!.items.take(_perChannel).toList();
+    } catch (_) {
+      // one channel failing is a count in the header, not a failed refresh
+      return null;
+    } finally {
+      if (isolate) source.close();
+    }
+  }
+
   Future<void> _refresh() async {
     if (_loading) return;
+    final subs = YtSubscriptions.all();
+    final isolate = Pref.ytSubIsolate;
     setState(() {
       _loading = true;
       _failed = 0;
+      _asked = subs.length;
+      _answered = 0;
     });
-    final subs = YtSubscriptions.all();
-    final collected = <(YtSubscription, YtSearchItem)>[];
-    var failed = 0;
-    for (final sub in subs.take(_channelsPerRefresh)) {
-      final result = await _router.run(
-        (s) => (s as YtDirectSource).channelVideos(sub.channelId),
-      );
-      if (!mounted) return;
-      if (result.ok && result.value != null) {
-        for (final item in result.value!.items.take(_perChannel)) {
-          collected.add((sub, item));
-        }
-      } else {
-        failed++;
-      }
-    }
+    final answers = await runYtPooled(subs, _concurrency, (sub) async {
+      final items = await _fetch(sub, isolate);
+      if (mounted) setState(() => _answered++);
+      return items;
+    });
     if (!mounted) return;
+    final collected = <(YtSubscription, YtSearchItem)>[
+      for (final (i, items) in answers.indexed)
+        for (final item in items ?? const <YtSearchItem>[]) (subs[i], item),
+    ];
     setState(() {
-      _subs = subs;
-      _feed = collected;
+      _subs = YtSubscriptions.all();
+      _feed = sortYtFeedByAge(collected, (e) => e.$2.publishedText);
       _loading = false;
-      _failed = failed;
+      _failed = answers.where((e) => e == null).length;
     });
   }
+
+  // ------------------------------------------------------ import / export
+
+  Future<void> _import() async {
+    final picked = await FilePicker.pickFile(
+      type: .custom,
+      allowedExtensions: const ['json', 'csv', 'txt'],
+    );
+    if (picked == null) return;
+    final YtSubscriptionFile file;
+    try {
+      file = parseYtSubscriptionFile(await picked.xFile.readAsString());
+    } catch (e) {
+      SmartDialog.showToast(
+        '导入失败：${e is FormatException ? e.message : e}',
+      );
+      return;
+    }
+    final (:added, :skipped) = await YtSubscriptions.merge(file.channels);
+    SmartDialog.showToast(
+      [
+        '新增 $added 个频道',
+        if (skipped + file.duplicates > 0)
+          '${skipped + file.duplicates} 个已在列表中',
+        if (file.invalid > 0) '${file.invalid} 个无效已跳过',
+        if (file.otherService > 0) '${file.otherService} 个非 YouTube 已跳过',
+      ].join('，'),
+    );
+    // the box watcher only refreshes an empty page
+    if (added > 0 && _subs.isNotEmpty) _refresh();
+  }
+
+  void _export() {
+    final subs = YtSubscriptions.all();
+    if (subs.isEmpty) {
+      SmartDialog.showToast('还没有订阅的频道');
+      return;
+    }
+    final json = toNewPipeSubscriptionsJson(
+      [for (final s in subs) (channelId: s.channelId, name: s.name)],
+      appVersion: 'LibrePili ${BuildConfig.versionName}',
+      appVersionInt: BuildConfig.versionCode,
+    );
+    StorageUtils.saveBytes2File(
+      name:
+          'librepili_youtube_subscriptions_'
+          '${DateFormat('yyyyMMddHHmmss').format(DateTime.now())}.json',
+      bytes: utf8.encode(json),
+      allowedExtensions: const ['json'],
+      savedMessage: '已导出 ${subs.length} 个频道',
+    );
+  }
+
+  Widget _menu() => PopupMenuButton<VoidCallback>(
+    icon: const Icon(Icons.more_vert),
+    onSelected: (action) => action(),
+    itemBuilder: (context) => [
+      PopupMenuItem(
+        value: _import,
+        child: const Text('导入订阅（NewPipe / PipePipe）'),
+      ),
+      PopupMenuItem(
+        value: _export,
+        child: const Text('导出订阅（NewPipe 格式）'),
+      ),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -108,6 +216,7 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
                   onPressed: _loading ? null : _refresh,
                   icon: const Icon(Icons.refresh),
                 ),
+                _menu(),
               ],
             )
           : null,
@@ -120,16 +229,38 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
-          child: Text(
-            '还没有订阅的频道。\n在视频页点「订阅」即可加入，订阅只保存在本机。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: theme.colorScheme.outline),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '还没有订阅的频道。\n在视频页点「订阅」即可加入，订阅只保存在本机。',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: theme.colorScheme.outline),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _import,
+                child: const Text('导入订阅（NewPipe / PipePipe）'),
+              ),
+            ],
           ),
         ),
       );
     }
     if (_feed.isEmpty && _loading) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 12),
+            Text(
+              '$_answered / $_asked 个频道',
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+            ),
+          ],
+        ),
+      );
     }
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -158,15 +289,20 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
     );
   }
 
+  String get _status {
+    if (_loading) return '正在刷新 $_answered / $_asked 个频道';
+    final ok = _asked - _failed;
+    return '已刷新 $ok / $_asked 个频道，按发布时间排列'
+        '${_failed > 0 ? ' · $_failed 个获取失败' : ''}';
+  }
+
   Widget _header(ThemeData theme) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: Row(
       children: [
         Expanded(
           child: Text(
-            '${_subs.length} 个频道'
-            '${_subs.length > _channelsPerRefresh ? '（本次刷新前 $_channelsPerRefresh 个）' : ''}'
-            '${_failed > 0 ? ' · $_failed 个获取失败' : ''}',
+            _status,
             style: TextStyle(
               fontSize: 12,
               color: theme.colorScheme.outline,
@@ -179,6 +315,8 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
             height: 14,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
+        // the page embedded in the home tabs has no app bar to hold it
+        if (!widget.showAppBar) _menu(),
       ],
     ),
   );

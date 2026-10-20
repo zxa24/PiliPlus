@@ -15,8 +15,13 @@ const _suspect = YtVerdict(
   'Video unavailable',
   true,
 );
+
 /// The two-signal kind: one 429 was measured scoped to one endpoint.
-const _blocked = YtVerdict(YtCause.ipBlocked, 'http-429', 'explicit rate limit');
+const _blocked = YtVerdict(
+  YtCause.ipBlocked,
+  'http-429',
+  'explicit rate limit',
+);
 
 /// The kind the direct source has already confirmed itself.
 const _walled = YtVerdict(
@@ -162,32 +167,41 @@ void main() {
         expect(h.router.healthOf('direct').blockSignalStreak, 1);
       });
 
-      test('a bot wall confirmed by the source falls through at once', () async {
-        // 2026-10-12: waiting for a second one failed the first video of
-        // every page, each page having a router of its own
-        final h = _Harness(directScript: [_walled], fallbackScript: [_ok]);
-        final r = await h.call();
-        expect(r.ok, isTrue);
-        expect(r.source!.id, 'spy');
-        expect(
-          h.router.healthOf('direct').cooldownUntil,
-          h.now.add(const Duration(minutes: 5)),
-        );
-        // the cooldown holds: the next call goes to the fallback first
-        await h.call();
-        expect(h.direct.calls, 1);
-        expect(h.fallback!.calls, 2);
-      });
+      test(
+        'a bot wall confirmed by the source falls through at once',
+        () async {
+          // 2026-10-12: waiting for a second one failed the first video of
+          // every page, each page having a router of its own
+          final h = _Harness(directScript: [_walled], fallbackScript: [_ok]);
+          final r = await h.call();
+          expect(r.ok, isTrue);
+          expect(r.source!.id, 'spy');
+          expect(
+            h.router.healthOf('direct').cooldownUntil,
+            h.now.add(const Duration(minutes: 5)),
+          );
+          // the cooldown holds: the next call goes to the fallback first
+          await h.call();
+          expect(h.direct.calls, 1);
+          expect(h.fallback!.calls, 2);
+        },
+      );
 
       test('health passed in is shared between routers', () async {
         final shared = <String, YtSourceHealth>{};
         final direct = ScriptedYtSource('direct', [_walled]);
         final spy = ScriptedYtSource('spy', [_ok]);
-        await YtSourceRouter(direct, fallback: spy, health: shared)
-            .run((s) => s.streams('dQw4w9WgXcQ'));
+        await YtSourceRouter(
+          direct,
+          fallback: spy,
+          health: shared,
+        ).run((s) => s.streams('dQw4w9WgXcQ'));
         final second = YtSourceRouter(direct, fallback: spy, health: shared);
         expect(second.sourceOrder().first.id, 'spy');
-        expect(YtSourceRouter(direct, fallback: spy).sourceOrder().first.id, 'direct');
+        expect(
+          YtSourceRouter(direct, fallback: spy).sourceOrder().first.id,
+          'direct',
+        );
       });
 
       test('a SECOND (b) sets the cooldown and falls through', () async {
@@ -307,7 +321,7 @@ void main() {
     },
   );
 
-  group('transient — (c) retries the same source, never switches', () {
+  group('transient — (c) retries the same source, then moves on', () {
     test(
       'a retry that succeeds returns without touching the fallback',
       () async {
@@ -350,6 +364,74 @@ void main() {
       final r = await h.call();
       expect(r.source!.id, 'spy');
       expect(h.fallback!.calls, 1);
+    });
+
+    test(
+      'the fall-through records a transient failure, not a cooldown',
+      () async {
+        final h = _Harness(directScript: [_transient], fallbackScript: [_ok]);
+        await h.call();
+        expect(h.router.fellThroughFor, YtCause.transient);
+        expect(h.router.activeOverrideReason, contains('failed transiently'));
+        expect(h.router.activeOverrideReason, contains('http-503'));
+        expect(h.router.activeOverrideReason, isNot(contains('cooldown')));
+      },
+    );
+
+    test('a block records ipBlocked as the reason it left', () async {
+      final h = _Harness(directScript: [_walled], fallbackScript: [_ok]);
+      await h.call();
+      expect(h.router.fellThroughFor, YtCause.ipBlocked);
+      // and a later call, on the fallback because of the cooldown
+      await h.call();
+      expect(h.router.fellThroughFor, YtCause.ipBlocked);
+    });
+
+    test('an answer from direct leaves nothing recorded', () async {
+      final h = _Harness(directScript: [_ok], fallbackScript: [_ok]);
+      await h.call();
+      expect(h.router.fellThroughFor, isNull);
+    });
+
+    test('the fallback is not retried: it walks its own instances', () async {
+      final h = _Harness(
+        directScript: [_transient],
+        fallbackScript: [_transient],
+      );
+      final r = await h.call();
+      expect(r.verdict.cause, YtCause.transient);
+      expect(h.fallback!.calls, 1);
+      expect(h.direct.calls, 1 + ytTransientRetryLimit);
+    });
+
+    test('fallbackOnly does not retry the fallback either', () async {
+      final h = _Harness(
+        directScript: [_ok],
+        fallbackScript: [_transient],
+        mode: YtSourceMode.fallbackOnly,
+      );
+      await h.call();
+      expect(h.fallback!.calls, 1);
+      expect(h.slept, isEmpty);
+    });
+
+    test('a decisive answer after the streak ends it', () async {
+      final h = _Harness(
+        directScript: [
+          ...List.filled(1 + ytTransientRetryLimit, _transient),
+          _dead,
+          _transient,
+          _ok,
+        ],
+        fallbackScript: [_ok],
+      );
+      await h.call(); // four (c), on to the fallback
+      expect(h.router.healthOf('direct').transientStreak, 3);
+      await h.call(); // a dead video: the source answers
+      expect(h.router.healthOf('direct').transientStreak, 0);
+      final r = await h.call(); // (c) retried again, not sent on at once
+      expect(r.source!.id, 'direct');
+      expect(r.ok, isTrue);
     });
 
     test('a retry that turns decisive stops the walk there', () async {

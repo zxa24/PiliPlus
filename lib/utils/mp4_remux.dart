@@ -116,6 +116,52 @@ abstract final class Mp4Remuxer {
     }
   }
 
+  /// The timing a join places a later segment by (see [_Mp4Joiner]); for
+  /// tests only.
+  static double debugJoinPlayedEnd({
+    required double lead,
+    required int mediaTime,
+    required int mediaEnd,
+    required int firstOffset,
+    required int timescale,
+  }) => _Mp4Joiner.playedEnd(
+    lead: lead,
+    mediaTime: mediaTime,
+    mediaEnd: mediaEnd,
+    firstOffset: firstOffset,
+    timescale: timescale,
+  );
+
+  static int debugJoinPlaceAt({
+    required double start,
+    required double lead,
+    required int mediaTime,
+    required double ownLead,
+    required int ownMediaTime,
+    required int timescale,
+  }) => _Mp4Joiner.placeAt(
+    start: start,
+    lead: lead,
+    mediaTime: mediaTime,
+    ownLead: ownLead,
+    ownMediaTime: ownMediaTime,
+    timescale: timescale,
+  );
+
+  static ({int drop, int extend, int shorten}) debugJoinFit({
+    required int offset,
+    required int mediaTime,
+    required List<int> durations,
+    required List<bool> syncs,
+    required int lastDuration,
+  }) => _Mp4Joiner.fitSegment(
+    offset: offset,
+    mediaTime: mediaTime,
+    durations: durations,
+    syncs: syncs,
+    lastDuration: lastDuration,
+  );
+
   /// The tracks an FLV demux produces; for tests only.
   static List<Map<String, Object>> debugFlvTracks(List<String> inputs) =>
       _debugSummary(_FlvDemuxer.demux(inputs));

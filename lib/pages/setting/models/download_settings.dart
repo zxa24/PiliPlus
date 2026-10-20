@@ -1,4 +1,5 @@
 import 'package:PiliPlus/pages/setting/models/model.dart';
+import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -25,12 +26,16 @@ List<SettingsModel> get downloadSettings => [
     setKey: SettingBoxKey.dlSaveSubtitle,
     defaultVal: true,
   ),
-  const SwitchModel(
+  SwitchModel(
     title: '下载后自动转录',
-    subtitle:
-        '下载完成后在后台用本机转录补完整个视频，存为 .asr.srt；'
-        '只在没有其他转录、电脑或手机在充电时进行，需要已下载识别模型',
-    leading: Icon(Icons.record_voice_over_outlined),
+    // on a phone the on-device work stops with the app off screen (D8 C)
+    subtitle: PlatformUtils.isMobile
+        ? '下载完成后用本机转录补完整个视频，存为 .asr.srt；'
+              '仅在应用打开时进行，且只在没有其他转录、手机在充电时进行，'
+              '需要已下载识别模型'
+        : '下载完成后在后台用本机转录补完整个视频，存为 .asr.srt；'
+              '只在没有其他转录时进行，需要已下载识别模型',
+    leading: const Icon(Icons.record_voice_over_outlined),
     setKey: SettingBoxKey.dlTranscribe,
     defaultVal: true,
   ),

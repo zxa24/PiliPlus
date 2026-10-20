@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:ffi';
 
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -52,6 +53,8 @@ class MpvConvertWebp {
         'ofopts': 'loop=0',
         'ovcopts': 'preset=${preset.flag},compression_level=6',
         'vf': 'fps=12',
+        // the 设置代理 setting, as the player has it (AppProxy.mpvFor)
+        'http-proxy': AppProxy.mpvFor(url),
         if (enableHA) 'hwdec': '${Pref.hardwareDecoding},auto-copy', // transcode only support copy
       },
     );

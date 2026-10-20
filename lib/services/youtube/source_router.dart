@@ -1,7 +1,9 @@
 /// The router, and the per-source health state that makes a fallback safe.
 ///
-/// Its ONLY job is to make sure a fall-through to another source happens for
-/// cause (b) — our IP is blocked — and for nothing else. The video pages put
+/// Its job is to make sure a fall-through to another source happens for
+/// cause (b) — our IP is blocked — or after the direct source has failed
+/// transiently again and again, and for nothing else (user 2026-10-19: keep
+/// the transient fall-through, and say it is one). The video pages put
 /// [YtInvidiousSource] (the registry's https instances, in turn) in the
 /// fallback slot; every other page leaves it empty.
 ///
@@ -15,9 +17,16 @@
 ///                        …unless suspectStreak >= 3, which converts it to
 ///                        clientBroken (see below).
 /// ipBlocked           -> put THIS source on cooldown, continue to the next.
-///                        ← the ONLY fall-through
-/// transient           -> retry the SAME source with backoff, up to 3 times.
-///                        Never sets a cooldown, never switches.
+///                        ← fall-through 1
+/// transient           -> retry the SAME source with backoff, up to 3 times
+///                        in a row (the streak runs across calls and pages,
+///                        and ends with any answer that is not (c)). Still
+///                        (c): continue to the next source, with no
+///                        cooldown. ← fall-through 2: the video id goes to
+///                        the fallback because YouTube did not answer, not
+///                        because it refused. The fallback itself is not
+///                        retried here: it walks its own instances
+///                        ([YtInvidiousSource.triesPerVideo]).
 /// clientBroken        -> return the error LOUDLY. No fall-through, ever.
 /// ```
 ///
@@ -76,7 +85,8 @@ const List<Duration> ytCooldownLadder = [
 /// Retry backoff for (c). Multiplied by the streak count.
 const Duration ytTransientBackoffStep = Duration(milliseconds: 400);
 
-/// How many times a (c) is retried on the same source before moving on.
+/// How many times in a row a (c) is retried on the same source before the
+/// router moves on to the next one (the fallback, where there is one).
 const int ytTransientRetryLimit = 3;
 
 /// What the router remembers about one source.
@@ -90,7 +100,9 @@ class YtSourceHealth {
   /// How many cooldowns this source has served: the index into the ladder.
   int cooldownStep = 0;
 
-  /// Consecutive (c) failures. Drives retry backoff, never a switch.
+  /// Consecutive (c) failures, across calls: drives the retry backoff, and
+  /// at [ytTransientRetryLimit] the next (c) moves on at once. Any answer
+  /// that is not (c) ends it — the source is answering.
   int transientStreak = 0;
 
   /// Consecutive suspect-(a) responses. See [ytSuspectStreakIsBroken].
@@ -193,6 +205,13 @@ class YtSourceRouter {
   /// broken client stays broken.
   String? activeOverrideReason;
 
+  /// Why the last [run] left the direct source for the fallback:
+  /// [YtCause.ipBlocked] for a confirmed block or the cooldown one left,
+  /// [YtCause.transient] when YouTube did not answer; null when it did not
+  /// leave it. The page words its toast and its failure by this: a timeout
+  /// is not a refusal.
+  YtCause? fellThroughFor;
+
   YtSourceHealth healthOf(String sourceId) =>
       health.putIfAbsent(sourceId, YtSourceHealth.new);
 
@@ -212,14 +231,24 @@ class YtSourceRouter {
     }
   }
 
-  /// Run [call] against the first usable source, falling through ONLY on a
-  /// confirmed (b).
+  /// Run [call] against the first usable source, falling through on a
+  /// confirmed (b) or on a (c) the retries did not clear (see the library
+  /// doc).
   Future<YtRoutedResult<T>> run<T>(
     Future<YtResult<T>> Function(YouTubeVideoSource) call,
   ) async {
     final order = sourceOrder();
     YtResult<T>? last;
     YouTubeVideoSource? lastSource;
+    // what this call's own fall-through was for, when it had one
+    String? fellThrough;
+    // the direct source behind the fallback: only a block puts it there
+    fellThroughFor =
+        mode == YtSourceMode.auto &&
+            order.length > 1 &&
+            order.first.id != direct.id
+        ? YtCause.ipBlocked
+        : null;
 
     for (final source in order) {
       final h = healthOf(source.id);
@@ -240,12 +269,15 @@ class YtSourceRouter {
             ..blockSignalStreak = 0;
           if (source.id == direct.id) {
             activeOverrideReason = null;
+          } else if (fellThrough != null) {
+            activeOverrideReason = fellThrough;
           } else {
             activeOverrideReason ??= 'direct source is on cooldown';
           }
           return YtRoutedResult(res, source);
 
         case YtCause.contentUnavailable:
+          h.transientStreak = 0;
           if (res.verdict.suspectClient) {
             h.suspectStreak++;
             if (h.suspectStreak >= ytSuspectStreakIsBroken) {
@@ -270,7 +302,9 @@ class YtSourceRouter {
           return YtRoutedResult(res, source);
 
         case YtCause.ipBlocked:
-          h.blockSignalStreak++;
+          h
+            ..transientStreak = 0
+            ..blockSignalStreak += 1;
           // A bot wall the direct source has already asked about twice (the
           // second time with a fresh visitorData) is confirmed as it comes:
           // the 429 the two-signal rule is for came from one endpoint while
@@ -285,13 +319,23 @@ class YtSourceRouter {
             return YtRoutedResult(res, source);
           }
           _startCooldown(h);
-          activeOverrideReason = res.verdict.detail.isEmpty
+          activeOverrideReason = fellThrough = res.verdict.detail.isEmpty
               ? res.verdict.signal
               : res.verdict.detail;
-          continue; // ← the ONLY place a fall-through happens.
+          if (source.id == direct.id) fellThroughFor = YtCause.ipBlocked;
+          continue; // ← fall-through 1
 
         case YtCause.transient:
+          if (source.id == fallback?.id) {
+            // the fallback walks its instances itself: retried here, a video
+            // that failed walked up to 16 of them, at 10-20 s each, before
+            // the page said so (audit 2026-10-19). Its (c) is its answer
+            h.transientStreak++;
+            continue;
+          }
           var retried = false;
+          // the (c) answers this call had
+          var failures = 1;
           while (h.transientStreak < ytTransientRetryLimit) {
             h.transientStreak++;
             await _sleep(ytTransientBackoffStep * h.transientStreak);
@@ -300,6 +344,7 @@ class YtSourceRouter {
             last = res;
             retried = true;
             if (res.verdict.cause != YtCause.transient) break;
+            failures++;
           }
           if (res.verdict.cause == YtCause.ok) {
             h.transientStreak = 0;
@@ -311,14 +356,24 @@ class YtSourceRouter {
           if (retried && res.verdict.cause != YtCause.transient) {
             // The retry produced a different, decisive verdict. Do not keep
             // walking the list on a stale (c).
+            h.transientStreak = 0;
             return YtRoutedResult(res, source);
           }
           // Still transient after the retries: try the next source rather than
-          // failing outright, but do NOT mark this one blocked.
-          continue;
+          // failing outright, but do NOT mark this one blocked. What is
+          // recorded says so: YouTube did not answer, it did not refuse.
+          if (source.id == direct.id) {
+            fellThrough =
+                'direct source failed transiently ($failures× this call, '
+                '${h.transientStreak} retries in a row; last: ${res.verdict.signal})';
+            fellThroughFor = YtCause.transient;
+          }
+          continue; // ← fall-through 2
 
         case YtCause.clientBroken:
-          h.brokenStreak++;
+          h
+            ..transientStreak = 0
+            ..brokenStreak += 1;
           // Deliberately NOT a fall-through. Surface it.
           return YtRoutedResult(res, source);
       }

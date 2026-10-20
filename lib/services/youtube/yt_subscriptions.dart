@@ -6,14 +6,16 @@
 /// `全部` platform mode.
 ///
 /// There is no account here and no subscription on their side: the list
-/// itself exists only in this app (and in its backups; there is no NewPipe /
-/// PipePipe import or export). Its contents still reach YouTube when the
-/// feed is refreshed (pages/youtube/subscriptions): the page asks InnerTube
-/// for the uploads of up to 12 channels, the most recently followed first,
-/// one request per channel id, one after another, from this device's IP and
-/// under one visitorData — minted once by the page's own source and reused
-/// for every channel (a fresh one only when a bot check asks for it). Those
-/// requests can therefore be tied together as one viewer's list.
+/// itself exists only in this app, in its backups, and in what is moved in
+/// and out of it by hand (a NewPipe / PipePipe / Takeout file in, a NewPipe
+/// file out — yt_subscription_io.dart). Its contents still reach YouTube when
+/// the feed is refreshed (pages/youtube/subscriptions): the page asks
+/// InnerTube for the uploads of every followed channel, one request per
+/// channel id, a few at a time, from this device's IP. With
+/// 「订阅刷新时每个频道使用独立身份」 on (the default) each channel is asked
+/// over its own connection under a visitorData minted for it alone; off, all
+/// of them go over one connection. The IP is the same either way, so the
+/// requests can still be tied together by it.
 library;
 
 import 'package:hive_ce/hive.dart';
@@ -94,6 +96,32 @@ abstract final class YtSubscriptions {
   }
 
   static Future<void> clear() => _box.clear();
+
+  /// Adds the channels of [channels] not already followed and leaves the
+  /// rest as they are (an import merges, it does not replace). Returns how
+  /// many were added and how many were already there.
+  static Future<({int added, int skipped})> merge(
+    Iterable<({String channelId, String name})> channels,
+  ) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final rows = <String, Map<String, dynamic>>{};
+    var skipped = 0;
+    for (final c in channels) {
+      if (isFollowed(c.channelId) || rows.containsKey(c.channelId)) {
+        skipped++;
+        continue;
+      }
+      rows[c.channelId] = {
+        'channelId': c.channelId,
+        'name': c.name.isEmpty ? c.channelId : c.name,
+        'avatar': null,
+        // a millisecond apart, so the list keeps the file's order
+        'followedAt': now - rows.length,
+      };
+    }
+    if (rows.isNotEmpty) await _box.putAll(rows);
+    return (added: rows.length, skipped: skipped);
+  }
 
   // -------------------------------------------------------------- backup
 

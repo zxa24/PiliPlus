@@ -11,8 +11,9 @@ import 'package:PiliPlus/models_new/sponsor_block/segment_item.dart';
 import 'package:PiliPlus/models_new/sponsor_block/user_info.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 
 /// https://github.com/hanydd/BilibiliSponsorBlock/wiki/API
 abstract final class SponsorBlock {
@@ -53,10 +54,82 @@ abstract final class SponsorBlock {
 
   static String _api(String url) => '$blockServer/api/$url';
 
+  /// Servers that answered the hash-prefix lookup with 400, or with 404 for
+  /// a video the plain query then found segments for: asked the plain way
+  /// for the rest of the run.
+  static final _noPrefix = <String>{};
+
+  /// The first four hex digits of the SHA-256 of [bvid]: all the server is
+  /// told of the video (oct-pass3-D6). It answers with every video sharing
+  /// them, and the one asked for is picked out here.
+  @visibleForTesting
+  static String hashPrefix(String bvid) =>
+      sha256.convert(utf8.encode(bvid)).toString().substring(0, 4);
+
+  /// The segments of [bvid]'s part [cid] in a hash-prefix answer: the entry
+  /// for [bvid], and of its segments those of [cid] — or with no cid, which
+  /// belong to the video as a whole. Null when [data] is not such an answer.
+  @visibleForTesting
+  static List<Map<String, dynamic>>? pickSegments(
+    Object? data, {
+    required String bvid,
+    required int cid,
+  }) {
+    if (data is! List) return null;
+    for (final entry in data) {
+      if (entry is! Map || entry['videoID'] != bvid) continue;
+      final segments = entry['segments'];
+      if (segments is! List) return null;
+      return [
+        for (final segment in segments)
+          if (segment is Map<String, dynamic>)
+            if (switch (segment['cid']) {
+              null || '' => true,
+              final of => '$of' == '$cid',
+            })
+              // the model reads the cid as text, as this server sends it
+              segment['cid'] is String?
+                  ? segment
+                  : {...segment, 'cid': '${segment['cid']}'},
+      ];
+    }
+    return const [];
+  }
+
   static Future<LoadingState<List<SegmentItemModel>>> getSkipSegments({
     required String bvid,
     required int cid,
   }) async {
+    final server = blockServer;
+    if (_noPrefix.contains(server)) return _segmentsByVideo(bvid, cid);
+    final res = await Request().get(
+      _api('${SponsorBlockApi.skipSegments}/${hashPrefix(bvid)}'),
+      options: options,
+    );
+    if (res.statusCode == 200) {
+      if (pickSegments(res.data, bvid: bvid, cid: cid) case final picked?) {
+        return Success(picked.map(SegmentItemModel.fromJson).toList());
+      }
+      return getErrMsg(res);
+    }
+    if (res.statusCode != 404 && res.statusCode != 400) return getErrMsg(res);
+    // A server without the lookup — or, on one with it, no video at all
+    // under the prefix, which upstream answers with 404 too: asked the
+    // plain way. Kept to that only once it is clear the lookup is missing,
+    // not the video.
+    final plain = await _segmentsByVideo(bvid, cid);
+    if (res.statusCode == 400 ||
+        (plain is Success<List<SegmentItemModel>> &&
+            plain.response.isNotEmpty)) {
+      _noPrefix.add(server);
+    }
+    return plain;
+  }
+
+  static Future<LoadingState<List<SegmentItemModel>>> _segmentsByVideo(
+    String bvid,
+    int cid,
+  ) async {
     final res = await Request().get(
       _api(SponsorBlockApi.skipSegments),
       queryParameters: {

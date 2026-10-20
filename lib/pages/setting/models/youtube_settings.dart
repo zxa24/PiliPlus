@@ -55,4 +55,13 @@ List<SettingsModel> get youtubeSettings => [
         '「共 N 条回复」都由服务端决定，应用这边无法翻译。\n'
         '两者都会构成一点点指纹特征；所有人用同一个值是最不可区分的。',
   ),
+  // each channel of a refresh gets its own connection and its own minted
+  // visitorData (pages/youtube/subscriptions); the IP is the same either way
+  const SwitchModel(
+    title: '订阅刷新时每个频道使用独立身份',
+    subtitle: '每个频道用新的访客标识和新连接请求，较难把这些请求关联成同一份订阅列表；IP 地址不变',
+    leading: Icon(Icons.shuffle_outlined),
+    setKey: SettingBoxKey.ytSubIsolate,
+    defaultVal: true,
+  ),
 ];

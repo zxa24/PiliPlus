@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -107,4 +108,100 @@ void main() {
       expect((await store.read(key, 500, 5000))!.length, 500);
     },
   );
+
+  // a stream whose folder went (its last piece let go) was never found
+  // gone: asked for again, it waited for ever
+  test('a stream let go of entirely can be kept again', () async {
+    final store = await open(1000);
+    final other = Uri.parse(
+      'https://upos-sz-mirrorcosov.bilivideo.com/upgcxcode/9/9/9-1-100026.m4s',
+    );
+    final otherKey = PieceStore.keyOf(other);
+    await store.sized(key, uri, 100000, null);
+    await store.write(key, 0, bytes(1000, 0));
+    await store.sized(otherKey, other, 100000, null);
+    // past the limit: the first stream's only piece goes, and its folder
+    await store.write(otherKey, 0, bytes(1000, 1));
+    expect(store.meta(key), isNull);
+    await store
+        .sized(key, uri, 100000, null)
+        .timeout(const Duration(seconds: 5));
+    expect(store.meta(key)?.size, 100000);
+  });
+
+  // audit F25 (user 2026-10-19 14B): writes and re-sizes of one stream are
+  // serialised
+  group('a re-size during a piece being renamed into place', () {
+    tearDown(() => PieceStore.debugBeforeRename = null);
+
+    test('waits for it, and none of the old size is left', () async {
+      final store = await open(1 << 20);
+      await store.sized(key, uri, 100000, null);
+      final renaming = Completer<void>();
+      final release = Completer<void>();
+      PieceStore.debugBeforeRename = () {
+        renaming.complete();
+        return release.future;
+      };
+      final write = store.write(key, 0, bytes(1000, 0));
+      await renaming.future;
+      // another encode of the same stream, while the old piece is renamed
+      var resized = false;
+      final resize = store
+          .sized(key, uri, 200000, null)
+          .then((_) => resized = true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(resized, isFalse, reason: 'waits for the rename');
+      release.complete();
+      await write;
+      await resize;
+      PieceStore.debugBeforeRename = null;
+      expect(store.meta(key)?.size, 200000);
+      expect(await store.read(key, 0, 10), isNull);
+      await store.write(key, 2000, bytes(1000, 2));
+      // and after a restart: nothing of the old size taken for the new
+      final again = await open(1 << 20);
+      expect(again.meta(key)?.size, 200000);
+      expect(await again.read(key, 0, 10), isNull);
+      expect(await again.read(key, 2000, 5), bytes(1000, 2).sublist(0, 5));
+      expect(again.bytes, 1000);
+    });
+
+    test('a write of the old size still on disk is not kept', () async {
+      final store = await open(1 << 20);
+      await store.sized(key, uri, 100000, null);
+      // the re-size takes its turn while the piece is still being written
+      // (on Windows its folder is not all deleted then, and nothing is kept
+      // of the stream this time; elsewhere the new size is)
+      final write = store.write(key, 0, bytes(1000, 0));
+      final resize = store.sized(key, uri, 200000, null);
+      await (write, resize).wait;
+      expect(store.meta(key)?.size, isNot(100000));
+      expect(await store.read(key, 0, 10), isNull);
+      final again = await open(1 << 20);
+      expect(again.meta(key)?.size, isNot(100000));
+      expect(await again.read(key, 0, 10), isNull);
+    });
+
+    test('clear waits for it too', () async {
+      final store = await open(1 << 20);
+      await store.sized(key, uri, 100000, null);
+      final renaming = Completer<void>();
+      final release = Completer<void>();
+      PieceStore.debugBeforeRename = () {
+        renaming.complete();
+        return release.future;
+      };
+      final write = store.write(key, 0, bytes(1000, 0));
+      await renaming.future;
+      final clear = store.clear();
+      release.complete();
+      await write;
+      await clear;
+      PieceStore.debugBeforeRename = null;
+      final again = await open(1 << 20);
+      expect(again.meta(key), isNull);
+      expect(again.bytes, 0);
+    });
+  });
 }

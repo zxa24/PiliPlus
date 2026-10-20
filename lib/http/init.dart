@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:PiliPlus/http/api.dart';
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/retry_interceptor.dart';
@@ -139,8 +140,8 @@ class Request {
     late final String systemProxyHost;
     late final int? systemProxyPort;
     if (Pref.enableSystemProxy) {
-      systemProxyHost = Pref.systemProxyHost;
-      systemProxyPort = int.tryParse(Pref.systemProxyPort);
+      systemProxyHost = Pref.systemProxyHost.trim();
+      systemProxyPort = int.tryParse(Pref.systemProxyPort.trim());
       enableSystemProxy = systemProxyPort != null && systemProxyHost.isNotEmpty;
     } else {
       enableSystemProxy = false;
@@ -153,10 +154,9 @@ class Request {
               ..autoUncompress = false
               // certificates are still verified; only the separate
               // badCertificateCallback setting (HttpOverrides) skips it
-              // the parallel fetch on the loopback is reached directly
-              ..findProxy = ((uri) => uri.host == '127.0.0.1'
-                  ? 'DIRECT'
-                  : 'PROXY $systemProxyHost:$systemProxyPort')
+              // the parallel fetch on the loopback is reached directly: the
+              // rule every client of the app follows (AppProxy)
+              ..findProxy = AppProxy.findProxy
           : () => HttpClient()
               ..idleTimeout = const Duration(seconds: 15)
               ..autoUncompress = false, // Http2Adapter没有自动解压, 统一行为

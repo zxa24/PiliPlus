@@ -8,6 +8,7 @@ import 'package:PiliPlus/common/widgets/custom_toast.dart';
 import 'package:PiliPlus/common/widgets/route_aware_mixin.dart';
 import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:PiliPlus/common/widgets/scroll_behavior.dart';
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models/common/theme/theme_color_type.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
@@ -24,10 +25,12 @@ import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/pages/setting/models/youtube_settings.dart';
+import 'package:PiliPlus/services/parallel_fetch.dart';
 import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/power_events.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
+import 'package:PiliPlus/services/youtube/stream_relay.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -200,6 +203,11 @@ void main(List<String> args) async {
   // 调试模式 (设置 → 其它设置): the player's overlay of decisions
   DebugOverlay.setEnabled(Pref.debugMode);
   HttpOverrides.global = _CustomHttpOverrides();
+  // the 设置代理 setting for the parallel fetch's own client too (it sets
+  // its findProxy itself)
+  ParallelFetch.proxyFor = AppProxy.findProxy;
+  // and for the relay of Invidious streams (and the YouTube downloader)
+  YtStreamRelay.proxyFor = AppProxy.findProxy;
 
   if (PlatformUtils.isMobile) {
     if (Platform.isAndroid) {
@@ -514,6 +522,10 @@ class _CustomHttpOverrides extends HttpOverrides {
     if (Pref.badCertificateCallback) {
       client.badCertificateCallback = (cert, host, port) => true;
     }
+    // the 设置代理 setting for every client the app opens — YouTube,
+    // Invidious, model downloads, WebDAV, images, the CDN probes — not the
+    // bilibili requests alone (user 2026-10-19); the loopback directly
+    client.findProxy = AppProxy.findProxy;
     return client;
   }
 }

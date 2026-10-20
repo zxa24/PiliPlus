@@ -8,6 +8,7 @@ import 'dart:ui'
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -6386,7 +6387,11 @@ abstract final class SelfTest {
     if (url == null || url.isEmpty) return {'url': null};
     final player = await Player.create();
     try {
-      await player.open(Media(url), play: false);
+      // the 设置代理 setting, as the player has it (AppProxy.mpvFor)
+      await player.open(
+        Media(url, extras: {'http-proxy': AppProxy.mpvFor(url)}),
+        play: false,
+      );
       for (var i = 0; i < 24; i++) {
         await Future.delayed(const Duration(milliseconds: 500));
         if (player.state.duration > Duration.zero) break;
@@ -8247,7 +8252,11 @@ abstract final class SelfTest {
       configuration: PlayerConfiguration(
         logLevel: MPVLogLevel.error,
         // muted unless the run asked for sound (see selfTestSound)
-        options: {if (!selfTestSound) 'mute': 'yes'},
+        options: {
+          if (!selfTestSound) 'mute': 'yes',
+          // the 设置代理 setting, as the player has it (AppProxy.mpvFor)
+          'http-proxy': AppProxy.mpvFor(url),
+        },
       ),
     );
     final native = player;

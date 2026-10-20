@@ -511,6 +511,107 @@ void main() {
         throwsUnsupportedError,
       );
     });
+
+    // D9 A: a later segment's leading edit is kept in the timing
+    group('later segments keep their leading edit', () {
+      /// A segment whose audio starts 10 ms after its video (an empty edit
+      /// on the audio track), the audio's playing edit then set to start at
+      /// [audioMediaTime] — as an AAC encoder's priming does.
+      Future<String> primed(String name, int fill, int audioMediaTime) async {
+        final flv = _Flv()
+          ..avcHeader(_avcC(_sps(20, 15)))
+          ..aacHeader()
+          ..video(0, _nal(100, fill), key: true)
+          // audio bytes of their own, told apart from the video's below
+          ..audio(10, List.filled(30, fill + 100))
+          ..audio(33, List.filled(31, fill + 110))
+          ..video(40, _nal(50, fill))
+          ..audio(56, List.filled(32, fill + 120))
+          ..video(80, _nal(60, fill));
+        final out = '${dir.path}/$name.mp4';
+        await Mp4Remuxer.remuxFlv(
+          inputs: [write('$name.flv', flv.bytes)],
+          output: out,
+        );
+        final mp4 = File(out).readAsBytesSync();
+        // the audio track's elst (the second): entries (duration, media
+        // time, rate) after version/flags and count
+        final first = _indexOf(mp4, 'elst'.codeUnits);
+        final at =
+            first +
+            1 +
+            _indexOf(
+              Uint8List.sublistView(mp4, first + 1),
+              'elst'.codeUnits,
+            );
+        final data = ByteData.sublistView(mp4);
+        expect(data.getUint32(at + 8), 2, reason: 'empty + playing edit');
+        expect(data.getInt32(at + 12 + 4), -1);
+        data.setInt32(at + 12 + 12 + 4, audioMediaTime);
+        File(out).writeAsBytesSync(mp4);
+        return out;
+      }
+
+      test('the edit reads back as written', () async {
+        final s = await primed('e1', 1, 1014);
+        expect(Mp4Remuxer.debugMp4JoinTracks([s])[1]['edits'], [
+          [10, -1],
+          [isA<int>(), 1014],
+        ]);
+      });
+
+      /// The audio sample durations of a segment like [primed]'s.
+      Future<List<int>> audioDurations() async {
+        final s = await primed('probe', 9, 0);
+        return Mp4Remuxer.debugMp4JoinTracks([s])[1]['durations']! as List<int>;
+      }
+
+      test('the priming of a later segment is dropped, in step', () async {
+        final first = (await audioDurations()).first;
+        final s1 = await primed('q1', 1, first);
+        final s2 = await primed('q2', 2, first);
+        final output = '${dir.path}/primed.mp4';
+        await Mp4Remuxer.joinMp4(inputs: [s1, s2], output: output);
+        final joined = Mp4Remuxer.debugMp4JoinTracks([output]);
+        final v = joined[0];
+        final a = joined[1];
+        // the video joins as before
+        expect(v['durations'], [40, 40, 40, 40, 40, 40]);
+        // segment 2's first audio sample (before its edit's media time)
+        // is gone; the first one kept plays as in its own file: 10 ms after
+        // the join at 120 ms, under the joined edit (10 ms, from [first])
+        expect(a['sizes'], [30, 31, 32, 31, 32]);
+        final durations = a['durations']! as List<int>;
+        final kept = durations.take(3).reduce((x, y) => x + y);
+        expect(0.010 + (kept - first) / 44100, closeTo(0.130, 1e-4));
+        expect(a['edits'], [
+          [10, -1],
+          [isA<int>(), first],
+        ]);
+        // and its bytes are not copied; the kept ones are
+        final mp4 = File(output).readAsBytesSync();
+        expect(_contains(mp4, List.filled(30, 102)), isFalse);
+        expect(_contains(mp4, List.filled(31, 112)), isTrue);
+        expect(_contains(mp4, List.filled(32, 122)), isTrue);
+        expect(_contains(mp4, List.filled(30, 101)), isTrue);
+      });
+
+      test('a later segment with another edit is placed by its own', () async {
+        final d = await audioDurations();
+        final s1 = await primed('d1', 1, 0);
+        final s2 = await primed('d2', 2, d[0] + d[1]);
+        final output = '${dir.path}/differ.mp4';
+        await Mp4Remuxer.joinMp4(inputs: [s1, s2], output: output);
+        final a = Mp4Remuxer.debugMp4JoinTracks([output])[1];
+        // two samples of segment 2 wholly before its media time: gone
+        expect(a['sizes'], [30, 31, 32, 32]);
+        final durations = a['durations']! as List<int>;
+        // its third sample (where its edit starts) plays 10 ms after the
+        // join, as the joined edit (10 ms, from 0) presents it
+        final kept = durations.take(3).reduce((x, y) => x + y);
+        expect(0.010 + kept / 44100, closeTo(0.130, 1e-4));
+      });
+    });
   });
 
   group('codec configuration changes in FLV', () {

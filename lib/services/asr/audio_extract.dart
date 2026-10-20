@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/services/asr/mpv_ffi.dart';
 import 'package:PiliPlus/services/asr/pcm_reader.dart';
 import 'package:ffi/ffi.dart';
@@ -49,6 +50,7 @@ typedef _ExtractArgs = ({
   String output,
   String? referer,
   String? userAgent,
+  String httpProxy,
   int timeoutSeconds,
   String? cancelPath,
   String? pausePath,
@@ -151,6 +153,8 @@ abstract final class AsrAudioExtractor {
         output: output,
         referer: referer,
         userAgent: userAgent,
+        // the 设置代理 setting, read here: the isolate has no settings
+        httpProxy: AppProxy.mpvFor(source),
         timeoutSeconds: timeout.inSeconds,
         cancelPath: cancelPath,
         pausePath: pausePath,
@@ -237,6 +241,8 @@ abstract final class AsrAudioExtractor {
         // at commas, and the browser user agent has one in it
         'referrer': ?args.referer,
         'user-agent': ?args.userAgent,
+        // the 设置代理 setting, as the player has it (AppProxy.mpvFor)
+        if (args.httpProxy.isNotEmpty) 'http-proxy': args.httpProxy,
       };
       for (final option in options.entries) {
         final rc = mpv.setOption(ctx, option.key, option.value);

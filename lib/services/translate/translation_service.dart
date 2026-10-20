@@ -15,6 +15,7 @@ import 'dart:collection' show Queue;
 import 'dart:ffi' show IntPtr, sizeOf;
 import 'dart:io';
 
+import 'package:PiliPlus/pages/video/widgets/translate_model_notice.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
@@ -71,6 +72,9 @@ class TranslationService extends GetxService {
           '翻译 $translation',
       ].join(' · ');
     };
+    // a Traditional Chinese translation started without the model offers
+    // it once the speech turns to another language
+    offerModel ??= TranslateModelNotice.show;
     unawaited(removeRetiredModels());
   }
 
@@ -192,6 +196,46 @@ class TranslationService extends GetxService {
   /// Whether a translation can start without anything to download first:
   /// what a video opening by itself may do (see decideOnOpen).
   bool get readyToStart => supported && modelReady;
+
+  /// Whether translating into [into] needs no model to start: Traditional
+  /// Chinese from a Chinese caption track — [caption], the tag of the track
+  /// translated, when there is one — or from a transcript whose speech is
+  /// mostly Chinese ([spoken], see spokenLanguages) (oct-pass1-D2). What a
+  /// transcript says in another language later waits for the model, which
+  /// is then offered, never fetched by itself.
+  static bool startsWithoutModel(
+    String into, {
+    String? caption,
+    List<String> spoken = const [],
+  }) {
+    if (into != traditionalChinese) return false;
+    if (caption != null) return convertsOnly(captionLanguage(caption), into);
+    return spoken.isNotEmpty && convertsOnly(spoken.first, into);
+  }
+
+  /// The model the user said may be downloaded (or imported) in this run,
+  /// by its id: a Traditional Chinese transcript started without asking
+  /// loads the model only once this or [modelReady] says it may.
+  String? _agreedModel;
+
+  /// Whether a translation may load the model, downloading it first if
+  /// need be, without asking. A debug engine needs no download.
+  bool get mayFetchModel =>
+      debugEngine != null || modelReady || _agreedModel == model.id;
+
+  /// The user said the model may be downloaded: translations that showed
+  /// lines in their own words for want of it translate them now.
+  void agreeToDownload() {
+    _agreedModel = model.id;
+    for (final session in [?_current, ..._parked]) {
+      session.retranslate();
+    }
+  }
+
+  /// Offers the model once a translation started without it meets speech
+  /// it cannot convert (see [TranslationSession.onModelWanted]). Set by the
+  /// page side (TranslateModelNotice); nothing is offered without it.
+  static void Function(TranslationSession session)? offerModel;
 
   /// Starts translating [asr], replacing whatever was running.
   ///
@@ -477,8 +521,15 @@ class TranslationService extends GetxService {
       // decided one by one
       modelFree: !perUnit && convertsOnly(from, into),
       routeOf: perUnit ? (language) => routeFor(language, into) : null,
+      // a transcript into Traditional Chinese may start without the model
+      // (see [startsWithoutModel]); what is not Chinese in it then waits for
+      // the model to be downloaded or asked for, and is offered once
+      mayLoadModel: perUnit && traditional ? () => mayFetchModel : null,
       ownsPlayer: ownsPlayer,
     )..claim = _claim;
+    if (perUnit && traditional) {
+      session.onModelWanted = () => offerModel?.call(session);
+    }
     _wireExtras(session);
     if (cache != null && !stopped) {
       // before it starts: what the cache has is settled from the first look
@@ -560,6 +611,8 @@ class TranslationService extends GetxService {
       return;
     }
     if (only == null && paused) {
+      // deleted: downloading it again is asked about again
+      _agreedModel = null;
       final parked = _parked.toList();
       _parked.clear();
       for (final session in parked) {

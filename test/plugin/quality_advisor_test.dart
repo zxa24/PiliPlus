@@ -131,4 +131,38 @@ void main() {
       QualityAdvice.stepDown,
     );
   });
+
+  // 15A: a cut copy is not a slow host
+  group('a sign of a cut copy before a slow verdict', () {
+    final now = DateTime(2026, 10, 19, 12);
+
+    test('none: the verdict stands', () {
+      expect(QualityAdvisor.cutBeforeSlow(sign: null, now: now), isNull);
+    });
+
+    test('lately: the copy is replaced at the byte, the quality kept', () {
+      expect(
+        QualityAdvisor.cutBeforeSlow(
+          sign: (at: 6212991, seen: now.subtract(const Duration(seconds: 8))),
+          now: now,
+        ),
+        6212991,
+      );
+    });
+
+    test('long ago: the verdict stands', () {
+      expect(
+        QualityAdvisor.cutBeforeSlow(
+          sign: (
+            at: 6212991,
+            seen: now.subtract(
+              QualityAdvisor.cutOutweighs + const Duration(seconds: 1),
+            ),
+          ),
+          now: now,
+        ),
+        isNull,
+      );
+    });
+  });
 }
