@@ -691,7 +691,7 @@ List<SettingsModel> get extraSettings => [
   const SplitModel(
     normalModel: NormalModel.split(
       title: '设置代理',
-      subtitle: '应用的所有连接（含播放器、下载、YouTube）都经过此代理 host:port',
+      subtitle: '应用的所有连接（含播放器、下载、YouTube）都经过此代理 host:port；应用内打开的网页（WebView）除外',
       leading: Icon(Icons.airplane_ticket_outlined),
     ),
     switchModel: SwitchModel.split(

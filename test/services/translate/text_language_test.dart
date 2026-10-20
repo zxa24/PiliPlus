@@ -152,6 +152,16 @@ void main() {
     );
   });
 
+  test('Malay is written in Latin letters: an unknown Latin one is left', () {
+    expect(
+      TextLanguage.needsTranslation(
+        'Wow amazing nice',
+        native: const ['zh', 'ms'],
+      ),
+      isFalse,
+    );
+  });
+
   test('Traditional Chinese is Chinese for a reader of either', () {
     expect(
       TextLanguage.needsTranslation('這個影片做得太好了', native: const ['zh-Hant']),

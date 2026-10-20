@@ -333,12 +333,12 @@ AsrStep _elsewhere(
   return AsrStartAt(gap.from, adjacent: gap.from > 0, backfill: true);
 }
 
-/// Whether [covered] runs from the start of the media to its end.
-bool isCoveredWhole(List<TimeSpan> covered, double duration) {
-  if (covered.isEmpty) return false;
-  final first = covered.first;
-  return first.from <= _endSlack && first.to >= duration - _endSlack;
-}
+/// Whether [covered] runs from the start of the media to its end. A gap of
+/// a second or less between two stretches is slack, as in [gapsIn]: none
+/// is ever filled, so one held against this kept a transcript from ever
+/// being done.
+bool isCoveredWhole(List<TimeSpan> covered, double duration) =>
+    covered.isNotEmpty && gapsIn(covered, duration).isEmpty;
 
 /// The stretches of [0, duration] not in [covered], shortest first dropped:
 /// a gap under a second is the slack between two runs, not missing speech.

@@ -3,11 +3,14 @@
 import 'dart:async' show Timer;
 
 import 'package:PiliPlus/models/common/enum_with_label.dart';
+import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
+import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_files.dart';
+import 'package:PiliPlus/services/ctl/ctl_app.dart' show Ctl;
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
@@ -168,10 +171,42 @@ class ShutdownTimerService {
       } else if (live<TranslationService>()) {
         await _flushTranslations();
       }
+      saveOpenVideo();
       await GStorage.close();
     } catch (_) {}
     // not exit(): see appExit — a sleep-timer exit crashed in dcomp.dll
     appExit();
+  }
+
+  /// The video page on top (the one whose position is live): its forced
+  /// save, as leaving the page does, before Hive is closed. Up to 10 s of
+  /// 本机观看记录 and 5 s of a local file's resume point were otherwise lost.
+  /// Found on the route stack [Ctl.routes] keeps, as `/status` finds it.
+  static void saveOpenVideo() {
+    try {
+      for (final route in Ctl.routes.stack.reversed) {
+        final name = route.settings.name ?? '';
+        final args = route.settings.arguments;
+        if (name.startsWith('/videoV')) {
+          final tag = args is Map ? args['heroTag'] as String? : null;
+          if (!Get.isRegistered<VideoDetailController>(tag: tag)) return;
+          final page = Get.find<VideoDetailController>(tag: tag);
+          if (page.isFileSource) page.cacheLocalProgress();
+          page.saveLocalHistory(force: true);
+          return;
+        }
+        if (name.startsWith('/ytVideo')) {
+          final id =
+              Uri.tryParse(name)?.queryParameters['id'] ??
+              (args is String ? args : null);
+          if (id == null || !Get.isRegistered<YtVideoController>(tag: id)) {
+            return;
+          }
+          Get.find<YtVideoController>(tag: id).saveHistoryOnExit();
+          return;
+        }
+      }
+    } catch (_) {}
   }
 
   /// Translated with nothing transcribed: what keepCache queued is written

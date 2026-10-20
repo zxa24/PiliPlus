@@ -18,6 +18,8 @@ import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/local_player.dart';
+import 'package:PiliPlus/services/shutdown_timer_service.dart'
+    show ShutdownTimerService;
 import 'package:PiliPlus/services/translate/translation_service.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
@@ -265,6 +267,8 @@ class _MainAppState extends PopScopeState<MainApp>
         TranscriptFiles.flush(),
       ]).then((_) {}).timeout(const Duration(seconds: 2), onTimeout: () {});
     }
+    // the playing page's position, as leaving it saves it
+    ShutdownTimerService.saveOpenVideo();
     await GStorage.compact();
     await GStorage.close();
     await trayManager.destroy();

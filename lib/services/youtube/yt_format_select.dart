@@ -34,6 +34,7 @@ class YtFormatPreference {
     this.allowDubbedAudio = false,
     this.preferredAudioLanguage,
     this.listedCodecsOnly = false,
+    this.preferSdr = false,
   });
 
   /// Cap on the *smaller* of the two video dimensions, so a portrait video is
@@ -56,6 +57,12 @@ class YtFormatPreference {
   /// the remuxer reads MP4 only (`avc1`/`av01` + `mp4a`), not WebM.
   final bool listedCodecsOnly;
 
+  /// SDR before HDR at a height ([mp4Download] only): HDR AV1 shares the
+  /// family `av01` with the SDR one and usually wins on bitrate, so a
+  /// download above 1080p saved 10-bit PQ where the player had shown SDR
+  /// VP9. Playback ranks as it always did.
+  final bool preferSdr;
+
   /// A pair the downloader can make one mp4 of, as close to [maxHeight] as
   /// MP4 goes.
   static YtFormatPreference mp4Download(int maxHeight) => YtFormatPreference(
@@ -63,6 +70,7 @@ class YtFormatPreference {
     videoCodecs: const ['avc1', 'av01'],
     audioCodecs: const ['mp4a'],
     listedCodecsOnly: true,
+    preferSdr: true,
   );
 
   static const YtFormatPreference standard = YtFormatPreference();
@@ -120,6 +128,7 @@ YtFormat? selectYtVideoFormat(
   final top = _bestUnderHeightCap(playable, pref.maxHeight);
   if (top == null) return null;
   final side = _shortSide(top);
+  final rank = pref.preferSdr ? _bySdrThenResolution : _byResolutionThenBitrate;
   final atHeight = playable
       .where((f) => _shortSide(f) == side)
       .toList(growable: false);
@@ -128,11 +137,25 @@ YtFormat? selectYtVideoFormat(
         .where((f) => f.codecFamily == codec)
         .toList(growable: false);
     if (pool.isEmpty) continue;
-    return (pool.toList()..sort(_byResolutionThenBitrate)).last;
+    return (pool.toList()..sort(rank)).last;
   }
   // No preferred codec at that height: whatever is there, and let the
   // caller's codec support decide.
-  return (atHeight.toList()..sort(_byResolutionThenBitrate)).last;
+  return (atHeight.toList()..sort(rank)).last;
+}
+
+/// SDR before HDR within a height ([YtFormatPreference.preferSdr]).
+int _bySdrThenResolution(YtFormat a, YtFormat b) {
+  final bySdr = (_isHdr(a) ? 0 : 1).compareTo(_isHdr(b) ? 0 : 1);
+  if (bySdr != 0) return bySdr;
+  return _byResolutionThenBitrate(a, b);
+}
+
+/// `colorInfo.transferCharacteristics` other than BT.709; none given is SDR.
+bool _isHdr(YtFormat f) {
+  final info = f.raw['colorInfo'];
+  final transfer = info is Map ? info['transferCharacteristics'] : null;
+  return transfer is String && !transfer.endsWith('BT709');
 }
 
 YtFormat? _bestUnderHeightCap(List<YtFormat> pool, int maxHeight) {

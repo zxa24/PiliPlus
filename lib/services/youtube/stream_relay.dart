@@ -288,6 +288,10 @@ class YtStreamRelay {
       ..autoUncompress = false,
   );
 
+  /// How long the upstream may send nothing: for its answer, and for its
+  /// body while the player is reading.
+  static const _quiet = Duration(seconds: 15);
+
   /// Token → upstream URL, and the way back.
   final _upstream = <String, Uri>{};
   final _tokenOf = <String, String>{};
@@ -422,9 +426,11 @@ class YtStreamRelay {
       final (_, answer) = await _hops.send(
         request.method,
         upstream,
-        // the client's idle timeout: an upstream that answers nothing in
-        // that long is let go, as one that goes quiet mid-body is
-        timeout: const Duration(seconds: 15),
+        // an upstream that answers nothing in that long is let go; the
+        // client's idleTimeout does not do it (it times pooled connections
+        // only), nor does it for a body that goes quiet: that is the
+        // timeout on the body below
+        timeout: _quiet,
         onRequest: (r) {
           pending = r;
           if (stopped) r.abort(const HttpException('let go'));
@@ -460,8 +466,10 @@ class YtStreamRelay {
         return;
       }
       // the body as it comes, at the player's pace (a paused player pauses
-      // the read upstream), and stoppable
-      final upstreamBody = body = answer.listen(null);
+      // the read upstream), and stoppable. A body that goes quiet is let go
+      // after [_quiet]: Stream.timeout stops its countdown while paused, so
+      // a paused player (backpressure pausing this read) does not trip it
+      final upstreamBody = body = answer.timeout(_quiet).listen(null);
       final sink = out = StreamController<List<int>>(
         onPause: upstreamBody.pause,
         onResume: upstreamBody.resume,

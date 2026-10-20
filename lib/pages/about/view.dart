@@ -10,6 +10,7 @@ import 'package:PiliPlus/common/widgets/dialog/export_import.dart';
 import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/common/widgets/flutter/list_tile.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+import 'package:PiliPlus/main.dart' show appStartedAt, clearScratchFiles;
 import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -440,6 +441,13 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // the pieces of streams kept on disk: each folder
                         // names the stream it is of
                         await (await PlPlayerController.videoCache())?.clear();
+                        // transcription and YouTube download scratch, each
+                        // named after its video: only what a previous
+                        // process left, as at start-up, so a transcription
+                        // or download running now keeps its working files;
+                        // this process's own go at the next start-up (the
+                        // reset asks for a restart)
+                        await clearScratchFiles(before: appStartedAt);
                         // thumbnails and avatars of what was watched, and
                         // the in-app browser's cache and site storage
                         await CacheManager.manager.emptyCache();

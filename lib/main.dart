@@ -115,6 +115,44 @@ Future<void> _initTmpPath() async {
   tmpDirPath = (await appTempDirectory()).path;
 }
 
+/// When this process started (set first thing in [main]): scratch files
+/// older than this are a previous process's (see [clearScratchFiles]).
+late final DateTime appStartedAt;
+
+/// The scratch files of transcription runs (tmpDirPath/asr) and of YouTube
+/// downloads (tmpDirPath/ytdl), each named after its video. A run or a
+/// download deletes its own, but a process ended mid-way (the window
+/// closed, Android stopping the app) leaves them behind. With [before],
+/// only what was last changed before it: a run or download this process
+/// has begun since keeps its files. A file still held open stays. Best
+/// effort.
+Future<void> clearScratchFiles({DateTime? before}) async {
+  bool keep(FileSystemEntity e) =>
+      before != null && e.statSync().modified.isAfter(before);
+  for (final name in const ['asr', 'ytdl']) {
+    final dir = Directory(path.join(tmpDirPath, name));
+    try {
+      if (!dir.existsSync()) continue;
+      final dirs = <Directory>[];
+      await for (final e in dir.list(recursive: true, followLinks: false)) {
+        try {
+          if (e is Directory) {
+            if (!keep(e)) dirs.add(e);
+          } else if (!keep(e)) {
+            await e.delete();
+          }
+        } catch (_) {}
+      }
+      // emptied folders, deepest first; one still holding a file stays
+      for (final d in dirs.reversed) {
+        try {
+          await d.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+}
+
 Future<void> _initAppPath() async {
   var dir = (await getApplicationSupportDirectory()).path;
   if (isSelfTestProfile) {
@@ -125,6 +163,7 @@ Future<void> _initAppPath() async {
 }
 
 void main(List<String> args) async {
+  appStartedAt = DateTime.now();
   ScaledWidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   isSelfTestProfile = SelfTest.isRequested(args);
@@ -178,6 +217,10 @@ void main(List<String> args) async {
   // LibrePili: the subtitle cache back within its limit (a limit lowered,
   // entries left by a run that ended mid-write); nothing waits on it
   unawaited(SubtitleCache.instance.evict());
+  // LibrePili: transcription and YouTube download scratch a killed run left
+  // (named after the video); only one process gets past GStorage.init on a
+  // profile, and the temp folder is per profile
+  unawaited(clearScratchFiles(before: appStartedAt));
   Get
     ..lazyPut(AccountService.new)
     ..lazyPut(DownloadService.new)

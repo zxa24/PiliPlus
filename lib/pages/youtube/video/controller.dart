@@ -21,6 +21,9 @@ import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
+import 'package:PiliPlus/services/asr/model_store.dart'
+    show AsrCancelToken, AsrCancelled;
+import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
@@ -244,6 +247,10 @@ class YtVideoController extends GetxController
   /// last saved to the local history.
   int? _historySec;
   int? _historySavedSec;
+
+  /// Quitting the app (the window closed, the sleep timer): where this video
+  /// is, saved first ([ShutdownTimerService.saveOpenVideo]).
+  void saveHistoryOnExit() => _saveHistory();
 
   /// Saves where this video is to the local watch history, the same list the
   /// bilibili videos go to: every 10 s of playback, on a pause or the end,
@@ -722,34 +729,84 @@ class YtVideoController extends GetxController
       String? shownMsg;
       String? shownStage;
       DateTime? shownAt;
-      final file = await YtDownloader.download(
-        pair: pair,
-        videoId: videoId,
-        title: detail.value?.title ?? videoId,
-        token: token,
-        onProgress: (fraction, stage) {
-          if (isClosed) return;
-          // every received chunk rebuilt the overlay: only a new figure, and
-          // no more often than a few times a second, except a new stage
-          final msg =
-              '$stage ${(fraction * 100).clamp(0, 100).toStringAsFixed(0)}%';
-          final now = DateTime.now();
-          if (msg == shownMsg ||
-              (stage == shownStage &&
-                  shownAt != null &&
-                  now.difference(shownAt!) <
-                      const Duration(milliseconds: 250))) {
-            return;
+      void showProgress(double fraction, String stage) {
+        if (isClosed) return;
+        // every received chunk rebuilt the overlay: only a new figure, and
+        // no more often than a few times a second, except a new stage
+        final msg =
+            '$stage ${(fraction * 100).clamp(0, 100).toStringAsFixed(0)}%';
+        final now = DateTime.now();
+        if (msg == shownMsg ||
+            (stage == shownStage &&
+                shownAt != null &&
+                now.difference(shownAt!) < const Duration(milliseconds: 250))) {
+          return;
+        }
+        shownMsg = msg;
+        shownStage = stage;
+        shownAt = now;
+        SmartDialog.showLoading(msg: msg, onDismiss: token.cancel);
+      }
+
+      final title = detail.value?.title ?? videoId;
+      final streams = pair;
+      // the formats' own sizes, which the job's notification counts
+      // against; without one, bitrate × duration. None at all: no job, the
+      // download runs as it did before
+      int sizeOf(YtFormat? f) {
+        if (f == null) return 0;
+        final length = f.contentLength;
+        if (length != null && length > 0) return length;
+        final rate = f.averageBitrate ?? f.bitrate;
+        final ms = f.approxDurationMs ?? 0;
+        return rate > 0 && ms > 0 ? rate * ms ~/ 8000 : 0;
+      }
+
+      final bytes =
+          sizeOf(streams.video) +
+          (streams.videoUrl == streams.audioUrl ? 0 : sizeOf(streams.audio));
+      if (bytes <= 0 && Platform.isAndroid) {
+        EventLog.add(
+          'transfer',
+          'no background job for "$title": size unknown, downloading '
+              'in-process',
+        );
+      }
+      // inside a user-initiated job, as model downloads are: on Android 15
+      // the network goes ~5 s after the screen locks (oct-pass3-D8)
+      final file = await BackgroundTransfer.instance.run(
+        title: '下载 $title',
+        bytes: bytes,
+        token: _YtJobToken(token),
+        body: (keepAlive) async {
+          try {
+            return await YtDownloader.download(
+              pair: streams,
+              videoId: videoId,
+              title: title,
+              token: token,
+              onProgress: (fraction, stage) {
+                keepAlive((
+                  label: 'YouTube 视频',
+                  received: (fraction.clamp(0, 1) * bytes).round(),
+                  total: bytes,
+                  verifying: false,
+                ));
+                showProgress(fraction, stage);
+              },
+            );
+          } on YtDownloadCancelled {
+            // the job ends as cancelled, not as failed
+            throw const AsrCancelled();
           }
-          shownMsg = msg;
-          shownStage = stage;
-          shownAt = now;
-          SmartDialog.showLoading(msg: msg, onDismiss: token.cancel);
         },
       );
       SmartDialog.dismiss(status: SmartStatus.loading);
       SmartDialog.showToast('已保存到 $file');
     } on YtDownloadCancelled {
+      SmartDialog.dismiss(status: SmartStatus.loading);
+      SmartDialog.showToast('已取消下载');
+    } on AsrCancelled {
       SmartDialog.dismiss(status: SmartStatus.loading);
       SmartDialog.showToast('已取消下载');
     } on YtDownloadNotMp4 catch (e) {
@@ -2080,5 +2137,19 @@ class YtVideoController extends GetxController
     // after the player let go of its streams
     unawaited(_relay?.close());
     super.onClose();
+  }
+}
+
+/// The job's cancel (its notification's button, the system's task manager)
+/// reaches the download's own token.
+class _YtJobToken extends AsrCancelToken {
+  _YtJobToken(this._download);
+
+  final YtDownloadToken _download;
+
+  @override
+  void cancel() {
+    super.cancel();
+    _download.cancel();
   }
 }

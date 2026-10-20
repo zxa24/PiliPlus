@@ -415,4 +415,48 @@ void main() {
       expect(f.codecFamily, 'avc1');
     });
   });
+
+  group('HDR', () {
+    YtFormat av1(int itag, int bitrate, String? transfer) => YtFormat({
+      'itag': itag,
+      'mimeType': 'video/mp4; codecs="av01.0.12M.10"',
+      'url': 'https://example.invalid/$itag',
+      'width': 3840,
+      'height': 2160,
+      'fps': 30,
+      'bitrate': bitrate,
+      if (transfer != null) 'colorInfo': {'transferCharacteristics': transfer},
+    });
+
+    test('an MP4 download takes SDR AV1 over the HDR one at a height', () {
+      final f = selectYtVideoFormat([
+        av1(401, 12000000, 'COLOR_TRANSFER_CHARACTERISTICS_BT709'),
+        av1(701, 20000000, 'COLOR_TRANSFER_CHARACTERISTICS_SMPTEST2084'),
+      ], YtFormatPreference.mp4Download(2160))!;
+      expect(f.itag, 401);
+    });
+
+    test('no colorInfo counts as SDR', () {
+      final f = selectYtVideoFormat([
+        av1(701, 20000000, 'COLOR_TRANSFER_CHARACTERISTICS_ARIB_STD_B67'),
+        av1(401, 12000000, null),
+      ], YtFormatPreference.mp4Download(2160))!;
+      expect(f.itag, 401);
+    });
+
+    test('playback ranks as before: the higher-bitrate HDR one', () {
+      final f = selectYtVideoFormat([
+        av1(401, 12000000, 'COLOR_TRANSFER_CHARACTERISTICS_BT709'),
+        av1(701, 20000000, 'COLOR_TRANSFER_CHARACTERISTICS_SMPTEST2084'),
+      ], const YtFormatPreference(maxHeight: 2160))!;
+      expect(f.itag, 701);
+    });
+
+    test('HDR only: still picked', () {
+      final f = selectYtVideoFormat([
+        av1(701, 20000000, 'COLOR_TRANSFER_CHARACTERISTICS_SMPTEST2084'),
+      ], YtFormatPreference.mp4Download(2160))!;
+      expect(f.itag, 701);
+    });
+  });
 }

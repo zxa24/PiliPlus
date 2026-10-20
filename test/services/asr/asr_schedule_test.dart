@@ -526,4 +526,32 @@ void main() {
     expect(isCoveredWhole(const [(from: 0.5, to: 999.2)], 1000), isTrue);
     expect(isCoveredWhole(covered, 1000), isFalse);
   });
+
+  test('slack between two runs does not keep a transcript from being done', () {
+    const slack = [(from: 0.0, to: 100.0), (from: 100.5, to: 200.0)];
+    expect(isCoveredWhole(slack, 200), isTrue);
+    // a gap of more than a second is still missing speech
+    expect(
+      isCoveredWhole(const [(from: 0, to: 100), (from: 101.5, to: 200)], 200),
+      isFalse,
+    );
+    final pace = AsrPace(speed: 15, restartCost: 2);
+    for (final power in AsrPower.values) {
+      final lead = asrLeadWindow(speed: 15, restartCost: 2, power: power);
+      for (final p in [50.0, 150.0, 199.5]) {
+        expect(
+          decideAsrStep(
+            playhead: p,
+            duration: 200,
+            covered: slack,
+            run: null,
+            lead: lead,
+            pace: pace,
+          ),
+          isA<AsrComplete>(),
+          reason: '${power.name} at $p',
+        );
+      }
+    }
+  });
 }

@@ -39,8 +39,10 @@ abstract final class LinuxCookieManager {
   /// `getAllCookies` and `clearAll` — there is no set-cookie entry point on
   /// the WebKit cookie manager to use instead. What limits the exposure:
   /// the account's cookies are injected only for the video page's own note
-  /// flow (webview/view.dart), as session cookies, and the shared store is
-  /// dropped when that window closes.
+  /// flow and the in-app browser's 「重新设置Cookie」 (webview/view.dart),
+  /// and the latter only into a page whose current host is bilibili's; as
+  /// session cookies, and the shared store is dropped when the window
+  /// closes.
   static String generateCookieInjectionJs([
     List<Cookie>? cookieList,
     bool session = false,

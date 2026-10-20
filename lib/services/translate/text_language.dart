@@ -563,8 +563,12 @@ abstract final class TextLanguage {
     return !isNative(lang);
   }
 
-  static bool _writtenInLatin(String code) =>
-      _words.containsKey(code.split('-').first);
+  /// Malay has no word list here and is written in Latin letters all the
+  /// same, as checkTranslation takes it.
+  static bool _writtenInLatin(String code) {
+    final lang = code.split('-').first;
+    return _words.containsKey(lang) || lang == 'ms';
+  }
 }
 
 enum _Script {

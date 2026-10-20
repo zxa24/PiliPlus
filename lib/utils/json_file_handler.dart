@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:catcher_2/catcher_2.dart';
 
@@ -88,6 +89,18 @@ class JsonFileHandler extends ReportHandler {
       enableStackTrace: enableStackTrace,
       enableCustomParameters: enableCustomParameters,
     );
-    return add((raf) => raf.writeString('${jsonEncode(json)}\n'));
+    return add((raf) => raf.writeString('${jsonEncode(_redact(json))}\n'));
   }
+
+  /// [value] with every URL in its strings cut to scheme://host/path (see
+  /// EventLog.withoutQuery): a player error quotes the playlist, whose
+  /// stream URLs carry the viewer's address and a signature, and the log
+  /// can be copied into an issue. Done per string, before encoding, so the
+  /// JSON around them stays whole.
+  static Object? _redact(Object? value) => switch (value) {
+    String() => EventLog.withoutQuery(value),
+    Map() => value.map((k, v) => MapEntry(k, _redact(v))),
+    List() => value.map(_redact).toList(),
+    _ => value,
+  };
 }

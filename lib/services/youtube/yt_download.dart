@@ -280,9 +280,26 @@ abstract final class YtDownloader {
         if (response.statusCode != HttpStatus.partialContent &&
             response.statusCode != HttpStatus.ok) {
           if (response.statusCode == HttpStatus.requestedRangeNotSatisfiable) {
-            // asked past the end: everything is already on disk
+            // asked past the end: the end only when the server's total
+            // (`bytes */<total>`), else the known length, is what is on
+            // disk; a 416 on the first chunk or mid-file is a failure
+            final range = response.headers.value(
+              HttpHeaders.contentRangeHeader,
+            );
             await response.drain<void>();
-            break;
+            final m = range == null
+                ? null
+                : RegExp(r'^bytes \*/(\d+)$').firstMatch(range.trim());
+            final stated = m == null ? total : int.parse(m[1]!);
+            if (received > 0 &&
+                stated == received &&
+                (total == null || total == received)) {
+              break;
+            }
+            throw HttpException(
+              'HTTP 416 at $received of ${stated ?? '?'}',
+              uri: uri,
+            );
           }
           throw HttpException('HTTP ${response.statusCode}', uri: uri);
         }

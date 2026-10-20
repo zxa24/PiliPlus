@@ -1,3 +1,4 @@
+import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io' show Platform;
 
 import 'package:PiliPlus/common/widgets/route_aware_mixin.dart'
@@ -406,13 +407,22 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
         break;
       case WebviewMenuItem.resetCookie:
         if (Platform.isLinux) {
-          if (LinuxCookieManager.isBiliDomain(_url)) {
+          final webview = _linuxWebview;
+          // the page shown now, not the one the window opened at: a link
+          // followed out of bilibili is not handed the account's cookies
+          final host = await _linuxHost(webview);
+          if (host != null &&
+              LinuxCookieManager.isBiliDomain('https://$host')) {
             final js = LinuxCookieManager.generateCookieInjectionJs(
               null,
               true,
             );
             if (js.isNotEmpty) {
-              await _linuxWebview?.evaluateJavaScript(js);
+              // and still that page when the script runs: `location` and
+              // `===` are not the page's to redefine
+              await webview?.evaluateJavaScript(
+                'if (location.hostname === ${jsonEncode(host)}) {$js}',
+              );
             }
           }
           _linuxWebview?.reload();
@@ -423,6 +433,20 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
         _accountCookie = true;
         SmartDialog.showToast('设置成功，刷新或重新打开网页');
         break;
+    }
+  }
+
+  /// The host of the page [webview] shows now, or null. The plugin has no
+  /// getUrl; its evaluateJavaScript answers JSON (jsc_value_to_json).
+  static Future<String?> _linuxHost(dww.Webview? webview) async {
+    if (webview == null) return null;
+    try {
+      final raw = await webview.evaluateJavaScript('location.hostname');
+      if (raw == null) return null;
+      final host = jsonDecode(raw);
+      return host is String && host.isNotEmpty ? host : null;
+    } catch (_) {
+      return null;
     }
   }
 
