@@ -5883,7 +5883,12 @@ abstract final class SelfTest {
   }
 
   /// The share of the video's area drawn black now (a grid of 32×18).
-  static Future<double?> _blackShare() async {
+  static Future<double?> _blackShare({PlPlayerController? player}) async {
+    // a release build (a phone's, from CI) has no root layer to read: what
+    // the player's own view captures for a held picture instead
+    if (WidgetsBinding.instance.renderViews.first.debugLayer == null) {
+      return _capturedBlackShare(player);
+    }
     final rect = _findVideo() ?? _videoRect;
     if (rect == null || rect.isEmpty) return null;
     _videoRect = rect;
@@ -5918,6 +5923,51 @@ abstract final class SelfTest {
     }
   }
 
+  /// The share of pure black in the middle of the video's area as
+  /// [player]'s view captures it (PlPlayerController.captureVideo, the
+  /// same capture a held picture is made from): whether the platform's
+  /// video texture can be read back at all. With `--shots`, the capture is
+  /// written as `capture_<n>.png`.
+  static Future<double?> _capturedBlackShare(PlPlayerController? player) async {
+    final image = await player?.captureVideo?.call();
+    if (image == null) return null;
+    try {
+      final data = (await image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      ))!;
+      if (_shots case final dir? when _captures < 6) {
+        final png = await image.toByteData(format: ui.ImageByteFormat.png);
+        final file = File(path.join(dir, 'capture_${_captures++}.png'));
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(png!.buffer.asUint8List());
+      }
+      // the middle: bars above and below a wide video are black anyway
+      final inner = Rect.fromLTWH(
+        image.width * 0.2,
+        image.height * 0.2,
+        image.width * 0.6,
+        image.height * 0.6,
+      );
+      var dark = 0, all = 0;
+      for (var i = 0; i < 32; i++) {
+        for (var j = 0; j < 18; j++) {
+          final x = (inner.left + inner.width * (i + 0.5) / 32).floor();
+          final y = (inner.top + inner.height * (j + 0.5) / 18).floor();
+          final o = (y * image.width + x) * 4;
+          final sum =
+              data.getUint8(o) + data.getUint8(o + 1) + data.getUint8(o + 2);
+          all++;
+          if (sum < 12) dark++;
+        }
+      }
+      return dark / all;
+    } finally {
+      image.dispose();
+    }
+  }
+
+  static int _captures = 0;
+
   /// One `--switch-at` switch on [page], watched. `shot` and `tabN` (the
   /// page's tab N) only take a picture of the page, with `--shots`.
   static Future<void> _switchWatched(
@@ -5938,7 +5988,7 @@ abstract final class SelfTest {
     final player = page.plPlayerController;
     final clock = Stopwatch()..start();
     await _shot('switch_${at}_before');
-    final before = await _blackShare();
+    final before = await _blackShare(player: player);
     if (kind.startsWith('pause+')) {
       await player.pause();
       await Future.delayed(const Duration(seconds: 2));
@@ -5974,7 +6024,7 @@ abstract final class SelfTest {
         heldShot = true;
         await _shot('switch_${at}_held');
       }
-      final share = await _blackShare();
+      final share = await _blackShare(player: player);
       final t = clock.elapsedMilliseconds - started;
       final held = player.heldPicture.value != null;
       samples.add('$t:${share?.toStringAsFixed(2)}${held ? 'H' : ''}');
