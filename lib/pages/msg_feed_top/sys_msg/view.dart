@@ -8,6 +8,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/msg/msg_sys/data.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/msg_feed_top/sys_msg/controller.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
@@ -45,8 +46,14 @@ class _SysMsgPageState extends State<SysMsgPage> {
               padding: EdgeInsets.only(
                 bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
               ),
-              sliver: Obx(
-                () => _buildBody(theme, _sysMsgController.loadingState.value),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(
+                    () =>
+                        _buildBody(theme, _sysMsgController.loadingState.value),
+                  ),
+                  LoadMoreFooter(controller: _sysMsgController),
+                ],
               ),
             ),
           ],

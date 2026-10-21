@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart'
     show m3eLoading;
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/fav/fav_topic/topic_item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/fav/topic/controller.dart';
 import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -44,8 +45,13 @@ class _FavTopicPageState extends State<FavTopicPage>
               top: Style.safeSpace,
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: Obx(
-              () => _buildBody(theme, _controller.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(
+                  () => _buildBody(theme, _controller.loadingState.value),
+                ),
+                LoadMoreFooter(controller: _controller),
+              ],
             ),
           ),
         ],

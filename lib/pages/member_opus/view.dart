@@ -7,6 +7,7 @@ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/space/space_opus/item.dart';
 import 'package:PiliPlus/pages/common/fab_mixin.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/member_opus/controller.dart';
 import 'package:PiliPlus/pages/member_opus/widgets/space_opus_item.dart';
 import 'package:PiliPlus/utils/grid.dart';
@@ -71,7 +72,12 @@ class _MemberOpusState extends State<MemberOpus>
                   right: Style.safeSpace,
                   bottom: bottom + 100,
                 ),
-                sliver: Obx(() => _buildBody(_controller.loadingState.value)),
+                sliver: SliverMainAxisGroup(
+                  slivers: [
+                    Obx(() => _buildBody(_controller.loadingState.value)),
+                    LoadMoreFooter(controller: _controller),
+                  ],
+                ),
               ),
             ],
           ),

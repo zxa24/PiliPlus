@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
 import 'package:PiliPlus/common/widgets/view_sliver_safe_area.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/common/search/common_search_controller.dart';
 import 'package:get/get.dart';
@@ -46,7 +47,12 @@ abstract class CommonSearchPageState<S extends StatefulWidget, R, T>
           controller: controller.scrollController,
           slivers: [
             ViewSliverSafeArea(
-              sliver: Obx(() => _buildBody(controller.loadingState.value)),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(() => _buildBody(controller.loadingState.value)),
+                  LoadMoreFooter(controller: controller),
+                ],
+              ),
             ),
           ],
         ),

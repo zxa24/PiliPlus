@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/dynamic/dyn_topic_top/topic_item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/dynamics_select_topic/controller.dart';
 import 'package:PiliPlus/pages/dynamics_select_topic/widgets/item.dart';
 import 'package:PiliPlus/pages/search/controller.dart' show DebounceStreamState;
@@ -195,6 +196,9 @@ class _SelectTopicPanelState
                 ),
                 controller: widget.scrollController,
                 itemBuilder: (context, index) {
+                  if (index == response.length) {
+                    return LoadMoreFooter.box(controller: _controller);
+                  }
                   if (index == response.length - 1) {
                     _controller.onLoadMore();
                   }
@@ -203,7 +207,7 @@ class _SelectTopicPanelState
                     onTap: (item) => Get.back(result: item),
                   );
                 },
-                itemCount: response.length,
+                itemCount: response.length + 1,
               )
             : _errWidget(),
       Error(:final errMsg) => _errWidget(errMsg),

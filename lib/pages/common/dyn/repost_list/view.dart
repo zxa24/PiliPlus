@@ -8,6 +8,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/pages/common/dyn/common_dyn_page.dart';
 import 'package:PiliPlus/pages/common/dyn/repost_list/controller.dart';
 import 'package:PiliPlus/pages/common/dyn/repost_list/widgets/item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart' hide ListTile;
 
@@ -61,7 +62,12 @@ class DynRepostPage extends StatelessWidget {
           padding: .only(
             bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
           ),
-          sliver: Obx(() => buildBody(controller.loadingState.value)),
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              Obx(() => buildBody(controller.loadingState.value)),
+              LoadMoreFooter(controller: controller),
+            ],
+          ),
         ),
       ],
     );

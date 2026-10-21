@@ -7,6 +7,7 @@ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_sliver_safe_area.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/member_guard/guard_top_list.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/member_guard/controller.dart';
 import 'package:PiliPlus/utils/bili_utils.dart';
 import 'package:PiliPlus/utils/extension/widget_ext.dart';
@@ -64,7 +65,12 @@ class _MemberGuardState extends State<MemberGuard> {
         child: CustomScrollView(
           slivers: [
             ViewSliverSafeArea(
-              sliver: Obx(() => _buildBody(_controller.loadingState.value)),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(() => _buildBody(_controller.loadingState.value)),
+                  LoadMoreFooter(controller: _controller),
+                ],
+              ),
             ),
           ],
         ),

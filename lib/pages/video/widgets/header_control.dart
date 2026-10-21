@@ -590,14 +590,25 @@ class HeaderControlState extends State<HeaderControl>
                                     !onlyPlayAudio;
                                 final player =
                                     plPlayerController.videoPlayerController!;
+                                // video back on: the cover and the spinner
+                                // stay up until a frame is (it was a black
+                                // area, audit 2026-10-21)
                                 if (onlyPlayAudio &&
                                     player.state.tracks.video.length <= 2) {
+                                  plPlayerController.waitForVideoBack(
+                                    reopening: true,
+                                  );
                                   videoDetailCtr.playerInit();
                                 } else {
                                   player.setProperty(
                                     'file-local-options/vid',
                                     onlyPlayAudio ? 'auto' : 'no',
                                   );
+                                  if (onlyPlayAudio) {
+                                    plPlayerController.waitForVideoBack(
+                                      reopening: false,
+                                    );
+                                  }
                                 }
                               },
                               text: " 听视频 ",

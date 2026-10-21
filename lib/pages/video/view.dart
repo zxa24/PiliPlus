@@ -48,8 +48,10 @@ import 'package:PiliPlus/pages/video/view_point/view.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/pages/video/widgets/intro_layout.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
+import 'package:PiliPlus/pages/video/widgets/player_stand_in.dart';
 import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/fullscreen_mode.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
@@ -313,12 +315,39 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     plPlayerController!.play();
   }
 
+  /// A tap on the cover remembered while the play URL was asked for (see
+  /// [handlePlay]); moved on by a push, which drops it.
+  var _playTap = 0;
+
   /// 未开启自动播放时触发播放
   Future<void>? handlePlay() {
     if (!videoDetailController.isFileSource) {
       if (videoDetailController.isQuerying) {
         if (kDebugMode) debugPrint('handlePlay: querying');
-        return null;
+        // LibrePili: remembered, and played once the play URL is in, the
+        // cover showing the spinner meanwhile (it was dropped silently)
+        final done = videoDetailController.queryDone;
+        if (done == null || videoDetailController.playAfterQuery.value) {
+          return null;
+        }
+        videoDetailController.playAfterQuery.value = true;
+        // played only on this page, still on top, with nothing opened on
+        // the shared player meanwhile: a page pushed over it in between
+        // drops it (see didPushNext), or it would take the player from
+        // that page (review 2026-10-21)
+        final tap = ++_playTap;
+        final opens = videoDetailController.plPlayerController.openCount;
+        return done.then((_) {
+          if (tap != _playTap) return null;
+          videoDetailController.playAfterQuery.value = false;
+          if (mounted &&
+              isShowing &&
+              !videoDetailController.autoPlay &&
+              videoDetailController.plPlayerController.openCount == opens) {
+            return handlePlay();
+          }
+          return null;
+        });
       }
       if (videoDetailController.videoUrl == null ||
           videoDetailController.audioUrl == null) {
@@ -393,6 +422,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   void didPushNext() {
     super.didPushNext();
     isShowing = false;
+    // a cover tap waiting for the play URL is not played under the page
+    // on top (see handlePlay)
+    _playTap++;
+    videoDetailController.playAfterQuery.value = false;
 
     removeObserverMobile(this);
 
@@ -402,9 +435,29 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
     introController.cancelTimer();
 
+    // LibrePili: the player's view stays up through the push (it went
+    // black at once); it goes only if the page over this one takes the
+    // player (see VideoDetailController._whenTaken). The picture now, for a
+    // return after that: shown over the reopen rather than a black area
+    if (plPlayerController case final ctr?
+        when videoDetailController.videoState.value &&
+            videoDetailController.ownsPlayer) {
+      // at most 1280 px on its longest side: it is only up until the first
+      // frame, and each covered page keeps one (review 2026-10-21)
+      ctr.captureVideo?.call(maxSide: 1280).then(
+        (image) {
+          if (image == null) return;
+          if (!mounted || isShowing) {
+            image.dispose();
+            return;
+          }
+          videoDetailController.setPictureAtPush(image);
+        },
+        onError: (Object _) {},
+      );
+    }
     videoDetailController
       ..setCovered(true)
-      ..videoState.value = false
       ..cancelBlockListener()
       ..playerStatus = plPlayerController?.playerStatus.value
       ..brightness = plPlayerController?.brightness.value;
@@ -463,13 +516,21 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     plPlayerController
       ?..addStatusLister(playerListener)
       ..addPositionListener(positionListener);
+    // LibrePili: opened again only if another page took the player; still
+    // this page's, it goes on as it was (it was opened again every time)
     if (videoDetailController.autoPlay) {
-      videoDetailController.playerInit(
-        autoplay: videoDetailController.playerStatus?.isPlaying ?? false,
-      );
+      final play = videoDetailController.playerStatus?.isPlaying ?? false;
+      if (!videoDetailController.resumeOwnPlayer(play: play)) {
+        // the picture taken at the push, with the spinner, until a frame
+        videoDetailController.videoState.value = false;
+        videoDetailController.playerInit(autoplay: play);
+      }
     } else if (videoDetailController.plPlayerController.preInitPlayer &&
         !videoDetailController.isQuerying &&
-        videoDetailController.videoUrl != null) {
+        videoDetailController.videoUrl != null &&
+        // still this page's: its hooks back (a covering video page set
+        // its own and took them with it), paused as it was
+        !videoDetailController.resumeOwnPlayer(play: false)) {
       videoDetailController.playerInit();
     }
     videoDetailController.setCovered(false);
@@ -752,6 +813,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                   if (kDebugMode) {
                     debugPrint('handlePlay: querying');
                   }
+                  // remembered there (see handlePlay)
+                  if (!videoDetailController.autoPlay) handlePlay();
                   return;
                 }
                 if (videoDetailController.videoUrl == null ||
@@ -1238,14 +1301,19 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         videoDetailController.plPlayerController.onPopInvokedWithResult,
     child: Obx(
       () =>
-          !videoDetailController.videoState.value ||
-              // transcription is a peer of the stream: when subtitles are
-              // going to be generated for this video, it is not ready until
-              // they have started arriving
-              videoDetailController.asrPending.value ||
-              !videoDetailController.autoPlay ||
-              plPlayerController?.videoController == null
+          // transcription is a peer of the stream: when subtitles are going
+          // to be generated for this video, it is not ready until they have
+          // started arriving (the gate shows); autoplay off has the cover
+          // and its play button
+          videoDetailController.asrPending.value ||
+              !videoDetailController.autoPlay
           ? const SizedBox.shrink()
+          : !videoDetailController.videoState.value ||
+                plPlayerController?.videoController == null
+          // LibrePili: the player not up yet — the cover (or the picture
+          // left at a push), the spinner and the way back, not a black box
+          // with nothing on it (audit 2026-10-21)
+          ? _playerStandIn(width, height)
           : PLVideoPlayer(
               maxWidth: width,
               maxHeight: height,
@@ -1277,6 +1345,57 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
             ),
     ),
   );
+
+  /// Where the player will be, while it is not up (see [plPlayer]).
+  Widget _playerStandIn(double width, double height) {
+    final player = videoDetailController.plPlayerController;
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Obx(
+            () => PlayerCover(
+              cover: videoDetailController.cover.value,
+              picture: videoDetailController.pictureAtPush.value,
+              width: width,
+              height: height,
+            ),
+          ),
+          Center(
+            child: Obx(
+              // the open failed: said, and tried again on a tap. This page's
+              // open only: the player's status is the whole app's, and a
+              // page over one whose open failed showed its error (review
+              // 2026-10-21)
+              () => player.dataStatus.error && videoDetailController.ownsPlayer
+                  ? PlayerLoadFailed(onRetry: videoDetailController.retryPlayer)
+                  : const PlayerLoadingMark(),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            child: SizedBox(
+              width: 42,
+              height: 34,
+              child: IconButton(
+                tooltip: '返回',
+                icon: const Icon(
+                  FontAwesomeIcons.arrowLeft,
+                  size: 15,
+                  color: Colors.white,
+                  shadows: [Shadow(blurRadius: 1.5, color: Colors.black)],
+                ),
+                onPressed: Get.back,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   late ThemeData theme;
   ColorScheme get colorScheme => theme.colorScheme;
@@ -1516,18 +1635,30 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
               child: GestureDetector(
                 onTap: handlePlay,
                 behavior: .opaque,
-                child: Obx(
-                  () => NetworkImgLayer(
-                    type: .emote,
-                    quality: 60,
-                    src: videoDetailController.cover.value,
-                    width: width,
-                    height: height,
-                    cacheWidth: true,
-                    getPlaceHolder: () => Center(
-                      child: Image.asset(Assets.loading),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Obx(
+                      () => NetworkImgLayer(
+                        type: .emote,
+                        quality: 60,
+                        src: videoDetailController.cover.value,
+                        width: width,
+                        height: height,
+                        cacheWidth: true,
+                        getPlaceHolder: () => Center(
+                          child: Image.asset(Assets.loading),
+                        ),
+                      ),
                     ),
-                  ),
+                    // a tap while the play URL is asked for: it plays once
+                    // the URL is in (see handlePlay)
+                    Obx(
+                      () => videoDetailController.playAfterQuery.value
+                          ? const Center(child: PlayerLoadingMark())
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
               ),
             );

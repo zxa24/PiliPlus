@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/fav/fav_pgc/list.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/fav/pgc/controller.dart';
 import 'package:PiliPlus/pages/fav/pgc/pgc_layout.dart';
 import 'package:PiliPlus/pages/fav/pgc/widget/item.dart';
@@ -54,8 +55,13 @@ class _FavPgcChildPageState extends State<FavPgcChildPage>
           slivers: [
             SliverPadding(
               padding: EdgeInsets.only(bottom: padding.bottom + 100),
-              sliver: Obx(
-                () => _buildBody(_favPgcController.loadingState.value),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(
+                    () => _buildBody(_favPgcController.loadingState.value),
+                  ),
+                  LoadMoreFooter(controller: _favPgcController),
+                ],
               ),
             ),
           ],

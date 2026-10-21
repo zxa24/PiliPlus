@@ -528,6 +528,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     BaseEpisodeItem episode, {
     bool isStein = false,
   }) async {
+    // LibrePili: the cover and the spinner from the tap on (see
+    // VideoDetailController.switching); set back wherever it goes no further
+    videoDetailCtr.beginSwitch();
     try {
       final String bvid = episode.bvid ?? this.bvid;
       final int aid = episode.aid ?? IdUtils.bv2av(bvid);
@@ -541,6 +544,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         }
       }
       if (cid == null) {
+        videoDetailCtr.switching.value = false;
         return false;
       }
 
@@ -553,6 +557,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
           if (dimension == null && episode is EpisodeItem) {
             dimension = episode.page?.dimension;
           }
+          videoDetailCtr.switching.value = false;
           PageUtils.toVideoPage(
             bvid: bvid,
             cid: cid,
@@ -591,11 +596,12 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         if (videoDetailCtr.plPlayerController.showRelatedVideo) {
           try {
             // a refresh still in flight is for the previous video: not
-            // joined (see markRefreshStale)
+            // joined (onReload marks it stale), and the list shows it is
+            // loading rather than the previous video's until the answer
+            // (audit 2026-10-21)
             Get.find<RelatedController>(tag: heroTag)
               ..bvid = bvid
-              ..markRefreshStale()
-              ..queryData();
+              ..onReload();
           } catch (_) {}
         }
 
@@ -631,6 +637,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       return true;
     } catch (e) {
       if (kDebugMode) debugPrint('ugc onChangeEpisode: $e');
+      videoDetailCtr.switching.value = false;
       return false;
     }
   }

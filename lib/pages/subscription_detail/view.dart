@@ -4,6 +4,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/sub/sub/list.dart';
 import 'package:PiliPlus/models_new/sub/sub_detail/media.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/subscription_detail/controller.dart';
 import 'package:PiliPlus/pages/subscription_detail/widget/sub_video_card.dart';
 import 'package:PiliPlus/utils/grid.dart';
@@ -66,8 +67,13 @@ class _SubDetailPageState extends State<SubDetailPage> with GridMixin {
                 right: padding.right,
                 bottom: padding.bottom + 100,
               ),
-              sliver: Obx(
-                () => _buildBody(_subDetailController.loadingState.value),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(
+                    () => _buildBody(_subDetailController.loadingState.value),
+                  ),
+                  LoadMoreFooter(controller: _subDetailController),
+                ],
               ),
             ),
           ],

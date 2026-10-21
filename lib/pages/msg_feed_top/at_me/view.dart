@@ -11,6 +11,7 @@ import 'package:PiliPlus/grpc/bilibili/app/im/v1.pbenum.dart'
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/models_new/msg/msg_at/item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/msg_feed_top/at_me/controller.dart';
 import 'package:PiliPlus/pages/whisper_settings/view.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
@@ -60,8 +61,13 @@ class _AtMePageState extends State<AtMePage> {
               padding: EdgeInsets.only(
                 bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
               ),
-              sliver: Obx(
-                () => _buildBody(theme, _atMeController.loadingState.value),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(
+                    () => _buildBody(theme, _atMeController.loadingState.value),
+                  ),
+                  LoadMoreFooter(controller: _atMeController),
+                ],
               ),
             ),
           ],

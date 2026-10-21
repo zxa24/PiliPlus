@@ -2,6 +2,7 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/member/search_type.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/dynamics/widgets/dynamic_panel.dart';
 import 'package:PiliPlus/pages/member_search/child/controller.dart';
 import 'package:PiliPlus/pages/member_search/child/widgets/search_archive_grpc.dart';
@@ -45,14 +46,19 @@ class _MemberSearchChildPageState extends State<MemberSearchChildPage>
               top: widget.searchType == MemberSearchType.archive ? 7 : 0,
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: switch (widget.searchType) {
-              MemberSearchType.archive => Obx(
-                () => _buildBody(_controller.loadingState.value),
-              ),
-              MemberSearchType.dynamic => buildPage(
-                Obx(() => _buildBody(_controller.loadingState.value)),
-              ),
-            },
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                switch (widget.searchType) {
+                  MemberSearchType.archive => Obx(
+                    () => _buildBody(_controller.loadingState.value),
+                  ),
+                  MemberSearchType.dynamic => buildPage(
+                    Obx(() => _buildBody(_controller.loadingState.value)),
+                  ),
+                },
+                LoadMoreFooter(controller: _controller),
+              ],
+            ),
           ),
         ],
       ),

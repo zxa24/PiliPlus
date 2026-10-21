@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_sliver_safe_area.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/follow/list.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/follow/widgets/follow_item.dart';
 import 'package:PiliPlus/pages/follow_type/controller.dart';
 import 'package:PiliPlus/utils/grid.dart';
@@ -30,8 +31,13 @@ abstract class FollowTypePageState<T extends StatefulWidget> extends State<T> {
           // controller: controller.scrollController,
           slivers: [
             ViewSliverSafeArea(
-              sliver: Obx(
-                () => _buildBody(theme, controller.loadingState.value),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(
+                    () => _buildBody(theme, controller.loadingState.value),
+                  ),
+                  LoadMoreFooter(controller: controller),
+                ],
               ),
             ),
           ],

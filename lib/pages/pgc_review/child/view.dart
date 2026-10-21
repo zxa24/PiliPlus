@@ -13,6 +13,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/models/common/pgc_review_type.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_review/list.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/pgc_review/child/controller.dart';
 import 'package:PiliPlus/pages/pgc_review/post/view.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -77,8 +78,13 @@ class _PgcReviewChildPageState extends State<PgcReviewChildPage>
             padding: EdgeInsets.only(
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: Obx(
-              () => _buildBody(theme, _controller.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(
+                  () => _buildBody(theme, _controller.loadingState.value),
+                ),
+                LoadMoreFooter(controller: _controller),
+              ],
             ),
           ),
         ],

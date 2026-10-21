@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/live/live_search_type.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/live_search/child/controller.dart';
 import 'package:PiliPlus/pages/live_search/widgets/live_search_room.dart';
 import 'package:PiliPlus/pages/live_search/widgets/live_search_user.dart';
@@ -49,7 +50,12 @@ class _LiveSearchChildPageState extends State<LiveSearchChildPage>
               right: padding,
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: Obx(() => _buildBody(_controller.loadingState.value)),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(() => _buildBody(_controller.loadingState.value)),
+                LoadMoreFooter(controller: _controller),
+              ],
+            ),
           ),
         ],
       ),

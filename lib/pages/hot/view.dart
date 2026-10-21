@@ -7,6 +7,7 @@ import 'package:PiliPlus/common/widgets/view_safe_area.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/home_tab_type.dart';
 import 'package:PiliPlus/models/model_hot_video_item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/home/controller.dart';
 import 'package:PiliPlus/pages/hot/controller.dart';
 import 'package:PiliPlus/pages/rank/view.dart';
@@ -110,8 +111,11 @@ class _HotPageState extends State<HotPage>
             ),
           SliverPadding(
             padding: const EdgeInsets.only(top: 7, bottom: 100),
-            sliver: Obx(
-              () => _buildBody(controller.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(() => _buildBody(controller.loadingState.value)),
+                LoadMoreFooter(controller: controller),
+              ],
             ),
           ),
         ],

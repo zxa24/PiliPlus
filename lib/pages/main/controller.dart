@@ -370,11 +370,13 @@ class MainController extends GetxController
         EasyThrottle.throttle(
           'topOrRefresh',
           const Duration(milliseconds: 500),
+          // with the list's refresh indicator showing: it used to reload
+          // with nothing on screen
           () {
             if (currentNav == NavigationBarType.home) {
-              homeController.onRefresh();
+              homeController.onRefreshShown();
             } else if (currentNav == NavigationBarType.dynamics) {
-              dynamicController.onRefresh();
+              dynamicController.onRefreshShown();
             }
           },
         );

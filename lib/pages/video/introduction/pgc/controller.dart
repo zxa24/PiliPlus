@@ -288,6 +288,9 @@ class PgcIntroController extends CommonIntroController {
 
   // 修改分P或番剧分集
   Future<bool> onChangeEpisode(BaseEpisodeItem episode) async {
+    // LibrePili: the cover and the spinner from the tap on (see
+    // VideoDetailController.switching); set back wherever it goes no further
+    videoDetailCtr.beginSwitch();
     try {
       final int epId = episode.epId ?? episode.id!;
       final String bvid = episode.bvid ?? this.bvid;
@@ -295,6 +298,7 @@ class PgcIntroController extends CommonIntroController {
       final int? cid =
           episode.cid ?? await SearchHttp.ab2c(aid: aid, bvid: bvid);
       if (cid == null) {
+        videoDetailCtr.switching.value = false;
         return false;
       }
       final String? cover = episode.cover;
@@ -340,6 +344,7 @@ class PgcIntroController extends CommonIntroController {
       return true;
     } catch (e) {
       if (kDebugMode) debugPrint('pgc onChangeEpisode: $e');
+      videoDetailCtr.switching.value = false;
       return false;
     }
   }

@@ -15,6 +15,7 @@ import 'package:PiliPlus/models_new/dynamic/dyn_topic_feed/fold_card_item.dart';
 import 'package:PiliPlus/models_new/dynamic/dyn_topic_feed/item.dart';
 import 'package:PiliPlus/models_new/dynamic/dyn_topic_top/top_details.dart';
 import 'package:PiliPlus/pages/common/fab_mixin.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/dynamics/widgets/dynamic_panel.dart';
 import 'package:PiliPlus/pages/dynamics_create/view.dart';
 import 'package:PiliPlus/pages/dynamics_topic/controller.dart';
@@ -133,8 +134,13 @@ class _DynTopicPageState extends State<DynTopicPage>
                   right: padding.right,
                   bottom: padding.bottom + 100,
                 ),
-                sliver: buildPage(
-                  Obx(() => _buildBody(_controller.loadingState.value)),
+                sliver: SliverMainAxisGroup(
+                  slivers: [
+                    buildPage(
+                      Obx(() => _buildBody(_controller.loadingState.value)),
+                    ),
+                    LoadMoreFooter(controller: _controller),
+                  ],
                 ),
               ),
             ],

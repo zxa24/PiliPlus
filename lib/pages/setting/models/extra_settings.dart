@@ -1088,10 +1088,16 @@ Future<void> _showSuperResolutionDialog(
 
 Future<void> _showFavDialog(BuildContext context) async {
   if (Accounts.main.isLogin) {
-    final res = await FavHttp.allFavFolders(Accounts.main.mid);
+    // LibrePili: the folders are fetched before the dialog opens, which
+    // showed nothing while it waited; an empty list returned in silence
+    SmartDialog.showLoading(msg: '获取收藏夹中');
+    final res = await FavHttp.allFavFolders(
+      Accounts.main.mid,
+    ).whenComplete(() => SmartDialog.dismiss(status: SmartStatus.loading));
     if (res case Success(:final response)) {
       final list = response.list;
       if (list == null || list.isEmpty) {
+        SmartDialog.showToast('没有收藏夹');
         return;
       }
       final quickFavId = Pref.quickFavId;

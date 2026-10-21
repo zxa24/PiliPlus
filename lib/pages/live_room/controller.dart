@@ -66,6 +66,13 @@ class LiveRoomController extends GetxController {
   );
 
   final isLoaded = false.obs;
+
+  /// LibrePili: why the room's first load failed, drawn where the player
+  /// would be, with a 重试. The dialog that said it used to leave, once
+  /// closed, the dimmed background and no way to try again; a reload of a
+  /// room that has played keeps the dialog, the player is still there.
+  final loadError = RxnString();
+
   final roomInfoH5 = Rxn<RoomInfoH5Data>();
 
   final liveTime = Rxn<int>();
@@ -229,10 +236,13 @@ class LiveRoomController extends GetxController {
       autoplay: autoplay,
       isVertical: isPortrait.value,
       autoFullScreenFlag: autoFullScreenFlag,
+      // a reopen of this room (quality, line, retry) keeps its picture
+      identity: 'live:$roomId',
     );
   }
 
   Future<void> queryLiveUrl({bool autoFullScreenFlag = false}) async {
+    if (!isLoaded.value) loadError.value = null;
     currentQn ??= await ConnectivityUtils.isWiFi
         ? Pref.liveQuality
         : Pref.liveQualityCellular;
@@ -244,12 +254,12 @@ class LiveRoomController extends GetxController {
     if (isClosed) return;
     if (res case Success(:final response)) {
       if (response.liveStatus != 1) {
-        _showDialog('当前直播间未开播');
+        _onLoadFailed('当前直播间未开播');
         return;
       }
       final playurl = response.playurlInfo?.playurl;
       if (playurl == null) {
-        _showDialog('无法获取播放地址');
+        _onLoadFailed('无法获取播放地址');
         return;
       }
       ruid = response.uid;
@@ -261,18 +271,44 @@ class LiveRoomController extends GetxController {
       isPortrait.value = response.isPortrait ?? false;
       stream = playurl.stream;
       _initStreamIndex();
-      await Future.wait([
-        ?initLiveUrl(
+      // the player no longer waits for the danmaku block rules: they
+      // filter the chat, not the picture. The chat waits for them instead
+      // (startLiveMsg), so no early message gets past the filters; a failed
+      // request lets it through, as before
+      if (!isLoaded.value &&
+          Accounts.heartbeat.isLogin &&
+          _blockRules == null) {
+        _blockRules = _fetchBlockRules().catchError((_) {}).whenComplete(() {
+          _blockRules = null;
+          if (_chatWaiting && !isClosed) {
+            _chatWaiting = false;
+            startLiveMsg();
+          }
+        });
+      }
+      try {
+        await initLiveUrl(
           streamIndex: streamIndex,
           formatIndex: formatIndex,
           codecIndex: codecIndex,
           liveUrlIndex: liveUrlIndex,
-        ),
-        if (!isLoaded.value && Accounts.heartbeat.isLogin) _fetchBlockRules(),
-      ]);
+        );
+      } catch (e) {
+        // a throw used to leave the room loading for good
+        if (!isClosed) _onLoadFailed(e.toString());
+        return;
+      }
       isLoaded.value = true;
     } else {
-      _showDialog(res.toString());
+      _onLoadFailed(res.toString());
+    }
+  }
+
+  void _onLoadFailed(String message) {
+    if (isLoaded.value) {
+      _showDialog(message);
+    } else {
+      loadError.value = message;
     }
   }
 
@@ -419,6 +455,7 @@ class LiveRoomController extends GetxController {
   }
 
   void closeLiveMsg() {
+    _chatWaiting = false;
     _dmGen++;
     _dmRetryTimer?.cancel();
     _dmRetryTimer = null;
@@ -506,7 +543,16 @@ class LiveRoomController extends GetxController {
     return _keywordList.any(text.contains) || _shieldUids.contains(uid);
   }
 
+  // the block rules' request while it is in flight, and whether the chat was
+  // asked to start meanwhile (it starts when they land)
+  Future<void>? _blockRules;
+  bool _chatWaiting = false;
+
   void startLiveMsg() {
+    if (_blockRules != null) {
+      _chatWaiting = true;
+      return;
+    }
     if (messages.isEmpty) {
       prefetch();
       if (showSuperChat) {

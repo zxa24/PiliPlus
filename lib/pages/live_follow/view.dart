@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/live/live_follow/item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/live_follow/controller.dart';
 import 'package:PiliPlus/pages/live_follow/widgets/live_item_follow.dart';
 import 'package:PiliPlus/utils/grid.dart';
@@ -45,7 +46,12 @@ class _LiveFollowPageState extends State<LiveFollowPage> {
                 right: Style.safeSpace + padding.right,
                 bottom: padding.bottom + 100,
               ),
-              sliver: Obx(() => _buildBody(_controller.loadingState.value)),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(() => _buildBody(_controller.loadingState.value)),
+                  LoadMoreFooter(controller: _controller),
+                ],
+              ),
             ),
           ],
         ),

@@ -4,6 +4,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/later_view_type.dart';
 import 'package:PiliPlus/models/common/video/source_type.dart';
 import 'package:PiliPlus/models_new/later/list.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/later/base_controller.dart';
 import 'package:PiliPlus/pages/later/controller.dart';
 import 'package:PiliPlus/pages/later/widgets/video_card_h_later.dart';
@@ -53,8 +54,13 @@ class _LaterViewChildPageState extends State<LaterViewChildPage>
               top: 7,
               bottom: MediaQuery.viewPaddingOf(context).bottom + 85,
             ),
-            sliver: Obx(
-              () => _buildBody(_laterController.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(
+                  () => _buildBody(_laterController.loadingState.value),
+                ),
+                LoadMoreFooter(controller: _laterController),
+              ],
             ),
           ),
         ],

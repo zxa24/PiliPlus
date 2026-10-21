@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamics_type.dart';
 import 'package:PiliPlus/models/dynamics/result.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/dynamics/controller.dart';
 import 'package:PiliPlus/pages/dynamics/widgets/dynamic_panel.dart';
 import 'package:PiliPlus/pages/dynamics_tab/controller.dart';
@@ -58,8 +59,13 @@ class _DynamicsTabPageState extends State<DynamicsTabPage>
         slivers: [
           SliverPadding(
             padding: const EdgeInsets.only(bottom: 100),
-            sliver: buildPage(
-              Obx(() => _buildBody(controller.loadingState.value)),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                buildPage(
+                  Obx(() => _buildBody(controller.loadingState.value)),
+                ),
+                LoadMoreFooter(controller: controller),
+              ],
             ),
           ),
         ],

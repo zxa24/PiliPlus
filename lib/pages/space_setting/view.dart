@@ -35,7 +35,8 @@ class _SpaceSettingPageState extends State<SpaceSettingPage> {
 
   Widget _buildBody(ThemeData theme, LoadingState<Privacy?> loadingState) {
     return switch (loadingState) {
-      Loading() => const SizedBox.shrink(),
+      // LibrePili: it was an empty page until the settings arrived
+      Loading() => m3eLoading,
       Success<Privacy?>(:final response) =>
         response == null
             ? scrollErrorWidget(onReload: _controller.onReload)

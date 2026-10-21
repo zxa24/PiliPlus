@@ -9,6 +9,7 @@ import 'package:PiliPlus/models_new/pgc/pgc_index_condition/data.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_index_condition/sort.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_index_condition/value.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_index_result/list.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/pgc_index/controller.dart';
 import 'package:PiliPlus/pages/pgc_index/widgets/pgc_card_v_pgc_index.dart';
 import 'package:PiliPlus/pages/search/widgets/search_text.dart';
@@ -92,7 +93,12 @@ class _PgcIndexPageState extends State<PgcIndexPage>
                     top: 12,
                     bottom: padding.bottom + 100,
                   ),
-                  sliver: Obx(() => _buildList(_ctr.loadingState.value)),
+                  sliver: SliverMainAxisGroup(
+                    slivers: [
+                      Obx(() => _buildList(_ctr.loadingState.value)),
+                      LoadMoreFooter(controller: _ctr),
+                    ],
+                  ),
                 ),
               ],
             ),

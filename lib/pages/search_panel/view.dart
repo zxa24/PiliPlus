@@ -3,6 +3,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/search/search_type.dart';
 import 'package:PiliPlus/models/search/result.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/search_panel/controller.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -60,7 +61,12 @@ abstract class CommonSearchPanelState<
             padding: EdgeInsets.only(
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: Obx(() => _buildBody(controller.loadingState.value)),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(() => _buildBody(controller.loadingState.value)),
+                LoadMoreFooter(controller: controller),
+              ],
+            ),
           ),
         ],
       ),

@@ -15,6 +15,7 @@
  * along with PiliPlus.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import 'dart:async' show StreamSubscription;
 import 'dart:io' show File, Platform;
 
 import 'package:PiliPlus/common/widgets/colored_box_transition.dart';
@@ -87,6 +88,13 @@ class _GalleryViewerState extends State<GalleryViewer>
   Player? _player;
   VideoController? _videoController;
 
+  // LibrePili: a 实况照片 drew nothing until the player existed and had
+  // its first frame (the Hero carried an empty box): its still is drawn,
+  // with a spinner, until the video is playing ([_openLive])
+  final RxBool _liveShown = false.obs;
+  int _liveOpen = 0;
+  StreamSubscription<Duration>? _liveSub;
+
   late final PageController _pageController;
 
   late final TapGestureRecognizer _tapGestureRecognizer;
@@ -117,6 +125,21 @@ class _GalleryViewerState extends State<GalleryViewer>
   static Media _liveMedia(String url) =>
       Media(url, extras: {'http-proxy': AppProxy.mpvFor(url)});
 
+  // the video is shown once it plays past its start, so a frame of it is
+  // on the texture rather than the last one of the photo before
+  void _openLive(Player player, SourceModel item) {
+    final open = ++_liveOpen;
+    _liveShown.value = false;
+    _liveSub?.cancel();
+    _liveSub = player.stream.position.listen((position) {
+      if (open != _liveOpen || position <= Duration.zero) return;
+      _liveShown.value = true;
+      _liveSub?.cancel();
+      _liveSub = null;
+    });
+    player.open(_liveMedia(item.liveUrl!));
+  }
+
   Future<void> _initPlayer() async {
     assert(_player == null);
     final player = await Player.create();
@@ -129,7 +152,7 @@ class _GalleryViewerState extends State<GalleryViewer>
     _player = player;
     final currItem = widget.sources[_currIndex.value];
     if (currItem.sourceType == .livePhoto) {
-      player.open(_liveMedia(currItem.liveUrl!));
+      _openLive(player, currItem);
       _currIndex.refresh();
     }
   }
@@ -292,6 +315,7 @@ class _GalleryViewerState extends State<GalleryViewer>
 
   @override
   void dispose() {
+    _liveSub?.cancel();
     _player?.dispose();
     _player = null;
     _videoController = null;
@@ -392,7 +416,7 @@ class _GalleryViewerState extends State<GalleryViewer>
   void _playIfNeeded(SourceModel item) {
     if (item.sourceType == .livePhoto) {
       if (_player != null) {
-        _player!.open(_liveMedia(item.liveUrl!));
+        _openLive(_player!, item);
       } else if (!_hasInit) {
         _hasInit = true;
         _initPlayer();
@@ -503,10 +527,26 @@ class _GalleryViewerState extends State<GalleryViewer>
           return child;
         }
       case SourceType.livePhoto:
-        child = Obx(
-          key: _key,
-          () => _currIndex.value == index && _videoController != null
-              ? Viewer(
+        // the still the grid has already loaded
+        final still = CachedNetworkImageProvider(
+          ImageUtils.thumbnailUrl(item.url, widget.quality),
+        );
+        child = Obx(key: _key, () {
+          final isCurrent = _currIndex.value == index;
+          final hasPlayer = isCurrent && _videoController != null;
+          final shown = hasPlayer && _liveShown.value;
+          return Stack(
+            fit: .expand,
+            alignment: .center,
+            children: [
+              if (!shown)
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    image: DecorationImage(image: still, fit: .contain),
+                  ),
+                ),
+              if (hasPlayer)
+                Viewer(
                   minScale: widget.minScale,
                   maxScale: widget.maxScale,
                   containerSize: _containerSize,
@@ -518,15 +558,30 @@ class _GalleryViewerState extends State<GalleryViewer>
                   horizontalDragGestureRecognizer:
                       _horizontalDragGestureRecognizer,
                   onChangePage: _onChangePage,
-                  child: FittedBox(
-                    child: SimpleVideo(
-                      controller: _videoController!,
-                      fill: Colors.transparent,
+                  child: shown
+                      ? FittedBox(
+                          child: SimpleVideo(
+                            controller: _videoController!,
+                            fill: Colors.transparent,
+                          ),
+                        )
+                      : const SizedBox.expand(),
+                ),
+              if (isCurrent && !shown)
+                const IgnorePointer(
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white70,
+                      ),
                     ),
                   ),
-                )
-              : const SizedBox.shrink(),
-        );
+                ),
+            ],
+          );
+        });
     }
     // a picture that appears twice gets its index, or the tags would clash
     final isRepeat =

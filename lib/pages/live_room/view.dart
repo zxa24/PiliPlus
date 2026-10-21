@@ -248,6 +248,49 @@ class _LiveRoomPageState extends State<LiveRoomPage>
     );
   }
 
+  // the player's own 加载中 sign (PLVideoPlayer)
+  Widget get _loadingView => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          Assets.buffering,
+          height: 25,
+          cacheHeight: 25.cacheSize(context),
+          semanticLabel: '加载中',
+          color: Colors.white,
+        ),
+        const Text(
+          '加载中...',
+          style: TextStyle(color: Colors.white, fontSize: 12),
+        ),
+      ],
+    ),
+  );
+
+  Widget _errorView(String error) => Center(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            error,
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.tonal(
+            onPressed: _liveRoomController.queryLiveUrl,
+            child: const Text('重试'),
+          ),
+        ],
+      ),
+    ),
+  );
+
   Widget videoPlayerPanel(
     bool isFullScreen, {
     required double width,
@@ -298,6 +341,12 @@ class _LiveRoomPageState extends State<LiveRoomPage>
                     size: Size(width, height),
                   ),
           );
+        }
+        // LibrePili: the room info and the stream are still on the way, or
+        // failed: it was the dimmed background alone either way
+        if (!_liveRoomController.isLoaded.value) {
+          final error = _liveRoomController.loadError.value;
+          return error == null ? _loadingView : _errorView(error);
         }
         return const SizedBox.shrink();
       },

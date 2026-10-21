@@ -21,6 +21,7 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -78,7 +79,13 @@ abstract class CommonListPageState<S extends StatefulWidget, R, T>
           padding: EdgeInsets.only(
             bottom: MediaQuery.viewPaddingOf(context).bottom + bottomPadding,
           ),
-          sliver: wrapSliver(Obx(() => _body(controller.loadingState.value))),
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              wrapSliver(Obx(() => _body(controller.loadingState.value))),
+              // "加载中…", "没有更多了", or why the next page failed
+              LoadMoreFooter(controller: controller),
+            ],
+          ),
         ),
       ],
     ),

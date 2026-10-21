@@ -1115,6 +1115,8 @@ abstract final class SelfTest {
       DmUtils.debugCountMade = true;
       PlPlayerController.debugNoHeldPicture = args.contains('--no-hold');
       _shots = _arg(args, '--shots') ?? _shots;
+      _switchWatchMs =
+          int.tryParse(_arg(args, '--switch-watch-ms') ?? '') ?? 9000;
       _switches = [
         for (final s in (_arg(args, '--switch-at') ?? '').split(','))
           if (s.split(':') case [final at, final kind]
@@ -5846,6 +5848,10 @@ abstract final class SelfTest {
   /// frames for the 9 s after it: the share of it that is black (user
   /// 2026-10-17: 「只要之前有画面就要显示不出现任何黑屏」).
   static List<(int, String)> _switches = const [];
+
+  /// `--switch-watch-ms N`: how long after a switch the area is looked at
+  /// (9 s by default) — longer, to see past a picture let go late.
+  static int _switchWatchMs = 9000;
   static final _blackProbe = <String, Object?>{};
 
   /// Where the video's texture was last seen, physical pixels: while a
@@ -6018,7 +6024,7 @@ abstract final class SelfTest {
     final samples = <String>[];
     var worst = 0.0;
     var heldShot = false;
-    while (clock.elapsedMilliseconds - started < 9000) {
+    while (clock.elapsedMilliseconds - started < _switchWatchMs) {
       // with `--shots`: the held picture, to lay over the one before
       if (!heldShot && player.heldPicture.value != null) {
         heldShot = true;

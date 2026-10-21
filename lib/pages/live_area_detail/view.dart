@@ -1,5 +1,6 @@
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart' show tabBarView;
 import 'package:PiliPlus/http/loading_state.dart';
@@ -71,7 +72,8 @@ class _LiveAreaDetailPageState extends State<LiveAreaDetailPage> {
     LoadingState<List<AreaItem>?> loadingState,
   ) {
     return switch (loadingState) {
-      Loading() => const SizedBox.shrink(),
+      // LibrePili: it was an empty page until the tabs arrived
+      Loading() => m3eLoading,
       Success(:final response) =>
         response != null && response.isNotEmpty
             ? Column(

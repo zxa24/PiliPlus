@@ -36,6 +36,7 @@ import 'package:PiliPlus/pages/video/post_panel/popup_menu_text.dart';
 import 'package:PiliPlus/pages/video/post_panel/view.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
+import 'package:PiliPlus/pages/video/widgets/player_stand_in.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/bottom_control_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
@@ -1952,12 +1953,24 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         ],
 
         Obx(() {
+          // an open that failed: said, with 重试 (it was shown nowhere)
+          if (plPlayerController.dataStatus.error) {
+            return Center(
+              child: PlayerLoadFailed(onRetry: plPlayerController.retry),
+            );
+          }
           if (plPlayerController.dataStatus.loading ||
               (plPlayerController.isBuffering.value &&
-                  plPlayerController.playerStatus.isPlaying)) {
+                  plPlayerController.playerStatus.isPlaying) ||
+              // a seek on its way, paused too; the first frame of an open,
+              // an episode on its way (audit 2026-10-21)
+              plPlayerController.seekWaiting.value ||
+              plPlayerController.firstFrameWait.value ||
+              (widget.videoDetailController?.switching.value ?? false)) {
             return Center(
               child: GestureDetector(
-                onTap: plPlayerController.refreshPlayer,
+                // a local file too (see PlPlayerController.retry)
+                onTap: plPlayerController.retry,
                 child: Container(
                   padding: const EdgeInsets.all(20),
                   decoration: const BoxDecoration(
@@ -2151,6 +2164,26 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                     filterQuality: FilterQuality.low,
                   );
                 }),
+                // the video page's cover where there is no picture: an open
+                // with none held, an episode on its way, 听视频 (audit
+                // 2026-10-21: a black area each time)
+                if (widget.videoDetailController case final page?)
+                  Obx(() {
+                    if (!plPlayerController.onlyPlayAudio.value &&
+                        !plPlayerController.firstFrameWait.value &&
+                        !page.switching.value) {
+                      return const SizedBox.shrink();
+                    }
+                    return PlayerCover(
+                      cover: page.cover.value,
+                      // the page's last picture, at a return to it
+                      picture: plPlayerController.onlyPlayAudio.value
+                          ? null
+                          : page.pictureAtPush.value,
+                      width: maxWidth,
+                      height: maxHeight,
+                    );
+                  }),
               ],
             ),
           ),
@@ -2160,7 +2193,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   }
 
   /// The video's area as drawn now (see PlPlayerController.captureVideo).
-  Future<ui.Image?> _captureVideo() async {
+  Future<ui.Image?> _captureVideo({double? maxSide}) async {
     if (!mounted) return null;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final boundary = _videoKey.currentContext?.findRenderObject();
@@ -2171,7 +2204,12 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       await WidgetsBinding.instance.endOfFrame;
     }
     if (!boundary.attached || !boundary.hasSize) return null;
-    return boundary.toImage(pixelRatio: dpr);
+    var ratio = dpr;
+    if (maxSide != null) {
+      final side = boundary.size.longestSide;
+      if (side * ratio > maxSide && side > 0) ratio = maxSide / side;
+    }
+    return boundary.toImage(pixelRatio: ratio);
   }
 
   Future<void> _screenshotWebp() async {

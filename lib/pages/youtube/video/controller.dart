@@ -420,6 +420,8 @@ class YtVideoController extends GetxController
           pair.video != null,
       // no aid/bvid/cid: nothing here is reported to bilibili
       videoType: null,
+      // a reopen of this video (quality, failover, retry) keeps its picture
+      identity: 'yt:$videoId',
       onInit: () {
         _watchPlayback();
         stage.value = YtPageStage.ready;

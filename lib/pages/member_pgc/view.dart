@@ -2,8 +2,10 @@ import 'package:PiliPlus/common/widgets/video_card/portrait_card_frame.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
+import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/member_pgc/controller.dart';
 import 'package:PiliPlus/pages/member_pgc/widgets/pgc_card_v_member_pgc.dart';
 import 'package:get/get.dart';
@@ -58,8 +60,13 @@ class _MemberBangumiState extends State<MemberBangumi>
               top: Style.safeSpace,
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: Obx(
-              () => _buildBody(_controller.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(
+                  () => _buildBody(_controller.loadingState.value),
+                ),
+                LoadMoreFooter(controller: _controller),
+              ],
             ),
           ),
         ],
@@ -71,7 +78,9 @@ late final gridDelegate = PortraitCardFrame.gridDelegate(context);
 
   Widget _buildBody(LoadingState<List<SpaceArchiveItem>?> loadingState) {
     return switch (loadingState) {
-      Loading() => const SliverToBoxAdapter(),
+      // LibrePili: it was empty until the first page arrived; the same
+      // portrait cards' grid on the 索引 page loads like this (PgcIndexPage)
+      Loading() => linearLoading,
       Success(:final response) =>
         response != null && response.isNotEmpty
             ? SliverGrid.builder(

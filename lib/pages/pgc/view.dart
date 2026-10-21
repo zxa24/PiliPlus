@@ -14,6 +14,7 @@ import 'package:PiliPlus/models/common/home_tab_type.dart';
 import 'package:PiliPlus/models_new/fav/fav_pgc/list.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_index_result/list.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_timeline/result.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/pgc/controller.dart';
 import 'package:PiliPlus/pages/pgc/widgets/pgc_card_v.dart';
 import 'package:PiliPlus/pages/pgc/widgets/pgc_card_v_timeline.dart';
@@ -213,8 +214,13 @@ class _PgcPageState extends State<PgcPage> with AutomaticKeepAliveClientMixin {
         right: Style.safeSpace,
         bottom: 100,
       ),
-      sliver: Obx(
-        () => _buildRcmdBody(controller.loadingState.value),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          Obx(
+            () => _buildRcmdBody(controller.loadingState.value),
+          ),
+          LoadMoreFooter(controller: controller),
+        ],
       ),
     ),
   ];
@@ -310,7 +316,9 @@ class _PgcPageState extends State<PgcPage> with AutomaticKeepAliveClientMixin {
 
   Widget _buildRcmdBody(LoadingState<List<PgcIndexItem>?> loadingState) {
     return switch (loadingState) {
-      Loading() => const SliverToBoxAdapter(),
+      // LibrePili: it was empty until the first page arrived; the same
+      // grid on the 索引 page loads like this (PgcIndexPage)
+      Loading() => linearLoading,
       Success(:final response) =>
         response != null && response.isNotEmpty
             ? SliverGrid.builder(

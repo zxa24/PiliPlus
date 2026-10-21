@@ -3,6 +3,7 @@ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/fav/fav_detail/media.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/fav_detail/controller.dart';
 import 'package:PiliPlus/pages/fav_detail/widget/fav_video_card.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
@@ -104,6 +105,12 @@ class _FavSortPageState extends State<FavSortPage> with ReorderMixin {
           MediaQuery.viewPaddingOf(context).copyWith(top: 0) +
           const EdgeInsets.only(bottom: 100),
       itemCount: sortList.length,
+      // outside the reorderable items
+      footer: LoadMoreFooter.box(
+        controller: _favDetailController,
+        // the retried page has to land in sortList too
+        onRetry: () async => onLoadMore(),
+      ),
       itemBuilder: (context, index) {
         final item = sortList[index];
         return SizedBox(

@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/common/widgets/sliver/sliver_floating_header.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/space/space_audio/item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/member_audio/controller.dart';
 import 'package:PiliPlus/pages/member_audio/widgets/item.dart';
 import 'package:PiliPlus/utils/grid.dart';
@@ -52,8 +53,13 @@ class _MemberAudioState extends State<MemberAudio>
             padding: EdgeInsets.only(
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: Obx(
-              () => _buildBody(colorScheme, _controller.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(
+                  () => _buildBody(colorScheme, _controller.loadingState.value),
+                ),
+                LoadMoreFooter(controller: _controller),
+              ],
             ),
           ),
         ],

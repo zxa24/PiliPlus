@@ -4,6 +4,8 @@ import 'package:PiliPlus/http/dynamics.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamics_type.dart';
 import 'package:PiliPlus/models/dynamics/up.dart';
+import 'package:PiliPlus/pages/common/common_controller.dart'
+    show refreshWithIndicator;
 import 'package:PiliPlus/pages/common/common_data_controller.dart';
 import 'package:PiliPlus/pages/dynamics_tab/controller.dart';
 import 'package:PiliPlus/services/account_service.dart';
@@ -118,6 +120,15 @@ class DynamicsController
     scrollController.animToTop();
   }
 
+  // the indicator is the current tab's, and its pull runs [onRefresh]'s
+  // two halves too (DynamicsTabPage.onRefresh)
+  @override
+  Future<void> onRefreshShown() {
+    final ctr = controller;
+    if (ctr == null) return onRefresh();
+    return refreshWithIndicator(ctr.scrollController, onRefresh);
+  }
+
   @override
   void toTopOrRefresh() {
     final ctr = controller;
@@ -130,7 +141,7 @@ class DynamicsController
         EasyThrottle.throttle(
           'topOrRefresh',
           const Duration(milliseconds: 500),
-          onRefresh,
+          onRefreshShown,
         );
       } else {
         animateToTop();

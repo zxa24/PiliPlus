@@ -17,6 +17,7 @@ import 'package:PiliPlus/models/common/member/user_info_type.dart';
 import 'package:PiliPlus/models/member/info.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/models_new/video/video_detail/episode.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/fan/view.dart';
 import 'package:PiliPlus/pages/follow/view.dart';
 import 'package:PiliPlus/pages/member_video/widgets/video_card_h_member_video.dart';
@@ -137,8 +138,15 @@ class _HorizontalMemberPageState extends State<HorizontalMemberPage> {
                           bottom:
                               MediaQuery.viewPaddingOf(context).bottom + 100,
                         ),
-                        sliver: Obx(
-                          () => _buildVideoList(_controller.loadingState.value),
+                        sliver: SliverMainAxisGroup(
+                          slivers: [
+                            Obx(
+                              () => _buildVideoList(
+                                _controller.loadingState.value,
+                              ),
+                            ),
+                            LoadMoreFooter(controller: _controller),
+                          ],
                         ),
                       ),
                     ],

@@ -4,6 +4,7 @@ import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show SearchItem;
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/reply/reply_search_type.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/video/reply_search_item/child/controller.dart';
 import 'package:PiliPlus/pages/video/reply_search_item/child/widgets/item.dart';
 import 'package:PiliPlus/utils/grid.dart';
@@ -42,7 +43,12 @@ class _ReplySearchChildPageState extends State<ReplySearchChildPage>
               top: 7,
               bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
             ),
-            sliver: Obx(() => _buildBody(_controller.loadingState.value)),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(() => _buildBody(_controller.loadingState.value)),
+                LoadMoreFooter(controller: _controller),
+              ],
+            ),
           ),
         ],
       ),

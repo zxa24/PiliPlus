@@ -24,6 +24,7 @@ import 'package:PiliPlus/pages/setting/models/play_settings.dart'
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/dry_watch.dart';
+import 'package:PiliPlus/plugin/pl_player/picture_release.dart';
 import 'package:PiliPlus/plugin/pl_player/quality_advisor.dart';
 import 'package:PiliPlus/services/parallel_fetch.dart';
 import 'package:PiliPlus/services/piece_store.dart';
@@ -727,30 +728,79 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     VoidCallback? onInit,
     Volume? volume,
     bool autoFullScreenFlag = false,
+    // what the video is when it has no aid/bvid/cid (a YouTube video id, a
+    // live room): only to tell a reopen of it from another video
+    String? identity,
   }) async {
     // a newer open while this one awaits owns the player from then on: this
     // one stops at its next await, and leaves `_processing` to it
     final open = ++_openSeq;
     try {
       _processing = true;
+      // a local file is the file: every plain one has cid 0 and bvid '',
+      // and the next one looked like the same video (its picture held, the
+      // subtitle and a pending seek kept — review 2026-10-21)
+      identity ??= sourceIdentity(dataSource);
       // another video: its page says which subtitle it shows (a reopen of
       // the same one keeps it). Without ids (YouTube) the page sets it again
       // on every open.
-      if (cid == null || cid != this.cid || bvid != _bvid) _subtitle = null;
+      if (cid == null ||
+          cid != this.cid ||
+          bvid != _bvid ||
+          identity != _identity) {
+        _subtitle = null;
+      }
       // the same video opened again (another host, quality, a retry): its
-      // last picture stays up until the new streams show theirs
-      final sameVideo =
-          (cid != null || bvid != null) && cid == this.cid && bvid == _bvid;
-      if (!sameVideo) _dropPicture();
+      // last picture stays up until the new streams show theirs. YouTube
+      // and live by their [identity]: they have no cid or bvid, and every
+      // reopen there went black (audit 2026-10-21)
+      final sameVideo = isSameVideo(
+        cid: cid,
+        bvid: bvid,
+        identity: identity,
+        oldCid: this.cid,
+        oldBvid: _bvid,
+        oldIdentity: _identity,
+      );
+      if (!sameVideo) {
+        _dropPicture();
+        // nothing of it is up yet: the page's cover and the spinner are,
+        // from now until its first frame (audit 2026-10-21: black between)
+        firstFrameWait.value = !onlyPlayAudio.value;
+      }
       // a seek waiting for the video before was for it, not this one. Not
       // between two opens without ids (YouTube): a quality switch is one
-      if (cid != this.cid || bvid != _bvid) {
+      if (cid != this.cid || bvid != _bvid || identity != _identity) {
         _pendingSeek = null;
         _cancelSubForSeek();
       }
       _holdOnOpen = sameVideo;
+      _identity = identity;
+      // 重试 opens this again as it was asked for, where playback is then
+      _openAgain = ({required bool play}) => setDataSource(
+        dataSource,
+        isLive: isLive,
+        autoplay: play,
+        seekTo: isLive ? null : resumePosition,
+        speed: speed,
+        width: width,
+        height: height,
+        duration: duration,
+        isVertical: isVertical,
+        aid: aid,
+        bvid: bvid,
+        cid: cid,
+        epid: epid,
+        seasonId: seasonId,
+        pgcType: pgcType,
+        videoType: videoType,
+        onInit: onInit,
+        volume: volume,
+        identity: identity,
+      );
+      _openAutoplay = autoplay;
       // `vid` is an option as well: left off, the new file has no picture
-      _videoBack('a new source');
+      _videoBack('a new source', open: true);
       this.isLive = isLive;
       _videoType = videoType ?? VideoType.ugc;
       this.width = width;
@@ -776,6 +826,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _cutOnPlay = null;
       // a new source: whatever was waiting for the network was for the old
       _stopWaitingForNetwork();
+      _stopSeekWatch();
       // the source this was checking on is gone; the new one starts afresh
       _recoveryCheck?.cancel();
       _recoveryCheck = null;
@@ -848,7 +899,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (open != _openSeq) return;
       onInit?.call();
     } catch (err, stackTrace) {
-      if (open == _openSeq) dataStatus.value = DataStatus.error;
+      if (open == _openSeq) {
+        dataStatus.value = DataStatus.error;
+        firstFrameWait.value = false;
+      }
       if (kDebugMode) {
         debugPrint(stackTrace.toString());
         debugPrint('plPlayer err:  $err');
@@ -860,6 +914,56 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// Counts [setDataSource] calls (see there).
   int _openSeq = 0;
+
+  /// [setDataSource] calls so far: a page tells from it whether anything
+  /// was opened on the player since it last looked.
+  int get openCount => _openSeq;
+
+  /// The `identity` of the source last set (see [setDataSource]).
+  String? _identity;
+
+  /// The last [setDataSource] again, with its own arguments (see [retry]).
+  Future<void> Function({required bool play})? _openAgain;
+  bool _openAutoplay = true;
+
+  /// 重试: an open that failed ([dataStatus] error, shown with a button by
+  /// the player's view) opened again as it was asked for; a local file
+  /// opened again from the start of [setDataSource] — [refreshPlayer] leaves
+  /// those alone (the open used up its file descriptor); anything else as
+  /// [refreshPlayer] does.
+  Future<void>? retry() {
+    final again = _openAgain;
+    if (again != null && (dataStatus.error || dataSource is FileSource)) {
+      EventLog.add('player', 'retry: opening the source again');
+      return again(
+        play: dataStatus.error ? _openAutoplay : !playerStatus.isPaused,
+      );
+    }
+    return refreshPlayer();
+  }
+
+  /// The identity a source has of itself (see [setDataSource]): a local
+  /// file's path or document; none for a network stream, whose page says.
+  @visibleForTesting
+  static String? sourceIdentity(DataSource source) =>
+      source is FileSource ? 'file:${source.videoSource}' : null;
+
+  /// Whether a source opened with [cid], [bvid] and [identity] is the video
+  /// that had [oldCid], [oldBvid] and [oldIdentity]: its picture is held
+  /// over the open. Unknown with none of the three.
+  @visibleForTesting
+  static bool isSameVideo({
+    required int? cid,
+    required String? bvid,
+    required String? identity,
+    required int? oldCid,
+    required String? oldBvid,
+    required String? oldIdentity,
+  }) =>
+      (cid != null || bvid != null || identity != null) &&
+      cid == oldCid &&
+      bvid == oldBvid &&
+      identity == oldIdentity;
 
   String? shadersDirPath;
   Future<String> get copyShadersToExternalDirectory async {
@@ -1268,6 +1372,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         return;
       }
     }
+    // no picture to hold (none taken, or another video): the cover waits
+    // over the open instead of a black area
+    if (heldPicture.value == null && !onlyPlayAudio.value) {
+      firstFrameWait.value = true;
+    }
     // the 设置代理 setting, per file: not for one read from the app's own
     // loopback servers (see AppProxy.mpvFor)
     extras['http-proxy'] = AppProxy.mpvFor(video);
@@ -1293,8 +1402,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (fd != null) await LocalDocuments.closeFd(fd);
       rethrow;
     }
-    _releasePictureWhenShown(player);
     _watchLoad(player);
+    _releasePictureWhenShown(player, load: _loadSeq);
   }
 
   Future<void>? refreshPlayer() {
@@ -1311,13 +1420,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // 2026-10-17 self-test)
       final play = !playerStatus.isPaused;
       return _holdPicture(ctr).then((_) {
+        if (heldPicture.value == null && !onlyPlayAudio.value) {
+          firstFrameWait.value = true;
+        }
         _reopening = true;
         _openStartedAt = DateTime.now();
         return ctr
             .open(media, play: play)
             .then((_) {
-              _releasePictureWhenShown(ctr);
               _watchLoad(ctr);
+              _releasePictureWhenShown(ctr, load: _loadSeq);
             })
             .catchError((Object _) {
               _reopening = false;
@@ -1626,8 +1738,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (buffering) _waitShown = false;
         _logBuffering(buffering);
         // a replacement in place holds the last frame rather than showing
-        // the loading spinner over it (see [_replaceCutStreams])
+        // the loading spinner over it (see [_replaceCutStreams]) — until the
+        // playhead has stood for a moment: then the viewer is waiting on a
+        // still picture, and is told so (audit 2026-10-21)
         isBuffering.value = buffering && !_replacing;
+        _replaceWait?.cancel();
+        _replaceWait = null;
+        if (buffering && _replacing) _armReplaceWait(player);
         if (buffering) _stopWakeLockTimer();
         final playerStatus = this.playerStatus.value;
         // a pause followed by buffering cancelled the pause's release, and
@@ -1863,6 +1980,24 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// Whether the source being set up is the video already shown.
   var _holdOnOpen = false;
 
+  /// An open with no picture held over it (another video, an episode, the
+  /// first open, video back after 听视频) whose first frame is not up yet:
+  /// the page shows the cover and the spinner over the black area until it
+  /// is (see [_releasePictureWhenShown]).
+  final firstFrameWait = false.obs;
+
+  /// 听视频 off again: the cover and the spinner stay up until a frame of
+  /// the video is. [reopening]: the video is opened again (the page's
+  /// player init), whose open watches for the frame; otherwise `vid` came
+  /// back on in the file playing.
+  void waitForVideoBack({required bool reopening}) {
+    final player = _videoPlayerController;
+    _dropPicture();
+    if (player == null || onlyPlayAudio.value) return;
+    firstFrameWait.value = true;
+    if (!reopening) _releasePictureWhenShown(player);
+  }
+
   /// Self-test (`--no-hold`): no picture held, the control for the probe.
   static bool debugNoHeldPicture = false;
 
@@ -1876,8 +2011,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// The video's area as the page draws it, set by the player's view:
   /// what [heldPicture] takes. Not mpv's screenshot: with the decoder in
-  /// hardware (d3d11va) it gave no frame at all (2026-10-17).
-  Future<ui.Image?> Function()? captureVideo;
+  /// hardware (d3d11va) it gave no frame at all (2026-10-17). [maxSide]:
+  /// the longest side in physical pixels it may have, smaller kept as is.
+  Future<ui.Image?> Function({double? maxSide})? captureVideo;
 
   Timer? _pictureWatch;
 
@@ -1887,7 +2023,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// meanwhile, the frame is not held (another video's open dropped the
   /// picture already, and this one stayed over it).
   Future<void> _holdPicture(Player player, {int? open}) async {
-    if (debugNoHeldPicture || player.disposed || onlyPlayAudio.value) return;
+    // no frame of it up yet: what would be taken is the cover over it
+    if (debugNoHeldPicture ||
+        player.disposed ||
+        onlyPlayAudio.value ||
+        firstFrameWait.value) {
+      return;
+    }
     final rect = _videoController?.rect.value;
     final capture = captureVideo;
     if (capture == null ||
@@ -1923,17 +2065,28 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
-  /// Lets [heldPicture] go once [player] shows a frame of what it opened:
-  /// it has a size again and mpv says which frame is up. [opened]: the
-  /// frame info of the file before can still read for a moment, so a gap
-  /// in it is waited for first (or 2 s of it reading).
-  void _releasePictureWhenShown(Player player, {bool opened = true}) {
+  /// Lets [heldPicture] go once [player] shows a frame of what it opened
+  /// (see [PictureReleaseWatch] for the signals, and the deadline that lets
+  /// it go whatever they say). [opened]: the frame info of the file before
+  /// can still read for a moment, so a gap in it is waited for first (or
+  /// 2 s of it reading). [load]: the open's [_watchLoad]: the signals of the
+  /// new file count once it is the one loaded, not the file before's.
+  void _releasePictureWhenShown(
+    Player player, {
+    bool opened = true,
+    int? load,
+  }) {
     _pictureWatch?.cancel();
     _pictureWatch = null;
-    if (heldPicture.value == null) return;
+    final held = heldPicture.value != null;
+    if (!held && !firstFrameWait.value) return;
     final started = DateTime.now();
-    var gap = !opened;
-    DateTime? shownAt;
+    final watch = PictureReleaseWatch(opened: opened, start: started);
+    // the open's own playlist entry: media_kit's open clears mpv's playlist
+    // and appends the one file, so entry 0 is it, with an id mpv gives no
+    // other entry. Empty where mpv has no entry ids: then the load watch's
+    // readable `time-pos` stands for it, as before
+    final entry = load == null ? '' : _readOf(player, 'playlist/0/id');
     _pictureWatch = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       // sound only: no frame will come
       if (onlyPlayAudio.value) {
@@ -1947,47 +2100,83 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         return;
       }
       final rect = _videoController?.rect.value;
-      bool frame;
-      try {
-        frame = player.getProperty('video-frame-info/picture-type').isNotEmpty;
-      } catch (_) {
-        frame = false;
+      // the picture type alone was never there on the phone (see
+      // [PictureReleaseWatch]); `interlaced` is said of every frame up
+      final pictureType = _readOf(player, 'video-frame-info/picture-type');
+      final interlaced = _readOf(player, 'video-frame-info/interlaced');
+      // an open's restart only: `seeking` reads no all along otherwise
+      final seeking = load == null ? '' : _readOf(player, 'seeking');
+      // not mid-restart: the frame up then can be the one before it
+      final frame =
+          (pictureType.isNotEmpty || interlaced.isNotEmpty) && seeking != 'yes';
+      final decoded = _readOf(player, 'video-params/w').isNotEmpty;
+      final bool loaded;
+      if (load == null) {
+        loaded = true;
+      } else if (entry.isNotEmpty) {
+        // mpv plays this open's entry, and its playhead reads: the file
+        // before is gone (a readable `time-pos` alone could be its)
+        loaded =
+            _readOf(player, 'playlist/0/playing') == 'yes' &&
+            _readOf(player, 'playlist/0/id') == entry &&
+            _readOf(player, 'time-pos').isNotEmpty;
+      } else {
+        loaded = _loadedSeq >= load;
       }
-      final shown =
-          frame &&
-          player.state.width > 0 &&
-          player.state.height > 0 &&
+      final width = player.state.width, height = player.state.height;
+      // the texture at the new size: a quality switch let go while it was
+      // still the old one's (1920x804 for 1280x536) showed a black frame as
+      // it changed (Windows self-test 2026-10-21)
+      final sized =
+          width > 0 &&
+          height > 0 &&
           rect != null &&
-          rect.width > 1;
-      if (!shown) {
-        gap = true;
-        shownAt = null;
-        return;
-      }
-      if (!gap &&
-          DateTime.now().difference(started) < const Duration(seconds: 2)) {
-        return;
-      }
-      // a frame or two more: the texture takes the frame mpv says is up
-      shownAt ??= DateTime.now();
-      if (DateTime.now().difference(shownAt!) <
-          const Duration(milliseconds: 100)) {
-        return;
-      }
+          rect.width > 1 &&
+          rect.height > 1 &&
+          (rect.width - width).abs() <= 1 &&
+          (rect.height - height).abs() <= 1;
+      final now = DateTime.now();
+      final why = watch.tick(
+        now: now,
+        frame: frame,
+        sized: sized,
+        decoded: decoded,
+        position: player.state.position.inMilliseconds / 1000,
+        loaded: loaded,
+        playing: player.state.playing,
+      );
+      if (why == null) return;
       timer.cancel();
       _pictureWatch = null;
+      // what each signal read, for the self-test's log: which of them a
+      // case lacks (the frame info while paused, 2026-10-21)
       EventLog.add(
         'player',
-        'picture let go after '
-            '${DateTime.now().difference(started).inMilliseconds} ms',
+        '${held ? 'picture let go' : 'first frame up'} after '
+            '${now.difference(started).inMilliseconds} ms: ${why.label} '
+            '(picture-type "$pictureType", interlaced "$interlaced", '
+            'decoded $decoded, size ${player.state.width}x'
+            '${player.state.height}, area ${rect?.width.round()}x'
+            '${rect?.height.round()}, loaded $loaded, seeking "$seeking", '
+            'playing ${player.state.playing})',
       );
       _dropPicture();
     });
   }
 
+  /// [name] of [player], empty when mpv has none (or the player went).
+  static String _readOf(Player player, String name) {
+    try {
+      return player.getProperty(name);
+    } catch (_) {
+      return '';
+    }
+  }
+
   void _dropPicture() {
     _pictureWatch?.cancel();
     _pictureWatch = null;
+    firstFrameWait.value = false;
     final held = heldPicture.value;
     if (held == null) return;
     heldPicture.value = null;
@@ -2490,6 +2679,28 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   bool get _replacing =>
       _replacingFor != null && identical(_replacingFor, dataSource);
 
+  /// Shows the wait a replacement held back (see the buffering listener)
+  /// once the playhead has stood still for [_replaceWaitAfter].
+  Timer? _replaceWait;
+  static const _replaceWaitAfter = Duration(milliseconds: 800);
+
+  void _armReplaceWait(NativePlayer player) {
+    final at = player.state.position;
+    _replaceWait = Timer(_replaceWaitAfter, () {
+      _replaceWait = null;
+      if (!identical(player, _videoPlayerController) ||
+          player.disposed ||
+          !_replacing ||
+          !player.state.buffering ||
+          player.state.position != at ||
+          isBuffering.value) {
+        return;
+      }
+      EventLog.add('player', 'replacing streams: waiting shown');
+      isBuffering.value = true;
+    });
+  }
+
   /// For the self-test's control (`--no-recovery`): playback as it was
   /// before any recovery. Nothing else sets it.
   static bool debugDisableRecovery = false;
@@ -2842,10 +3053,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // [old], and [next] came up paused (audit 2026-10-19)
       unawaited(next.play());
     }
-    // the stall this was for ends with the old player
+    // the stall this was for ends with the old player; the new one's is
+    // what it says (it was forced off here, and a new player still filling
+    // showed a still picture with no spinner, audit 2026-10-21)
     _logBuffering(false);
     _transportFailures = 0;
-    isBuffering.value = false;
+    _replaceWait?.cancel();
+    _replaceWait = null;
+    final nextBuffering = next.state.buffering;
+    isBuffering.value = nextBuffering;
+    if (nextBuffering) _logBuffering(true);
     // the buffer read from here on is the new player's, filling from little
     _health.clear();
     _healthRest = max(_healthRest, _afterSeekRest);
@@ -3316,8 +3533,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   void _hideWait() {
     if (!_waitShown) return;
     _waitShown = false;
-    isBuffering.value =
-        !_replacing && (_videoPlayerController?.state.buffering ?? false);
+    final player = _videoPlayerController;
+    final buffering = player?.state.buffering ?? false;
+    isBuffering.value = !_replacing && buffering;
+    // held back while replacing: shown if the playhead stands (see
+    // [_armReplaceWait])
+    if (_replacing &&
+        buffering &&
+        player is NativePlayer &&
+        _replaceWait == null) {
+      _armReplaceWait(player);
+    }
   }
 
   /// Catches a stream that stopped arriving while playback goes on without
@@ -3530,6 +3756,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _loadWatch = null;
     _dryWatch?.cancel();
     _dryWatch = null;
+    _replaceWait?.cancel();
+    _replaceWait = null;
     // whoever listens next sets isBuffering from mpv again
     _waitShown = false;
     _subscriptions?.forEach((e) => e.cancel());
@@ -3585,6 +3813,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _resetDanmaku(to: position);
       try {
         await _videoPlayerController?.seek(position);
+        _watchSeek();
       } catch (e) {
         if (kDebugMode) debugPrint('seek failed: $e');
       }
@@ -3600,6 +3829,49 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         _cancelSubForSeek();
       });
     }
+  }
+
+  /// A seek mpv has been at for [_seekShownAfter] and not done: the page
+  /// shows it is loading, paused as well as playing (a paused seek showed
+  /// nothing until the picture changed, audit 2026-10-21).
+  final seekWaiting = false.obs;
+  Timer? _seekWatch;
+  static const _seekShownAfter = Duration(milliseconds: 250);
+
+  /// Follows mpv's `seeking` after a seek was sent, for [seekWaiting].
+  void _watchSeek() {
+    _seekWatch?.cancel();
+    final player = _videoPlayerController;
+    if (player is! NativePlayer) return;
+    final started = DateTime.now();
+    var seen = false;
+    _seekWatch = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      bool seeking;
+      try {
+        seeking =
+            identical(player, _videoPlayerController) &&
+            !player.disposed &&
+            player.getProperty('seeking') == 'yes';
+      } catch (_) {
+        seeking = false;
+      }
+      if (seeking) seen = true;
+      final waited = DateTime.now().difference(started);
+      // done, never begun, or given up on (the buffering spinner and the
+      // recovery have it from there)
+      if ((!seeking && (seen || waited > const Duration(seconds: 1))) ||
+          waited > const Duration(minutes: 1)) {
+        _stopSeekWatch();
+        return;
+      }
+      if (seeking && waited >= _seekShownAfter) seekWaiting.value = true;
+    });
+  }
+
+  void _stopSeekWatch() {
+    _seekWatch?.cancel();
+    _seekWatch = null;
+    seekWaiting.value = false;
   }
 
   /// Where playback is, for opening again: mpv's own position reads 0 while
@@ -3659,8 +3931,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// is closing, or moving to another part.
   void dropPendingSeek() => _pendingSeek = null;
 
+  /// Counts [_watchLoad]s, and the last one that saw its file in: a held
+  /// picture's playhead and deadlines count only from there (see
+  /// [_releasePictureWhenShown]).
+  int _loadSeq = 0;
+  int _loadedSeq = 0;
+
   void _watchLoad(NativePlayer player) {
     _loadWatch?.cancel();
+    final load = ++_loadSeq;
     final started = DateTime.now();
     _loadWatch = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       bool ready;
@@ -3679,6 +3958,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       timer.cancel();
       _loadWatch = null;
       _reopening = false;
+      if (ready) _loadedSeq = load;
       final pending = _pendingSeek;
       _pendingSeek = null;
       if (pending != null && ready) seekTo(pending, isSeek: false);
@@ -3813,11 +4093,41 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } catch (_) {
       return;
     }
+    // taken before the awaits below: a wake during them is seen after each
+    // (it was lost, and the decoder let go of with the window awake —
+    // review 2026-10-21). Only a call no wake has come since lets the
+    // decoder go, and it does so with no await between the check and
+    // `vid=no`: every wake after that finds it off and turns it back on
+    final wakes = _wakeSeq;
+    final sleep = ++_sleepSeq;
+    bool woken() => _wakeSeq != wakes;
+    bool superseded() => sleep != _sleepSeq;
     final wasPlaying = playerStatus.isPlaying;
     if (wasPlaying) await pause();
+    if (woken() || superseded()) return;
+    // the last picture stays up over the decoder let go of, until it is
+    // back and shows a frame (see [_videoBack]): the area went black while
+    // asleep and on waking (audit 2026-10-21)
+    await _holdPicture(player);
+    if (woken()) {
+      // nothing let go of: the picture goes, unless a sleep call begun
+      // since holds it for itself
+      if (!superseded()) _dropPicture();
+      return;
+    }
+    // a sleep call begun since goes on itself
+    if (superseded()) return;
+    // another call let the decoder go meanwhile (its picture is the same)
+    if (_vidBeforeSleep != null) return;
+    // handed over meanwhile: the new player's frames are up
+    if (!identical(player, _videoPlayerController)) {
+      _dropPicture();
+      return;
+    }
     try {
       player.setProperty('vid', 'no');
     } catch (_) {
+      _dropPicture();
       return;
     }
     _vidBeforeSleep = vid;
@@ -3829,13 +4139,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// Windows: awake, or the display on again (see [beforeSleep]). The
   /// picture comes back where it was, still paused.
-  void afterSleep(String why) => _videoBack(why);
+  void afterSleep(String why) {
+    _wakeSeq++;
+    _videoBack(why);
+  }
+
+  /// Counts [afterSleep]s and [beforeSleep]s: a sleep call tells from them
+  /// whether it was woken, or followed by another, during its awaits.
+  var _wakeSeq = 0;
+  var _sleepSeq = 0;
 
   /// `options/vid` before [beforeSleep] switched the video off; null with
   /// it on.
   String? _vidBeforeSleep;
 
-  void _videoBack(String why) {
+  /// [open]: a source is being opened, which holds and lets go of the
+  /// picture its own way.
+  void _videoBack(String why, {bool open = false}) {
     final vid = _vidBeforeSleep;
     if (vid == null) return;
     _vidBeforeSleep = null;
@@ -3844,9 +4164,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     try {
       player.setProperty('vid', vid);
     } catch (_) {
+      _dropPicture();
       return;
     }
     EventLog.add('player', '$why: video decoder back');
+    // the picture held over the sleep goes once a frame is up again
+    if (!open) _releasePictureWhenShown(player);
   }
 
   /// When playback was paused, by whatever means; null while playing.
@@ -4654,6 +4977,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _failureCheck = null;
     _dropPicture();
     _stopWaitingForNetwork();
+    _stopSeekWatch();
     if (removeSafeArea) {
       showSystemBar();
     }

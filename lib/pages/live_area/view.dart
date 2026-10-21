@@ -77,7 +77,8 @@ class _LiveAreaPageState extends State<LiveAreaPage> {
     LoadingState<List<AreaList>?> loadingState,
   ) {
     return switch (loadingState) {
-      Loading() => const SizedBox.shrink(),
+      // LibrePili: it was an empty page until the areas arrived
+      Loading() => m3eLoading,
       Success(:final response) =>
         response != null && response.isNotEmpty
             ? Column(

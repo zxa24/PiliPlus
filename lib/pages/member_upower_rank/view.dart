@@ -9,6 +9,7 @@ import 'package:PiliPlus/common/widgets/scroll_physics.dart' show tabBarView;
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/models_new/upower_rank/rank_info.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/member_upower_rank/controller.dart';
 import 'package:PiliPlus/utils/extension/widget_ext.dart';
 import 'package:get/get.dart';
@@ -79,8 +80,13 @@ class _UpowerRankPageState extends State<UpowerRankPage>
         slivers: [
           SliverPadding(
             padding: EdgeInsets.only(bottom: padding.bottom + 100),
-            sliver: Obx(
-              () => _buildBody(theme, _controller.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(
+                  () => _buildBody(theme, _controller.loadingState.value),
+                ),
+                LoadMoreFooter(controller: _controller),
+              ],
             ),
           ),
         ],

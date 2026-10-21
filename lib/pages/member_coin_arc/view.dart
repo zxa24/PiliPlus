@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/member/coin_like_arc/item.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/member_coin_arc/controller.dart';
 import 'package:PiliPlus/pages/member_coin_arc/widgets/item.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -62,7 +63,12 @@ class _MemberCoinArcPageState extends State<MemberCoinArcPage> {
                 right: Style.safeSpace + padding.right,
                 bottom: padding.bottom + 100,
               ),
-              sliver: Obx(() => _buildBody(_ctr.loadingState.value)),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  Obx(() => _buildBody(_ctr.loadingState.value)),
+                  LoadMoreFooter(controller: _ctr),
+                ],
+              ),
             ),
           ],
         ),

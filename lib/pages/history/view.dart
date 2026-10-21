@@ -10,6 +10,7 @@ import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show tabBarScrollPhysics;
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/history/list.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/history/base_controller.dart';
 import 'package:PiliPlus/pages/history/controller.dart';
 import 'package:PiliPlus/pages/history/widgets/item.dart';
@@ -77,8 +78,13 @@ class _HistoryPageState extends State<HistoryPage>
               top: 7,
               bottom: padding.bottom + 100,
             ),
-            sliver: Obx(
-              () => _buildBody(_historyController.loadingState.value),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                Obx(
+                  () => _buildBody(_historyController.loadingState.value),
+                ),
+                LoadMoreFooter(controller: _historyController),
+              ],
             ),
           ),
         ],

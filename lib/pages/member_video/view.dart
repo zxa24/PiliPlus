@@ -8,6 +8,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/pages/common/fab_mixin.dart';
+import 'package:PiliPlus/pages/common/load_more_footer.dart';
 import 'package:PiliPlus/pages/member/controller.dart';
 import 'package:PiliPlus/pages/member_video/controller.dart';
 import 'package:PiliPlus/pages/member_video/widgets/video_card_h_member_video.dart';
@@ -142,8 +143,13 @@ class _MemberVideoState extends State<MemberVideo>
       slivers: [
         SliverPadding(
           padding: EdgeInsets.only(bottom: padding.bottom + 100),
-          sliver: Obx(
-            () => _buildBody(theme, _controller.loadingState.value),
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              Obx(
+                () => _buildBody(theme, _controller.loadingState.value),
+              ),
+              LoadMoreFooter(controller: _controller),
+            ],
           ),
         ),
       ],

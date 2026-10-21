@@ -5,6 +5,7 @@ import 'dart:io'
 import 'dart:math' show min;
 import 'dart:typed_data' show Uint8List;
 import 'dart:ui';
+import 'dart:ui' as ui show Image;
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/models/common/subtitle_source.dart';
@@ -57,6 +58,7 @@ import 'package:PiliPlus/pages/video/send_danmaku/view.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/asr/asr_cue.dart';
@@ -151,6 +153,84 @@ class VideoDetailController extends GetxController
   // 请求返回的视频信息
   late PlayUrlModel data;
   final RxBool videoState = false.obs;
+
+  /// LibrePili: an episode or part on its way, from the tap until its
+  /// source is handed to the player (which then waits for its first frame
+  /// itself, see PlPlayerController.firstFrameWait): the cover and the
+  /// spinner show over the paused frame of the one before, which had
+  /// neither (audit 2026-10-21).
+  final switching = false.obs;
+
+  /// Counts [beginSwitch]es (see [queryVideoUrl]).
+  int _switchSeq = 0;
+
+  /// An episode or part switch begins: see [switching].
+  void beginSwitch() {
+    _switchSeq++;
+    switching.value = true;
+  }
+
+  /// 重试 in the stand-in: the play URL asked for again when there is none
+  /// (a local file has its own), else the player opened again.
+  Future<void>? retryPlayer() {
+    if (!isFileSource && videoUrl == null) return queryVideoUrl();
+    return playerInit();
+  }
+
+  /// What the player showed for this page as another was pushed over it
+  /// (see the page's didPushNext): shown with the spinner while the player
+  /// is opened again for this page at the return, when another page took
+  /// it meanwhile, until a frame of this page's video is up.
+  final pictureAtPush = Rxn<ui.Image>();
+  Worker? _pictureAtPushWorker;
+
+  void setPictureAtPush(ui.Image? image) {
+    final old = pictureAtPush.value;
+    if (identical(old, image)) return;
+    pictureAtPush.value = image;
+    // drawn this frame still: disposed after it
+    if (old != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    }
+    if (image != null) {
+      _pictureAtPushWorker ??= ever<bool>(plPlayerController.firstFrameWait, (
+        waiting,
+      ) {
+        if (!waiting && videoState.value && _ownsPlayer) {
+          setPictureAtPush(null);
+        }
+      });
+    }
+  }
+
+  /// Back on top (the page's didPopNext) with the player still on this
+  /// page's source: nothing is opened again (it was, every time, with a
+  /// black area over the reopen); the page's hooks are its own again and
+  /// playback goes on as it was. False when another page took the player.
+  bool resumeOwnPlayer({required bool play}) {
+    if (!_ownsPlayer) return false;
+    setPictureAtPush(null);
+    _claimPlayerHooks();
+    if (plPlayerController.enableBlock) initSkip();
+    if (play) plPlayerController.play();
+    return true;
+  }
+
+  /// The player's hooks, this page's (see [playerInit]).
+  void _claimPlayerHooks() {
+    // the player is shared: a page opened over this one and closed again
+    // took these with it
+    plPlayerController
+      ..onCdnFailover = switchToNextCdn
+      ..onStreamCut = replaceCutStreams
+      ..onHostRefused = _hostRefused
+      ..onStreamSlow = replaceSlowStreams
+      ..onStreamRoomy = raiseQuality
+      ..onStepUpDropped = _dropStepUp
+      ..onReopen = _reopenAtCurrentPosition
+      ..onSourceExpired = _renewPlayUrl
+      ..streamBitrate = _streamBitrate;
+  }
 
   /// 播放器配置 画质 音质 解码格式
   final Rxn<VideoQuality> currentVideoQa = Rxn<VideoQuality>();
@@ -1736,6 +1816,8 @@ class VideoDetailController extends GetxController
         autoFullScreenFlag: autoFullScreenFlag && _autoPlay.value,
       );
     }
+    // not played: the cover and the play button are up instead
+    switching.value = false;
     return null;
   }
 
@@ -1770,19 +1852,11 @@ class VideoDetailController extends GetxController
             audioSource: audioUrl,
           );
     _ownSource = source;
-    // the player is shared: a page opened over this one and closed again
-    // took these with it
-    plPlayerController
-      ..onCdnFailover = switchToNextCdn
-      ..onStreamCut = replaceCutStreams
-      ..onHostRefused = _hostRefused
-      ..onStreamSlow = replaceSlowStreams
-      ..onStreamRoomy = raiseQuality
-      ..onStepUpDropped = _dropStepUp
-      ..onReopen = _reopenAtCurrentPosition
-      ..onSourceExpired = _renewPlayUrl
-      ..streamBitrate = _streamBitrate;
+    _claimPlayerHooks();
     _loadingSource = true;
+    // the player's own wait for the first frame takes over from here, in
+    // the same frame (setDataSource sets it before its first await)
+    switching.value = false;
     await plPlayerController.setDataSource(
       source,
       seekTo: seek,
@@ -1801,6 +1875,9 @@ class VideoDetailController extends GetxController
       onInit: () {
         _watchPlayback();
         videoState.value = true;
+        // a picture held over the open by the player itself (the same
+        // video) needs none of the page's
+        if (!plPlayerController.firstFrameWait.value) setPictureAtPush(null);
         _applySubtitle(vttSubtitlesIndex.value, again: true);
       },
       width: firstVideo.width,
@@ -2067,18 +2144,53 @@ class VideoDetailController extends GetxController
       return;
     }
     isQuerying = true;
+    final done = _queryDone = Completer<void>();
+    var switchAt = _switchSeq;
+    // the first failure, thrown once the queue is through: a query that
+    // threw dropped the one queued behind it — an episode picked meanwhile
+    // went unasked for, its cover and spinner up for good (review
+    // 2026-10-21)
+    Object? failure;
+    StackTrace? failureTrace;
     try {
-      await _queryVideoUrl(fromReset, autoFullScreenFlag);
-      while (_pendingQuery != null) {
-        final pending = _pendingQuery!;
+      (bool, bool)? next = (fromReset, autoFullScreenFlag);
+      while (next != null) {
+        switchAt = _switchSeq;
+        try {
+          await _queryVideoUrl(next.$1, next.$2);
+        } catch (e, st) {
+          failure ??= e;
+          failureTrace ??= st;
+        }
+        next = _pendingQuery;
         _pendingQuery = null;
-        await _queryVideoUrl(pending.$1, pending.$2);
       }
     } finally {
       _pendingQuery = null;
       isQuerying = false;
+      if (identical(_queryDone, done)) _queryDone = null;
+      done.complete();
+      // a query that threw (or ended without the player init that clears
+      // it) left the cover and spinner up for good: the switch it served
+      // is over. Not one begun since, whose own query is still to come
+      // (review 2026-10-21)
+      if (switching.value && switchAt == _switchSeq) switching.value = false;
     }
+    // (`Error` here is LoadingState's)
+    if (failure != null) return Future<void>.error(failure, failureTrace);
   }
+
+  Completer<void>? _queryDone;
+
+  /// Completes when the play URL being asked for is in (or not); null when
+  /// none is. A tap on the cover meanwhile waits for it (see the page's
+  /// handlePlay).
+  Future<void>? get queryDone => _queryDone?.future;
+
+  /// A tap on the cover (autoplay off) came while the play URL was being
+  /// asked for: played once it is in, the cover showing the spinner until
+  /// then. It was dropped without a word (audit 2026-10-21).
+  final playAfterQuery = false.obs;
 
   /// A [queryVideoUrl] call that arrived while one was in flight.
   (bool, bool)? _pendingQuery;
@@ -2198,6 +2310,7 @@ class VideoDetailController extends GetxController
           SmartDialog.showToast('视频资源不存在');
           _autoPlay.value = false;
           videoState.value = false;
+          switching.value = false;
           if (plPlayerController.isFullScreen.value) {
             plPlayerController.triggerFullScreen(status: false);
           }
@@ -2276,6 +2389,7 @@ class VideoDetailController extends GetxController
     } else {
       _autoPlay.value = false;
       videoState.value = false;
+      switching.value = false;
       if (plPlayerController.isFullScreen.value) {
         plPlayerController.triggerFullScreen(status: false);
       }
@@ -2937,7 +3051,29 @@ class VideoDetailController extends GetxController
   /// playback goes on at the return, like one released with the app away.
   void setCovered(bool covered) {
     _covered = covered;
+    if (covered) {
+      _takenWorker ??= ever<DataStatus>(
+        plPlayerController.dataStatus,
+        (_) => _whenTaken(),
+      );
+    }
     if (!covered) _resumeHeldPlayback();
+  }
+
+  /// Follows the player while another page is over this one: see
+  /// [_whenTaken].
+  Worker? _takenWorker;
+
+  /// The page over this one opened a source of its own on the player: this
+  /// page's view of it goes (it would show that page's video, and two views
+  /// of one player have been one too many since upstream), and the return
+  /// opens this page's again over the picture taken at the push. While the
+  /// player stays this page's, its view stays up, through the push as well:
+  /// it went black at every push (audit 2026-10-21).
+  void _whenTaken() {
+    if (_covered && videoState.value && !_ownsPlayer) {
+      videoState.value = false;
+    }
   }
 
   /// Lets held-back playback go on, once the gate is down and the player has
@@ -3929,6 +4065,11 @@ class VideoDetailController extends GetxController
     vttSubtitles.clear();
     // the gate coming down on the way out must not start the player again
     _releaseHold();
+    _pictureAtPushWorker?.dispose();
+    _pictureAtPushWorker = null;
+    _takenWorker?.dispose();
+    _takenWorker = null;
+    setPictureAtPush(null);
     stopAsr(leaving: true);
     if (plPlayerController.onCdnFailover == switchToNextCdn) {
       plPlayerController.onCdnFailover = null;
@@ -4013,6 +4154,7 @@ class VideoDetailController extends GetxController
     _stopWatchingPlayback();
     _shownAt = null;
     _playbackUnderway = false;
+    setPictureAtPush(null);
 
     if (!isFileSource) {
       // language
