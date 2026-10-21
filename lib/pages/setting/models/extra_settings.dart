@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io' show Platform, Directory;
 import 'dart:math' show max;
 
@@ -13,6 +14,7 @@ import 'package:PiliPlus/common/widgets/image_grid/image_grid_view.dart'
     show ImageGridView, ImageModel;
 import 'package:PiliPlus/common/widgets/pendant_avatar.dart';
 import 'package:PiliPlus/grpc/reply.dart';
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -290,7 +292,7 @@ List<SettingsModel> get extraSettings => [
     title: '使用外部浏览器打开链接',
     leading: Icon(Icons.open_in_browser),
     setKey: SettingBoxKey.openInBrowser,
-    defaultVal: false,
+    defaultVal: true,
   ),
   NormalModel(
     title: '横向滑动阈值',
@@ -691,7 +693,7 @@ List<SettingsModel> get extraSettings => [
   const SplitModel(
     normalModel: NormalModel.split(
       title: '设置代理',
-      subtitle: '应用的所有连接（含播放器、下载、YouTube）都经过此代理 host:port；应用内打开的网页（WebView）除外',
+      subtitle: '应用的所有连接（含播放器、下载、YouTube 和应用内打开的网页）都经过此代理 host:port',
       leading: Icon(Icons.airplane_ticket_outlined),
     ),
     switchModel: SwitchModel.split(
@@ -708,17 +710,15 @@ List<SettingsModel> get extraSettings => [
     leading: const Icon(Icons.delete_outlined),
     onTap: _showCacheDialog,
   ),
-  SwitchModel(
+  const SwitchModel(
     title: '检查更新',
-    subtitle: '每次启动时检查是否需要更新',
-    leading: const Icon(Icons.system_update_alt),
+    subtitle: '每次启动时检查是否需要更新，新版本在后台下载，下次启动时更新',
+    leading: Icon(Icons.system_update_alt),
     setKey: SettingBoxKey.autoUpdate,
-    defaultVal: true,
-    onChanged: (val) {
-      if (val) {
-        Update.checkUpdate(false);
-      }
-    },
+    // unset until the first launch's question is answered: shown off, as
+    // nothing is checked till then (Pref.autoUpdate)
+    defaultVal: false,
+    onChanged: Update.onAutoChanged,
   ),
 ];
 
@@ -1195,8 +1195,18 @@ Future<void> _showMemberTabDialog(
   }
 }
 
-/// The bilibili pools take the proxy when they are built: built again.
-void _proxyChanged(_) => Request.onProxyChanged();
+/// The bilibili pools take the proxy when they are built: built again. The
+/// in-app web pages take it as their platform allows (AppProxy): Android at
+/// once, Windows' WebView2 only when the app starts again.
+void _proxyChanged(_) => _applyProxy();
+
+void _applyProxy() {
+  Request.onProxyChanged();
+  unawaited(AppProxy.applyToWebViews());
+  if (Platform.isWindows) {
+    SmartDialog.showToast('应用内打开的网页重启应用后才使用新的代理设置');
+  }
+}
 
 void _showProxyDialog(BuildContext context) {
   String systemProxyHost = Pref.systemProxyHost;
@@ -1235,7 +1245,7 @@ void _showProxyDialog(BuildContext context) {
           ),
           const SizedBox(height: 10),
           const Text(
-            '应用的所有连接都经过此代理：B站、YouTube 与 Invidious、下载、模型下载、WebDAV、图片和播放器本身；只有本机回环地址（127.0.0.1）直连；应用内打开的网页（WebView）不经过它。使用代理时仍会校验 HTTPS 证书；若代理需要替换证书（如抓包工具），须另行开启「禁用 SSL 证书验证」，此时经过代理的登录凭据可被截获',
+            '应用的所有连接都经过此代理：B站、YouTube 与 Invidious、下载、模型下载、WebDAV、图片、播放器本身和应用内打开的网页（含登录验证码）；本机回环地址（127.0.0.1）直连，但 Linux 上应用内打开的网页例外（其 WebKit 无法设置不走代理的地址，回环地址也经过代理）。Windows 上改动后，应用内网页要重启应用才使用新设置；网页无法经过代理时（iOS、macOS、不支持代理的 Android WebView，或 Windows 改动后、重启前）改用外部浏览器打开。使用代理时仍会校验 HTTPS 证书；若代理需要替换证书（如抓包工具），须另行开启「禁用 SSL 证书验证」，此时经过代理的登录凭据可被截获',
             style: TextStyle(fontSize: 12),
           ),
         ],
@@ -1262,7 +1272,7 @@ void _showProxyDialog(BuildContext context) {
               SettingBoxKey.systemProxyPort,
               systemProxyPort,
             );
-            if (changed) Request.onProxyChanged();
+            if (changed) _applyProxy();
           },
           child: const Text('确认'),
         ),

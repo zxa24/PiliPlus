@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LibrePili: the staged update (lib/utils/update/update_apply.dart), the
+     only folder UpdateFileProvider serves -->
+<paths>
+    <files-path name="update" path="update/" />
+</paths>

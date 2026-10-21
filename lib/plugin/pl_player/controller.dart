@@ -1021,6 +1021,34 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// `--no-parallel`: the streams straight from the CDN, for comparison.
   static bool debugNoParallel = false;
 
+  /// mpv's `network-timeout` for a file read from the app's own loopback
+  /// servers, per file (user 2026-10-20, 7C): media_kit sets 5 s for every
+  /// file after the player is made, and the parallel fetch answers mpv only
+  /// once the upstream's first answer gives the size — one that took over
+  /// 5 s ended the open in `Error number -138` and an 8 s start (17A). 15 s
+  /// is as long as the fetch itself waits for one answer's headers upstream,
+  /// past its second request at 1.5 s (see [ParallelFetch.hedgeAfter]); a
+  /// stream that stops for longer is still mpv's to reopen, as before. Not
+  /// for anything else: a CDN read directly still gives up after 5 s.
+  static const loopbackNetworkTimeout = 15;
+
+  /// The per-file options for [media] (a URL, or an EDL of several) that
+  /// only a file read from the loopback takes; none for any other.
+  @visibleForTesting
+  static Map<String, String> loopbackExtras(String media) {
+    for (final m in _urlHost.allMatches(media)) {
+      if (AppProxy.isLoopback(m[1]!)) {
+        return const {'network-timeout': '$loopbackNetworkTimeout'};
+      }
+    }
+    return const {};
+  }
+
+  /// A URL's host, as AppProxy reads them out of an EDL.
+  static final _urlHost = RegExp(
+    r'https?://(\[[0-9a-fA-F:.]+\]|[^/:\s;%?#\]]+)',
+  );
+
   /// Starts [_parallel] with its store on disk (see [PieceStore]), when
   /// the 多线程加载 setting is on.
   static Future<void> _startParallel() async {
@@ -1102,6 +1130,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   String _edl(String video, String audio) {
     video = _wrapAll(video);
     audio = _wrapAll(audio);
+    // the start of both fetched at once, before mpv asks for the video and,
+    // once it is probed, the audio (user 2026-10-20, 6A); nothing when they
+    // do not go through the parallel fetch
+    if (!isLive) _parallel.prefetch([video, audio]);
     return 'edl://'
         '!no_chapters;'
         // '!delay_open,media_type=video;'
@@ -1174,6 +1206,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _playingVideo = null;
     _playingAudio = null;
     _openVolume = volume;
+    // what was prefetched for the source before goes; a pair's own is
+    // started by [_edl]
+    var paired = false;
     // LibrePili (Android local player): libmpv cannot open content:// URIs,
     // but reads a file descriptor (`fdclose://`: mpv closes it). A new one
     // per open, since each open consumes it.
@@ -1202,9 +1237,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
         // dely_open need provide length
         video = _edl(video, audio);
+        paired = true;
       }
       audioFilterExtras(volume, map: extras);
     }
+    if (!paired) _parallel.cancelPrefetch();
     video = _wrapAll(video, parallel: !isLive);
 
     assert(!isLive || seekTo == null);
@@ -1234,6 +1271,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // the 设置代理 setting, per file: not for one read from the app's own
     // loopback servers (see AppProxy.mpvFor)
     extras['http-proxy'] = AppProxy.mpvFor(video);
+    extras.addAll(loopbackExtras(video));
     _setHeaders(player, dataSource);
     _reopening = true;
     _openStartedAt = DateTime.now();
@@ -2654,6 +2692,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         ...buffer,
         // as [_open] does
         'http-proxy': AppProxy.mpvFor(media),
+        ...loopbackExtras(media),
       };
       audioFilterExtras(_openVolume, map: extras);
       await next.open(
@@ -4657,6 +4696,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       debugPrint('dispose player');
     }
     _videoPlayerController?.dispose();
+    // the start of a pair mpv never came for (see [_edl])
+    _parallel.cancelPrefetch();
     _videoPlayerController = null;
     _videoController = null;
     _instance = null;

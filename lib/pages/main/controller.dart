@@ -75,9 +75,8 @@ class MainController extends GetxController
   @override
   void onInit() {
     super.onInit();
-    if (Pref.autoUpdate) {
-      Update.checkUpdate();
-    }
+    // asks once first; on Android a staged update goes to the installer
+    Update.startUp();
 
     setNavBarConfig();
 

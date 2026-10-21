@@ -90,4 +90,42 @@ void main() {
       expect(AppProxy.mpvWith(r'C:\videos\a.mp4', 'p:1'), 'http://p:1');
     });
   });
+
+  // the in-app web pages (user 2026-10-20): through the proxy, or in the
+  // browser, never directly
+  group('web pages', () {
+    test("WebView2's arguments carry the proxy, loopback left direct", () {
+      expect(
+        AppProxy.webView2ArgsWith('192.168.1.2:7890'),
+        '--proxy-server=http://192.168.1.2:7890 '
+        '--proxy-bypass-list=localhost;127.0.0.1;[::1]',
+      );
+    });
+
+    test('no proxy, or one that would break the command line, is none', () {
+      expect(AppProxy.webView2ArgsWith(null), isNull);
+      expect(AppProxy.webView2ArgsWith('a b:1'), isNull);
+      expect(AppProxy.webView2ArgsWith('a"b:1'), isNull);
+    });
+
+    test('a page goes to the browser while its WebView lacks the proxy', () {
+      // iOS / macOS / an Android WebView without PROXY_OVERRIDE
+      expect(AppProxy.webViewGoesDirectWith('p:1', null), isTrue);
+      // Windows after a change, until the restart
+      expect(AppProxy.webViewGoesDirectWith('p:2', 'p:1'), isTrue);
+    });
+
+    test('a page stays in the app with the proxy, or with none set', () {
+      expect(AppProxy.webViewGoesDirectWith('p:1', 'p:1'), isFalse);
+      expect(AppProxy.webViewGoesDirectWith(null, null), isFalse);
+      // a proxy turned off: WebView2 keeps the old one until the restart,
+      // which goes through a proxy, not around one
+      expect(AppProxy.webViewGoesDirectWith(null, 'p:1'), isFalse);
+      // Linux: each window takes the setting as it opens
+      expect(
+        AppProxy.webViewGoesDirectWith('p:1', null, perWindow: true),
+        isFalse,
+      );
+    });
+  });
 }

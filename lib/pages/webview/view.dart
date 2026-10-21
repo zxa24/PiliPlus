@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:PiliPlus/common/widgets/route_aware_mixin.dart'
     show routeObserver;
 import 'package:PiliPlus/common/widgets/selection_text.dart';
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/main.dart' show webViewEnvironment;
 import 'package:PiliPlus/models/common/enum_with_label.dart';
@@ -135,6 +136,8 @@ document.addEventListener('click', function(e) {
           windowHeight: 760,
           title: title ?? url,
           userScripts: userScripts,
+          // the 设置代理 setting (user 2026-10-20), as it is now
+          proxy: AppProxy.linuxWebview,
         ),
       );
 
@@ -238,6 +241,20 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
       routeObserver.subscribe(this, Get.routing.route as GetPageRoute);
     }
 
+    // the 设置代理 setting holds for the in-app pages too (user 2026-10-20):
+    // where this WebView cannot take it now, the browser shows the page
+    // instead, and nothing is loaded here
+    if (AppProxy.webViewGoesDirect) {
+      _direct = true;
+      if (!_isNotePage && _url.isHttpUrl) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          PageUtils.launchURL(_url);
+          if (mounted) Get.back();
+        });
+      }
+      return;
+    }
+
     if (Platform.isLinux) {
       _initLinuxWebview();
     } else if (_isNotePage && Accounts.main.isLogin) {
@@ -258,6 +275,9 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
 
   bool _accountCookie = false;
   bool _cookieReady = true;
+
+  /// A proxy is set that this WebView cannot take now (AppProxy).
+  bool _direct = false;
 
   @override
   void dispose() {
@@ -483,6 +503,26 @@ class _WebviewPageState extends State<WebviewPage> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
+    if (_direct) {
+      return Scaffold(
+        appBar: widget.url != null ? null : AppBar(),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              _isNotePage
+                  ? '已设置代理，但此时应用内网页无法经过代理，无法在应用内记笔记'
+                  : '已设置代理，但此时应用内网页无法经过代理，已改用外部浏览器打开',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     if (Platform.isLinux) {
       return _buildLinuxView(context);
     }

@@ -347,6 +347,107 @@ void main() {
     });
   });
 
+  group('start-up (6A, 7C)', () {
+    test('prefetched: the first requests are answered from it, the start '
+        'of each stream asked upstream once', () async {
+      upstream.delay = const Duration(milliseconds: 200);
+      final video = fetch.wrap(upstream.url)!;
+      final audio = fetch.wrap('${upstream.url}&audio')!;
+      // not a stand-in: passed by
+      fetch.prefetch([video, audio, 'https://x.example/y.m4s']);
+      expect(fetch.prefetching, 2);
+      // both under way at once, before the player asks for either
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(upstream.asked, ['bytes=0-262143', 'bytes=0-262143']);
+      final watch = Stopwatch()..start();
+      final v = await get(video, range: 'bytes=0-');
+      expect(v.body, data);
+      final a = await get(audio, range: 'bytes=0-99');
+      expect(a.body, data.sublist(0, 100));
+      // the audio's start was here already: no upstream delay waited for
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      expect(upstream.asked.where((r) => r.startsWith('bytes=0-')).length, 2);
+      // the player's now: not let go with the next source
+      expect(fetch.prefetching, 0);
+    });
+
+    test('the audio, asked for once the video is probed, waits for no '
+        'upstream answer', () async {
+      upstream.delay = const Duration(milliseconds: 600);
+      final video = fetch.wrap(upstream.url)!;
+      final audio = fetch.wrap('${upstream.url}&audio')!;
+      fetch.prefetch([video, audio]);
+      await get(video, range: 'bytes=0-99');
+      final watch = Stopwatch()..start();
+      final a = await get(audio, range: 'bytes=0-99');
+      expect(a.body, data.sublist(0, 100));
+      // serially it would be another 0.6 s
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 300)));
+    });
+
+    test('a prefetch let go stops, and is fetched anew when asked for', () async {
+      upstream.bytesPerSecond = 32 * 1024;
+      final first = fetch.wrap(upstream.url)!;
+      final second = fetch.wrap('${upstream.url}&2')!;
+      fetch.prefetch([first]);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      // a source replaced: the first one's goes
+      fetch.prefetch([second]);
+      expect(fetch.prefetching, 1);
+      // the player closed
+      fetch.cancelPrefetch();
+      expect(fetch.prefetching, 0);
+      upstream.bytesPerSecond = null;
+      final r = await get(first, range: 'bytes=0-');
+      expect(r.body, data);
+      expect(cuts, isEmpty);
+    });
+
+    test('no answer in time: asked again beside it, the first answer '
+        'taken', () async {
+      await fetch.close();
+      fetch = ParallelFetch(
+        chunkBytes: 256 * 1024,
+        aheadChunks: 8,
+        hedgeAfter: const Duration(milliseconds: 300),
+      );
+      await fetch.start();
+      upstream.stallFirst = const Duration(seconds: 6);
+      final watch = Stopwatch()..start();
+      final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-99');
+      expect(r.body, data.sublist(0, 100));
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(fetch.hedges, 1);
+      expect(upstream.asked.where((r) => r.startsWith('bytes=0-')).length, 2);
+      expect(cuts, isEmpty);
+    });
+
+    test('an answer in time: nothing sent twice', () async {
+      expect(ParallelFetch().hedgeAfter, const Duration(milliseconds: 1500));
+      await fetch.close();
+      fetch = ParallelFetch(
+        chunkBytes: 256 * 1024,
+        aheadChunks: 8,
+        hedgeAfter: const Duration(milliseconds: 600),
+      );
+      await fetch.start();
+      upstream.delay = const Duration(milliseconds: 150);
+      final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+      expect(r.body, data);
+      expect(fetch.hedges, 0);
+      expect(upstream.asked.where((r) => r.startsWith('bytes=0-')).length, 1);
+    });
+
+    test('a refusal before the second is sent is the answer, at once', () async {
+      upstream.status = HttpStatus.forbidden;
+      final watch = Stopwatch()..start();
+      final r = await get(fetch.wrap(upstream.url)!, range: 'bytes=0-');
+      expect(r.status, HttpStatus.forbidden);
+      expect(fetch.hedges, 0);
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 1500)));
+    });
+  });
+
 }
 
 /// A CDN in miniature: ranges, a delay per request, and its failures.
@@ -373,6 +474,12 @@ class _Upstream {
   /// The Range of every request, in order.
   final ranges = <String>[];
 
+  /// The first request waits this long before it answers, besides [delay].
+  Duration? stallFirst;
+
+  /// The Range of every request as it arrives, before any delay.
+  final asked = <String>[];
+
   var _atOnce = 0;
   var mostAtOnce = 0;
 
@@ -389,7 +496,12 @@ class _Upstream {
   Future<void> _serve(HttpRequest request) async {
     _atOnce++;
     mostAtOnce = max(mostAtOnce, _atOnce);
+    asked.add(request.headers.value(HttpHeaders.rangeHeader) ?? '');
     try {
+      if (stallFirst case final stall?) {
+        stallFirst = null;
+        await Future<void>.delayed(stall);
+      }
       await Future<void>.delayed(delay);
       final response = request.response;
       if (status case final s?) {

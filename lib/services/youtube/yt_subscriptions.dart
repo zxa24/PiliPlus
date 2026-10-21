@@ -13,9 +13,9 @@
 /// InnerTube for the uploads of every followed channel, one request per
 /// channel id, a few at a time, from this device's IP. With
 /// 「订阅刷新时每个频道使用独立身份」 on (the default) each channel is asked
-/// over its own connection under a visitorData minted for it alone; off, all
-/// of them go over one connection. The IP is the same either way, so the
-/// requests can still be tied together by it.
+/// over its own connection; off, all of them go over one connection. Neither
+/// sends a visitorData. The IP is the same either way, so the requests can
+/// still be tied together by it.
 library;
 
 import 'package:hive_ce/hive.dart';

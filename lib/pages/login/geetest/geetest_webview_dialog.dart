@@ -1,6 +1,7 @@
 import 'dart:convert' show base64, jsonDecode, jsonEncode, utf8;
 import 'dart:io' show Platform;
 
+import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -10,6 +11,7 @@ import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -23,6 +25,14 @@ class GeetestWebviewDialog extends StatefulWidget {
   State<GeetestWebviewDialog> createState() => _GeetestWebviewDialogState();
 
   static Future<Map<String, dynamic>?> geetest(String gt, String challenge) {
+    // the 设置代理 setting holds for the captcha too (user 2026-10-20); it
+    // cannot go to the browser, which would not hand the result back
+    if (AppProxy.webViewGoesDirect) {
+      SmartDialog.showToast(
+        '已设置代理，但此时应用内网页无法经过代理，验证码无法打开：请关闭代理，或（Windows）重启应用后再试',
+      );
+      return Future.value();
+    }
     return showDialog<Map<String, dynamic>>(
       context: Get.context!,
       builder: (context) => GeetestWebviewDialog(gt, challenge),
@@ -107,10 +117,11 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
     }
 
     final webview = await WebviewWindow.create(
-      configuration: const CreateConfiguration(
+      configuration: CreateConfiguration(
         windowWidth: 300,
         windowHeight: 400,
         title: "验证码",
+        proxy: AppProxy.linuxWebview,
       ),
     );
 

@@ -52,6 +52,7 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
+import 'package:PiliPlus/utils/update/update_apply.dart';
 import 'package:canvas_danmaku/utils/utils.dart' as danmaku;
 import 'package:catcher_2/catcher_2.dart';
 import 'package:collection/collection.dart';
@@ -198,6 +199,14 @@ void main(List<String> args) async {
     if (isSelfTestProfile) SelfTest.abort(args, e);
     appExit();
   }
+  // LibrePili: a downloaded, verified update put in place before the UI
+  // (Windows, Linux; user 2026-10-20: "applied on the next launch"): the
+  // helper started waits for this process to end, so it ends here. Past
+  // GStorage.init, no other copy runs on this profile.
+  if (await UpdateApply.applyBeforeUi()) {
+    await GStorage.close();
+    appExit();
+  }
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
   // LibrePili: danmaku spaced as subtitles and comments are (中英文间距),
   // the setting read as each one is drawn
@@ -264,11 +273,17 @@ void main(List<String> args) async {
       if (Pref.horizontalScreen) ?fullMode() else ?portraitUpMode(),
       setupServiceLocator(),
     ]);
+    // the 设置代理 setting for the in-app web pages (user 2026-10-20), set
+    // again on each change (extra_settings.dart)
+    unawaited(AppProxy.applyToWebViews(start: true));
   } else if (Platform.isWindows) {
     if (await WebViewEnvironment.getAvailableVersion() != null) {
       webViewEnvironment = await WebViewEnvironment.create(
         settings: WebViewEnvironmentSettings(
           userDataFolder: path.join(appSupportDirPath, 'flutter_inappwebview'),
+          // the 设置代理 setting for the in-app web pages (user 2026-10-20):
+          // WebView2 reads it here only, so a change takes a restart
+          additionalBrowserArguments: AppProxy.webView2ArgsFor(),
         ),
       );
     }

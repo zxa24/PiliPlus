@@ -128,7 +128,10 @@ abstract final class GStorage {
   /// a backup from another device must not open this device's data folder
   /// to other apps without asking. So are what was measured on this device
   /// (its decoders, the models page's test): another device's "AV1 decoded
-  /// in software" would stop this one asking its own hardware.
+  /// in software" would stop this one asking its own hardware. So are the
+  /// 设置代理 setting and the hardware decoding mode (user 2026-10-20): a
+  /// proxy on another network, or a decoder this device has not, must not
+  /// come with a backup.
   static const deviceKeys = [
     SettingBoxKey.downloadPath,
     SettingBoxKey.appFont,
@@ -137,6 +140,10 @@ abstract final class GStorage {
     SettingBoxKey.av1Software,
     SettingBoxKey.hardwareDecoders,
     SettingBoxKey.modelBench,
+    SettingBoxKey.enableSystemProxy,
+    SettingBoxKey.systemProxyHost,
+    SettingBoxKey.systemProxyPort,
+    SettingBoxKey.hardwareDecoding,
   ];
 
   /// Whether a backup [map] carries any of the [credentialKeys].

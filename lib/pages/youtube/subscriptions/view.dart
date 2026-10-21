@@ -7,12 +7,13 @@
 /// is still a hundred requests — the price of not having an account.
 ///
 /// With 「订阅刷新时每个频道使用独立身份」 on (the default) each channel gets
-/// a source of its own: a new connection and a visitorData minted for it
-/// (one `visitor_id` POST), so a channel costs two requests instead of one.
-/// Off, every channel goes over the page's one source and connection, which
-/// sends WEB browse requests with no visitorData at all (only the stream
-/// identity's is ever minted; YouTube hands each answer a new one, which
-/// is not kept). The IP is the same either way.
+/// a source of its own, so a new connection. Off, every channel goes over
+/// the page's one source and connection. Either way the WEB browse requests
+/// carry no visitorData (only the stream identity's is ever minted; YouTube
+/// hands each answer a new one, which is not kept), and none is minted for
+/// a channel (user 2026-10-20; the mint was a second request per channel,
+/// and what ties the requests together is the connection and the IP).
+/// The IP is the same either way.
 library;
 
 import 'dart:async';
@@ -121,13 +122,10 @@ class _YtSubscriptionsPageState extends State<YtSubscriptionsPage> {
     bool isolate,
     Map<String, YtSourceHealth> health,
   ) async {
+    // a connection of its own for this channel, and nothing more: no
+    // visitorData is minted for it (see the library doc)
     final source = isolate ? YtDirectSource.create() : _source;
     try {
-      if (isolate) {
-        // the browse calls go out as WEB; a failed mint still asks, without
-        // one, over this channel's own connection
-        await source.client.ensureVisitorData(YtClients.web);
-      }
       final result = await YtSourceRouter(source, health: health).run(
         (s) => (s as YtDirectSource).channelVideos(sub.channelId),
       );

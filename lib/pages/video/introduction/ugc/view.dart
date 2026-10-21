@@ -582,6 +582,82 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
     caseSensitive: false,
   );
 
+  /// 空降助手's 搬运视频 binding of this video to a YouTube video of its
+  /// description, offered after the link while 空降助手 is on: the lookup
+  /// and the binding happen only from here (user 2026-10-20), never from a
+  /// tap of the link, and this does not open the link.
+  WidgetSpan _portVideoChip(String ytbId) => WidgetSpan(
+    alignment: .middle,
+    child: SelectionContainer.disabled(
+      child: Padding(
+        padding: const .only(left: 4),
+        child: Material(
+          color: colorScheme.secondaryContainer,
+          borderRadius: const BorderRadius.all(Radius.circular(4)),
+          child: InkWell(
+            borderRadius: const BorderRadius.all(Radius.circular(4)),
+            onTap: () => _bindPortVideo(ytbId),
+            child: Padding(
+              padding: const .symmetric(horizontal: 4, vertical: 3),
+              child: Text(
+                '绑定为搬运视频',
+                textScaler: TextScaler.noScaling,
+                strutStyle: const StrutStyle(
+                  leading: 0,
+                  height: 1,
+                  fontSize: 12,
+                ),
+                style: TextStyle(
+                  height: 1,
+                  fontSize: 12,
+                  color: colorScheme.onSecondaryContainer,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _bindPortVideo(String ytbId) async {
+    final duration =
+        videoDetailCtr.data.timeLength ??
+        videoDetailCtr.plPlayerController.durationInMilliseconds;
+    if (duration <= 0) {
+      SmartDialog.showToast('视频时长未知，稍后再试');
+      return;
+    }
+    final bvid = videoDetailCtr.bvid;
+    final cid = videoDetailCtr.cid.value;
+
+    SmartDialog.showLoading();
+    final hasPortVideo =
+        (await SponsorBlock.getPortVideo(bvid: bvid, cid: cid)).dataOrNull ==
+        ytbId;
+    SmartDialog.dismiss();
+
+    if (!mounted) return;
+    final confirmed = await showConfirmDialog(
+      context: context,
+      title: const Text('空降助手：搬运视频同步'),
+      content: Text(
+        '${hasPortVideo ? "" : "是否将"}该视频${hasPortVideo ? "已" : ""}绑定到此YouTube视频($ytbId)',
+      ),
+    );
+    if (!hasPortVideo && confirmed) {
+      final res = await SponsorBlock.postPortVideo(
+        bvid: bvid,
+        cid: cid,
+        ytbId: ytbId,
+        videoDuration: (duration / 1000).round(),
+      );
+      SmartDialog.showToast(
+        '提交搬运视频${res.isSuccess ? "成功" : "失败: $res"}',
+      );
+    }
+  }
+
   TextSpan buildDesc(List<DescV2> descV2) {
     // type
     // 1 普通文本
@@ -600,60 +676,18 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
                   TextSpan(
                     text: matchStr,
                     style: TextStyle(color: colorScheme.primary),
+                    // a tap only opens the link (user 2026-10-20): the
+                    // SponsorBlock server is asked nothing unless the
+                    // 绑定为搬运视频 chip after it is tapped
                     recognizer: NoDeadlineTapGestureRecognizer()
-                      ..onTap = () async {
-                        if (videoDetailCtr
-                            .plPlayerController
-                            .enableSponsorBlock) {
-                          final duration =
-                              videoDetailCtr.data.timeLength ??
-                              videoDetailCtr
-                                  .plPlayerController
-                                  .durationInMilliseconds;
-                          if (duration > 0) {
-                            final ytbId = youtubeRegExp
-                                .firstMatch(matchStr)
-                                ?.group(1);
-                            if (ytbId != null) {
-                              final bvid = videoDetailCtr.bvid;
-                              final cid = videoDetailCtr.cid.value;
-
-                              SmartDialog.showLoading();
-                              final hasPortVideo =
-                                  (await SponsorBlock.getPortVideo(
-                                    bvid: bvid,
-                                    cid: cid,
-                                  )).dataOrNull ==
-                                  ytbId;
-                              SmartDialog.dismiss();
-
-                              if (!mounted) return;
-                              final confirmed = await showConfirmDialog(
-                                context: context,
-                                title: const Text('空降助手：搬运视频同步'),
-                                content: Text(
-                                  '${hasPortVideo ? "" : "是否将"}该视频${hasPortVideo ? "已" : ""}绑定到此YouTube视频($ytbId)',
-                                ),
-                              );
-                              if (!hasPortVideo && confirmed) {
-                                final res = await SponsorBlock.postPortVideo(
-                                  bvid: bvid,
-                                  cid: cid,
-                                  ytbId: ytbId,
-                                  videoDuration: (duration / 1000).round(),
-                                );
-                                SmartDialog.showToast(
-                                  '提交搬运视频${res.isSuccess ? "成功" : "失败: $res"}',
-                                );
-                                return;
-                              }
-                            }
-                          }
-                        }
-                        PageUtils.handleWebview(matchStr);
-                      },
+                      ..onTap = () => PageUtils.handleWebview(matchStr),
                   ),
                 );
+                final ytbId =
+                    videoDetailCtr.plPlayerController.enableSponsorBlock
+                    ? youtubeRegExp.firstMatch(matchStr)?.group(1)
+                    : null;
+                if (ytbId != null) spanChildren.add(_portVideoChip(ytbId));
               } else if (matchStrLowerCase.startsWith('av')) {
                 try {
                   int aid = int.parse(matchStr.substring(2));

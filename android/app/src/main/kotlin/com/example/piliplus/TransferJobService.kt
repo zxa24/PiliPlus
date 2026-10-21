@@ -75,7 +75,9 @@ object TransferJobs {
         val channelName: String,
         val action: String,
     ) {
-        MODEL("librepili/transfer", "model_download", "模型下载", "取消"),
+        // a model download or a YouTube video download: a name for both
+        // (user 2026-10-20); the id stays, so the user's settings for it do
+        MODEL("librepili/transfer", "model_download", "后台下载", "取消"),
 
         // the button pauses the queue: what was downloaded stays, and a tap
         // in the download list goes on from there
@@ -299,7 +301,8 @@ object TransferJobs {
 
     private fun ensureChannel(context: Context, kind: Kind) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(kind.notificationChannel) != null) return
+        // created again when it exists: Android then takes the new name (a
+        // renamed channel) and leaves what the user set (importance, sound)
         // low: a progress bar the user asked for, no sound, no heads-up
         manager.createNotificationChannel(
             NotificationChannel(kind.notificationChannel, kind.channelName, NotificationManager.IMPORTANCE_LOW),

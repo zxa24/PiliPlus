@@ -33,6 +33,7 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/update.dart';
+import 'package:PiliPlus/utils/update/update_apply.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' as web;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -161,6 +162,18 @@ class _AboutPageState extends State<AboutPage> {
               style: subTitleStyle,
             ),
           ),
+          // a downloaded update waiting for the next launch (Update.startUp);
+          // on Android the installer can be opened now as well
+          if (Update.staged case final staged?)
+            ListTile(
+              onTap: Platform.isAndroid ? UpdateApply.offerStagedApk : null,
+              title: Text('新版本 ${staged.tag} 已下载'),
+              subtitle: Text(
+                Platform.isAndroid ? '下次启动时询问安装，也可点此立即安装' : '下次启动时更新',
+                style: subTitleStyle,
+              ),
+              leading: const Icon(Icons.system_update_alt),
+            ),
           ListTile(
             title: Text(
               '''
@@ -382,9 +395,10 @@ Commit Hash: ${BuildConfig.commitHash}''',
                         // (the running account state is not re-applied)
                         final loginMode = Pref.loginMode;
                         // nor are this installation's own keys (paths, the
-                        // documents provider, the decoders measured here),
-                        // nor its credentials, which
-                        // export and import leave alone too
+                        // documents provider, the decoders measured here,
+                        // the proxy, the hardware decoding mode), nor its
+                        // credentials, which export and import leave alone
+                        // too
                         final device = {
                           for (final key in [
                             ...GStorage.deviceKeys,

@@ -33,6 +33,16 @@
 /// the store knows is answered without waiting for the upstream's first
 /// answer. What a download reads ([wrap] `keep: false`) is not kept: the
 /// download is a copy of its own.
+///
+/// ## Start-up (user 2026-10-20, 6A and 7C)
+///
+/// mpv opens the video, probes it, then opens the audio: two first answers
+/// one after the other (0.63 s and 0.50 s of a 1.4 s start, 16A). The player
+/// asks for the start of both at once as it opens them ([prefetch]), so mpv
+/// finds them here. And while a stream's size is not known — every open of
+/// it waits on that — a request upstream with no answer after [hedgeAfter]
+/// is sent again, the first answer taken and the other dropped: one slow
+/// answer had mpv give up on the open (17A).
 library;
 
 import 'dart:async';
@@ -50,6 +60,7 @@ class ParallelFetch {
     this.chunkBytes = 512 * 1024,
     this.aheadChunks = 12,
     this.cachedBytes = 64 << 20,
+    this.hedgeAfter = const Duration(milliseconds: 1500),
     Map<String, String> Function(Uri upstream)? headers,
   }) : _headers = headers ?? ((_) => const {});
 
@@ -68,6 +79,17 @@ class ParallelFetch {
 
   /// What is kept of pieces fetched, all streams together.
   final int cachedBytes;
+
+  /// How long a request is given to answer before a second, alike, is sent
+  /// beside it, while the stream's size is not known (see the library's
+  /// doc). First answers come in 0.5-0.6 s (16A): 1.5 s, the time a refusal
+  /// is given to show in [_serve], is well past that, so a normal start
+  /// sends one request, and well inside mpv's 5 s.
+  final Duration hedgeAfter;
+
+  /// Requests sent again by [hedgeAfter]; for tests.
+  @visibleForTesting
+  var hedges = 0;
 
   final Map<String, String> Function(Uri upstream) _headers;
 
@@ -129,6 +151,9 @@ class ParallelFetch {
   /// Pieces held, oldest use first, for [cachedBytes].
   final _held = <_Chunk>{};
   var _heldBytes = 0;
+
+  /// Pieces [prefetch] started that the player has not come for yet.
+  final _prefetched = <_Remote, _Chunk>{};
 
   bool get running => _server != null;
 
@@ -267,6 +292,58 @@ class ParallelFetch {
     return _byId[uri.pathSegments.first]?.uri.toString() ?? local;
   }
 
+  _Remote? _remoteOf(String local) {
+    final uri = Uri.tryParse(local);
+    if (uri == null ||
+        uri.host != '127.0.0.1' ||
+        uri.port != _server?.port ||
+        uri.pathSegments.isEmpty) {
+      return null;
+    }
+    return _byId[uri.pathSegments.first];
+  }
+
+  /// Starts fetching, for each of [locals] (stand-ins from [wrap]; anything
+  /// else is passed by), the piece the player asks for first: the one at
+  /// byte 0, where the file's header is, which mpv reads first even when it
+  /// opens further on. The same piece a request from the player would
+  /// start, so its request is answered from it, not fetched again (6A). It
+  /// is kept as any piece is: within [cachedBytes], and in [store].
+  ///
+  /// What an earlier call started that the player has not come for is let
+  /// go: a source replaced.
+  void prefetch(Iterable<String> locals) {
+    final remotes = <_Remote>{for (final local in locals) ?_remoteOf(local)};
+    _cancelPrefetch(except: remotes);
+    for (final remote in remotes) {
+      // a download's, or one the player reads already
+      if (!remote.keep || remote.readers.isNotEmpty) continue;
+      if (_prefetched.containsKey(remote)) continue;
+      final piece = _pieceAt(remote, 0);
+      if (piece.done || piece.fetching || piece.failure != null) continue;
+      _prefetched[remote] = piece;
+      unawaited(_fetch(remote, piece));
+    }
+  }
+
+  /// Lets go of what [prefetch] started that the player has not come for:
+  /// the player closed.
+  void cancelPrefetch() => _cancelPrefetch();
+
+  void _cancelPrefetch({Set<_Remote> except = const {}}) {
+    _prefetched.removeWhere((remote, piece) {
+      if (except.contains(remote)) return false;
+      // a piece already whole stays, as any piece fetched does
+      if (remote.readers.isEmpty && piece.fetching && !piece.done) {
+        piece.cancel();
+      }
+      return true;
+    });
+  }
+
+  @visibleForTesting
+  int get prefetching => _prefetched.length;
+
   // ---------------------------------------------------------------- serving
 
   /// A request [_serve] threw on (a header sent twice, say) is answered and
@@ -313,6 +390,9 @@ class ParallelFetch {
 
     final reader = _Reader(from);
     remote.readers.add(reader);
+    // what was prefetched of it is the player's now: not let go with a
+    // source replaced
+    _prefetched.remove(remote);
     // the player asking again is its own retry of a piece given up on
     final first = _pieceAt(remote, from, again: true);
     _pump(remote);
@@ -560,7 +640,7 @@ class ParallelFetch {
       // of those, the ones the host ended (see [isCut])
       var shortEnds = 0;
       var tries = 0;
-      while (!chunk.done && fruitless < 3 && tries < 30) {
+      while (!chunk.done && !chunk.cancelled && fruitless < 3 && tries < 30) {
         tries++;
         final from = chunk.start + chunk.received;
         final size = remote.size;
@@ -589,6 +669,17 @@ class ParallelFetch {
         }
       }
       chunk.attempts = tries;
+      if (chunk.cancelled && !chunk.done) {
+        // a prefetch let go (see [prefetch]): not given up on, nor a cut —
+        // emptied, and fetched anew if the player does come for it
+        bytesFromNetwork += chunk.received - (chunk.fromStore ? kept : 0);
+        chunk
+          ..cancelled = false
+          ..lastError = null
+          ..release();
+        return;
+      }
+      chunk.cancelled = false;
       if (!chunk.done) {
         chunk.failure = chunk.lastError ?? const _Failure(null, 'gave up');
         final at = chunk.start + chunk.received;
@@ -695,16 +786,10 @@ class ParallelFetch {
     // the answer's headers came: a socket error after that is the host
     // closing the body, one before it the network (no route, refused)
     var answered = false;
+    HttpClientRequest? sent;
     try {
-      final request = await _client
-          .getUrl(debugUpstream?.call(remote.uri) ?? remote.uri)
-          .timeout(const Duration(seconds: 10));
-      request.followRedirects = true;
-      _headers(remote.uri).forEach(request.headers.set);
-      request.headers.set(HttpHeaders.rangeHeader, 'bytes=$from-$to');
-      final response = await request.close().timeout(
-        const Duration(seconds: 15),
-      );
+      final (request, response) = await _send(remote, chunk, from, to);
+      sent = request;
       answered = true;
       final status = response.statusCode;
       if (status != HttpStatus.partialContent && status != HttpStatus.ok) {
@@ -804,8 +889,115 @@ class ParallelFetch {
       );
       return 0;
     } finally {
+      if (sent != null) chunk.requests.remove(sent);
       chunk.notify();
     }
+  }
+
+  /// The request for bytes [from]-[to] of [chunk], sent, with its answer's
+  /// headers. While [remote]'s size is not known (playback's streams), a
+  /// second goes out beside it when it has not answered in [hedgeAfter],
+  /// and the first to answer is taken, the other dropped (7C). To the same
+  /// URL: this has no other host for it — the player picks those — but a
+  /// new connection, which a host's name may send to another server. A
+  /// failure before the second is sent is the answer, as without it; after,
+  /// the other is waited for.
+  Future<(HttpClientRequest, HttpClientResponse)> _send(
+    _Remote remote,
+    _Chunk chunk,
+    int from,
+    int to,
+  ) {
+    if (!remote.keep || remote.size != null) {
+      return _attempt(remote, chunk, from, to, () => false);
+    }
+    final won = Completer<(HttpClientRequest, HttpClientResponse)>();
+    var pending = 0;
+    Timer? hedge;
+
+    void run() {
+      pending++;
+      _attempt(remote, chunk, from, to, () => won.isCompleted).then(
+        (answer) {
+          pending--;
+          if (won.isCompleted) {
+            // the other answered first
+            _drop(chunk, answer.$1, answer.$2);
+            return;
+          }
+          hedge?.cancel();
+          // the one still waiting, dropped
+          for (final other in chunk.requests.toList()) {
+            if (identical(other, answer.$1)) continue;
+            chunk.requests.remove(other);
+            other.abort();
+          }
+          won.complete(answer);
+        },
+        onError: (Object e, StackTrace s) {
+          pending--;
+          if (won.isCompleted || pending > 0) return;
+          hedge?.cancel();
+          won.completeError(e, s);
+        },
+      );
+    }
+
+    run();
+    hedge = Timer(hedgeAfter, () {
+      if (won.isCompleted || chunk.cancelled) return;
+      hedges++;
+      log?.call(
+        '${remote.uri.host}: no answer in ${hedgeAfter.inMilliseconds} ms '
+        'at $from: asked again',
+      );
+      run();
+    });
+    return won.future;
+  }
+
+  /// One request of [_send]'s; [lost] says another answered first, or the
+  /// piece was let go, while it was being connected.
+  Future<(HttpClientRequest, HttpClientResponse)> _attempt(
+    _Remote remote,
+    _Chunk chunk,
+    int from,
+    int to,
+    bool Function() lost,
+  ) async {
+    final request = await _client
+        .getUrl(debugUpstream?.call(remote.uri) ?? remote.uri)
+        .timeout(const Duration(seconds: 10));
+    if (lost() || chunk.cancelled) {
+      request.abort();
+      throw const HttpException('no longer wanted');
+    }
+    chunk.requests.add(request);
+    try {
+      request.followRedirects = true;
+      _headers(remote.uri).forEach(request.headers.set);
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=$from-$to');
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
+      return (request, response);
+    } catch (_) {
+      // timed out: not left open, to answer to nobody
+      chunk.requests.remove(request);
+      request.abort();
+      rethrow;
+    }
+  }
+
+  /// An answer that came second: its connection closed, its body unread.
+  static void _drop(
+    _Chunk chunk,
+    HttpClientRequest request,
+    HttpClientResponse response,
+  ) {
+    chunk.requests.remove(request);
+    response.listen(null, onError: (Object _) {}, cancelOnError: true);
+    request.abort();
   }
 
   /// The buffers of pieces nobody is reading or fetching that are not
@@ -949,6 +1141,20 @@ class _Chunk {
 
   /// Readers reading it now: not evicted under them.
   var readers = 0;
+
+  /// The requests upstream under way for it (two while one is hedged).
+  final requests = <HttpClientRequest>{};
+
+  /// A prefetch let go (see [ParallelFetch.prefetch]): its fetch stops.
+  var cancelled = false;
+
+  void cancel() {
+    cancelled = true;
+    for (final request in requests.toList()) {
+      request.abort();
+    }
+    requests.clear();
+  }
 
   var _waiter = Completer<void>();
 

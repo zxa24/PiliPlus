@@ -82,6 +82,9 @@ class MainActivity : AudioServiceActivity() {
         // LibrePili: model downloads keep the network in the background
         // (TransferJobService.kt)
         TransferJobs.attach(this, flutterEngine)
+        // LibrePili: a downloaded update to the system installer
+        // (UpdateInstaller.kt)
+        UpdateInstaller.attach(this, flutterEngine)
         // LibrePili: index files written to shared storage (e.g. finished
         // downloads in Download/LibrePili) so galleries / players list them.
         // LibrePili: what the device decodes in hardware, for choosing a codec

@@ -224,6 +224,19 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <!-- LibrePili: hands a downloaded update's APK (files/update) to the
+             system installer (UpdateInstaller.kt, res/xml/update_paths.xml);
+             the documents provider above cannot: it is off unless the user
+             turns it on, and serves documents, not one file by grant -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:exported="false"
+            android:authorities="${applicationId}.update_provider"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
         <service
             android:name="com.ryanheise.audioservice.AudioService"
             android:exported="true"
@@ -287,6 +300,9 @@
     <!-- LibrePili: user-initiated data transfer jobs (TransferJobService.kt);
          a normal permission, granted at install -->
     <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
+    <!-- LibrePili: a downloaded update opened in the system installer, which
+         asks the user each time (UpdateInstaller.kt) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!--
       READ_MEDIA_AUDIO / READ_MEDIA_VIDEO are not declared: nothing requests
       them (images: READ_MEDIA_IMAGES above, Permission.photos). Local files

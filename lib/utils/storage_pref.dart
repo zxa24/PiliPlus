@@ -633,14 +633,18 @@ abstract final class Pref {
   static bool get cdnSpeedTest =>
       _setting.get(SettingBoxKey.cdnSpeedTest, defaultValue: true);
 
-  static bool get autoUpdate =>
-      _setting.get(SettingBoxKey.autoUpdate, defaultValue: true);
+  /// Null until the user has answered the first launch's question (user
+  /// 2026-10-20, pass3-D2: no request to GitHub before that); a value an
+  /// install already has is kept.
+  static bool? get autoUpdate => _setting.get(SettingBoxKey.autoUpdate);
 
   static bool get horizontalPreview =>
       _setting.get(SettingBoxKey.horizontalPreview, defaultValue: false);
 
+  /// On by default (user 2026-10-20: web pages open in the browser unless
+  /// asked otherwise); a value already set is kept.
   static bool get openInBrowser =>
-      _setting.get(SettingBoxKey.openInBrowser, defaultValue: false);
+      _setting.get(SettingBoxKey.openInBrowser, defaultValue: true);
 
   static bool get savedRcmdTip =>
       _setting.get(SettingBoxKey.savedRcmdTip, defaultValue: true);
