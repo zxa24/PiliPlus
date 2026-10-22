@@ -4,9 +4,10 @@
 /// are unpacked into the staging folder, a helper script written there is
 /// started detached, and this process exits; the helper waits for it, copies
 /// the files over the install folder, clears the staging and starts the app
-/// again. Android after the UI ([offerStagedApk]): the APK goes to the
-/// system installer, which always asks; cancelled, it is offered again on
-/// the next launch. Each step, and each reason for not taking one, goes to
+/// again. Android after the UI ([readyApk]): the app asks first (install
+/// now, skip, or 「不再提示此版本」), then the APK goes to the system
+/// installer, which always asks as well; skipped or cancelled, it is
+/// offered again on the next launch. Each step, and each reason for not taking one, goes to
 /// the [EventLog] (area `update`).
 library;
 
@@ -314,27 +315,42 @@ abstract final class UpdateApply {
     }
   }
 
-  /// Android: a verified staged APK handed to the system installer (it asks
-  /// the user). Kept until this build is at its version, so a cancelled
-  /// install is offered again on the next launch.
-  static Future<void> offerStagedApk() async {
-    if (!enabled || !Platform.isAndroid) return;
+  /// Android: the verified staged APK to offer at launch, or null. Kept
+  /// until this build is at its version, so a skipped or cancelled install
+  /// is offered again on the next launch.
+  static Future<UpdateStaged?> readyApk() async {
+    if (!enabled || !Platform.isAndroid) return null;
     try {
-      if (await _heldBack()) return;
+      if (await _heldBack()) return null;
       final staged = await pending();
-      if (staged == null) return;
+      if (staged == null) return null;
       final dir = stagingDir;
       if (staged.kind != UpdateKind.apk) {
         await UpdateStage.discard(dir, '${staged.kind.id} on Android');
-        return;
+        return null;
+      }
+      if (UpdateStage.skippedBuild(dir) == staged.versionCode) {
+        await UpdateStage.discard(dir, '${staged.tag} skipped by the user');
+        return null;
       }
       final file = UpdateStage.fileOf(dir, staged);
       if (!await UpdateStage.verify(file, staged.sha256)) {
         await UpdateStage.discard(dir, '${staged.asset} no longer verifies');
-        return;
+        return null;
       }
+      return staged;
+    } catch (e) {
+      UpdateStage.log('staged APK not offered: $e');
+      return null;
+    }
+  }
+
+  /// [staged] (from [readyApk]) handed to the system installer, which asks
+  /// the user again.
+  static Future<void> installApk(UpdateStaged staged) async {
+    try {
       final why = await channel.invokeMethod<String>('installApk', {
-        'path': file,
+        'path': UpdateStage.fileOf(stagingDir, staged),
       });
       if (why == null) {
         UpdateStage.log('installer opened for ${staged.asset}');
@@ -344,5 +360,13 @@ abstract final class UpdateApply {
     } catch (e) {
       UpdateStage.log('installer not opened: $e');
     }
+  }
+
+  /// 「不再提示此版本」: [staged]'s build is not offered nor downloaded again
+  /// by itself, and its file goes.
+  static Future<void> skipApk(UpdateStaged staged) async {
+    final dir = stagingDir;
+    UpdateStage.recordSkipped(dir, staged.versionCode);
+    await UpdateStage.discard(dir, '${staged.tag} skipped by the user');
   }
 }

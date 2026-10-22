@@ -622,6 +622,12 @@ class UpdateStaged {
   /// offers it. Kept when the staging folder is cleared.
   static const failedName = 'failed-build.txt';
 
+  /// Android: the build the user said not to be asked about again
+  /// (「不再提示此版本」 when it was offered at launch): not downloaded again
+  /// by itself; a newer one is, and 手动检查更新 still offers it. Kept when
+  /// the staging folder is cleared.
+  static const skippedName = 'skipped-build.txt';
+
   /// A backup the helper could not put back whole, kept (with the build
   /// after it) for the user; never cleared by the app.
   static const keptBackupPrefix = 'backup-failed-';

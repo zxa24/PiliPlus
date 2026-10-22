@@ -166,7 +166,13 @@ class _AboutPageState extends State<AboutPage> {
           // on Android the installer can be opened now as well
           if (Update.staged case final staged?)
             ListTile(
-              onTap: Platform.isAndroid ? UpdateApply.offerStagedApk : null,
+              onTap: Platform.isAndroid
+                  ? () async {
+                      if (await UpdateApply.readyApk() case final apk?) {
+                        await UpdateApply.installApk(apk);
+                      }
+                    }
+                  : null,
               title: Text('新版本 ${staged.tag} 已下载'),
               subtitle: Text(
                 Platform.isAndroid ? '下次启动时询问安装，也可点此立即安装' : '下次启动时更新',

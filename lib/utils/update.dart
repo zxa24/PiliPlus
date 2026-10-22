@@ -39,8 +39,56 @@ abstract final class Update {
       WidgetsBinding.instance.addPostFrameCallback((_) => _askOnce());
       return;
     }
-    if (Platform.isAndroid) unawaited(UpdateApply.offerStagedApk());
+    if (Platform.isAndroid) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _offerApk());
+    }
     if (action == UpdateStartUp.check) checkUpdate();
+  }
+
+  /// Android, a downloaded and verified update at launch: asked first
+  /// (user 2026-10-21: 「下次启动先问有更新，是否现在安装，可跳过或不再问」)
+  /// — 安装 opens the system installer, 跳过 asks again next launch,
+  /// 不再提示此版本 drops it until a newer one (手动检查更新 still offers it).
+  static Future<void> _offerApk() async {
+    final staged = await UpdateApply.readyApk();
+    if (staged == null) return;
+    UpdateStage.log('${staged.tag}: offered at launch');
+    SmartDialog.show(
+      clickMaskDismiss: false,
+      builder: (context) {
+        void skip() {
+          SmartDialog.dismiss();
+          UpdateStage.log('${staged.tag}: skipped this launch');
+        }
+
+        return AlertDialog(
+          title: const Text('有新版本'),
+          content: Text(
+            'LibrePili ${staged.tag} 已下载并校验，是否现在安装？\n\n'
+            '「跳过」：下次启动时再问。\n'
+            '「不再提示此版本」：删除已下载的安装包；有更新的版本时会再提示，'
+            '也可在「关于」页手动检查更新。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                SmartDialog.dismiss();
+                UpdateApply.skipApk(staged);
+              },
+              child: const Text('不再提示此版本'),
+            ),
+            TextButton(onPressed: skip, child: const Text('跳过')),
+            TextButton(
+              onPressed: () {
+                SmartDialog.dismiss();
+                UpdateApply.installApk(staged);
+              },
+              child: const Text('安装'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   static void _tell(String notice) {
@@ -79,7 +127,7 @@ abstract final class Update {
           content: const Text(
             '自动检查并下载更新？\n\n'
             '选「是」：每次启动时连接 GitHub 检查新版本，有新版本时在后台下载并校验，'
-            '下次启动时更新（Android 会弹出系统安装确认）。\n'
+            '下次启动时更新（Android 会先问是否现在安装）。\n'
             '选「否」：不会自动连接 GitHub；仍可在「关于」页手动检查更新。\n\n'
             '之后可在 设置 → 其它设置 →「检查更新」中更改。',
           ),
@@ -151,6 +199,11 @@ abstract final class Update {
         }
         return;
       }
+      // the build the user said not to be asked about again (Android)
+      if (isAuto && _skipped(data, host, plan)) {
+        UpdateStage.log('${data['tag_name']}: skipped by the user');
+        return;
+      }
       if (isAuto && !isSelfTestProfile && await _stage(data, host, plan)) {
         return;
       }
@@ -158,6 +211,18 @@ abstract final class Update {
     } catch (e) {
       if (kDebugMode) debugPrint('failed to check update: $e');
     }
+  }
+
+  /// Whether [release]'s file for this platform is the build the user said
+  /// not to be asked about again ([UpdateStage.skippedBuild]).
+  static bool _skipped(Map release, UpdateHost host, UpdatePlan plan) {
+    final kind = plan.kind;
+    if (kind == null) return false;
+    final skipped = UpdateStage.skippedBuild(UpdateApply.stagingDir);
+    if (skipped == null) return false;
+    final asset = UpdateLogic.assetFor(release['assets'], kind, abi: host.abi);
+    return asset != null &&
+        UpdateLogic.versionCodeOf('${asset['name']}') == skipped;
   }
 
   /// Starts downloading [release]'s file for this platform into the staging

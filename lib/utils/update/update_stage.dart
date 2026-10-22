@@ -63,12 +63,13 @@ abstract final class UpdateStage {
       p.join(dir, staged.asset);
 
   /// What clearing the staging folder keeps: the helper's last word, the
-  /// record of a build that failed to go in place, and a backup the helper
-  /// could not put back (the user's to deal with).
+  /// record of a build that failed to go in place or that the user skipped,
+  /// and a backup the helper could not put back (the user's to deal with).
   static bool _kept(String path) {
     final name = p.basename(path);
     return name == UpdateStaged.resultName ||
         name == UpdateStaged.failedName ||
+        name == UpdateStaged.skippedName ||
         name.startsWith(UpdateStaged.keptBackupPrefix);
   }
 
@@ -123,6 +124,26 @@ abstract final class UpdateStage {
       Directory(dir).createSync(recursive: true);
       File(p.join(dir, UpdateStaged.failedName)).writeAsStringSync('$code');
       log('build $code failed to go in place: not downloaded again by itself');
+    } catch (_) {}
+  }
+
+  /// The build the user skipped ([UpdateStaged.skippedName]).
+  static int? skippedBuild(String dir) {
+    try {
+      final file = File(p.join(dir, UpdateStaged.skippedName));
+      if (!file.existsSync()) return null;
+      return int.tryParse(file.readAsStringSync().trim());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Remembers [code] as the build the user said not to be asked about.
+  static void recordSkipped(String dir, int code) {
+    try {
+      Directory(dir).createSync(recursive: true);
+      File(p.join(dir, UpdateStaged.skippedName)).writeAsStringSync('$code');
+      log('build $code skipped by the user: not downloaded again by itself');
     } catch (_) {}
   }
 

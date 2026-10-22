@@ -551,6 +551,17 @@ void main() {
       ]);
     });
 
+    test('a skipped build is remembered and kept when clearing', () async {
+      expect(UpdateStage.skippedBuild(tmp.path), isNull);
+      UpdateStage.recordSkipped(tmp.path, 5690);
+      write(s.encode());
+      await UpdateStage.discard(tmp.path, 'test');
+      expect(UpdateStage.skippedBuild(tmp.path), 5690);
+      expect(tmp.listSync().map((e) => p.basename(e.path)), [
+        UpdateStaged.skippedName,
+      ]);
+    });
+
     test('a backup the helper could not put back is never cleared', () async {
       Directory(
         p.join(tmp.path, '${UpdateStaged.keptBackupPrefix}1240', 'data'),
