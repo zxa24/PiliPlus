@@ -4242,7 +4242,9 @@ abstract final class SelfTest {
     try {
       await WidgetsBinding.instance.endOfFrame;
       final view = WidgetsBinding.instance.renderViews.first;
-      final layer = view.debugLayer! as OffsetLayer;
+      // `layer`, not `debugLayer`: that one is null in a release build
+      // (a phone's, from CI)
+      final layer = view.layer! as OffsetLayer;
       // the root layer draws in physical pixels: bounds in logical ones cut
       // a window at 125 % scaling down to its left 80 % (measured: a
       // 1086-logical-wide page came out showing 869 of it)
