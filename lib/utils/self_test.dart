@@ -870,6 +870,14 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--sub-autospace') case final target?) {
       _shots = _arg(args, '--shots') ?? _shots;
+      // `--window-size 431x900`: the window at a phone's size first (desktop
+      // only), so the subtitles are laid out in an area as small as the
+      // phone's and the two can be compared (user 2026-10-21)
+      if (_arg(args, '--window-size')?.split('x') case [final w, final h]
+          when double.tryParse(w) != null && double.tryParse(h) != null) {
+        await SelfTestWindow.setSize(Size(double.parse(w), double.parse(h)));
+        await Future.delayed(const Duration(seconds: 1));
+      }
       await scenario(
         'subAutospace',
         () => _subAutospace(
