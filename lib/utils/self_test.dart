@@ -93,6 +93,8 @@ import 'package:PiliPlus/models/common/platform_mode.dart';
 import 'package:PiliPlus/models/common/setting_type.dart';
 import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
+import 'package:PiliPlus/services/youtube/stream_relay.dart';
+import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
@@ -1425,6 +1427,41 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--yt') case final video?) {
       await scenario('youtube', () => _youtube(video));
+    }
+    // `--yt-seek VIDEO --seek-to S [--refuse-from BYTES [--refuse-with 429]]
+    // [--refuse-times 2]] [--sample-for N] [--seek-paused]
+    // [--old-seek-failure]`: a YouTube video played a few seconds, then
+    // sent to S s as the progress bar sends it, and where it is each second
+    // after (user 2026-10-22: a jump to 10:30 went to the end — the
+    // companion answered the seek 429). `--refuse-from`: the relay answers
+    // so itself for bytes from there on, that many times. `--seek-paused`:
+    // paused first, played again halfway through. `--old-seek-failure`: a
+    // failed seek handled as before, to compare with.
+    if (_arg(args, '--yt-seek') case final video?) {
+      YtStreamRelay.debugRefuseFrom = int.tryParse(
+        _arg(args, '--refuse-from') ?? '',
+      );
+      YtStreamRelay.debugRefuseWith =
+          int.tryParse(_arg(args, '--refuse-with') ?? '') ?? 429;
+      YtStreamRelay.debugRefuseTimes =
+          int.tryParse(_arg(args, '--refuse-times') ?? '') ?? 2;
+      PlPlayerController.debugOldSeekFailure = args.contains(
+        '--old-seek-failure',
+      );
+      try {
+        await scenario(
+          'ytSeek',
+          () => _ytSeek(
+            video,
+            seekTo: int.tryParse(_arg(args, '--seek-to') ?? '') ?? 630,
+            sampleFor: int.tryParse(_arg(args, '--sample-for') ?? '') ?? 25,
+            paused: args.contains('--seek-paused'),
+          ),
+        );
+      } finally {
+        YtStreamRelay.debugRefuseFrom = null;
+        PlPlayerController.debugOldSeekFailure = false;
+      }
     }
     if (_arg(args, '--quality-codecs') case final video?) {
       await scenario('qualityCodecs', () => _qualityCodecs(video));
@@ -8228,6 +8265,84 @@ abstract final class SelfTest {
           },
       ];
     return {...result, 'pass': true};
+  }
+
+  /// See `--yt-seek`: passes when the playhead is where it was sent (or on
+  /// from there) [sampleFor] s later, not at the end.
+  static Future<Map<String, dynamic>> _ytSeek(
+    String input, {
+    required int seekTo,
+    required int sampleFor,
+    bool paused = false,
+  }) async {
+    final id = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+    YtVideoController? page;
+    for (var i = 0; i < 180; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        page = Get.find<YtVideoController>(tag: id);
+      } catch (_) {}
+      if (page?.stage.value == YtPageStage.ready) break;
+    }
+    if (page?.stage.value != YtPageStage.ready) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'YouTube page never became ready: ${page?.message.value}',
+      };
+    }
+    final player = page!.plPlayerController;
+    await player.play();
+    await Future.delayed(const Duration(seconds: 6));
+    final source = player.dataSource;
+    String line() =>
+        '${player.position.value}/${player.duration.value} s '
+        '${player.playerStatus.value.name} buffered ${player.buffered.value}';
+    if (paused) {
+      await player.pause();
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    final before = line();
+    await player.seekTo(Duration(seconds: seekTo), isSeek: false);
+    final samples = <String>[];
+    // paused, it is still paused there when played again
+    var held = !paused;
+    for (var i = 1; i <= sampleFor; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      samples.add('$i s: ${line()}');
+      if (paused && i == sampleFor ~/ 2) {
+        held =
+            player.playerStatus.isPaused &&
+            (player.position.value - seekTo).abs() <= 2;
+        await player.play();
+        samples.add('play');
+      }
+    }
+    final at = player.position.value;
+    final total = player.duration.value;
+    final ended = player.playerStatus.isCompleted || at >= total - 2;
+    Get.back();
+    await Future.delayed(const Duration(seconds: 2));
+    final pass =
+        held && !ended && at >= seekTo - 2 && at <= seekTo + sampleFor + 2;
+    return {
+      'pass': pass,
+      'id': id,
+      // through the relay (loopback) or straight from the host
+      'videoHost': source is NetworkSource
+          ? Uri.tryParse(source.videoSource)?.host
+          : null,
+      'before': before,
+      'seekTo': seekTo,
+      'samples': samples,
+      if (!pass)
+        'reason': ended
+            ? 'sent to the end'
+            : !held
+            ? 'not paused at $seekTo s when played again'
+            : 'at $at s, not where it was sent ($seekTo s)',
+    };
   }
 
   static Future<Map<String, dynamic>> _youtube(String input) async {

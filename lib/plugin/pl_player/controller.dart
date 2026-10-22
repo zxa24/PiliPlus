@@ -1830,6 +1830,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             _openStartedAt != null &&
             now.difference(_openStartedAt!) <
                 const Duration(milliseconds: 1500);
+        if (event.startsWith('Seek failed') && !closing) {
+          _checkFailedSeek(now);
+        }
         // a copy that ends early ends there for every request: once the
         // reconnect mpv makes of itself has stopped at the same byte, the
         // host is changed at once, while what is buffered still plays
@@ -2207,16 +2210,27 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final cached = buffered.value;
     if (total <= 0 || cached >= total - 5) return false;
     final last = _lastGood;
+    // a seek that failed: mpv took the refusal's 168 bytes for the whole
+    // file and ended it, the jump to 10:30 shown as the end (2026-10-22)
+    final target = debugOldSeekFailure ? null : _failedSeekTarget;
     final gaveUp =
-        _fatalReadAt != null &&
-        DateTime.now().difference(_fatalReadAt!) < const Duration(seconds: 10);
+        target != null ||
+        (_fatalReadAt != null &&
+            DateTime.now().difference(_fatalReadAt!) <
+                const Duration(seconds: 10));
     if (!gaveUp && (last == null || last.inSeconds >= total - 5)) return false;
     _fatalReadAt = null;
+    // where the viewer was going (the cache's end opened it at 7 s, not at
+    // 630 s: the seek had moved what [_lastGood] says there, past the cache,
+    // 2026-10-22 self-test) and [_checkFailedSeek] leaves it to this. Else
     // the playhead can have been sent to the end with it: no further than
     // what had arrived
-    final at = last != null && last.inSeconds <= cached + 2
-        ? last
-        : Duration(seconds: cached);
+    if (target != null) _seekTargetAt = null;
+    final at =
+        target ??
+        (last != null && last.inSeconds <= cached + 2
+            ? last
+            : Duration(seconds: cached));
     EventLog.add(
       'player',
       'ended at ${position.value} s with the cache to $cached s of $total s: '
@@ -2229,6 +2243,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _pausedAt = null;
       playerStatus.value = .playing;
     }
+    // and paused by the viewer, it stays so (see [renewalPlays])
+    _renewalPlays = !playerStatus.isPaused;
     // where it was, not the end it was sent to: shown, and what the check
     // on a failure compares with (276 s against 79 s read as playing on)
     position.value = at.inSeconds;
@@ -2252,6 +2268,67 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// The last seek made, and when: where a reopen after it failed goes.
   Duration? _seekTarget;
   DateTime? _seekTargetAt;
+
+  /// Where a seek that failed just now was going, if one did.
+  Duration? get _failedSeekTarget {
+    final now = DateTime.now();
+    if (_seekFailedAt case final failed?
+        when now.difference(failed) < const Duration(seconds: 15)) {
+      if (_seekTargetAt case final at?
+          when now.difference(at) < const Duration(seconds: 30)) {
+        return _seekTarget;
+      }
+    }
+    return null;
+  }
+
+  /// For the self-test's comparison (`--old-seek-failure`): a failed seek
+  /// left as it was before 2026-10-22. Nothing else sets it.
+  static bool debugOldSeekFailure = false;
+
+  /// A seek mpv could not make, looked at a moment later: unless the bytes
+  /// where it went have come after all, the video is opened again there,
+  /// from another host. An Invidious companion answered a jump to 10:30
+  /// with 429 and 168 bytes; mpv read those as the whole file, and the
+  /// playhead went to the end and stayed there, paused (the user's copy,
+  /// 2026-10-22). Without a length it stood at the target instead, the
+  /// picture never coming (self-test, same day). Neither is an error the
+  /// transport check knows, and the end is what it leaves alone.
+  void _checkFailedSeek(DateTime failedAt) {
+    if (debugOldSeekFailure) return;
+    EasyThrottle.throttle(
+      'PlPlayerController._checkFailedSeek',
+      const Duration(seconds: 3),
+      () {
+        final epoch = videoControllerEpoch.value;
+        // a reconnect of mpv's own can still bring it
+        Future.delayed(const Duration(seconds: 2), () {
+          if (videoControllerEpoch.value != epoch || _replacing) return;
+          // opened again since: the end taken for what it was
+          // ([_endedEarly]), or a failure's own recovery
+          if (_openStartedAt case final at? when at.isAfter(failedAt)) return;
+          final target = _failedSeekTarget;
+          if (target == null) return;
+          final s = target.inSeconds;
+          // there after all
+          if (buffered.value >= s && position.value <= buffered.value + 2) {
+            return;
+          }
+          EventLog.add(
+            'player',
+            'the seek to $s s failed (at ${position.value} s, the cache to '
+                '${buffered.value} s): another host there',
+          );
+          _seekTargetAt = null;
+          position.value = s;
+          _resumeAt = target;
+          // a seek made paused stays paused there (it played by itself)
+          _renewalPlays = !playerStatus.isPaused;
+          unawaited(_failOver());
+        });
+      },
+    );
+  }
 
   /// Where the next open is to start, set by a recovery that knows better
   /// than mpv's position; cleared by the open.

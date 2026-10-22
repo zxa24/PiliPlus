@@ -273,6 +273,17 @@ class YtStreamRelay {
   /// page): this file stays free of the app.
   static void Function(String line)? log;
 
+  /// Self-test: a request for bytes from this offset on answered with
+  /// [debugRefuseWith] and a short body, never asked of the upstream — as
+  /// an Invidious companion answered a seek (429, 168 bytes) in the user's
+  /// copy (2026-10-22).
+  static int? debugRefuseFrom;
+  static int debugRefuseWith = 429;
+
+  /// How many requests are refused so before the upstream is asked again
+  /// (one for each track: a limit that has passed by the reopen).
+  static int debugRefuseTimes = 2;
+
   HttpServer? _server;
   Future<HttpServer>? _starting;
 
@@ -402,6 +413,24 @@ class YtStreamRelay {
     }
     // nothing more is read from the player's request
     unawaited(request.drain<void>().catchError((_) {}));
+    if (debugRefuseFrom case final from?) {
+      final range = request.headers.value(HttpHeaders.rangeHeader) ?? '';
+      final start = int.tryParse(
+        RegExp(r'bytes=(\d+)-').firstMatch(range)?.group(1) ?? '',
+      );
+      if (start != null && start >= from && debugRefuseTimes > 0) {
+        debugRefuseTimes--;
+        log?.call('${upstream.host}: $debugRefuseWith (self-test)');
+        // sized like the companion's: mpv reads a known length as the file's
+        final text = 'Too Many Requests'.padRight(168);
+        response
+          ..statusCode = debugRefuseWith
+          ..contentLength = text.length
+          ..write(text);
+        await response.close().catchError((_) {});
+        return;
+      }
+    }
 
     // stoppable from the start: a request still waiting for its headers is
     // let go too (a quality change), not only one already streaming
