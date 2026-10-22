@@ -165,8 +165,8 @@ abstract final class CjkAutospace {
     return rebuild(root, inherited);
   }
 
-  /// [text] in [style]: [em] between CJK and Latin letters or digits when
-  /// [autospace], [tracking] em between two CJK characters, and Latin
+  /// [text] in [style]: [gap] em between CJK and Latin letters or digits
+  /// when [autospace] ([em] unless given), [tracking] em between two CJK characters, and Latin
   /// letters and digits at [latinScale] times the size — on a line with CJK
   /// in it only: a line of English keeps the size it was set to. On such a
   /// line they also sit [latinDrop] em below the baseline: Flutter has no
@@ -177,6 +177,7 @@ abstract final class CjkAutospace {
     String text,
     TextStyle style, {
     bool autospace = true,
+    double gap = em,
     double tracking = 0,
     double latinScale = 1,
     double latinDrop = 0,
@@ -196,7 +197,7 @@ abstract final class CjkAutospace {
             autospace &&
                 ((ideograph(prev) && alphanumeric(c)) ||
                     (alphanumeric(prev) && ideograph(c)))
-            ? em
+            ? gap
             : wide(prev) && wide(c)
             ? tracking
             : 0.0;

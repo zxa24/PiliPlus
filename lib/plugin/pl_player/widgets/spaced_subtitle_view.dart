@@ -40,6 +40,10 @@ class SpacedSubtitleView extends SubtitleView {
   /// Source Han Sans, from screenshots of 0.08 and 0). Self tests try others.
   static double tracking = 0.04;
 
+  /// Between CJK and Latin letters or digits, in em (user 2026-10-22, from
+  /// 0.125, CSS's and still the titles' and danmaku's).
+  static double latinGap = 0.2;
+
   /// Latin letters and digits on a line with CJK, times the size (user
   /// 2026-10-17 picked 1.05 of 1, 1.05 and 1.1: capitals 0.80 of the CJK
   /// face). Self tests try others.
@@ -50,8 +54,10 @@ class SpacedSubtitleView extends SubtitleView {
   /// the bottom of the CJK face, measured at 20–50 px), to the nearest pixel
   /// of [supersample]: CJK and Latin glyphs are each put on whole pixels, so
   /// a drop in between would come out a pixel more or less from line to
-  /// line (user: 「统一不漂移」).
-  static double latinDrop = 0.065;
+  /// line (user: 「统一不漂移」). 0.065 with YaHei, whose CJK face goes down
+  /// to 0.130 em below the baseline; 0.040 with Source Han Sans, to 0.080
+  /// (2026-10-22: 「英文数字看起来更靠下」 at 0.065, three quarters of the way).
+  static double latinDrop = 0.04;
 
   /// Drawn at this many times the resolution, then scaled down (1: as is).
   /// At the size of a subtitle Impeller hints glyphs and puts them on whole
@@ -221,6 +227,7 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
           line,
           style,
           autospace: autospace,
+          gap: SpacedSubtitleView.latinGap,
           tracking: SpacedSubtitleView.tracking,
           latinScale: SpacedSubtitleView.latinScale,
           latinDrop: drop,

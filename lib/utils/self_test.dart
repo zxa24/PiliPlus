@@ -874,6 +874,8 @@ abstract final class SelfTest {
       // `--sub-font system`: in the system's, as before Source Han Sans
       if (_arg(args, '--sub-font') case final font?) {
         SpacedSubtitleView.fontFamily = font == 'system' ? null : font;
+        // halfway down to YaHei's CJK face, as before
+        if (font == 'system') SpacedSubtitleView.latinDrop = 0.065;
       }
       // `--window-size 431x900`: the window at a phone's size first (desktop
       // only), so the subtitles are laid out in an area as small as the

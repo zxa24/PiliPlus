@@ -261,6 +261,17 @@ void main() {
       expect(s.toPlainText(), '用iPhone拍');
     });
 
+    test('a gap of another width where given (the subtitles\' 0.2 em)', () {
+      const style = TextStyle(fontSize: 40);
+      final s = CjkAutospace.span('用i拍', style, gap: 0.2);
+      final spacing = [
+        for (final c in s.children!.cast<TextSpan>()) c.style?.letterSpacing,
+      ];
+      // 用 and i each with the gap after them, 拍 with none
+      expect(spacing, [closeTo(8, 1e-9), null]);
+      expect(s.children!.cast<TextSpan>().first.text, '用i');
+    });
+
     testWidgets('the whole gap lands at the boundary, after the character', (
       tester,
     ) async {
