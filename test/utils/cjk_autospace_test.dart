@@ -101,6 +101,7 @@ void main() {
 
   group('a span tree', () {
     const base = TextStyle(fontSize: 20);
+    const gap = CjkAutospace.em * 20;
 
     /// (text, letterSpacing, recognizer) of each leaf, in order.
     List<(String, double?, GestureRecognizer?)> leaves(
@@ -140,9 +141,9 @@ void main() {
       expect(spaced.toPlainText(), '我用iPhone拍');
       expect(leaves(spaced), [
         ('我', null, null),
-        ('用', 2.5, null),
+        ('用', gap, null),
         ('iPhon', null, tap),
-        ('e', 2.5, tap),
+        ('e', gap, tap),
         ('拍', null, null),
       ]);
     });
@@ -171,8 +172,8 @@ void main() {
         base,
       );
       expect(leaves(spaced), [
-        ('中', 2.5, null),
-        ('A', 2.5, null),
+        ('中', gap, null),
+        ('A', gap, null),
         ('中', null, null),
       ]);
     });
@@ -189,7 +190,10 @@ void main() {
         ),
         base,
       );
-      expect(leaves(spaced), [('中', 0.5 + 1.25, null), ('A', 0.5, null)]);
+      expect(leaves(spaced), [
+        ('中', 0.5 + CjkAutospace.em * 10, null),
+        ('A', 0.5, null),
+      ]);
     });
 
     test('no gap: the same span back', () {
@@ -230,7 +234,11 @@ void main() {
         for (final c in s.children!.cast<TextSpan>())
           (c.text, c.style?.letterSpacing),
       ];
-      expect(pieces, [('中', 0.5 + 2), ('文', 0.5 + 2.5), ('A', null)]);
+      expect(pieces, [
+        ('中', 0.5 + 2),
+        ('文', 0.5 + CjkAutospace.em * 20),
+        ('A', null),
+      ]);
     });
 
     test('latinScale: letters and digits on a line with CJK, not spaces '
@@ -261,9 +269,9 @@ void main() {
       expect(s.toPlainText(), '用iPhone拍');
     });
 
-    test('a gap of another width where given (the subtitles\' 0.2 em)', () {
+    test('the gap is 0.2 em (user 2026-10-22)', () {
       const style = TextStyle(fontSize: 40);
-      final s = CjkAutospace.span('用i拍', style, gap: 0.2);
+      final s = CjkAutospace.span('用i拍', style);
       final spacing = [
         for (final c in s.children!.cast<TextSpan>()) c.style?.letterSpacing,
       ];

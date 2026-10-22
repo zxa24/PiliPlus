@@ -212,6 +212,7 @@ void main(List<String> args) async {
   // the setting read as each one is drawn
   danmaku.DmUtils.gapsOf = (text) =>
       Pref.cjkAutospace ? CjkAutospace.gaps(text) : const [];
+  danmaku.DmUtils.gapEm = CjkAutospace.em;
   // LibrePili: downloads read through the player's parallel fetch (the
   // pieces kept on disk first)
   DownloadManager.fetch = PlPlayerController.fetchForDownload;

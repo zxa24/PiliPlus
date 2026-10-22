@@ -6,7 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 /// A danmaku drawn with the gap between Chinese and Latin letters or digits
 /// (中英文间距): its line is wider by the gaps, and only by them.
 void main() {
-  tearDown(() => danmaku.DmUtils.gapsOf = null);
+  tearDown(() {
+    danmaku.DmUtils.gapsOf = null;
+    danmaku.DmUtils.gapEm = 0.125;
+  });
 
   double width(String text) => danmaku.DmUtils.generateParagraph(
     content: DanmakuContentItem(text),
@@ -14,12 +17,14 @@ void main() {
     fontWeight: 4,
   ).maxIntrinsicWidth;
 
-  test('one gap of 1/8 em at each boundary', () {
+  test('one gap of CjkAutospace.em at each boundary', () {
     final plain = width('用iPhone拍了3张');
+    // as the app sets it (main.dart)
     danmaku.DmUtils.gapsOf = CjkAutospace.gaps;
+    danmaku.DmUtils.gapEm = CjkAutospace.em;
     final spaced = width('用iPhone拍了3张');
     // 用|i, e|拍, 了|3, 3|张
-    expect(spaced - plain, closeTo(4 * 0.125 * 20, 0.01));
+    expect(spaced - plain, closeTo(4 * CjkAutospace.em * 20, 0.01));
   });
 
   test('none where there is no boundary, or the setting is off', () {

@@ -1,11 +1,11 @@
 /// LibrePili: a little space between Chinese or Japanese and Latin letters
 /// or digits, as CSS `text-autospace` puts it (user 2026-10-17:
-/// 「中英数字间隔」): 1/8 em, without a character put in the text — the one
+/// 「中英数字间隔」): 0.2 em, without a character put in the text — the one
 /// before the boundary is drawn with that much more letter spacing, so the
 /// width does not hang on whether a font has a thin space, and what is
 /// copied or searched is the text as it was. Flutter draws a character's
 /// letter spacing after it, except the first of a line, which it also moves
-/// in by half (1/16 em: not worth undoing).
+/// in by half (0.1 em: not worth undoing).
 ///
 /// Only where they touch: a space already there, punctuation (，。%…) and
 /// full-width letters get none. Hangul is left out (Korean is written with
@@ -19,8 +19,10 @@ library;
 import 'package:flutter/widgets.dart';
 
 abstract final class CjkAutospace {
-  /// The gap, in em (CSS: 1/8 of the ideographic width).
-  static const em = 0.125;
+  /// The gap, in em: in subtitles, titles and danmaku alike (user
+  /// 2026-10-22 「改成0.2em」, then 「标题和弹幕的中英文间隔 同步」; it was
+  /// CSS's, 1/8 of the ideographic width).
+  static const em = 0.2;
 
   /// Han ideographs and kana.
   static bool ideograph(int c) =>
@@ -165,8 +167,8 @@ abstract final class CjkAutospace {
     return rebuild(root, inherited);
   }
 
-  /// [text] in [style]: [gap] em between CJK and Latin letters or digits
-  /// when [autospace] ([em] unless given), [tracking] em between two CJK characters, and Latin
+  /// [text] in [style]: [em] between CJK and Latin letters or digits when
+  /// [autospace], [tracking] em between two CJK characters, and Latin
   /// letters and digits at [latinScale] times the size — on a line with CJK
   /// in it only: a line of English keeps the size it was set to. On such a
   /// line they also sit [latinDrop] em below the baseline: Flutter has no
@@ -177,7 +179,6 @@ abstract final class CjkAutospace {
     String text,
     TextStyle style, {
     bool autospace = true,
-    double gap = em,
     double tracking = 0,
     double latinScale = 1,
     double latinDrop = 0,
@@ -197,7 +198,7 @@ abstract final class CjkAutospace {
             autospace &&
                 ((ideograph(prev) && alphanumeric(c)) ||
                     (alphanumeric(prev) && ideograph(c)))
-            ? gap
+            ? em
             : wide(prev) && wide(c)
             ? tracking
             : 0.0;
