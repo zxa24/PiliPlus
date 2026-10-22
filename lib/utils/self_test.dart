@@ -870,6 +870,11 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--sub-autospace') case final target?) {
       _shots = _arg(args, '--shots') ?? _shots;
+      // `--sub-font NAME`: subtitles in another face bundled with the app;
+      // `--sub-font system`: in the system's, as before Source Han Sans
+      if (_arg(args, '--sub-font') case final font?) {
+        SpacedSubtitleView.fontFamily = font == 'system' ? null : font;
+      }
       // `--window-size 431x900`: the window at a phone's size first (desktop
       // only), so the subtitles are laid out in an area as small as the
       // phone's and the two can be compared (user 2026-10-21)

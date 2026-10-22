@@ -309,6 +309,9 @@ flutter:
     # the agreement the optional English recogniser (Parakeet) comes under,
     # passed on with it as its licence requires
     - assets/licenses/nvidia-open-model-license.txt
+    # the subtitles' face (Source Han Sans, below) goes with its licence, as
+    # the SIL Open Font License asks
+    - assets/licenses/source-han-sans-OFL.txt
     # 20 s of public-domain speech (LibriVox, the Gettysburg Address) that
     # the models page's performance test times the recognisers on
     - assets/bench/speech_en.m4a
@@ -320,6 +323,12 @@ flutter:
     - family: custom_icon
       fonts:
         - asset: assets/fonts/custom_icon.ttf
+    # Source Han Sans CN, variable weight 250-900, the subtitles' face (OFL,
+    # assets/licenses/source-han-sans-OFL.txt; adobe-fonts/source-han-sans
+    # release Variable/TTF/Subset/SourceHanSansCN-VF.ttf)
+    - family: SourceHanSansCN
+      fonts:
+        - asset: assets/fonts/SourceHanSansCN-VF.ttf
 
 # LibrePili: llamadart's build hook downloads its native runtimes (checksum
 # pinned in the package). Only llama.cpp on the CPU: LiteRT-LM was measured

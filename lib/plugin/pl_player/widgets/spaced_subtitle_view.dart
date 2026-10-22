@@ -25,9 +25,20 @@ class SpacedSubtitleView extends SubtitleView {
 
   final bool autospace;
 
+  /// The face bundled with the app that subtitles are drawn in, its weight
+  /// set on the variable font's `wght` axis (250-900); null: the system's
+  /// faces ([fontFallback]). Source Han Sans CN (user 2026-10-22, from
+  /// screenshots of it, Noto Sans SC and the system's at four weights): the
+  /// same face on every platform — Microsoft YaHei on Windows, Noto Sans CJK
+  /// on Android before — and a weight for every step of the setting, where
+  /// YaHei drew 500 as its regular. A character it lacks falls back on
+  /// [fontFallback]. Self tests try others (`--sub-font`).
+  static String? fontFamily = 'SourceHanSansCN';
+
   /// Between two CJK characters, in em (user 2026-10-17: 「cjk之间的调宽」,
-  /// 0.08 picked from screenshots of 0.05 and 0.08). Self tests try others.
-  static double tracking = 0.08;
+  /// 0.08 picked from screenshots of 0.05 and 0.08; 2026-10-22 0.04, with
+  /// Source Han Sans, from screenshots of 0.08 and 0). Self tests try others.
+  static double tracking = 0.04;
 
   /// Latin letters and digits on a line with CJK, times the size (user
   /// 2026-10-17 picked 1.05 of 1, 1.05 and 1.1: capitals 0.80 of the CJK
@@ -188,7 +199,17 @@ class _SpacedSubtitleViewState extends SubtitleViewState {
       final style = _whole(
         _unbacked(given).copyWith(
           fontSize: em,
+          fontFamily: SpacedSubtitleView.fontFamily,
           fontFamilyFallback: SpacedSubtitleView.fontFallback,
+          // a variable face takes its weight from the axis, not the style's
+          // weight (the font's own default instance is Thin)
+          fontVariations: SpacedSubtitleView.fontFamily == null
+              ? null
+              : [
+                  FontVariation.weight(
+                    (given.fontWeight ?? FontWeight.w400).value.toDouble(),
+                  ),
+                ],
         ),
       );
       final drop =
