@@ -4243,7 +4243,8 @@ abstract final class SelfTest {
       await WidgetsBinding.instance.endOfFrame;
       final view = WidgetsBinding.instance.renderViews.first;
       // `layer`, not `debugLayer`: that one is null in a release build
-      // (a phone's, from CI)
+      // (a phone's, from CI); read here only, never set
+      // ignore: invalid_use_of_protected_member
       final layer = view.layer! as OffsetLayer;
       // the root layer draws in physical pixels: bounds in logical ones cut
       // a window at 125 % scaling down to its left 80 % (measured: a
