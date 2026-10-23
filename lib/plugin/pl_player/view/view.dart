@@ -1959,6 +1959,29 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
               child: PlayerLoadFailed(onRetry: plPlayerController.retry),
             );
           }
+          // paused before the first frame: none comes until it plays, and
+          // the spinner turned for good (see pausedBeforeFrame)
+          if (plPlayerController.pausedBeforeFrame.value &&
+              plPlayerController.firstFrameWait.value &&
+              !plPlayerController.dataStatus.loading &&
+              !(widget.videoDetailController?.switching.value ?? false)) {
+            return Center(
+              child: IconButton(
+                key: const ValueKey('pausedBeforeFrame'),
+                tooltip: '播放',
+                onPressed: plPlayerController.play,
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black38,
+                  padding: const EdgeInsets.all(12),
+                ),
+                icon: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+            );
+          }
           if (plPlayerController.dataStatus.loading ||
               (plPlayerController.isBuffering.value &&
                   plPlayerController.playerStatus.isPlaying) ||

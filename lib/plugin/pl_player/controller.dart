@@ -737,6 +737,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final open = ++_openSeq;
     try {
       _processing = true;
+      pausedBeforeFrame.value = false;
       // a local file is the file: every plain one has cid 0 and bvid '',
       // and the next one looked like the same video (its picture held, the
       // subtitle and a pending seek kept — review 2026-10-21)
@@ -867,7 +868,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       cancelLongPressTimer();
       if (_videoPlayerController != null &&
           _videoPlayerController!.state.playing) {
-        await pause(notify: false);
+        // the video before's, not this one's (see pausedBeforeFrame)
+        _pausingTheOneBefore = true;
+        try {
+          await pause(notify: false);
+        } finally {
+          _pausingTheOneBefore = false;
+        }
         if (open != _openSeq) return;
       }
 
@@ -1422,6 +1429,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return _holdPicture(ctr).then((_) {
         if (heldPicture.value == null && !onlyPlayAudio.value) {
           firstFrameWait.value = true;
+          if (!play) pausedBeforeFrame.value = true;
         }
         _reopening = true;
         _openStartedAt = DateTime.now();
@@ -1462,8 +1470,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     // 自动播放
     if (_autoPlay) {
-      playIfExists();
+      if (playIfExists() == null) {
+        EventLog.add('player', 'autoplay asked, nothing played it');
+        if (firstFrameWait.value) pausedBeforeFrame.value = true;
+      }
       // await play(duration: duration);
+    } else if (firstFrameWait.value) {
+      pausedBeforeFrame.value = true;
     }
   }
 
@@ -1989,6 +2002,29 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// is (see [_releasePictureWhenShown]).
   final firstFrameWait = false.obs;
 
+  /// Paused with the first frame of an open not up yet: a frame shows only
+  /// once it plays (see [PictureReleaseWatch]), so the spinner over the cover
+  /// turned for good. The user's copy sat so on a related video at 0:00, its
+  /// cache full and 自动播放 on, and the spinner's tap, 重试, opened it paused
+  /// again (2026-10-23). The view puts a play button there instead.
+  final pausedBeforeFrame = false.obs;
+
+  /// [setDataSource] pausing the video before the one it opens.
+  var _pausingTheOneBefore = false;
+
+  /// The first frame of the caller of [pause], for the event log.
+  static String _pauseCaller() {
+    final frames = StackTrace.current.toString().split('\n');
+    final callers = [
+      for (final frame in frames)
+        if (frame.trim().isNotEmpty &&
+            !frame.contains('_pauseCaller') &&
+            !frame.contains('PlPlayerController.pause'))
+          frame.replaceFirst(RegExp(r'^#\d+\s+'), '').trim(),
+    ];
+    return callers.take(3).join(' < ');
+  }
+
   /// 听视频 off again: the cover and the spinner stay up until a frame of
   /// the video is. [reopening]: the video is opened again (the page's
   /// player init), whose open watches for the frame; otherwise `vid` came
@@ -1998,7 +2034,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _dropPicture();
     if (player == null || onlyPlayAudio.value) return;
     firstFrameWait.value = true;
-    if (!reopening) _releasePictureWhenShown(player);
+    if (!reopening) {
+      if (playerStatus.isPaused) pausedBeforeFrame.value = true;
+      _releasePictureWhenShown(player);
+    }
   }
 
   /// Self-test (`--no-hold`): no picture held, the control for the probe.
@@ -2180,6 +2219,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _pictureWatch?.cancel();
     _pictureWatch = null;
     firstFrameWait.value = false;
+    pausedBeforeFrame.value = false;
     final held = heldPicture.value;
     if (held == null) return;
     heldPicture.value = null;
@@ -4116,6 +4156,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// 播放视频
   Future<void> play({bool repeat = false, bool hideControls = true}) async {
     if (_playerCount == 0) return;
+    pausedBeforeFrame.value = false;
     // 播放时自动隐藏控制条
     controls = !hideControls;
     // repeat为true，将从头播放
@@ -4341,6 +4382,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// 暂停播放
   Future<void> pause({bool notify = true, bool isInterrupt = false}) async {
+    if (firstFrameWait.value && !_pausingTheOneBefore) {
+      pausedBeforeFrame.value = true;
+      EventLog.add(
+        'player',
+        'paused before the first frame, by ${_pauseCaller()}',
+      );
+    }
     _pausedAt ??= DateTime.now();
     // new URLs being fetched open paused (see [renewalPlays])
     if (_renewing) _renewalPlays = false;

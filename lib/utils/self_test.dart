@@ -1326,11 +1326,24 @@ abstract final class SelfTest {
     if (_arg(args, '--yt-search') case final query?) {
       await scenario('youtubeSearch', () => _youtubeSearch(query));
     }
-    // `--stacked-history A B`: B opened on top of A while A played at 50 s
+    // `--paused-open BV`: paused before its first frame, then played
+    if (_arg(args, '--paused-open') case final bvid?) {
+      await scenario('pausedOpen', () => _pausedOpen(bvid));
+    }
+    // `--stacked-history A B [--stack-seek S] [--stack-after N]`: B opened
+    // on top of A while A played at 50 s (or S), N s (6) after the seek
     if (_arg(args, '--stacked-history') case final first?) {
       final i = args.indexOf('--stacked-history');
       final second = i + 2 < args.length ? args[i + 2] : '';
-      await scenario('stackedHistory', () => _stackedHistory(first, second));
+      await scenario(
+        'stackedHistory',
+        () => _stackedHistory(
+          first,
+          second,
+          seekTo: int.tryParse(_arg(args, '--stack-seek') ?? '') ?? 50,
+          after: int.tryParse(_arg(args, '--stack-after') ?? '') ?? 6,
+        ),
+      );
     }
     if (_arg(args, '--history-probe') case final bili?) {
       // a fresh profile does not start the player on its own: without it
@@ -7762,10 +7775,16 @@ abstract final class SelfTest {
   /// shared player still reports the first video's position when the second
   /// page attaches; that must not be saved as the second's, nor be where the
   /// second starts.
+  ///
+  /// It must play, too: the user's copy opened a related video over one
+  /// sought past its cache a minute before, and the new one stayed paused at
+  /// 0:00 with its cache full, autoplay on, no first frame (2026-10-23).
   static Future<Map<String, dynamic>> _stackedHistory(
     String first,
-    String second,
-  ) async {
+    String second, {
+    int seekTo = 50,
+    int after = 6,
+  }) async {
     await LocalHistory.setPaused(false);
     await LocalHistory.clear();
     String url(String s) =>
@@ -7790,11 +7809,13 @@ abstract final class SelfTest {
     final player = a.plPlayerController;
     await Future.delayed(const Duration(seconds: 3));
     await player.play();
-    await player.seekTo(const Duration(seconds: 50), isSeek: false);
+    // as the progress bar seeks
+    await player.seekTo(Duration(seconds: seekTo), isSeek: false);
     await player.play();
-    await Future.delayed(const Duration(seconds: 6));
+    await Future.delayed(Duration(seconds: after));
     final aAt = player.videoPlayerController?.state.position.inMilliseconds;
 
+    final opensBefore = player.openCount;
     await PiliScheme.routePushFromUrl(url(second));
     await Future.delayed(const Duration(seconds: 2));
     final b = await top();
@@ -7806,17 +7827,101 @@ abstract final class SelfTest {
     final bLength = b.data.timeLength ?? 0;
     final entry = LocalHistory.get(LocalHistory.ugcKey(b.aid));
     final saved = entry?.parts['${b.cid.value}']?.progress;
+    final playing = player.playerStatus.value.isPlaying;
     return {
       'pass':
           bAt != null &&
           bAt < bLength - 2000 &&
-          (saved == null || saved <= bLength),
+          (saved == null || saved <= bLength) &&
+          playing &&
+          bAt > 2000 &&
+          !player.firstFrameWait.value,
+      'opens': player.openCount - opensBefore,
+      'firstFrameWait': player.firstFrameWait.value,
+      'mpvPlaying': player.videoPlayerController?.state.playing,
       'firstAt': aAt,
       'secondAt': bAt,
       'secondLength': bLength,
       'secondSaved': saved,
       'status': player.playerStatus.value.name,
     };
+  }
+
+  /// LibrePili: a video paused before its first frame is up shows a play
+  /// button, not a spinner that turns for good, and plays from it (the
+  /// user's copy, 2026-10-23: a related video at 0:00, its cache full, the
+  /// spinner's 重试 opening it paused again). The pause is made the moment
+  /// the open starts playing, before a frame can be up; the event log says
+  /// who paused.
+  static Future<Map<String, dynamic>> _pausedOpen(String bvid) async {
+    final start = DateTime.now();
+    unawaited(
+      PiliScheme.routePushFromUrl(
+        bvid.startsWith('http') ? bvid : 'https://www.bilibili.com/video/$bvid',
+      ),
+    );
+    // the page makes the player; its source comes a network answer later
+    PlPlayerController? found;
+    for (var i = 0; i < 500 && found == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 20));
+      found = PlPlayerController.instance;
+    }
+    final player = found;
+    if (player == null) return {'pass': false, 'reason': 'no player'};
+    var pausedAt = -1;
+    final worker = ever<PlayerStatus>(player.playerStatus, (status) {
+      if (pausedAt >= 0 || !status.isPlaying) return;
+      if (!player.firstFrameWait.value) return;
+      pausedAt = DateTime.now().difference(start).inMilliseconds;
+      player.pause();
+    });
+    Element? button() => _findElement(
+      (e) => e.widget.key == const ValueKey('pausedBeforeFrame'),
+    );
+    try {
+      // the open, its autoplay, the pause, and long enough that a spinner
+      // would still be turning
+      for (var i = 0; i < 60 && pausedAt < 0; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      await Future.delayed(const Duration(seconds: 4));
+      final shown = button() != null;
+      final waitingBefore = player.firstFrameWait.value;
+      final pausedBefore = player.playerStatus.value.name;
+      final logged = [
+        for (final (_, line) in EventLog.entries(since: start))
+          if (line.contains('paused before the first frame')) line,
+      ];
+      final tapped = await _tap(
+        (e) => e.widget.key == const ValueKey('pausedBeforeFrame'),
+      );
+      await Future.delayed(const Duration(seconds: 4));
+      final at = player.videoPlayerController?.state.position.inMilliseconds;
+      final playing = player.playerStatus.value.isPlaying;
+      return {
+        'pass':
+            pausedAt >= 0 &&
+            shown &&
+            waitingBefore &&
+            logged.isNotEmpty &&
+            tapped &&
+            playing &&
+            !player.firstFrameWait.value &&
+            button() == null &&
+            (at ?? 0) > 1000,
+        'pausedAtMs': pausedAt,
+        'buttonShown': shown,
+        'firstFrameWaitWhilePaused': waitingBefore,
+        'statusWhilePaused': pausedBefore,
+        'logged': logged,
+        'tapped': tapped,
+        'playingAfter': playing,
+        'firstFrameWaitAfter': player.firstFrameWait.value,
+        'positionAfterMs': at,
+      };
+    } finally {
+      worker.dispose();
+    }
   }
 
   static Future<Map<String, dynamic>> _historyProbe(
