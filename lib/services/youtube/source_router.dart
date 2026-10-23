@@ -200,6 +200,46 @@ class YtSourceRouter {
   /// What the video pages share.
   static final Map<String, YtSourceHealth> sharedHealth = {};
 
+  /// Called when a cooldown in [sharedHealth] starts or is cleared:
+  /// [sharedCooldowns] is what to keep for the next launch.
+  static void Function()? onSharedCooldown;
+
+  /// The cooldowns in [sharedHealth] still running, as JSON: a launch
+  /// within one goes to the fallback at once instead of asking the walled
+  /// source again (1-2 s on every first video).
+  static Map<String, Object?> sharedCooldowns({DateTime? now}) {
+    final at = now ?? DateTime.now();
+    return {
+      for (final MapEntry(key: id, value: h) in sharedHealth.entries)
+        if (h.cooldownUntil case final until? when at.isBefore(until))
+          id: {'until': until.millisecondsSinceEpoch, 'step': h.cooldownStep},
+    };
+  }
+
+  /// Takes back what [sharedCooldowns] gave. One that has run out is left
+  /// out, its ladder too: a launch after it starts afresh, as one did
+  /// before cooldowns were kept.
+  static void restoreSharedCooldowns(
+    Map<dynamic, dynamic> json, {
+    DateTime? now,
+  }) {
+    final at = now ?? DateTime.now();
+    for (final MapEntry(key: id, :value) in json.entries) {
+      if (id is! String || value is! Map) continue;
+      if (value case {'until': final int ms, 'step': final int step}) {
+        final until = DateTime.fromMillisecondsSinceEpoch(ms);
+        if (!at.isBefore(until)) continue;
+        sharedHealth.putIfAbsent(id, YtSourceHealth.new)
+          ..cooldownUntil = until
+          ..cooldownStep = step;
+      }
+    }
+  }
+
+  void _sharedCooldownChanged() {
+    if (identical(health, sharedHealth)) onSharedCooldown?.call();
+  }
+
   /// Set while auto mode is serving from the fallback, so the UI can say so
   /// and the user can see it was not their choice. A silent switch is how a
   /// broken client stays broken.
@@ -391,6 +431,7 @@ class YtSourceRouter {
       ..cooldownUntil = _now().add(ytCooldownLadder[step])
       ..cooldownStep = h.cooldownStep + 1
       ..blockSignalStreak = 0;
+    _sharedCooldownChanged();
   }
 
   /// Whether the direct source may be used right now.
@@ -403,6 +444,7 @@ class YtSourceRouter {
     if (v.cause != YtCause.ok) return false;
     healthOf(direct.id).clearCooldown();
     activeOverrideReason = null;
+    _sharedCooldownChanged();
     return true;
   }
 

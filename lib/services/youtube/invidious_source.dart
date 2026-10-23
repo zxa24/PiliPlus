@@ -23,7 +23,10 @@
 /// googlevideo directly where googlevideo serves this machine the
 /// instance's URLs — found out with a few bytes of the audio — and through
 /// the companion (`local=true`) where it refuses them, which was 9 videos of
-/// 10 measured (2026-10-12; Rick Astley the one served). The companion's
+/// 10 measured (2026-10-12; Rick Astley the one served). Refused
+/// [refusalsToRemember] times in a row, googlevideo is not asked for
+/// [refusalLasts]: the companion's manifest is read first, the 2-3 s of the
+/// probe and the other manifest saved on every video. The companion's
 /// streams are tried with a few bytes too: its manifest answering is not its
 /// streams answering (inv-de1.nadeko.net listed them and answered every one
 /// with a 502, 2026-10-16). When an instance cannot serve a video, the next
@@ -43,8 +46,17 @@
 ///
 /// A plain [HttpClient] of its own, like [IoYtTransport]: nothing of
 /// bilibili's, a browser user agent, and the gates' own cookies back to the
-/// hosts that set them (in memory only). Only the bare video id leaves this
-/// file.
+/// hosts that set them. Only the bare video id leaves this file.
+///
+/// ## Across launches
+///
+/// What it learned is handed to [onChanged] and back through [restore]
+/// (the app keeps it in its local cache): the registry, the instance that
+/// served last, the ones set aside, the gates' cookies that say when they
+/// end, and googlevideo's refusal. Without it every launch read the
+/// registry again, asked the instances set aside the launch before, and
+/// passed the gates afresh: 19 s from the bot wall to a playable video in
+/// a fresh profile, 9.5 of them inv.nadeko.net's go-away (2026-10-22).
 library;
 
 import 'dart:async';
@@ -127,6 +139,11 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// How long the registry's list is used before it is read again.
   static const registryLasts = Duration(hours: 6);
 
+  /// How many refusals of googlevideo's in a row make the companion the
+  /// first way, and for how long (then googlevideo is asked once again).
+  static const refusalsToRemember = 2;
+  static const refusalLasts = Duration(minutes: 30);
+
   /// Where each request's outcome is written (the event log, from the
   /// video page): this file stays free of the app.
   static void Function(String line)? log;
@@ -150,8 +167,17 @@ class YtInvidiousSource implements YouTubeVideoSource {
   final _benched = <String, ({DateTime until, String why})>{};
 
   /// The gates' cookies: `(domain, name) → value`, with whether the domain
-  /// is the setting host alone.
-  final _cookies = <(String, String), ({String value, bool hostOnly})>{};
+  /// is the setting host alone, and when it ends (null: with the session).
+  final _cookies =
+      <(String, String), ({String value, bool hostOnly, DateTime? until})>{};
+
+  /// googlevideo's refusals in a row, and until when it is not asked.
+  int _refusals = 0;
+  DateTime? _refusedUntil;
+
+  /// Called once what this source learned has changed (a video resolved
+  /// or not, an instance set aside): [toJson] is what to keep.
+  void Function()? onChanged;
 
   /// [ends]: when its URLs stop being served, as their `expire` says (the
   /// detail's own `expiresIn` is the time left when it was resolved).
@@ -185,7 +211,85 @@ class YtInvidiousSource implements YouTubeVideoSource {
     // very future to wait for, and it would never complete (2026-10-12)
     return _pending[videoId] ??= _resolve(videoId).whenComplete(() {
       _pending.remove(videoId);
+      onChanged?.call();
     });
+  }
+
+  // ------------------------------------------------------- across launches
+
+  /// What [restore] takes back: JSON, nothing that has run out.
+  Map<String, Object?> toJson() {
+    final now = _now();
+    return {
+      'registry': ?_registry,
+      if (_registryAt case final at?) 'registryAt': at.millisecondsSinceEpoch,
+      'preferred': ?_preferred,
+      'benched': {
+        for (final MapEntry(key: host, value: b) in _benched.entries)
+          if (now.isBefore(b.until))
+            host: {'until': b.until.millisecondsSinceEpoch, 'why': b.why},
+      },
+      // a session's cookie ends with it, as in a browser
+      'cookies': [
+        for (final MapEntry(key: (domain, name), :value) in _cookies.entries)
+          if (value.until case final until? when now.isBefore(until))
+            {
+              'domain': domain,
+              'name': name,
+              'value': value.value,
+              'hostOnly': value.hostOnly,
+              'until': until.millisecondsSinceEpoch,
+            },
+      ],
+      'refusals': _refusals,
+      if (_refusedUntil case final until? when now.isBefore(until))
+        'refusedUntil': until.millisecondsSinceEpoch,
+    };
+  }
+
+  /// Takes back what [toJson] gave, a launch before. Anything not of its
+  /// shape, or run out, is left out.
+  void restore(Map<dynamic, dynamic> json) {
+    final now = _now();
+    DateTime? time(Object? ms) =>
+        ms is int ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
+    if (json['registry'] case final List hosts
+        when hosts.every((h) => h is String && h.startsWith('https://'))) {
+      _registry = hosts.cast<String>();
+      _registryAt = time(json['registryAt']);
+    }
+    if (json['preferred'] case final String host) _preferred = host;
+    if (json['benched'] case final Map benched) {
+      for (final MapEntry(key: host, :value) in benched.entries) {
+        if (host is String && value is Map && value['why'] is String) {
+          if (time(value['until']) case final until? when now.isBefore(until)) {
+            _benched[host] = (until: until, why: value['why'] as String);
+          }
+        }
+      }
+    }
+    if (json['cookies'] case final List cookies) {
+      for (final c in cookies) {
+        if (c case {
+          'domain': final String domain,
+          'name': final String name,
+          'value': final String value,
+          'hostOnly': final bool hostOnly,
+        }) {
+          if (time(c['until']) case final until? when now.isBefore(until)) {
+            _cookies[(domain, name)] = (
+              value: value,
+              hostOnly: hostOnly,
+              until: until,
+            );
+          }
+        }
+      }
+    }
+    if (json['refusals'] case final int refusals) _refusals = refusals;
+    if (time(json['refusedUntil']) case final until? when now.isBefore(until)) {
+      _refusedUntil = until;
+    }
   }
 
   Future<YtResult<YtVideoDetail>> _resolve(String videoId) async {
@@ -288,7 +392,16 @@ class YtInvidiousSource implements YouTubeVideoSource {
         ),
       );
     }
-    final dash = relayed ? watch.relayedDashUrl : watch.dashUrl;
+    // googlevideo refused this machine the last times: the companion's
+    // manifest alone, nothing asked of googlevideo
+    final companionFirst =
+        !relayed &&
+        watch.relayedDashUrl != null &&
+        _refusedUntil != null &&
+        _now().isBefore(_refusedUntil!);
+    final dash = relayed || companionFirst
+        ? watch.relayedDashUrl
+        : watch.dashUrl;
     if (dash == null) {
       return const YtResult.failed(
         YtVerdict(
@@ -330,8 +443,8 @@ class YtInvidiousSource implements YouTubeVideoSource {
     // (1 in 10, 2026-10-12): asked once with a few bytes, and through the
     // companion only when it refuses
     final relayedDash = watch.relayedDashUrl;
-    var throughCompanion = relayed;
-    if (!relayed &&
+    var throughCompanion = relayed || companionFirst;
+    if (!throughCompanion &&
         relayedDash != null &&
         relayedDash != dash &&
         await _isPublic(base.resolve(relayedDash)) == true) {
@@ -345,6 +458,16 @@ class YtInvidiousSource implements YouTubeVideoSource {
           '$videoId: googlevideo refuses it here, '
           'through ${base.resolve(relayedDash).host}',
         );
+        if (++_refusals >= refusalsToRemember) {
+          _refusedUntil = _now().add(refusalLasts);
+          log?.call(
+            'googlevideo refused $_refusals times in a row: through the '
+            'companion first for ${refusalLasts.inMinutes} min',
+          );
+        }
+      } else if (probe != null) {
+        _refusals = 0;
+        _refusedUntil = null;
       }
     }
     if (throughCompanion) {
@@ -616,6 +739,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
         'the player could not open its streams',
       ),
     );
+    onChanged?.call();
   }
 
   // ------------------------------------------------------------- captions
@@ -993,6 +1117,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
   }
 
   String? _cookieFor(String host) {
+    final now = _now();
+    _cookies.removeWhere(
+      (_, c) => c.until != null && !now.isBefore(c.until!),
+    );
     final pairs = [
       for (final MapEntry(key: (domain, name), :value) in _cookies.entries)
         if (host == domain || (!value.hostOnly && host.endsWith('.$domain')))
@@ -1017,7 +1145,14 @@ class YtInvidiousSource implements YouTubeVideoSource {
       if (c.value.isEmpty || c.maxAge == 0) {
         _cookies.remove(key);
       } else {
-        _cookies[key] = (value: c.value, hostOnly: set == null || set.isEmpty);
+        _cookies[key] = (
+          value: c.value,
+          hostOnly: set == null || set.isEmpty,
+          // Max-Age over Expires, as a browser takes them
+          until: c.maxAge != null
+              ? _now().add(Duration(seconds: c.maxAge!))
+              : c.expires,
+        );
       }
     }
   }

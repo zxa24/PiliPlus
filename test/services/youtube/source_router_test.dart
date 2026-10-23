@@ -204,6 +204,59 @@ void main() {
         );
       });
 
+      test('the shared cooldowns, kept for the next launch', () async {
+        addTearDown(() {
+          YtSourceRouter.sharedHealth.clear();
+          YtSourceRouter.onSharedCooldown = null;
+        });
+        final now = DateTime.utc(2026, 10, 22, 20);
+        var saved = 0;
+        YtSourceRouter.onSharedCooldown = () => saved++;
+        final direct = ScriptedYtSource('direct', [_walled]);
+        final spy = ScriptedYtSource('spy', [_ok]);
+        await YtSourceRouter(
+          direct,
+          fallback: spy,
+          health: YtSourceRouter.sharedHealth,
+          clock: () => now,
+        ).run((s) => s.streams('dQw4w9WgXcQ'));
+        expect(saved, 1);
+        final kept = YtSourceRouter.sharedCooldowns(now: now);
+        expect((kept['direct']! as Map)['step'], 1);
+
+        // a router of its own health tells nobody
+        await YtSourceRouter(
+          ScriptedYtSource('direct', [_walled]),
+          fallback: spy,
+          clock: () => now,
+        ).run((s) => s.streams('dQw4w9WgXcQ'));
+        expect(saved, 1);
+
+        // the next launch, a minute on: straight to the fallback
+        YtSourceRouter.sharedHealth.clear();
+        YtSourceRouter.restoreSharedCooldowns(
+          kept,
+          now: now.add(const Duration(minutes: 1)),
+        );
+        expect(
+          YtSourceRouter(
+            direct,
+            fallback: spy,
+            health: YtSourceRouter.sharedHealth,
+            clock: () => now.add(const Duration(minutes: 1)),
+          ).sourceOrder().first.id,
+          'spy',
+        );
+
+        // past the cooldown: nothing back, the ladder from its foot
+        YtSourceRouter.sharedHealth.clear();
+        YtSourceRouter.restoreSharedCooldowns(
+          kept,
+          now: now.add(const Duration(minutes: 6)),
+        );
+        expect(YtSourceRouter.sharedHealth, isEmpty);
+      });
+
       test('a SECOND (b) sets the cooldown and falls through', () async {
         final h = _Harness(directScript: [_blocked], fallbackScript: [_ok]);
         await h.call();

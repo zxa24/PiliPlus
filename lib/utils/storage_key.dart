@@ -310,7 +310,10 @@ abstract final class LocalCacheKey {
       danmakuFilterRules = 'danmakuFilterRules',
       mixinKey = 'mixinKey',
       timeStamp = 'timeStamp',
-      buvid = 'buvid';
+      buvid = 'buvid',
+      // what the YouTube sources learned (yt_source_store.dart)
+      ytInvidious = 'ytInvidious',
+      ytCooldowns = 'ytCooldowns';
 }
 
 abstract final class VideoBoxKey {

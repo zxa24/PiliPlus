@@ -8276,15 +8276,19 @@ abstract final class SelfTest {
     bool paused = false,
   }) async {
     final id = tryParseYouTubeVideoId(input) ?? input;
+    // from the tap to a page that can play: the bot wall found and the
+    // fallback's instance resolved, when it comes to that
+    final opening = Stopwatch()..start();
     unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
     YtVideoController? page;
-    for (var i = 0; i < 180; i++) {
-      await Future.delayed(const Duration(milliseconds: 500));
+    for (var i = 0; i < 900; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
       try {
         page = Get.find<YtVideoController>(tag: id);
       } catch (_) {}
       if (page?.stage.value == YtPageStage.ready) break;
     }
+    final readyMs = opening.elapsedMilliseconds;
     if (page?.stage.value != YtPageStage.ready) {
       Get.back();
       return {
@@ -8330,6 +8334,7 @@ abstract final class SelfTest {
       'pass': pass,
       'id': id,
       // through the relay (loopback) or straight from the host
+      'readyMs': readyMs,
       'videoHost': source is NetworkSource
           ? Uri.tryParse(source.videoSource)?.host
           : null,

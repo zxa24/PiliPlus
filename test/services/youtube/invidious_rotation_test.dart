@@ -357,6 +357,78 @@ void main() {
         },
       );
 
+      test('refused twice in a row: then the companion first, googlevideo '
+          'and its manifest not asked, until it is asked again', () async {
+        var now = DateTime(2026, 10, 22, 20);
+        final net = refusing(403);
+        final source = net.source(['https://a.example'], clock: () => now);
+        int googlevideo() =>
+            net.asked.where((u) => u.host.endsWith('googlevideo.com')).length;
+        int plainManifests() => net.asked
+            .where(
+              (u) =>
+                  u.path.contains('/manifest/dash/') &&
+                  u.queryParameters['local'] != 'true',
+            )
+            .length;
+        for (var i = 0; i < 2; i++) {
+          source.forget('dQw4w9WgXcQ');
+          expect((await source.streams('dQw4w9WgXcQ')).ok, isTrue);
+        }
+        // each probe follows one redirect
+        expect(googlevideo(), 4);
+        expect(plainManifests(), 2);
+
+        net.asked.clear();
+        source.forget('dQw4w9WgXcQ');
+        final r = await source.streams('dQw4w9WgXcQ');
+        expect(Uri.parse(r.value!.videoUrl).host, companion);
+        expect(googlevideo(), 0);
+        expect(plainManifests(), 0);
+        // the companion's streams still tried with a few bytes
+        expect(
+          net.asked.where((u) => u.path == '/companion/videoplayback'),
+          hasLength(1),
+        );
+
+        // half an hour on: asked once more
+        now = now.add(YtInvidiousSource.refusalLasts);
+        net.asked.clear();
+        source.forget('dQw4w9WgXcQ');
+        await source.streams('dQw4w9WgXcQ');
+        expect(googlevideo(), 2);
+      });
+
+      test('a refusal and then a video served: no streak', () async {
+        var status = 403;
+        final net = refusing(403)
+          ..on('.googlevideo.com', '/videoplayback', (q) {
+            return q.uri.queryParameters.containsKey('ipbypass')
+                ? InvidiousAnswer(status, '')
+                : const InvidiousAnswer(
+                    302,
+                    '',
+                    location: 'https://rr9---x.googlevideo.com/videoplayback?ipbypass=yes',
+                  );
+          });
+        final source = net.source(['https://a.example']);
+        await source.streams('dQw4w9WgXcQ');
+        status = 206;
+        source.forget('dQw4w9WgXcQ');
+        await source.streams('dQw4w9WgXcQ');
+        status = 403;
+        source.forget('dQw4w9WgXcQ');
+        await source.streams('dQw4w9WgXcQ');
+        net.asked.clear();
+        source.forget('dQw4w9WgXcQ');
+        await source.streams('dQw4w9WgXcQ');
+        // one refusal since the video served: googlevideo still asked
+        expect(
+          net.asked.where((u) => u.host.endsWith('googlevideo.com')),
+          isNotEmpty,
+        );
+      });
+
       test('always through the companion when asked to be', () async {
         final net = refusing(206);
         final r = await net
@@ -398,6 +470,114 @@ void main() {
       expect(fallback.preferredHost, YtInvidiousSource.knownHosts.first);
     });
   });
+
+  group('across launches', () {
+    /// A CAPTCHA instance, then one behind Anubis whose pass sets
+    /// [cookie]; how many times the gate was passed is [passes].
+    ({_Net net, int Function() passes}) gatedNet(Cookie cookie) {
+      var passes = 0;
+      final gate = fixture('anubis_tiekoetter.html');
+      final net = _Net()
+        ..on(
+          'captcha.example',
+          '/watch',
+          (_) => _page('<title>Auth with CAPTCHA</title>'),
+        )
+        ..on('gated.example', '/watch', (request) {
+          final sent = request.headers[HttpHeaders.cookieHeader] ?? '';
+          return sent.contains('anubis-auth=ok') ? _page(watch) : _page(gate);
+        })
+        ..on(
+          'gated.example',
+          '/.within.website/x/cmd/anubis/api/pass-challenge',
+          (_) {
+            passes++;
+            return InvidiousAnswer(
+              302,
+              '',
+              location: '/watch?v=dQw4w9WgXcQ',
+              cookies: [cookie],
+            );
+          },
+        )
+        ..serveVideo('gated.example', null, dash, captionList);
+      return (net: net, passes: () => passes);
+    }
+
+    const hosts = ['https://captcha.example', 'https://gated.example'];
+
+    test('the instance that served, the one set aside and the gate passed: '
+        'none asked again on the next launch', () async {
+      final now = DateTime(2026, 10, 22, 20);
+      final (:net, :passes) = gatedNet(
+        Cookie('anubis-auth', 'ok')..maxAge = 7 * 24 * 3600,
+      );
+      var changed = 0;
+      final before = net.source(hosts, clock: () => now)
+        ..onChanged = () => changed++;
+      expect((await before.detail('dQw4w9WgXcQ')).ok, isTrue);
+      expect(passes(), 1);
+      expect(changed, 1);
+      // through JSON, as the app keeps it
+      final kept = jsonDecode(jsonEncode(before.toJson())) as Map;
+
+      net.asked.clear();
+      final after = net.source(hosts, clock: () => now)..restore(kept);
+      expect(after.preferredHost, 'https://gated.example');
+      expect((await after.detail('dQw4w9WgXcQ')).ok, isTrue);
+      expect(passes(), 1);
+      expect(net.asked.where((u) => u.host == 'captcha.example'), isEmpty);
+    });
+
+    test('a session cookie is not kept; one run out is not sent', () async {
+      final now = DateTime(2026, 10, 22, 20);
+      final session = gatedNet(Cookie('anubis-auth', 'ok'));
+      final a = session.net.source(hosts, clock: () => now);
+      await a.detail('dQw4w9WgXcQ');
+      expect(a.toJson()['cookies'], isEmpty);
+
+      var later = now;
+      final short = gatedNet(Cookie('anubis-auth', 'ok')..maxAge = 60);
+      final b = short.net.source(hosts, clock: () => later);
+      await b.detail('dQw4w9WgXcQ');
+      expect(short.passes(), 1);
+      later = now.add(const Duration(minutes: 2));
+      b.forget('dQw4w9WgXcQ');
+      await b.detail('dQw4w9WgXcQ');
+      // passed again: the cookie had run out
+      expect(short.passes(), 2);
+    });
+
+    test('what has run out by then, or is not of the shape, is left out', () {
+      final now = DateTime(2026, 10, 22, 20);
+      final source = YtInvidiousSource(hosts: hosts, clock: () => now)
+        ..restore({
+          'registry': ['http://plain.example'],
+          'preferred': 42,
+          'benched': {
+            'https://old.example': {
+              'until': now
+                  .subtract(const Duration(minutes: 1))
+                  .millisecondsSinceEpoch,
+              'why': 'x',
+            },
+            'https://bad.example': 'nonsense',
+          },
+          'cookies': [
+            {'domain': 'a.example', 'name': 'n'},
+          ],
+          'refusedUntil': now
+              .subtract(const Duration(seconds: 1))
+              .millisecondsSinceEpoch,
+        });
+      expect(source.preferredHost, isNull);
+      final json = source.toJson();
+      expect(json['registry'], isNull);
+      expect(json['benched'], isEmpty);
+      expect(json['cookies'], isEmpty);
+      expect(json['refusedUntil'], isNull);
+    });
+  });
 }
 
 Object? jsonDecodeFile(String path) =>
@@ -428,25 +608,29 @@ class _Net {
     on('*', '/companion/api/manifest/dash/', (_) => _page(dash));
   }
 
-  YtInvidiousSource source(List<String>? hosts, {bool relayed = false}) =>
-      YtInvidiousSource(
-        hosts: hosts,
-        relayed: relayed,
-        fetch: (uri, {required method, required headers}) async {
-          final request = (uri: uri, method: method, headers: headers);
-          requests.add(request);
-          _asked.add(uri);
-          for (final MapEntry(key: (host, path), value: answer)
-              in _routes.entries) {
-            final hostMatches =
-                host == uri.host ||
-                host == '*' ||
-                (host.startsWith('.') && uri.host.endsWith(host));
-            if (hostMatches && uri.path.startsWith(path)) {
-              return answer(request);
-            }
-          }
-          return const InvidiousAnswer(404, 'not found');
-        },
-      );
+  YtInvidiousSource source(
+    List<String>? hosts, {
+    bool relayed = false,
+    DateTime Function()? clock,
+  }) => YtInvidiousSource(
+    hosts: hosts,
+    relayed: relayed,
+    clock: clock,
+    fetch: (uri, {required method, required headers}) async {
+      final request = (uri: uri, method: method, headers: headers);
+      requests.add(request);
+      _asked.add(uri);
+      for (final MapEntry(key: (host, path), value: answer)
+          in _routes.entries) {
+        final hostMatches =
+            host == uri.host ||
+            host == '*' ||
+            (host.startsWith('.') && uri.host.endsWith(host));
+        if (hostMatches && uri.path.startsWith(path)) {
+          return answer(request);
+        }
+      }
+      return const InvidiousAnswer(404, 'not found');
+    },
+  );
 }

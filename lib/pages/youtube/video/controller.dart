@@ -45,6 +45,7 @@ import 'package:PiliPlus/services/youtube/invidious_instances.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_tracks.dart';
 import 'package:PiliPlus/services/youtube/yt_download.dart';
+import 'package:PiliPlus/services/youtube/yt_source_store.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -76,6 +77,8 @@ class YtVideoController extends GetxController
     );
     YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
     YtStreamRelay.log ??= (line) => EventLog.add('relay', line);
+    // a source passed in (a test's) learns nothing worth keeping
+    if (source == null) YtSourceStore.load();
   }
 
   final String videoId;
