@@ -121,13 +121,25 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
             child: CustomScrollView(
               slivers: [
                 Obx(() {
+                  // LibrePili: the one shown is what is working — the running
+                  // download, then a complete video whose comments etc. are
+                  // being saved, then one waiting; a failed one only when
+                  // nothing else is (user 2026-10-23 3A: a failed download
+                  // ahead in the queue hid the one running). Read so a
+                  // status change shows another
+                  final cur = _downloadService.curDownload.value;
+                  final queue = _downloadService.waitDownloadQueue;
+                  final running = queue.firstWhereOrNull(
+                    (e) =>
+                        e.cid == _downloadService.curCid && !e.status.isFailed,
+                  );
                   final entry =
-                      _downloadService.waitDownloadQueue.firstWhereOrNull(
-                        (e) => e.cid == _downloadService.curCid,
-                      ) ??
-                      _downloadService.waitDownloadQueue.firstOrNull ??
+                      running ??
                       // complete videos whose comments etc. are being saved
-                      _downloadService.extrasQueue.firstOrNull;
+                      _downloadService.extrasQueue.firstOrNull ??
+                      queue.firstWhereOrNull((e) => !e.status.isFailed) ??
+                      queue.firstWhereOrNull((e) => e.cid == cur?.cid) ??
+                      queue.firstOrNull;
                   final count =
                       _downloadService.waitDownloadQueue.length +
                       _downloadService.extrasQueue.length;
@@ -150,7 +162,9 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                               progress: _progress,
                               downloadService: _downloadService,
                               showTitle: true,
-                              isCurr: true,
+                              // its bar follows the running download: only
+                              // when it is that one
+                              isCurr: entry.cid == cur?.cid,
                               controller: _controller,
                             ),
                           ),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:io';
+import 'dart:typed_data' show Uint8List;
 import 'dart:ui'
     as ui
     show FramePhase, FrameTiming, ImageByteFormat, PlatformDispatcher;
@@ -52,6 +53,9 @@ import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart'
     as bili_sub;
 import 'package:PiliPlus/pages/danmaku/controller.dart';
+import 'package:PiliPlus/pages/download/detail/widgets/item.dart'
+    show DetailItem;
+import 'package:PiliPlus/pages/download/view.dart' show DownloadPage;
 import 'package:PiliPlus/pages/danmaku/view.dart' show PlDanmaku;
 import 'package:canvas_danmaku/base_danmaku_painter.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart' show DanmakuScreen;
@@ -919,6 +923,18 @@ abstract final class SelfTest {
       await scenario(
         'download',
         () => _download(bvid, qn, keep: args.contains('--keep')),
+      );
+    }
+    if (_arg(args, '--download-queue') case final first?) {
+      final i = args.indexOf('--download-queue');
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario(
+        'downloadQueue',
+        () => _downloadQueue(
+          first,
+          args.elementAtOrNull(i + 2) ?? '',
+          damageTimes: int.tryParse(_arg(args, '--damage-times') ?? '') ?? 99,
+        ),
       );
     }
     if (_arg(args, '--download-transcribe') case final bvid?) {
@@ -10344,6 +10360,210 @@ abstract final class SelfTest {
       'srtHead': srtText.length > 400 ? srtText.substring(0, 400) : srtText,
       'video': merged,
     };
+  }
+
+  /// `--download-queue A B [--shots DIR]`: what the cache page shows while
+  /// B downloads behind A, whose merge failed — its video stream is damaged
+  /// just before the merge, as a bad transfer left one in the user's queue
+  /// (user 2026-10-23: 「未显示正在下载的那个」, only the failed one shown).
+  /// Sampled every 0.5 s on the page itself: the one item of 「正在缓存」,
+  /// its count, and whether B is in the list below; B must be seen while it
+  /// is the one working (downloading, or saving its extras — waiting behind
+  /// another's it may not be). `--damage-times N`
+  /// (default 99, every merge as the user's did): A's merges damaged.
+  static Future<Map<String, dynamic>> _downloadQueue(
+    String a,
+    String b, {
+    required int damageTimes,
+  }) async {
+    final service = Get.find<DownloadService>();
+    await service.waitForInitialization;
+    final resA = await VideoHttp.videoIntro(bvid: a);
+    final resB = await VideoHttp.videoIntro(bvid: b);
+    if (resA is! Success<VideoDetailData> ||
+        resB is! Success<VideoDetailData>) {
+      return {'pass': false, 'error': 'videoIntro failed: $resA / $resB'};
+    }
+    final detailA = resA.response;
+    final detailB = resB.response;
+    final pageA = detailA.pages!.first;
+    final pageB = detailB.pages!.first;
+    final cidA = pageA.cid!;
+    final cidB = pageB.cid!;
+    Future<void> clean() async {
+      for (final e in [...service.downloadList, ...service.waitDownloadQueue]) {
+        if (e.cid == cidA || e.cid == cidB) {
+          await service.deleteDownload(
+            entry: e,
+            removeList: true,
+            removeQueue: true,
+            deleteExported: true,
+          );
+        }
+      }
+    }
+
+    await clean();
+    // the middle third of A's video overwritten, its length kept: complete
+    // to the transfer, damaged to the merge (box headers in it)
+    var damaged = 0;
+    DownloadService.selfTestBeforeMerge = (entry) async {
+      if (entry.cid != cidA || damaged >= damageTimes) return;
+      damaged++;
+      final file = File(
+        path.join(
+          entry.entryDirPath,
+          entry.streamTypeTag,
+          PathUtils.videoNameType2,
+        ),
+      );
+      final length = file.lengthSync();
+      final raf = await file.open(mode: FileMode.append);
+      try {
+        final junk = Uint8List(1 << 20)..fillRange(0, 1 << 20, 0xA5);
+        for (var at = length ~/ 3; at < length * 2 ~/ 3; at += junk.length) {
+          await raf.setPosition(at);
+          await raf.writeFrom(junk, 0, math.min(junk.length, length - at));
+        }
+      } finally {
+        await raf.close();
+      }
+    };
+    final quality = VideoQuality.fromCode(80);
+    BiliDownloadEntryInfo? find(int cid) => [
+      ...service.waitDownloadQueue,
+      ...service.extrasQueue,
+      ...service.downloadList,
+    ].firstWhereOrNull((e) => e.cid == cid);
+
+    try {
+      final started = DateTime.now();
+      double at() => DateTime.now().difference(started).inMilliseconds / 1000;
+      final statusesA = <String>[];
+      String? lastA;
+      void noteA() {
+        final s = find(cidA)?.status.name ?? 'none';
+        if (s != lastA) statusesA.add('${at()}: ${lastA = s}');
+      }
+
+      service.downloadVideo(pageA, detailA, null, quality);
+      // A merged and failed (or, retried, done): B is downloaded behind it
+      final untilA = DateTime.now().add(const Duration(minutes: 10));
+      while (DateTime.now().isBefore(untilA)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        noteA();
+        final e = find(cidA);
+        if (damaged > 0 &&
+            e != null &&
+            (e.status.isFailed || service.downloadList.contains(e))) {
+          break;
+        }
+      }
+      if (damaged == 0) {
+        return {'pass': false, 'error': 'A never merged', 'a': statusesA};
+      }
+      final aAfterMerge = find(cidA)?.status.name;
+      final fileA = find(cidA)?.entryDirPath;
+      final aStreamsLeft = fileA == null
+          ? null
+          : [
+              for (final f in Directory(fileA).listSync(recursive: true))
+                if (f is File &&
+                    path.basename(f.path).startsWith(RegExp('video|audio')))
+                  '${path.basename(f.path)} ${f.lengthSync()}',
+            ];
+
+      unawaited(Get.to(() => const DownloadPage()));
+      await Future.delayed(const Duration(milliseconds: 1500));
+      service.downloadVideo(pageB, detailB, null, quality);
+
+      String phaseB() {
+        if (service.waitDownloadQueue.any((e) => e.cid == cidB)) {
+          return service.curCid == cidB ? 'downloading' : 'queued';
+        }
+        if (service.extrasQueue.any((e) => e.cid == cidB)) return 'extras';
+        if (service.downloadList.any((e) => e.cid == cidB)) return 'done';
+        return 'none';
+      }
+
+      final timeline = <Map<String, Object?>>[];
+      final shots = <String?>[];
+      var invisible = 0.0;
+      final until = DateTime.now().add(const Duration(minutes: 15));
+      var doneAt = 0.0;
+      while (DateTime.now().isBefore(until)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        noteA();
+        final slot = <int>[];
+        final list = <int>[];
+        void visit(Element e) {
+          // the one of 「正在缓存」 is the item without a delete action
+          if (e.widget case final DetailItem item) {
+            (item.onDelete == null ? slot : list).add(item.entry.cid);
+          }
+          e.visitChildren(visit);
+        }
+
+        WidgetsBinding.instance.rootElement?.visitChildren(visit);
+        final count = _visibleTexts().firstWhereOrNull(
+          (t) => t.startsWith('正在缓存'),
+        );
+        final phase = phaseB();
+        final statusB = find(cidB)?.status;
+        final seen = slot.contains(cidB) || list.contains(cidB);
+        final working =
+            phase == 'downloading' ||
+            phase == 'done' ||
+            statusB == DownloadStatus.savingExtras;
+        if (working && !seen) invisible += 0.5;
+        final row = {
+          't': at(),
+          'b': phase,
+          'bStatus': statusB?.name,
+          'slot': [
+            for (final c in slot) c == cidA ? 'A' : (c == cidB ? 'B' : '$c'),
+          ],
+          'count': count,
+          'bListed': list.contains(cidB),
+          'a': find(cidA)?.status.name,
+        };
+        final last = timeline.lastOrNull;
+        if (last == null ||
+            last['b'] != row['b'] ||
+            last['bStatus'] != row['bStatus'] ||
+            '${last['slot']}' != '${row['slot']}' ||
+            last['count'] != row['count'] ||
+            last['bListed'] != row['bListed'] ||
+            last['a'] != row['a']) {
+          timeline.add(row);
+          shots.add(await _shot('queue_${timeline.length}_$phase'));
+        }
+        if (phase == 'done') {
+          if (doneAt == 0) doneAt = at();
+          if (at() - doneAt > 3) break;
+        }
+      }
+      Get.back();
+      return {
+        'pass': phaseB() == 'done' && invisible == 0,
+        'damagedMerges': damaged,
+        'downloadLog': [
+          for (final line in EventLog.recent)
+            if (line.contains('[download]')) line,
+        ],
+        'cidA': cidA,
+        'cidB': cidB,
+        'aStatuses': statusesA,
+        'aAfterMerge': aAfterMerge,
+        'aStreamsAfterMerge': aStreamsLeft,
+        'bInvisibleSeconds': invisible,
+        'timeline': timeline,
+        'shots': shots,
+      };
+    } finally {
+      DownloadService.selfTestBeforeMerge = null;
+      await clean();
+    }
   }
 
   static Future<Map<String, dynamic>> _download(

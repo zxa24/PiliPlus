@@ -165,8 +165,19 @@ class ParallelFetch {
   /// proxy, standing between this and the host).
   static Uri Function(Uri uri)? debugUpstream;
 
-  Future<void> start() async {
-    if (_server != null) return;
+  /// The bind in flight: a second start meanwhile waits for it. Two at once
+  /// (a download's video and audio before anything played, user's queue
+  /// 2026-10-23) bound two servers; the first then answered 404 to all it
+  /// had handed out (its host header is checked against the last one's
+  /// port), and the video failed.
+  Future<void>? _starting;
+
+  Future<void> start() {
+    if (_server != null) return Future.value();
+    return _starting ??= _bind().whenComplete(() => _starting = null);
+  }
+
+  Future<void> _bind() async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _client.maxConnectionsPerHost = connections * 3;
     _server = server;

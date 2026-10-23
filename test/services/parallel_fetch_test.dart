@@ -226,6 +226,26 @@ void main() {
     expect(Uri.parse(a).pathSegments.last, '127.0.0.1');
   });
 
+  // a download's video and audio start it at once when nothing played yet
+  // (user's queue, 2026-10-23): two servers, and the one bound first
+  // answered 404 to every request, the video failing after its attempts
+  test('started twice at once: one server, what it hands out is served', () async {
+    final twice = ParallelFetch(chunkBytes: 256 * 1024);
+    try {
+      final first = twice.start();
+      final second = twice.start();
+      await first;
+      final a = twice.wrap(upstream.url)!;
+      await second;
+      expect(twice.wrap(upstream.url), a);
+      final r = await get(a, range: 'bytes=0-99');
+      expect(r.status, 206);
+      expect(r.body, data.sublist(0, 100));
+    } finally {
+      await twice.close();
+    }
+  });
+
   test("bilibili's stream hosts only", () {
     expect(
       ParallelFetch.isBilibili(

@@ -473,10 +473,20 @@ enum DownloadStatus {
   // LibrePili: the video is complete, the extras next to it are not
   extrasWait('等待保存评论等'),
   savingExtras('保存评论等'),
+  // LibrePili: failed, started again on its own in a while
+  retryWait('下载失败，稍后自动重试'),
   ;
 
   final String message;
   const DownloadStatus(this.message);
 
   bool get isDownloading => index <= 4;
+
+  /// LibrePili: stopped by a failure (the danmaku's is not one: the video
+  /// goes on without it). The queue passes over these (`nextDownload` of
+  /// the download service).
+  bool get isFailed => switch (this) {
+    failDownload || failDownloadAudio || failPlayUrl || failMerge => true,
+    _ => false,
+  };
 }

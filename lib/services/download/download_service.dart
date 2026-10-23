@@ -40,6 +40,7 @@ import 'package:PiliPlus/utils/mp4_remux.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/permission_handler.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:collection/collection.dart' show IterableExtension;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
@@ -85,7 +86,116 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       entry.status = status;
       curDownload.refresh();
       entry.progress.statusChanged();
+      if (status.isFailed) _retryLater(entry, status);
     }
+  }
+
+  /// LibrePili: a failed download is started again on its own (user
+  /// 2026-10-23 「加一个自动重试下载失败的」), after these waits. Each start
+  /// asks for a new play URL (an old one expires, a CDN host may be the
+  /// trouble) and resumes from the bytes on disk; within one start the
+  /// transfer itself already tries [DownloadManager]'s attempts.
+  static const _retryWaits = [
+    Duration(seconds: 10),
+    Duration(seconds: 30),
+    Duration(seconds: 90),
+  ];
+
+  /// Retries made per cid since its download last got anywhere: like the
+  /// transfer's own budget, a retry that saved more bytes is not failing,
+  /// and the count starts over.
+  final _retries = <int, int>{};
+
+  /// Bytes on disk per cid when it last failed.
+  final _retryBytes = <int, int>{};
+
+  /// cids whose damaged streams were downloaded again: once per start by
+  /// the user (the same damage again is not fixed by another 400 MB).
+  final _redownloaded = <int>{};
+
+  void _forgetRetries(int cid) {
+    _retries.remove(cid);
+    _retryBytes.remove(cid);
+    _redownloaded.remove(cid);
+  }
+
+  int _bytesOnDisk(BiliDownloadEntryInfo entry) {
+    var bytes = 0;
+    try {
+      final dir = Directory(_streamDirPath(entry));
+      if (!dir.existsSync()) return 0;
+      for (final f in dir.listSync()) {
+        if (f is File &&
+            !f.path.endsWith('.json') &&
+            !f.path.endsWith('.size')) {
+          bytes += f.lengthSync();
+        }
+      }
+    } catch (_) {}
+    return bytes;
+  }
+
+  void _retryLater(BiliDownloadEntryInfo entry, DownloadStatus status) {
+    // off screen (Android): started again once the app is back, see
+    // [_resumeFailedAway]
+    if (_away) return;
+    final cid = entry.cid;
+    if (status == DownloadStatus.failMerge) {
+      // only damaged streams that were removed are worth a start again; the
+      // bytes it downloads anew are not progress against the budget below
+      if (entry.downloadedBytes != 0 || !_redownloaded.add(cid)) {
+        _gaveUp(entry, status, 'merge');
+        return;
+      }
+    } else {
+      final bytes = _bytesOnDisk(entry);
+      if (bytes > (_retryBytes[cid] ?? -1)) _retries[cid] = 0;
+      _retryBytes[cid] = bytes;
+    }
+    final made = _retries[cid] ?? 0;
+    if (made >= _retryWaits.length) {
+      _gaveUp(entry, status, '${_retryWaits.length} retries');
+      return;
+    }
+    _retries[cid] = made + 1;
+    final wait = _retryWaits[made];
+    EventLog.add(
+      'download',
+      '$cid: ${status.name} (${lastError ?? '-'}), '
+          'again in ${wait.inSeconds} s (${made + 1}/${_retryWaits.length})',
+    );
+    entry.status = DownloadStatus.retryWait;
+    curDownload.refresh();
+    entry.progress.statusChanged();
+    // a pause, a delete or another start meanwhile bumps the generation
+    final gen = _startGen;
+    Timer(wait, () {
+      if (gen != _startGen ||
+          curDownload.value?.cid != cid ||
+          entry.status != DownloadStatus.retryWait) {
+        return;
+      }
+      startDownload(entry, retry: true);
+    });
+  }
+
+  /// No more retries: it stays failed for the user, and the queue goes on
+  /// with the downloads waiting behind it.
+  void _gaveUp(BiliDownloadEntryInfo entry, DownloadStatus status, String why) {
+    EventLog.add(
+      'download',
+      '${entry.cid}: ${status.name} (${lastError ?? '-'}), '
+          'no more retries ($why)',
+    );
+    _retries.remove(entry.cid);
+    _retryBytes.remove(entry.cid);
+    final gen = _startGen;
+    // after the failing start has unwound
+    scheduleMicrotask(() {
+      if (gen == _startGen && curDownload.value?.cid == entry.cid) {
+        nextDownload();
+      }
+    });
   }
 
   DownloadManager? _downloadManager;
@@ -615,8 +725,14 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     return dir.path;
   }
 
-  Future<void> startDownload(BiliDownloadEntryInfo entry) {
+  /// [retry]: started again by [_retryLater]; any other start is the
+  /// user's (or the queue's) and its retries count from nothing.
+  Future<void> startDownload(
+    BiliDownloadEntryInfo entry, {
+    bool retry = false,
+  }) {
     _releaseExtras();
+    if (!retry) _forgetRetries(entry.cid);
     // already finished downloading; the merge completes it
     if (_mergingCids.contains(entry.cid)) return Future.value();
     final gen = ++_startGen;
@@ -1061,7 +1177,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     _mergingCids.add(cid);
     _mergeDeletedCids.remove(cid);
     _updateCurStatus(DownloadStatus.merging);
-    final (:output, :inputs, :damaged) = await _mergeDownload(entry);
+    if (selfTestBeforeMerge case final hook?) await hook(entry);
+    final (:output, :inputs, :damaged, :corrupt) = await _mergeDownload(
+      entry,
+    );
     _mergingCids.remove(cid);
     final pauseNext = _pauseAfterMergeCid == cid;
     if (pauseNext) _pauseAfterMergeCid = null;
@@ -1078,12 +1197,31 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     }
     if (damaged) {
       // segments still damaged / missing: not complete. Stays in the queue
-      // as failed (like a failed transfer, the queue waits for the user);
-      // starting it again fetches a fresh play URL and merges again.
+      // as failed; starting it again fetches a fresh play URL and merges
+      // again.
+      if (corrupt) {
+        // LibrePili: dash bytes damaged at their full size (a bad transfer
+        // left one in the user's queue that failed the same way on every
+        // start, user 2026-10-23 1A): removed, so the start again downloads
+        // them anew instead of merging the same bytes
+        for (final input in inputs) {
+          await File(input).tryDel();
+          await File('$input.size').tryDel();
+        }
+        entry.downloadedBytes = 0;
+        entry.progress.video(0, entry.totalBytes);
+        EventLog.add('download', '$cid: damaged streams removed');
+        // as [_retryLater] decides: once per start by the user
+        SmartDialog.showToast(
+          _away || _redownloaded.contains(cid)
+              ? '音视频文件再次损坏，已删除，可稍后重新开始该下载'
+              : '音视频文件已损坏，将重新下载',
+        );
+      }
+      await _updateBiliDownloadEntryJson(entry);
       if (curDownload.value?.cid == cid) {
         _updateCurStatus(DownloadStatus.failMerge);
       }
-      await _updateBiliDownloadEntryJson(entry);
       return;
     }
     // segments that had no common MP4 mapping were kept apart: record the
@@ -1253,6 +1391,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// the next one's); pause/start requests for them are ignored.
   final _mergingCids = <int>{};
 
+  /// Self test only: runs on the downloaded streams before they are merged
+  /// (`--download-queue` damages them there, as a bad transfer would).
+  static Future<void> Function(BiliDownloadEntryInfo entry)?
+  selfTestBeforeMerge;
+
   /// cid of the entry being merged when the notification's 「暂停」 was
   /// tapped: the next download is not started after its merge.
   int? _pauseAfterMergeCid;
@@ -1265,8 +1408,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// caller removes once completion is saved. On failure the stream files
   /// are kept, so the entry still plays in-app as before. [damaged]: durl
   /// segments are damaged / missing even after re-downloading, so the
-  /// entry must not be treated as complete.
-  Future<({String? output, List<String> inputs, bool damaged})> _mergeDownload(
+  /// entry must not be treated as complete. [corrupt]: dash streams whose
+  /// bytes are damaged — complete in size, so a start again would only
+  /// resume nothing and merge the same bytes; the caller removes them.
+  Future<({String? output, List<String> inputs, bool damaged, bool corrupt})>
+  _mergeDownload(
     BiliDownloadEntryInfo entry,
   ) async {
     final videoDir = _streamDirPath(entry);
@@ -1334,7 +1480,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         await _remuxInBackground(inputs, output);
       }
       entry.mergedPath = output;
-      return (output: output, inputs: inputs, damaged: false);
+      return (output: output, inputs: inputs, damaged: false, corrupt: false);
     } catch (e) {
       if (output != null) {
         await File(output).tryDel();
@@ -1349,16 +1495,27 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       // queue so starting it again re-downloads and merges it
       final damaged =
           e is FormatException || e is RangeError || e is FileSystemException;
+      final corrupt =
+          entry.mediaType != 1 && (e is FormatException || e is RangeError);
       entry.status = DownloadStatus.failMerge;
-      SmartDialog.showToast(
-        damaged
-            ? (entry.mediaType == 1
-                  ? '视频分段已损坏且重新下载失败，可稍后重新开始该下载'
-                  : '音视频文件已损坏或丢失，可稍后重新开始该下载')
-            : '合并音视频失败，已保留分离的音视频文件',
-      );
+      // a corrupt one's is told by the caller: whether it downloads again
+      if (!corrupt) {
+        SmartDialog.showToast(
+          damaged
+              ? (entry.mediaType == 1
+                    ? '视频分段已损坏且重新下载失败，可稍后重新开始该下载'
+                    : '音视频文件丢失或无法读取，可稍后重新开始该下载')
+              : '合并音视频失败，已保留分离的音视频文件',
+        );
+      }
+      EventLog.add('download', '${entry.cid}: merge failed: $e');
       if (kDebugMode) debugPrint('merge download error: $e');
-      return (output: null, inputs: inputs, damaged: damaged);
+      return (
+        output: null,
+        inputs: inputs,
+        damaged: damaged,
+        corrupt: corrupt,
+      );
     } finally {
       if (output != null) _mergeFolders.remove(path.dirname(output));
     }
@@ -1755,9 +1912,13 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   }
 
   void nextDownload() {
-    if (waitDownloadQueue.isNotEmpty) {
-      startDownload(waitDownloadQueue.first);
-    }
+    // LibrePili: past the failed ones (user 2026-10-23 2A): they already had
+    // their retries, and one whose streams are damaged failed again on every
+    // start — after each other download completed. They wait for the user.
+    final next = waitDownloadQueue.firstWhereOrNull(
+      (e) => !e.status.isFailed && e.cid != curDownload.value?.cid,
+    );
+    if (next != null) startDownload(next);
   }
 
   Future<void> deleteDownload({
