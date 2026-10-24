@@ -21,6 +21,12 @@ analyzer:
     - web/**
     - build/**
     # - lib/common/widgets/flutter/**
+  # LibrePili: a cid (int) looked up in a map or set keyed by strings (or
+  # compared with one) compiles and quietly finds nothing; these two lints
+  # are what catches it (download-platforms design, AC1 lint)
+  errors:
+    collection_methods_unrelated_type: error
+    unrelated_type_equality_checks: error
 
 formatter:
   trailing_commas: preserve
@@ -86,5 +92,7 @@ linter:
     - prefer_spread_collections
     - unnecessary_to_list_in_spreads
     - prefer_for_elements_to_map_fromIterable
+    - collection_methods_unrelated_type
+    - unrelated_type_equality_checks
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

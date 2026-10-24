@@ -29,6 +29,7 @@ import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_keepalive.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
+import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/danmaku_utils.dart';
@@ -101,6 +102,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     Duration(seconds: 90),
   ];
 
+  /// Tests only: in place of [_retryWaits] (a test does not wait 10 s).
+  @visibleForTesting
+  static List<Duration>? retryWaitsForTest;
+
   /// Retries made per cid since its download last got anywhere: like the
   /// transfer's own budget, a retry that saved more bytes is not failing,
   /// and the count starts over.
@@ -152,17 +157,18 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       if (bytes > (_retryBytes[cid] ?? -1)) _retries[cid] = 0;
       _retryBytes[cid] = bytes;
     }
+    final retryWaits = retryWaitsForTest ?? _retryWaits;
     final made = _retries[cid] ?? 0;
-    if (made >= _retryWaits.length) {
-      _gaveUp(entry, status, '${_retryWaits.length} retries');
+    if (made >= retryWaits.length) {
+      _gaveUp(entry, status, '${retryWaits.length} retries');
       return;
     }
     _retries[cid] = made + 1;
-    final wait = _retryWaits[made];
+    final wait = retryWaits[made];
     EventLog.add(
       'download',
       '$cid: ${status.name} (${lastError ?? '-'}), '
-          'again in ${wait.inSeconds} s (${made + 1}/${_retryWaits.length})',
+          'again in ${wait.inSeconds} s (${made + 1}/${retryWaits.length})',
     );
     entry.status = DownloadStatus.retryWait;
     curDownload.refresh();
@@ -323,6 +329,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   }
 
   void _syncKeepAlive() => keepAlive.update(_keepAliveState, visible: !_away);
+
+  @visibleForTesting
+  DownloadKeepAliveState? get keepAliveStateForTest => _keepAliveState;
 
   /// What the job's notification shows; null while nothing downloads.
   DownloadKeepAliveState? get _keepAliveState {
@@ -821,7 +830,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         if (!isUpdate && gen == _startGen) {
           _updateCurStatus(DownloadStatus.failDanmaku);
         }
-        if (kDebugMode) SmartDialog.showToast(e.toString());
+        if (kDebugMode) (toastForTest ?? SmartDialog.showToast)(e.toString());
         return false;
       }
     }
@@ -868,12 +877,13 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       _updateCurStatus(DownloadStatus.getPlayUrl);
 
       final oldTypeTag = entry.typeTag;
-      final mediaFileInfo = await DownloadHttp.getVideoUrl(
-        entry: entry,
-        ep: entry.ep,
-        source: entry.source,
-        pageData: entry.pageData,
-      );
+      final mediaFileInfo =
+          await (getVideoUrlForTest ?? DownloadHttp.getVideoUrl)(
+            entry: entry,
+            ep: entry.ep,
+            source: entry.source,
+            pageData: entry.pageData,
+          );
       if (gen != _startGen) return;
 
       // the stream is picked again on every start (codec / login / quality
@@ -940,7 +950,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
           _startSegment(mediaFileInfo.segmentList, 0, videoDir.path);
           break;
         case Type2 mediaFileInfo:
-          _downloadManager = DownloadManager(
+          _downloadManager = (newManagerForTest ?? DownloadManager.new)(
             url: mediaFileInfo.video.first.baseUrl,
             backupUrls: mediaFileInfo.video.first.backupUrl ?? const [],
             path: path.join(videoDir.path, PathUtils.videoNameType2),
@@ -955,7 +965,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
           );
           final audio = mediaFileInfo.audio;
           if (audio != null && audio.isNotEmpty) {
-            _audioDownloadManager = DownloadManager(
+            _audioDownloadManager = (newManagerForTest ?? DownloadManager.new)(
               url: audio.first.baseUrl,
               backupUrls: audio.first.backupUrl ?? const [],
               path: path.join(videoDir.path, PathUtils.audioNameType2),
@@ -1016,7 +1026,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     final done = segments.take(index).fold<int>(0, (s, e) => s + e.bytes);
     final segment = segments[index];
     late final DownloadManager manager;
-    manager = DownloadManager(
+    manager = (newManagerForTest ?? DownloadManager.new)(
       url: segment.url,
       backupUrls: segment.backupUrls,
       path: path.join(dir, PathUtils.segmentNameType1(index)),
@@ -1071,6 +1081,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     });
     return save;
   }
+
+  /// Tests only: an entry saved the way the downloads save it.
+  @visibleForTesting
+  Future<void> saveEntryForTest(BiliDownloadEntryInfo entry) =>
+      _updateBiliDownloadEntryJson(entry);
 
   /// Writes `entry.json` through `<file>.tmp` + rename: this runs on every
   /// size change and at the completion point, so a truncated file would
@@ -1178,9 +1193,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     _mergeDeletedCids.remove(cid);
     _updateCurStatus(DownloadStatus.merging);
     if (selfTestBeforeMerge case final hook?) await hook(entry);
-    final (:output, :inputs, :damaged, :corrupt) = await _mergeDownload(
-      entry,
-    );
+    final (:output, :inputs, :damaged, :corrupt) =
+        await (mergeForTest ?? _mergeDownload)(entry);
     _mergingCids.remove(cid);
     final pauseNext = _pauseAfterMergeCid == cid;
     if (pauseNext) _pauseAfterMergeCid = null;
@@ -1212,7 +1226,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         entry.progress.video(0, entry.totalBytes);
         EventLog.add('download', '$cid: damaged streams removed');
         // as [_retryLater] decides: once per start by the user
-        SmartDialog.showToast(
+        (toastForTest ?? SmartDialog.showToast)(
           _away || _redownloaded.contains(cid)
               ? '音视频文件再次损坏，已删除，可稍后重新开始该下载'
               : '音视频文件已损坏，将重新下载',
@@ -1338,7 +1352,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       entry.status = DownloadStatus.savingExtras;
       extrasQueue.refresh();
       try {
-        await DownloadExtras.export(
+        await (exportExtrasForTest ?? DownloadExtras.export)(
           entry: entry,
           folder: path.dirname(output),
           base: path.basenameWithoutExtension(output),
@@ -1395,6 +1409,57 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// (`--download-queue` damages them there, as a bad transfer would).
   static Future<void> Function(BiliDownloadEntryInfo entry)?
   selfTestBeforeMerge;
+
+  // Tests only: stand-ins for what a download reaches out to (null: the
+  // real call). They let a test run the queue on a temporary folder with no
+  // network, no transfer and no remux.
+
+  /// In place of [DownloadHttp.getVideoUrl].
+  @visibleForTesting
+  static Future<BiliDownloadMediaInfo> Function({
+    required BiliDownloadEntryInfo entry,
+    SourceInfo? source,
+    PageInfo? pageData,
+    EpInfo? ep,
+  })?
+  getVideoUrlForTest;
+
+  /// In place of the [DownloadManager] constructor (video, audio and each
+  /// durl segment).
+  @visibleForTesting
+  static DownloadManager Function({
+    required String url,
+    List<String> backupUrls,
+    required String path,
+    required void Function(int, int)? onReceiveProgress,
+    required void Function([Object? error]) onDone,
+    int expectedTotal,
+  })?
+  newManagerForTest;
+
+  /// In place of [_mergeDownload], all of it: one that succeeds sets
+  /// [BiliDownloadEntryInfo.mergedPath] itself, as [_mergeDownload] does.
+  @visibleForTesting
+  static Future<
+    ({String? output, List<String> inputs, bool damaged, bool corrupt})
+  >
+  Function(BiliDownloadEntryInfo entry)?
+  mergeForTest;
+
+  /// In place of [DownloadExtras.export].
+  @visibleForTesting
+  static Future<Map<String, Object?>> Function({
+    required BiliDownloadEntryInfo entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  })?
+  exportExtrasForTest;
+
+  /// In place of [SmartDialog.showToast].
+  @visibleForTesting
+  static void Function(String msg)? toastForTest;
 
   /// cid of the entry being merged when the notification's 「暂停」 was
   /// tapped: the next download is not started after its merge.
@@ -1500,7 +1565,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       entry.status = DownloadStatus.failMerge;
       // a corrupt one's is told by the caller: whether it downloads again
       if (!corrupt) {
-        SmartDialog.showToast(
+        (toastForTest ?? SmartDialog.showToast)(
           damaged
               ? (entry.mediaType == 1
                     ? '视频分段已损坏且重新下载失败，可稍后重新开始该下载'
@@ -1656,7 +1721,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     }
     final first = copied.first;
     if (inputs.length > 1) {
-      SmartDialog.showToast('分段无法合并，已按原格式分为${inputs.length}个文件保存');
+      (toastForTest ?? SmartDialog.showToast)(
+        '分段无法合并，已按原格式分为${inputs.length}个文件保存',
+      );
     }
     return first;
   }
@@ -1853,30 +1920,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
 
   static Future<String> _exportFilePath(BiliDownloadEntryInfo entry) async {
     final dir = await _exportDir();
-    final parts = <String>[entry.title];
-    if (entry.ep case final ep?) {
-      parts.add(ep.showTitle ?? '${ep.index} ${ep.indexTitle}');
-    } else if (entry.pageData case final page?) {
-      final part = page.part;
-      if (part != null && part.isNotEmpty && part != entry.title) {
-        parts.add('P${page.page} $part');
-      }
-    }
-    var name = parts
-        .join(' - ')
-        .replaceAll(_illegalFileChars, '_')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    // cut by code point (never half an emoji); the name is used twice in
-    // the path (folder and file), so keep it short for Windows' 260 limit
-    if (name.runes.length > 80) {
-      name = String.fromCharCodes(name.runes.take(80)).trim();
-    }
-    if (entry.qualityPithyDescription.isNotEmpty) {
-      name +=
-          ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
-    }
-    name = exportFolderName(name);
+    final name = _exportName(entry);
     // one folder per video: the mp4 plus danmaku / subtitles / comments
     // a folder holding only a half-written `.part` (app killed mid-merge) is
     // left over from an earlier attempt: reuse it instead of orphaning it
@@ -1909,6 +1953,39 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       rethrow;
     }
     return path.join(folder.path, '$base.mp4');
+  }
+
+  @visibleForTesting
+  static String exportNameForTest(BiliDownloadEntryInfo entry) =>
+      _exportName(entry);
+
+  /// The export's folder and file name (without the extension, and before
+  /// a ` (n)` that keeps it apart from another).
+  static String _exportName(BiliDownloadEntryInfo entry) {
+    final parts = <String>[entry.title];
+    if (entry.ep case final ep?) {
+      parts.add(ep.showTitle ?? '${ep.index} ${ep.indexTitle}');
+    } else if (entry.pageData case final page?) {
+      final part = page.part;
+      if (part != null && part.isNotEmpty && part != entry.title) {
+        parts.add('P${page.page} $part');
+      }
+    }
+    var name = parts
+        .join(' - ')
+        .replaceAll(_illegalFileChars, '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    // cut by code point (never half an emoji); the name is used twice in
+    // the path (folder and file), so keep it short for Windows' 260 limit
+    if (name.runes.length > 80) {
+      name = String.fromCharCodes(name.runes.take(80)).trim();
+    }
+    if (entry.qualityPithyDescription.isNotEmpty) {
+      name +=
+          ' [${entry.qualityPithyDescription.replaceAll(_illegalFileChars, '_')}]';
+    }
+    return exportFolderName(name);
   }
 
   void nextDownload() {
