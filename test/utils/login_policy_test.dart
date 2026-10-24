@@ -57,6 +57,7 @@ void main() {
     for (final path in [
       Api.ugcUrl,
       Api.pgcUrl,
+      Api.ogvUrl,
       Api.userInfo,
       Api.historyList,
       Api.heartBeat,

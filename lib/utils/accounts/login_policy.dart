@@ -24,7 +24,7 @@ abstract final class LoginPolicy {
   /// csrf), login-flow calls and stream URLs (high quality needs an account).
   static const Set<String> _accountApis = {
     // stream (1080P+ / VIP quality)
-    Api.ugcUrl, Api.pgcUrl, Api.pugvUrl, Api.tvPlayUrl,
+    Api.ugcUrl, Api.pgcUrl, Api.pugvUrl, Api.ogvUrl, Api.tvPlayUrl,
     // account info
     Api.userInfo, Api.userStatOwner, Api.getCoin, Api.coinLog, Api.loginLog,
     Api.expLog, Api.moralLog, Api.loginDevices, Api.userRealName,
