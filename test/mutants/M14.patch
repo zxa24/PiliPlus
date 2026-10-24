@@ -1,0 +1,13 @@
+diff --git a/lib/models_new/download/bili_download_entry_info.dart b/lib/models_new/download/bili_download_entry_info.dart
+index ef335e1f2..d8fb9d4f1 100644
+--- a/lib/models_new/download/bili_download_entry_info.dart
++++ b/lib/models_new/download/bili_download_entry_info.dart
+@@ -77,7 +77,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
+   late String entryDirPath;
+   late DownloadStatus status = .wait;
+ 
+-  int get cid => source?.cid ?? pageData!.cid;
++  int get cid => pageData?.cid ?? 0;
+ 
+   /// [typeTag] names the stream sub-folder; an `entry.json` written by
+   /// another client may have none, so every path built from it uses this

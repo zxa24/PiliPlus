@@ -1,0 +1,582 @@
+[
+  {
+    "id": "M1",
+    "patch": "M1.patch",
+    "location": "lib/services/download/download_service.dart:147",
+    "change": "_retryLater keys its retry state by avid: final cid = entry.avid",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue retries are counted per entry, and the queue goes on in its order after the last one"
+  },
+  {
+    "id": "M2",
+    "patch": "M2.patch",
+    "location": "lib/services/download/download_service.dart:378",
+    "change": "_noteFailure: _failedAway.add(entry.avid)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue a download failed off screen is started again when the app is back"
+  },
+  {
+    "id": "M3",
+    "patch": "M3.patch",
+    "location": "lib/services/download/download_service.dart:1385-1387",
+    "change": "_queueExtras: _extrasJobs keyed by entry.avid (and its identical check)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: extras an extras job, the saving mark and its cancel belong to one entry"
+  },
+  {
+    "id": "M4",
+    "patch": "M4.patch",
+    "location": "lib/services/download/download_service.dart:1302",
+    "change": "_resumeExtras: _extrasJobs.containsKey(entry.avid)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: extras re-reading the list does not queue a second extras job for one still saving"
+  },
+  {
+    "id": "M5",
+    "patch": "M5.patch",
+    "location": "lib/services/download/download_service.dart:1192",
+    "change": "_completeDownload: _mergingCids.add(entry.avid)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: merging an entry being merged is not started or paused again; the queue goes on with the other part"
+  },
+  {
+    "id": "M6",
+    "patch": "M6.patch",
+    "location": "lib/services/download/download_service.dart:2018",
+    "change": "deleteDownload: _mergeDeletedCids.add(entry.avid)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: merging an entry deleted while it is merged is removed once the merge ends; the other part stays"
+  },
+  {
+    "id": "M7",
+    "patch": "M7.patch",
+    "location": "lib/services/download/download_service.dart:298",
+    "change": "keep-alive 「暂停」: _pauseAfterMergeCid = entry.avid",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: merging 「暂停」 tapped while an entry merges: the queue does not go on after it"
+  },
+  {
+    "id": "M8",
+    "patch": "M8.patch",
+    "location": "lib/services/download/download_service.dart:347",
+    "change": "_keepAliveState: 「还有 N 个」 counts the current entry too",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue the current entry, and how many the notification says wait behind it"
+  },
+  {
+    "id": "M9",
+    "patch": "M9.patch",
+    "location": "lib/services/download/download_service.dart:1996",
+    "change": "nextDownload compares avid instead of cid",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue retries are counted per entry, and the queue goes on in its order after the last one"
+  },
+  {
+    "id": "M10",
+    "patch": "M10.patch",
+    "location": "lib/services/download/download_service.dart:2068",
+    "change": "deletePage stops after the first entry (break)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: deleting deleting the page stops and deletes both parts of the video; the bangumi stays"
+  },
+  {
+    "id": "M11",
+    "patch": "M11.patch",
+    "location": "lib/services/download/download_service.dart:151",
+    "change": "_redownloaded.add(entry.avid)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: merging damaged streams are downloaded again once per start, for each entry on its own"
+  },
+  {
+    "id": "M12",
+    "patch": "M12.patch",
+    "location": "lib/services/download/download_transcripts.dart:126",
+    "change": "DownloadTranscripts.finished: progress.putIfAbsent(entry.avid, ...)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: DownloadTranscripts finished, stateOf, forget and kept act on one entry"
+  },
+  {
+    "id": "M13",
+    "patch": "M13.patch",
+    "location": "lib/services/download/download_service.dart:414",
+    "change": "_keepTranscript matches cache entries by pageId instead of cid",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: a transcript kept while watching counts for its own part only (P1)"
+  },
+  {
+    "id": "M14",
+    "patch": "M14.patch",
+    "location": "lib/models_new/download/bili_download_entry_info.dart:80",
+    "change": "bangumi key not through source: cid => pageData?.cid ?? 0",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: a transcript kept while watching counts for the bangumi episode by its source's cid (S)"
+  },
+  {
+    "id": "M15",
+    "patch": "M15.patch",
+    "location": "lib/http/download.dart:148",
+    "change": "getVideoUrl dash: entry.hasDashAudio = false",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "download",
+    "catcher": "--download BV1CToXYMEDz: entryFields.has_dash_audio, mergedStreams (no Audio line)"
+  },
+  {
+    "id": "M16",
+    "patch": "M16.patch",
+    "location": "lib/http/download.dart:68-71",
+    "change": "getVideoUrl dash: no ..qualityPithyDescription",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "download",
+    "catcher": "--download BV1CToXYMEDz: entryFields.quality_pithy_description, folderFiles names"
+  },
+  {
+    "id": "M17",
+    "patch": "M17.patch",
+    "location": "lib/http/download.dart:68",
+    "change": "getVideoUrl dash: no ..videoQuality",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "download",
+    "catcher": "--download BV1CToXYMEDz: entryFields.video_quality"
+  },
+  {
+    "id": "M18",
+    "patch": "M18.patch",
+    "location": "lib/http/download.dart:66",
+    "change": "getVideoUrl dash: no ..mediaType = 2",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "download",
+    "catcher": "--download BV1CToXYMEDz: entryFields.media_type"
+  },
+  {
+    "id": "M19",
+    "patch": "M19.patch",
+    "location": "lib/services/download/download_service.dart:976-982",
+    "change": "no width/height written after the start",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/start_args_test.dart",
+    "catcher": "start_args_test.dart: the width and height of the stream picked are saved"
+  },
+  {
+    "id": "M20",
+    "patch": "M20.patch",
+    "location": "lib/services/download/download_service.dart:920",
+    "change": "_writeIndexJson dropped from the Future.wait",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/start_args_test.dart",
+    "catcher": "start_args_test.dart: the stream index is written with the start"
+  },
+  {
+    "id": "M21",
+    "patch": "M21.patch",
+    "location": "lib/services/download/download_service.dart:964",
+    "change": "expectedTotal always 0",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/start_args_test.dart",
+    "catcher": "start_args_test.dart: the size a saved partial was written for, while the quality is the same"
+  },
+  {
+    "id": "M22",
+    "patch": "M22.patch",
+    "location": "lib/services/download/download_service.dart:967",
+    "change": "dash: no audio DownloadManager",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/start_args_test.dart",
+    "catcher": "start_args_test.dart: dash: a video and an audio transfer at once, into the stream folder; no audio, one transfer"
+  },
+  {
+    "id": "M23",
+    "patch": "M23.patch",
+    "location": "lib/services/download/download_service.dart:1042",
+    "change": "_startSegment without the identical(_downloadManager, manager) guard",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/start_args_test.dart",
+    "catcher": "start_args_test.dart: durl segments: paused before the first is done, no next one follows"
+  },
+  {
+    "id": "M24",
+    "patch": "M24.patch",
+    "location": "lib/services/download/download_service.dart:1547",
+    "change": "merge: no entry.mergedPath = output",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "download",
+    "catcher": "--download BV1CToXYMEDz: pass (mergedPath null), mergedExists, entryJsonMergedPath == mergedPath"
+  },
+  {
+    "id": "M25",
+    "patch": "M25.patch",
+    "location": "lib/services/download/download_service.dart:1553-1555",
+    "change": "failed merge leaves its empty own export folder",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "queue99",
+    "catcher": "--download-queue BV1LV411Q7np BV1iw2YYCEv8 --damage-times 99: aExportFolderLeft"
+  },
+  {
+    "id": "M26",
+    "patch": "M26.patch",
+    "location": "lib/services/download/download_service.dart:2,1097",
+    "change": "_writeEntryJson encodes with JsonEncoder.withIndent(' ')",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/entry_record_test.dart",
+    "catcher": "entry_record_test.dart: read by the service and saved again: entry.json, no .tmp left, the expected bytes"
+  },
+  {
+    "id": "M27",
+    "patch": "M27.patch",
+    "location": "lib/services/download/download_service.dart:1096-1098",
+    "change": "_writeEntryJson writes entry.json directly, no .tmp + rename",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/entry_record_test.dart",
+    "catcher": "entry_record_test.dart: saved through entry.json.tmp and a rename, never written in place"
+  },
+  {
+    "id": "M28",
+    "patch": "M28.patch",
+    "location": "lib/services/download/download_service.dart:1072",
+    "change": "_updateBiliDownloadEntryJson not chained: calls _writeEntryJson directly",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/entry_record_test.dart",
+    "catcher": "entry_record_test.dart: two saves of one entry at once: one after the other, the newer state last"
+  },
+  {
+    "id": "M29",
+    "patch": "M29.patch",
+    "location": "lib/services/download/download_transcripts.dart:232",
+    "change": "_next: running.value = entry.avid",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "transcribe",
+    "catcher": "--download-transcribe BV1fkaU6SE1F: runningSeen / check 'seen running under its key'"
+  },
+  {
+    "id": "M30",
+    "patch": "M30.patch",
+    "location": "lib/services/download/download_transcripts.dart:217,230",
+    "change": "_next: SubtitleCacheKey.bilibili(entry.avid) (read and session cache)",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "transcribe",
+    "catcher": "--download-transcribe BV1fkaU6SE1F: check 'the files are there'"
+  },
+  {
+    "id": "M31",
+    "patch": "M31.patch",
+    "location": "lib/services/download/download_extras.dart:214",
+    "change": "extras transcript step: SubtitleCacheKey.bilibili(entry.avid)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/extras_transcript_test.dart",
+    "catcher": "extras_transcript_test.dart: a transcript the cache has of the part is written beside the video"
+  },
+  {
+    "id": "M32",
+    "patch": "M32.patch",
+    "location": "lib/pages/download/view.dart:212-214",
+    "change": "cached page, a group of one, its row deleted: watch progress kept",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: the cached videos page 1. a group of one, its row deleted"
+  },
+  {
+    "id": "M33",
+    "patch": "M33.patch",
+    "location": "lib/pages/download/view.dart:269-271",
+    "change": "cached page, a group's long-press 「删除」: watch progress kept",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: the cached videos page 2. a group's long-press 「删除」"
+  },
+  {
+    "id": "M34",
+    "patch": "M34.patch",
+    "location": "lib/pages/download/controller.dart:112-114",
+    "change": "cached page, groups deleted by multi-select: watch progress kept",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: the cached videos page 3. groups deleted by multi-select"
+  },
+  {
+    "id": "M35",
+    "patch": "M35.patch",
+    "location": "lib/pages/download/detail/view.dart:177",
+    "change": "a group's page, one entry deleted: watch progress kept",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: a group's page 4. one of its entries deleted"
+  },
+  {
+    "id": "M36",
+    "patch": "M36.patch",
+    "location": "lib/pages/download/detail/view.dart:208-210",
+    "change": "a group's page, entries deleted by multi-select: watch progress kept",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: a group's page 5. entries deleted by multi-select"
+  },
+  {
+    "id": "M37",
+    "patch": "M37.patch",
+    "location": "lib/pages/download/search/controller.dart:54",
+    "change": "search page, one result deleted: watch progress kept",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: the search page 6. one result deleted"
+  },
+  {
+    "id": "M38",
+    "patch": "M38.patch",
+    "location": "lib/pages/download/search/controller.dart:68",
+    "change": "search page, results deleted by multi-select: watch progress kept",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: the search page 7. results deleted by multi-select"
+  },
+  {
+    "id": "M39",
+    "patch": "M39.patch",
+    "location": "lib/pages/download/downloading/view.dart:12,138",
+    "change": "downloading page multi-select delete also clears the watch progress",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: the downloading page its multi-select delete leaves the watch progress alone"
+  },
+  {
+    "id": "M40",
+    "patch": "M40.patch",
+    "location": "lib/pages/download/search/controller.dart:34-35",
+    "change": "search filter without ownerName",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/delete_progress_test.dart",
+    "catcher": "delete_progress_test.dart: the search filter title, shown title and uploader, in the list order"
+  },
+  {
+    "id": "M41",
+    "patch": "M41.patch",
+    "location": "lib/pages/download/detail/widgets/item.dart:244",
+    "change": "「已看完」 threshold - 400 -> - 2000",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_test.dart",
+    "catcher": "detail_item_test.dart: the watch progress: 「已看完」 near the end, the position before it"
+  },
+  {
+    "id": "M42",
+    "patch": "M42.patch",
+    "location": "lib/pages/download/detail/widgets/item.dart:218",
+    "change": "quality badge reads preferedVideoQuality",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_test.dart",
+    "catcher": "detail_item_test.dart: the quality badge is the one downloaded"
+  },
+  {
+    "id": "M43",
+    "patch": "M43.patch",
+    "location": "lib/pages/download/detail/widgets/item.dart:191",
+    "change": "cover never the local cover.jpg (always NetworkImgLayer)",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_test.dart",
+    "catcher": "detail_item_test.dart: the saved cover from the disk, else the network one; decoded by height for a landscape video"
+  },
+  {
+    "id": "M44",
+    "patch": "M44.patch",
+    "location": "lib/pages/download/detail/widgets/item.dart:186,213",
+    "change": "cacheWidth inverted",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_test.dart",
+    "catcher": "detail_item_test.dart: the saved cover from the disk, else the network one; decoded by height for a landscape video"
+  },
+  {
+    "id": "M45",
+    "patch": "M45.patch",
+    "location": "lib/pages/download/detail/widgets/item.dart:320",
+    "change": "second title line (pageData.part) maxLines 1 -> 2",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_test.dart",
+    "catcher": "detail_item_test.dart: the title lines"
+  },
+  {
+    "id": "M46",
+    "patch": "M46.patch",
+    "location": "lib/pages/download/detail/widgets/item.dart:98",
+    "change": "entry menu without 「更新弹幕」",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_test.dart",
+    "catcher": "detail_item_test.dart: the long-press menu and the 「更多」 button"
+  },
+  {
+    "id": "M47",
+    "patch": "M47.patch",
+    "location": "lib/pages/download/detail/widgets/item.dart:145",
+    "change": "no notify 400 ms after back from the offline page",
+    "phase": "both",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_test.dart",
+    "catcher": "detail_item_test.dart: back from the offline page, the badge is redrawn 400 ms later"
+  },
+  {
+    "id": "M48",
+    "patch": "M48.patch",
+    "location": "lib/pages/download/view.dart:348-362",
+    "change": "group row without the seasonType badge",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "listshots",
+    "catcher": "--download-list-shots: seasonBadge, list_3_bangumi.png pixels"
+  },
+  {
+    "id": "M49",
+    "patch": "M49.patch",
+    "location": "lib/pages/download/view.dart:279-297",
+    "change": "group menu without 「更新弹幕」",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "listshots",
+    "catcher": "--download-list-shots: groupMenu, list_5_group_menu.png pixels"
+  },
+  {
+    "id": "M50",
+    "patch": "M50.patch",
+    "location": "lib/services/download/download_service.dart:1996",
+    "change": "nextDownload does not skip failed entries",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue retries are counted per entry, and the queue goes on in its order after the last one"
+  },
+  {
+    "id": "M51",
+    "patch": "M51.patch",
+    "location": "lib/pages/download/view.dart:136-142",
+    "change": "「正在缓存」 slot shows queue.firstOrNull only",
+    "phase": "both",
+    "kind": "selftest",
+    "scenario": "queue99",
+    "catcher": "--download-queue BV1LV411Q7np BV1iw2YYCEv8 --damage-times 99: bInvisibleSeconds"
+  },
+  {
+    "id": "M52",
+    "patch": "M52.patch",
+    "location": "lib/services/download/download_service.dart:162",
+    "change": "retry limit made >= retryWaits.length -> >",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue retries are counted per entry, and the queue goes on in its order after the last one"
+  },
+  {
+    "id": "M53",
+    "patch": "M53.patch",
+    "location": "lib/services/download/download_service.dart:180",
+    "change": "retry timer without the curDownload.value?.cid != cid guard",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue a retry waiting for its timer does not start once another entry is the current one"
+  },
+  {
+    "id": "M54",
+    "patch": "M54.patch",
+    "location": "lib/services/download/download_service.dart:151",
+    "change": "damaged merge re-downloaded more than once per start (no !_redownloaded.add(cid))",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: merging damaged streams are downloaded again once per start, for each entry on its own"
+  },
+  {
+    "id": "M55",
+    "patch": "M55.patch",
+    "location": "lib/services/download/download_service.dart:1981-1983",
+    "change": "export name: quality appended before the 80-code-point cut",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/export_name_test.dart",
+    "catcher": "export_name_test.dart: a long title is cut to 80 code points before the quality is added"
+  },
+  {
+    "id": "M56",
+    "patch": "M56.patch",
+    "location": "lib/services/download/download_transcripts.dart:125",
+    "change": "(1b only) 1b reverted: finished only putIfAbsent(key, () => 0). Phase 0 has no 1b, so on phase 0 this patch only marks the line (no behaviour change); phase 1 re-targets it to replace 1b's starting coverage with putIfAbsent(…, 0)",
+    "phase": "1b-only",
+    "kind": "unit",
+    "test": "test/services/download/finished_progress_test.dart",
+    "catcher": "finished_progress_test.dart: the starting progress is the coverage the cache already has"
+  },
+  {
+    "id": "M57a",
+    "patch": "M57a.patch",
+    "location": "lib/pages/video/introduction/local/controller.dart:75",
+    "change": "(1a only) offline playlist without the isCompleted filter. Written against today's onInit (local/controller.dart :75); phase 1 re-targets it to the extracted offlinePlaylist",
+    "phase": "1a-only",
+    "kind": "widget",
+    "test": "test/pages/video/local_playlist_filter_test.dart",
+    "catcher": "local_playlist_filter_test.dart: only completed bilibili entries"
+  },
+  {
+    "id": "M57b",
+    "patch": "M57b.patch",
+    "location": "lib/pages/video/introduction/local/controller.dart:74",
+    "change": "(1a only) offline playlist without the platform filter. The filter does not exist before phase 1: on phase 0 this patch only marks the place (no behaviour change); phase 1 re-targets it to drop the platform filter in offlinePlaylist",
+    "phase": "1a-only",
+    "kind": "widget",
+    "test": "test/pages/video/local_playlist_filter_test.dart",
+    "catcher": "local_playlist_filter_test.dart: no fake-platform entries"
+  }
+]

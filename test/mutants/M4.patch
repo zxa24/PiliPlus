@@ -1,0 +1,13 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 5958ef741..2cd65f85c 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1299,7 +1299,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+       return;
+     }
+     final merged = entry.mergedPath;
+-    if (_extrasJobs.containsKey(entry.cid)) return;
++    if (_extrasJobs.containsKey(entry.avid)) return;
+     if (merged == null || !File(merged).existsSync()) {
+       // the video was moved or deleted: nothing to save them next to
+       _updateBiliDownloadEntryJson(entry..extrasPending = false);

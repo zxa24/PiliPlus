@@ -1,0 +1,527 @@
+# AC1 mutation check (feature-logs/download-platforms design, AC1 「变异检查」).
+#
+# Each mutant in mutants.json is a small, deliberate regression of the
+# bilibili download code; each must make at least one AC1 check fail. The
+# patches are only ever applied in throwaway git worktrees under
+# _tmp/mutants/, never to the checked-out lib/.
+#
+#   pwsh -NoProfile -File test/mutants/run.ps1 [-Commit <rev>] [-Phase 0|1a|1b]
+#        [-Only M1,M15] [-Slot 1] [-Out <dir>] [-Baseline <dir>] [-NoSelfTest]
+#        [-Flutter <flutter.bat>]
+#   pwsh -NoProfile -File test/mutants/run.ps1 -Compare <baseDir>,<otherDir>
+#
+# Unit / widget mutants (kind unit|widget): one worktree per mutant at
+# _tmp/mutants/<id>/ on -Commit, `git apply` the patch, `flutter test --no-pub
+# <its test file>`; caught = a test fails (its name and the first line of the
+# failure are recorded), survived = all pass, error = the patch does not
+# apply or the code does not compile (a patch bug, not a catch). The worktree
+# is removed afterwards.
+#
+# Self-test mutants (kind selftest): only seen by the networked self tests.
+# They share ONE worktree, _tmp/mutants/selftest/ (a MUTANT.txt in it says
+# which patch is applied), built incrementally: first the unmutated build is
+# run as the baseline (unless -Baseline gives reports of the same commit),
+# then per mutant: apply -> `flutter build windows --debug` -> copy into the
+# slot with .claude/test-slot.ps1 (this machine's firewall allows network
+# access only from fixed exe paths) -> run the self test with a new profile
+# -> compare its report with the baseline by AC1's must-match fields (and the
+# list shots pixel by pixel) -> `git checkout -- .`. Caught = the report's
+# pass is false or a must-match field differs. Each profile's data is deleted
+# after its run; the worktree and its build output at the end.
+#
+# -Compare <a>,<b> only compares two folders of self-test reports by the same
+# rules (download.json, queue99.json, transcribe.json, listshots.json), e.g.
+# two unmutated runs, to see that the comparison does not flag run-to-run
+# noise.
+#
+# An interrupted run leaves its worktree in _tmp/mutants/<id>/ (or
+# _tmp/mutants/selftest/); the next run removes it before using the name.
+# Results: <Out>/results.json and results.md, rewritten after every mutant,
+# with each mutant's raw test log / self-test reports beside them.
+param(
+    [string]$Commit = 'HEAD',
+    [ValidateSet('0', '1a', '1b')] [string]$Phase = '0',
+    [string[]]$Only = @(),
+    [ValidateRange(1, 3)] [int]$Slot = 1,
+    [string]$Out = '',
+    [string]$Baseline = '',
+    [switch]$NoSelfTest,
+    [string]$Flutter = '',
+    [string[]]$Compare = @(),
+    [int]$MinFreeMB = 4000
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 3.0
+# `pwsh -File` hands "a,b" over as one string
+$Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Compare = @($Compare | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+
+$here = $PSScriptRoot
+$root = (git -C $here rev-parse --show-toplevel).Trim() -replace '/', '\'
+# the main checkout (the slots and test-slot.ps1 live there, not in worktrees)
+$common = (git -C $here rev-parse --path-format=absolute --git-common-dir).Trim() -replace '/', '\'
+$main = Split-Path -Parent $common
+$slotScript = Join-Path $main '.claude\test-slot.ps1'
+
+$bvDownload = 'BV1CToXYMEDz'
+$bvA = 'BV1LV411Q7np'; $bvB = 'BV1iw2YYCEv8'
+$bvT = 'BV1fkaU6SE1F'
+
+# ------------------------------------------------------------------ compare
+$checkNames = @{ download = 'download'; queue99 = 'downloadQueue'; transcribe = 'downloadTranscribe'; listshots = 'downloadListShots' }
+
+function J($v) { ConvertTo-Json -InputObject $v -Compress -Depth 50 }
+
+function Get-Check($report, [string]$name) {
+    if ($null -eq $report) { return $null }
+    foreach ($c in @($report['checks'])) { if ($c['name'] -eq $name) { return $c } }
+    return $null
+}
+
+function Read-Report([string]$file) {
+    if (-not (Test-Path -LiteralPath $file)) { return $null }
+    try { Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable } catch { $null }
+}
+
+function Get-Field($map, [string]$key) {
+    if ($null -eq $map) { return $null }
+    # the comma keeps an array (also an empty or one-item one) as it is
+    if ($map.Contains($key)) { return , $map[$key] }
+    return $null
+}
+
+function Get-Lines($map, [string]$key) {
+    $v = Get-Field $map $key
+    if ($null -eq $v) { return , @() }
+    return , @($v | Where-Object { $null -ne $_ } | ForEach-Object { "$_" })
+}
+
+# log lines -> their kinds: no time, no path, cids named, no numbers
+function Get-LogKinds([string[]]$lines, [hashtable]$names) {
+    $out = [System.Collections.Generic.List[string]]::new()
+    foreach ($l in $lines) {
+        $s = $l -replace '^\d\d:\d\d:\d\d\.\d+ ', ''
+        $s = $s -replace '[A-Za-z]:\\\S+', '<path>'
+        foreach ($k in $names.Keys) { $s = $s.Replace("$k", $names[$k]) }
+        $s = $s -replace '\d+(\.\d+)?', 'N'
+        if ($out.Count -eq 0 -or $out[$out.Count - 1] -ne $s) { $out.Add($s) }
+    }
+    return , $out.ToArray()
+}
+
+function Get-PixelDiff([string]$a, [string]$b) {
+    if (-not (Test-Path -LiteralPath $b)) { return 'missing' }
+    if ((Get-FileHash -LiteralPath $a).Hash -eq (Get-FileHash -LiteralPath $b).Hash) { return 0 }
+    if (-not ('MutantPixels' -as [type])) {
+        Add-Type -ReferencedAssemblies System.Drawing, System.Drawing.Primitives -TypeDefinition @'
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+public static class MutantPixels {
+    static byte[] Read(string file, out int w, out int h) {
+        using (var bmp = new Bitmap(file)) {
+            w = bmp.Width; h = bmp.Height;
+            var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            var bytes = new byte[d.Stride * h];
+            Marshal.Copy(d.Scan0, bytes, 0, bytes.Length);
+            bmp.UnlockBits(d);
+            return bytes;
+        }
+    }
+    public static long Diff(string a, string b) {
+        int wa, ha, wb, hb;
+        var x = Read(a, out wa, out ha);
+        var y = Read(b, out wb, out hb);
+        if (wa != wb || ha != hb) return -1;
+        long n = 0;
+        for (int i = 0; i < x.Length; i += 4)
+            if (x[i] != y[i] || x[i + 1] != y[i + 1] || x[i + 2] != y[i + 2] || x[i + 3] != y[i + 3]) n++;
+        return n;
+    }
+}
+'@
+    }
+    $n = [MutantPixels]::Diff($a, $b)
+    if ($n -lt 0) { return 'size differs' }
+    return $n
+}
+
+# AC1's must-match fields of one scenario (design AC1 自测比较表, both builds
+# with phase 0's fields). Returns the differences, the report's own failure
+# first; empty = no difference.
+function Compare-Scenario([string]$scenario, [string]$baseFile, [string]$mutFile) {
+    $diffs = [System.Collections.Generic.List[string]]::new()
+    $rb = Read-Report $baseFile; $rm = Read-Report $mutFile
+    if ($null -eq $rb) { $diffs.Add("no baseline report $baseFile"); return , $diffs.ToArray() }
+    if ($null -eq $rm) { $diffs.Add('no report (the self test did not finish)'); return , $diffs.ToArray() }
+    $name = $checkNames[$scenario]
+    $b = Get-Check $rb $name; $m = Get-Check $rm $name
+    if ($null -eq $m) { $diffs.Add("no '$name' check in the report"); return , $diffs.ToArray() }
+    if ($m['pass'] -ne $true) {
+        $err = Get-Field $m 'error'
+        $diffs.Add("pass: false$(if ($err) { " ($(("$err" -split "`n")[0]))" })")
+    }
+    $same = {
+        param([string]$field, $x, $y)
+        $jx = J $x; $jy = J $y
+        if ($jx -ne $jy) {
+            $sx = if ($jx.Length -gt 160) { $jx.Substring(0, 160) + '...' } else { $jx }
+            $sy = if ($jy.Length -gt 160) { $jy.Substring(0, 160) + '...' } else { $jy }
+            $diffs.Add("${field}: $sx -> $sy")
+        }
+    }
+    switch ($scenario) {
+        'download' {
+            foreach ($f in 'quality', 'mergedExists', 'streamLeftovers', 'cleanedUp') { & $same $f (Get-Field $b $f) (Get-Field $m $f) }
+            $eq = { param($c) (Get-Field $c 'entryJsonMergedPath') -eq (Get-Field $c 'mergedPath') }
+            & $same 'entryJsonMergedPath == mergedPath' (& $eq $b) (& $eq $m)
+            $rel = {
+                param($c, $r)
+                $p = Get-Field $c 'mergedPath'
+                if ($null -eq $p) { return $null }
+                [System.IO.Path]::GetRelativePath($r['downloadDir'], $p)
+            }
+            & $same 'mergedPath (relative to the download root)' (& $rel $b $rb) (& $rel $m $rm)
+            foreach ($f in 'monotonic', 'final', 'savingExtrasAtCompletion', 'savingExtrasAfter', 'extrasPendingSaved') {
+                & $same "progress.$f" (Get-Field (Get-Field $b 'progress') $f) (Get-Field (Get-Field $m 'progress') $f)
+            }
+            $names = {
+                param($c)
+                $ff = Get-Field $c 'folderFiles'
+                if ($null -eq $ff) { return , @() }
+                return , @($ff.Keys | Sort-Object)
+            }
+            & $same 'folderFiles names' (& $names $b) (& $names $m)
+            foreach ($f in 'statusTransitions', 'entryJsonKeys', 'entryFields', 'exportFields', 'streamKey', 'mergedStreams') {
+                & $same $f (Get-Field $b $f) (Get-Field $m $f)
+            }
+            & $same 'downloadLog' (Get-LogKinds (Get-Lines $b 'downloadLog') @{ "$($b['cid'])" = 'C' }) (Get-LogKinds (Get-Lines $m 'downloadLog') @{ "$($m['cid'])" = 'C' })
+        }
+        'queue99' {
+            foreach ($f in 'damagedMerges', 'aAfterMerge', 'aStreamsAfterMerge', 'bInvisibleSeconds', 'aStatusTransitions', 'aExportFolderLeft', 'cidA', 'cidB') {
+                & $same $f (Get-Field $b $f) (Get-Field $m $f)
+            }
+            $kinds = { param($c) Get-LogKinds (Get-Lines $c 'downloadLog') @{ "$($c['cidA'])" = 'A'; "$($c['cidB'])" = 'B' } }
+            & $same 'downloadLog kinds' (& $kinds $b) (& $kinds $m)
+            foreach ($msg in 'damaged streams removed', 'again in 10 s (1/3)', 'no more retries (merge)') {
+                $cnt = { param($c) @((Get-Lines $c 'downloadLog') | Where-Object { $_.Contains($msg) }).Count }
+                & $same "count '$msg'" (& $cnt $b) (& $cnt $m)
+            }
+            $cids = {
+                param($c)
+                $lead = "^($($c['cidA'])|$($c['cidB'])):"
+                @((Get-Lines $c 'downloadLog') | Where-Object { ($_ -replace '^\d\d:\d\d:\d\d\.\d+ \[download\] ', '') -notmatch $lead }).Count -eq 0
+            }
+            & $same 'downloadLog lines start with <cid>:' (& $cids $b) (& $cids $m)
+        }
+        'transcribe' {
+            $cb = Get-Field $b 'checks'; $cm = Get-Field $m 'checks'
+            $keys = @(@(if ($cb) { $cb.Keys }) + @(if ($cm) { $cm.Keys }) | Select-Object -Unique)
+            foreach ($k in $keys) { & $same "checks.$k" (Get-Field $cb $k) (Get-Field $cm $k) }
+            foreach ($f in 'states', 'runningSeen', 'runningKeys', 'videoSeconds') { & $same $f (Get-Field $b $f) (Get-Field $m $f) }
+            $ev = { param($c) , @((Get-Lines $c 'events') | ForEach-Object { $_ -replace '^\d\d:\d\d:\d\d\.\d+ ', '' }) }
+            & $same 'events' (& $ev $b) (& $ev $m)
+            $tl = { param($c) , @((Get-Lines $c 'timeline') | ForEach-Object { ($_ -split ': ', 2)[-1] }) }
+            & $same 'timeline labels' (& $tl $b) (& $tl $m)
+        }
+        'listshots' {
+            foreach ($f in 'entries', 'seasonBadge', 'entryMenu', 'groupMenu', 'searchHits') { & $same $f (Get-Field $b $f) (Get-Field $m $f) }
+            $mutShots = @{}
+            foreach ($s in (Get-Lines $m 'shots')) { $mutShots[[System.IO.Path]::GetFileName($s)] = $s }
+            foreach ($s in (Get-Lines $b 'shots')) {
+                $n = [System.IO.Path]::GetFileName($s)
+                $d = if ($mutShots.ContainsKey($n)) { Get-PixelDiff $s $mutShots[$n] } else { 'missing' }
+                if ("$d" -ne '0') { $diffs.Add("shot ${n}: $d differing pixels") }
+            }
+        }
+    }
+    return , $diffs.ToArray()
+}
+
+if ($Compare.Count -gt 0) {
+    if ($Compare.Count -ne 2) { throw '-Compare <baseDir>,<otherDir>' }
+    foreach ($sc in 'download', 'queue99', 'transcribe', 'listshots') {
+        $fa = Join-Path $Compare[0] "$sc.json"; $fb = Join-Path $Compare[1] "$sc.json"
+        if (-not (Test-Path $fa) -or -not (Test-Path $fb)) { "${sc}: (no report on one side)"; continue }
+        $d = Compare-Scenario $sc $fa $fb
+        "${sc}: $(if ($d.Count) { "$($d.Count) difference(s)" } else { 'same' })"
+        $d | ForEach-Object { "  $_" }
+    }
+    return
+}
+
+# ------------------------------------------------------------------ setup
+if (-not $Flutter) {
+    $cmd = Get-Command flutter -ErrorAction SilentlyContinue
+    $Flutter = if ($cmd) { $cmd.Source } else { '' }
+    if (-not $Flutter) { throw 'flutter is not on PATH: pass -Flutter <path to flutter.bat>' }
+}
+$sha = (git -C $root rev-parse --verify "$Commit^{commit}").Trim()
+if (-not $Out) { $Out = Join-Path $root "_tmp\mutants-results\$(Get-Date -Format yyyyMMdd-HHmmss)" }
+New-Item -ItemType Directory -Force $Out | Out-Null
+$Out = (Resolve-Path $Out).Path
+$work = Join-Path $root '_tmp\mutants'
+New-Item -ItemType Directory -Force $work | Out-Null
+
+$all = Get-Content -Raw (Join-Path $here 'mutants.json') | ConvertFrom-Json -AsHashtable
+$phases = @{ '0' = @('both'); '1a' = @('both', '1a-only'); '1b' = @('1b-only') }[$Phase]
+$todo = @($all | Where-Object {
+        ($Only.Count -eq 0 -or $Only -contains $_['id']) -and (
+            $phases -contains $_['phase'] -or
+            # 1b: also the self-test items it touches (--download-transcribe)
+            ($Phase -eq '1b' -and $_['kind'] -eq 'selftest' -and $_['scenario'] -eq 'transcribe'))
+    })
+if ($NoSelfTest) { $todo = @($todo | Where-Object { $_['kind'] -ne 'selftest' }) }
+
+$results = [System.Collections.Generic.List[object]]::new()
+$started = Get-Date
+
+function Save-Results {
+    ConvertTo-Json -InputObject @($results) -Depth 10 | Set-Content -Encoding utf8 (Join-Path $Out 'results.json')
+    $md = [System.Collections.Generic.List[string]]::new()
+    $md.Add("# AC1 mutation check: $sha (phase $Phase)")
+    $md.Add('')
+    $md.Add("Started $($started.ToString('s')); $(@($results | Where-Object result -eq 'caught').Count) caught, " +
+        "$(@($results | Where-Object result -eq 'survived').Count) survived, " +
+        "$(@($results | Where-Object { $_.result -notin 'caught', 'survived' }).Count) other, of $($todo.Count).")
+    $md.Add('')
+    $md.Add('| id | change | location | expected check | kind | result | caught by | first failure line | s |')
+    $md.Add('|---|---|---|---|---|---|---|---|---|')
+    $esc = { param($s) ("$s" -replace '\|', '\|' -replace '\r?\n', ' ') }
+    foreach ($r in $results) {
+        $md.Add("| $($r.id) | $(& $esc $r.change) | $(& $esc $r.location) | $(& $esc $r.expected) | $($r.kind) | **$($r.result)** | $(& $esc $r.by) | $(& $esc $r.first) | $($r.seconds) |")
+    }
+    $md | Set-Content -Encoding utf8 (Join-Path $Out 'results.md')
+}
+
+function Add-Result($m, [string]$result, [string]$by, [string]$first, [datetime]$t0, $extra = $null) {
+    $row = [ordered]@{
+        id = $m['id']; change = $m['change']; location = $m['location']; expected = $m['catcher']
+        kind = $m['kind']; result = $result; by = $by; first = $first
+        seconds = [int]((Get-Date) - $t0).TotalSeconds
+    }
+    if ($extra) { $row['details'] = @($extra) }
+    $results.Add([pscustomobject]$row)
+    Save-Results
+    '{0,-5} {1,-8} {2}' -f $m['id'], $result, $(if ($first) { $first } else { $by })
+}
+
+function Remove-Worktree([string]$dir) {
+    if (Test-Path -LiteralPath $dir) {
+        git -C $root worktree remove --force $dir 2>&1 | Out-Null
+        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    git -C $root worktree prune 2>&1 | Out-Null
+}
+
+function New-Worktree([string]$dir) {
+    Remove-Worktree $dir
+    git -C $root worktree add --detach $dir $sha 2>&1 | Out-Null
+    if ($LASTEXITCODE) { throw "git worktree add $dir failed" }
+    # packages: the checkout's resolution when the lock file is the same,
+    # else resolved from the pub cache
+    $lockSame = (Test-Path (Join-Path $root '.dart_tool\package_config.json')) -and
+        ((Get-FileHash (Join-Path $root 'pubspec.lock')).Hash -eq (Get-FileHash (Join-Path $dir 'pubspec.lock')).Hash)
+    if ($lockSame) {
+        New-Item -ItemType Directory -Force (Join-Path $dir '.dart_tool') | Out-Null
+        foreach ($f in 'package_config.json', 'package_graph.json') {
+            $src = Join-Path $root ".dart_tool\$f"
+            if (Test-Path $src) { Copy-Item $src (Join-Path $dir '.dart_tool') }
+        }
+    } else {
+        Push-Location $dir
+        try { & $Flutter pub get --offline 2>&1 | Out-Null } finally { Pop-Location }
+        if ($LASTEXITCODE) { throw "flutter pub get failed in $dir" }
+    }
+}
+
+function Invoke-Patch([string]$dir, $m) {
+    $patch = Join-Path $here $m['patch']
+    git -C $dir apply $patch 2>&1 | Out-Null
+    return $LASTEXITCODE -eq 0
+}
+
+# runs a command with a time limit; the whole process tree is ended on
+# timeout. Returns the exit code, or $null on timeout.
+function Invoke-Limited([string]$file, [string[]]$argv, [string]$dir, [string]$log, [int]$minutes) {
+    $p = Start-Process -FilePath $file -ArgumentList $argv -WorkingDirectory $dir -NoNewWindow -PassThru `
+        -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+    $p.Handle | Out-Null
+    if (-not $p.WaitForExit($minutes * 60000)) {
+        taskkill /T /F /PID $p.Id 2>&1 | Out-Null
+        return $null
+    }
+    return $p.ExitCode
+}
+
+# ------------------------------------------------------------------ unit / widget
+function Invoke-UnitMutant($m) {
+    $t0 = Get-Date
+    $id = $m['id']
+    $dir = Join-Path $work $id
+    New-Worktree $dir
+    if (-not (Invoke-Patch $dir $m)) {
+        Remove-Worktree $dir
+        return Add-Result $m 'error' '' 'the patch does not apply' $t0
+    }
+    $log = Join-Path $Out "$id.test.jsonl"
+    $code = Invoke-Limited $Flutter @('test', '--no-pub', '--reporter', 'json', $m['test']) $dir $log 20
+    $names = @{}; $prints = @{}; $firstErr = $null; $loadErr = $null; $done = $null
+    foreach ($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
+        if (-not "$line".StartsWith('{')) { continue }
+        try { $e = $line | ConvertFrom-Json -AsHashtable } catch { continue }
+        switch ($e['type']) {
+            'testStart' { $names[$e['test']['id']] = $e['test']['name'] }
+            'print' { $prints[$e['testID']] = "$($prints[$e['testID']])`n$($e['message'])" }
+            'error' {
+                $n = "$($names[$e['testID']])"
+                if ($n -like 'loading *') { if (-not $loadErr) { $loadErr = $e['error'] } }
+                elseif (-not $firstErr) { $firstErr = @{ name = $n; error = $e['error']; print = $prints[$e['testID']] } }
+            }
+            'done' { $done = $e['success'] }
+        }
+    }
+    if ($null -eq $code) {
+        $r = Add-Result $m 'caught' $m['test'] 'the test run did not end within 20 min' $t0
+    } elseif ($loadErr) {
+        $r = Add-Result $m 'error' '' "does not compile / load: $((("$loadErr" -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1))" $t0
+    } elseif ($firstErr) {
+        $text = "$($firstErr.error)"
+        # widget tests print the failure above a generic error
+        if ($text.StartsWith('Test failed. See exception logs above.') -and $firstErr.print) {
+            $lines = @("$($firstErr.print)" -split "`n")
+            $i = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^The following .* was thrown' })
+            if ($i -ge 0 -and $i + 1 -lt $lines.Count) { $text = $lines[$i + 1] }
+        }
+        $nonEmpty = @($text -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
+        $first = if ($nonEmpty.Count) { $nonEmpty[0] } else { '' }
+        # "Expected: [" says nothing on its own: with the next lines
+        if ($first -match '[\[{(]$' -and $nonEmpty.Count -gt 1) { $first = ($nonEmpty | Select-Object -First 3) -join ' ' }
+        $r = Add-Result $m 'caught' "$(Split-Path -Leaf $m['test']): $($firstErr.name)" $first $t0
+    } elseif ($done -eq $true -and $code -eq 0) {
+        $r = Add-Result $m 'survived' '' '' $t0
+    } else {
+        $r = Add-Result $m 'error' '' "flutter test exit $code without a failing test (see $id.test.jsonl)" $t0
+    }
+    Remove-Worktree $dir
+    return $r
+}
+
+# ------------------------------------------------------------------ self tests
+function Wait-Memory {
+    $since = Get-Date
+    while ($true) {
+        $free = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
+        if ($free -ge $MinFreeMB) { return }
+        if (((Get-Date) - $since).TotalMinutes -gt 60) { throw "free memory stayed below $MinFreeMB MB for an hour" }
+        "  waiting for memory: $free MB free" | Out-Host
+        Start-Sleep -Seconds 30
+    }
+}
+
+function Invoke-Build([string]$dir, [string]$log) {
+    Wait-Memory
+    $code = Invoke-Limited $Flutter @('build', 'windows', '--debug', '--no-pub') $dir $log 60
+    return ($code -eq 0) -and (Test-Path (Join-Path $dir 'build\windows\x64\runner\Debug\LibrePili.exe'))
+}
+
+function Remove-Profile([string]$profileName) {
+    foreach ($d in (Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"),
+        (Join-Path $env:TEMP "LibrePili\selftest-$profileName"),
+        (Join-Path $env:TEMP "LibrePili\$profileName")) {
+        if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# runs one self test from the slot; returns the report path
+function Invoke-SelfTest([string]$exe, [string]$scenario, [string]$dir, [string]$tag) {
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $report = Join-Path $dir "$scenario.json"
+    $shots = Join-Path $dir "${scenario}_shots"
+    $profileName = "mut-$tag-$scenario-$(Get-Random -Maximum 99999)"
+    $fixtures = Join-Path $script:stDir 'test\fixtures\download_list'
+    $argv = @('--selftest', '--profile', $profileName, '--out', $report) + $(switch ($scenario) {
+            'download' { @('--download', $bvDownload, '--dl-transcribe', 'off') }
+            'queue99' { @('--download-queue', $bvA, $bvB, '--damage-times', '99', '--shots', $shots, '--dl-transcribe', 'off') }
+            'transcribe' { @('--download-transcribe', $bvT) }
+            'listshots' { @('--download-list-shots', $fixtures, '--shots', $shots, '--dl-transcribe', 'off') }
+        })
+    $argv = @($argv | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } })
+    $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru
+    if (-not $p.WaitForExit(30 * 60000)) {
+        # ours: started just above
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        $p.WaitForExit(30000) | Out-Null
+    }
+    Start-Sleep -Seconds 2
+    Remove-Profile $profileName
+    return $report
+}
+
+function Install-Slot([string]$dir) {
+    $from = Join-Path $dir 'build\windows\x64\runner\Debug'
+    $exe = & pwsh -NoProfile -File $slotScript -Slot $Slot -From $from
+    if ($LASTEXITCODE) { throw "test-slot.ps1 failed: $exe" }
+    return "$(@($exe)[-1])".Trim()
+}
+
+function Invoke-SelfTestMutants($list) {
+    $script:stDir = Join-Path $work 'selftest'
+    $dir = $script:stDir
+    New-Worktree $dir
+    $scenarios = @($list | ForEach-Object { $_['scenario'] } | Select-Object -Unique)
+    $base = $Baseline
+    if (-not $base) {
+        $base = Join-Path $Out 'baseline'
+        $t0 = Get-Date
+        if (-not (Invoke-Build $dir (Join-Path $Out 'baseline.build.log'))) { throw 'the unmutated build failed (baseline.build.log)' }
+        "baseline build: $([int]((Get-Date) - $t0).TotalSeconds) s"
+        $exe = Install-Slot $dir
+        foreach ($sc in $scenarios) {
+            $rep = Invoke-SelfTest $exe $sc $base 'base'
+            $c = Get-Check (Read-Report $rep) $checkNames[$sc]
+            $ok = $null -ne $c -and $c['pass'] -eq $true
+            "baseline $sc pass=$ok"
+            if (-not $ok) { throw "the baseline $sc self test did not pass ($rep): no mutant can be judged against it" }
+        }
+        "baseline: $([int]((Get-Date) - $t0).TotalSeconds) s"
+    }
+    foreach ($m in $list) {
+        $t0 = Get-Date
+        $id = $m['id']
+        Set-Content (Join-Path $dir 'MUTANT.txt') "AC1 mutant $id applied here ($($m['patch'])); a run was interrupted. Safe to delete: git worktree remove --force `"$dir`""
+        if (-not (Invoke-Patch $dir $m)) {
+            Add-Result $m 'error' '' 'the patch does not apply' $t0
+            continue
+        }
+        try {
+            if (-not (Invoke-Build $dir (Join-Path $Out "$id.build.log"))) {
+                Add-Result $m 'error' '' "the build failed (see $id.build.log)" $t0
+                continue
+            }
+            $exe = Install-Slot $dir
+            $sc = $m['scenario']
+            $rep = Invoke-SelfTest $exe $sc (Join-Path $Out $id) $id
+            $diffs = Compare-Scenario $sc (Join-Path $base "$sc.json") $rep
+            if ($diffs.Count) {
+                Add-Result $m 'caught' "$($sc): $(($diffs[0] -split ':')[0])" $diffs[0] $t0 $diffs
+            } else {
+                Add-Result $m 'survived' '' '' $t0
+            }
+        } finally {
+            git -C $dir checkout -- . 2>&1 | Out-Null
+            Remove-Item (Join-Path $dir 'MUTANT.txt') -ErrorAction SilentlyContinue
+        }
+    }
+    Remove-Worktree $dir
+}
+
+# ------------------------------------------------------------------ run
+"AC1 mutation check: $sha, phase $Phase, $($todo.Count) mutants -> $Out"
+foreach ($m in @($todo | Where-Object { $_['kind'] -ne 'selftest' })) { Invoke-UnitMutant $m }
+$st = @($todo | Where-Object { $_['kind'] -eq 'selftest' })
+if ($st.Count) { Invoke-SelfTestMutants $st }
+Save-Results
+$sv = @($results | Where-Object { $_.result -ne 'caught' })
+"done in $([int]((Get-Date) - $started).TotalMinutes) min: $($results.Count - $sv.Count) caught, $($sv.Count) not ($(($sv | ForEach-Object { "$($_.id) $($_.result)" }) -join ', '))"
+if ($sv.Count) { exit 1 }

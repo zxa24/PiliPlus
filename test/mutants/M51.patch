@@ -1,0 +1,21 @@
+diff --git a/lib/pages/download/view.dart b/lib/pages/download/view.dart
+index fdb79ee98..d21336bc4 100644
+--- a/lib/pages/download/view.dart
++++ b/lib/pages/download/view.dart
+@@ -133,13 +133,9 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
+                     (e) =>
+                         e.cid == _downloadService.curCid && !e.status.isFailed,
+                   );
+-                  final entry =
+-                      running ??
+-                      // complete videos whose comments etc. are being saved
+-                      _downloadService.extrasQueue.firstOrNull ??
+-                      queue.firstWhereOrNull((e) => !e.status.isFailed) ??
+-                      queue.firstWhereOrNull((e) => e.cid == cur?.cid) ??
+-                      queue.firstOrNull;
++                  // ignore: unused_local_variable
++                  final entry0 = running;
++                  final entry = queue.firstOrNull;
+                   final count =
+                       _downloadService.waitDownloadQueue.length +
+                       _downloadService.extrasQueue.length;

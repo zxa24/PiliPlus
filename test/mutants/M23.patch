@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 5958ef741..8c49cfd16 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1039,7 +1039,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+           return _onDone(error);
+         }
+         // paused / deleted / replaced meanwhile
+-        if (!identical(_downloadManager, manager)) return;
+         _startSegment(segments, index + 1, dir);
+       },
+     );

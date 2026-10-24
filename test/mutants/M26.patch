@@ -1,0 +1,20 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 5958ef741..b35bc9da3 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1,5 +1,5 @@
+ import 'dart:async';
+-import 'dart:convert' show jsonDecode, jsonEncode;
++import 'dart:convert' show JsonEncoder, jsonDecode, jsonEncode;
+ import 'dart:io'
+     show
+         Directory,
+@@ -1094,7 +1094,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+   static Future<void> _writeEntryJson(BiliDownloadEntryInfo entry) async {
+     final entryJsonFile = File(path.join(entry.entryDirPath, _entryFile));
+     final tmp = File('${entryJsonFile.path}.tmp');
+-    await tmp.writeAsString(jsonEncode(entry.toJson()), flush: true);
++    await tmp.writeAsString(const JsonEncoder.withIndent(' ').convert(entry.toJson()), flush: true);
+     await tmp.rename(entryJsonFile.path);
+   }
+ 

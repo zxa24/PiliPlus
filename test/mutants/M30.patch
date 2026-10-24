@@ -1,0 +1,22 @@
+diff --git a/lib/services/download/download_transcripts.dart b/lib/services/download/download_transcripts.dart
+index e777ba1a0..19926c537 100644
+--- a/lib/services/download/download_transcripts.dart
++++ b/lib/services/download/download_transcripts.dart
+@@ -214,7 +214,7 @@ class DownloadTranscripts {
+     try {
+       final kept = await TranscriptFiles.read(
+         entry.mergedPath!,
+-        SubtitleCacheKey.bilibili(cid),
++        SubtitleCacheKey.bilibili(entry.avid),
+         AsrService.recogniserId,
+       );
+       if (kept != null) await AsrService.to.cache.adopt(kept);
+@@ -227,7 +227,7 @@ class DownloadTranscripts {
+     final session = _session = await AsrService.to.start(
+       key: 'download:$cid',
+       source: entry.mergedPath!,
+-      cache: SubtitleCacheKey.bilibili(cid),
++      cache: SubtitleCacheKey.bilibili(entry.avid),
+     );
+     running.value = cid;
+     progress.putIfAbsent(cid, () => 0);

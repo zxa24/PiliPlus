@@ -1,0 +1,13 @@
+diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
+index fb81c11e9..32c45755b 100644
+--- a/lib/pages/download/detail/widgets/item.dart
++++ b/lib/pages/download/detail/widgets/item.dart
+@@ -241,7 +241,7 @@ class DetailItem extends StatelessWidget {
+                                   padding: const .only(right: 6, bottom: 3),
+                                   child: PBadge(
+                                     isStack: false,
+-                                    text: progress >= entry.totalTimeMilli - 400
++                                    text: progress >= entry.totalTimeMilli - 2000
+                                         ? '已看完'
+                                         : '${DurationUtils.formatDuration(
+                                                 progress ~/ 1000,

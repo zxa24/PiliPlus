@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_transcripts.dart b/lib/services/download/download_transcripts.dart
+index e777ba1a0..bc914d945 100644
+--- a/lib/services/download/download_transcripts.dart
++++ b/lib/services/download/download_transcripts.dart
+@@ -123,6 +123,7 @@ class DownloadTranscripts {
+   Future<void> finished(BiliDownloadEntryInfo entry) async {
+     if (!Pref.dlTranscribe || _inSegments(entry)) return;
+     entry.transcriptPending = true;
++    // M56 (phase 1 re-targets this): 1b reverted, only putIfAbsent(…, 0)
+     progress.putIfAbsent(entry.cid, () => 0);
+     await save(entry);
+     kick();

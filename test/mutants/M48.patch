@@ -1,0 +1,26 @@
+diff --git a/lib/pages/download/view.dart b/lib/pages/download/view.dart
+index fdb79ee98..ec255d5c7 100644
+--- a/lib/pages/download/view.dart
++++ b/lib/pages/download/view.dart
+@@ -345,21 +345,6 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
+                     isBold: false,
+                     type: PBadgeType.gray,
+                   ),
+-                  if (pageInfo.seasonType case final pgcType?)
+-                    PBadge(
+-                      text: switch (pgcType) {
+-                        -1 => '课程',
+-                        1 => '番剧',
+-                        2 => '电影',
+-                        3 => '纪录片',
+-                        4 => '国创',
+-                        5 => '电视剧',
+-                        7 => '综艺',
+-                        _ => null,
+-                      },
+-                      right: 6.0,
+-                      top: 6.0,
+-                    ),
+                   Positioned.fill(
+                     child: selectMask(theme.colorScheme, pageInfo.checked),
+                   ),

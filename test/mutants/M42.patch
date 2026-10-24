@@ -1,0 +1,13 @@
+diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
+index fb81c11e9..db7b180ff 100644
+--- a/lib/pages/download/detail/widgets/item.dart
++++ b/lib/pages/download/detail/widgets/item.dart
+@@ -215,7 +215,7 @@ class DetailItem extends StatelessWidget {
+                       },
+                     ),
+                   ),
+-                  if (entry.videoQuality case final videoQuality?)
++                  if (entry.preferedVideoQuality case final int videoQuality)
+                     PBadge(
+                       text: VideoQuality.fromCode(videoQuality).shortDesc,
+                       right: 6.0,

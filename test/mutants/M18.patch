@@ -1,0 +1,12 @@
+diff --git a/lib/http/download.dart b/lib/http/download.dart
+index 8431d1fbb..2971e8122 100644
+--- a/lib/http/download.dart
++++ b/lib/http/download.dart
+@@ -63,7 +63,6 @@ abstract final class DownloadHttp {
+         // achieved one is recorded, so a download capped while anonymous can
+         // still be restarted at the requested quality after logging in
+         entry
+-          ..mediaType = 2
+           ..typeTag = targetVideoQa.toString()
+           ..videoQuality = targetVideoQa
+           ..qualityPithyDescription =

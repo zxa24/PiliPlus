@@ -1,0 +1,18 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 5958ef741..60414d87e 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -973,13 +973,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+               onDone: _onAudioDone,
+             );
+           }
+-          late final first = mediaFileInfo.video.first;
+-          entry.pageData
+-            ?..width = first.width
+-            ..height = first.height;
+-          entry.ep
+-            ?..width = first.width
+-            ..height = first.height;
+           _updateBiliDownloadEntryJson(entry);
+           break;
+         default:

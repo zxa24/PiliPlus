@@ -1,0 +1,14 @@
+diff --git a/lib/pages/download/controller.dart b/lib/pages/download/controller.dart
+index 551df35dd..14bdd32b0 100644
+--- a/lib/pages/download/controller.dart
++++ b/lib/pages/download/controller.dart
+@@ -109,9 +109,6 @@ class DownloadPageController extends GetxController
+     SmartDialog.showLoading();
+     final watchProgress = GStorage.watchProgress;
+     for (final page in allChecked) {
+-      await watchProgress.deleteAll(
+-        page.entries.map((e) => e.cid.toString()),
+-      );
+       await _downloadService.deletePage(
+         pageDirPath: page.dirPath,
+         refresh: false,

@@ -1,0 +1,13 @@
+diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
+index fb81c11e9..5afa60776 100644
+--- a/lib/pages/download/detail/widgets/item.dart
++++ b/lib/pages/download/detail/widgets/item.dart
+@@ -95,7 +95,7 @@ class DetailItem extends StatelessWidget {
+                       SmartDialog.showToast('更新失败');
+                     }
+                   },
+-                  child: const Text('更新弹幕', style: TextStyle(fontSize: 14)),
++                  child: const SizedBox.shrink(),
+                 ),
+               ],
+             ),

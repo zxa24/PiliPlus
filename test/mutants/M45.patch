@@ -1,0 +1,13 @@
+diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
+index fb81c11e9..124d7e1ae 100644
+--- a/lib/pages/download/detail/widgets/item.dart
++++ b/lib/pages/download/detail/widgets/item.dart
+@@ -317,7 +317,7 @@ class DetailItem extends StatelessWidget {
+                             if (part != entry.title)
+                               Text(
+                                 part,
+-                                maxLines: 1,
++                                maxLines: 2,
+                                 overflow: TextOverflow.ellipsis,
+                                 style: TextStyle(
+                                   fontSize: 12,

@@ -1,0 +1,12 @@
+diff --git a/lib/pages/download/detail/view.dart b/lib/pages/download/detail/view.dart
+index d53e317ea..77163c6a9 100644
+--- a/lib/pages/download/detail/view.dart
++++ b/lib/pages/download/detail/view.dart
+@@ -174,7 +174,6 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
+                                 deleteExported: deleteExported,
+                               );
+                             }
+-                            GStorage.watchProgress.delete(entry.cid.toString());
+                           },
+                           controller: this,
+                         );

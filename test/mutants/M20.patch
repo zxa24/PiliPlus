@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 5958ef741..ddae4c9ce 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -917,7 +917,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+       }
+ 
+       await Future.wait([
+-        _writeIndexJson(mediaJsonFile, mediaFileInfo),
+         _downloadCover(entry: entry),
+       ]);
+ 

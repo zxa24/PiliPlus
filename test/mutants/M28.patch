@@ -1,0 +1,13 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+index 5958ef741..0340397fe 100644
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1070,6 +1070,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+   /// nothing is lost), and the returned future completes once this call's
+   /// state is on disk.
+   Future<void> _updateBiliDownloadEntryJson(BiliDownloadEntryInfo entry) {
++    return _writeEntryJson(entry);
++    // ignore: dead_code
+     final dir = entry.entryDirPath;
+     final save = (_entrySaves[dir] ?? Future<void>.value()).then(
+       (_) => _writeEntryJson(entry),

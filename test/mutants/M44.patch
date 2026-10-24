@@ -1,0 +1,22 @@
+diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
+index fb81c11e9..8eda2aeb1 100644
+--- a/lib/pages/download/detail/widgets/item.dart
++++ b/lib/pages/download/detail/widgets/item.dart
+@@ -183,7 +183,7 @@ class DetailItem extends StatelessWidget {
+                         final maxWidth = constraints.maxWidth;
+                         final maxHeight = constraints.maxHeight;
+                         int? cacheWidth, cacheHeight;
+-                        if (entry.pageData?.cacheWidth ?? false) {
++                        if (!(entry.pageData?.cacheWidth ?? false)) {
+                           cacheWidth = maxWidth.cacheSize(context);
+                         } else {
+                           cacheHeight = maxHeight.cacheSize(context);
+@@ -210,7 +210,7 @@ class DetailItem extends StatelessWidget {
+                                 src: entry.cover,
+                                 width: maxWidth,
+                                 height: maxHeight,
+-                                cacheWidth: entry.pageData?.cacheWidth,
++                                cacheWidth: !(entry.pageData?.cacheWidth ?? false),
+                               );
+                       },
+                     ),

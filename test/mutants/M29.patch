@@ -1,0 +1,13 @@
+diff --git a/lib/services/download/download_transcripts.dart b/lib/services/download/download_transcripts.dart
+index e777ba1a0..4adeb4380 100644
+--- a/lib/services/download/download_transcripts.dart
++++ b/lib/services/download/download_transcripts.dart
+@@ -229,7 +229,7 @@ class DownloadTranscripts {
+       source: entry.mergedPath!,
+       cache: SubtitleCacheKey.bilibili(cid),
+     );
+-    running.value = cid;
++    running.value = entry.avid;
+     progress.putIfAbsent(cid, () => 0);
+     EventLog.add('asr', 'transcribing download $cid in the background');
+     _watch?.cancel();
