@@ -14,6 +14,59 @@ import 'package:path/path.dart' as path;
 
 import 'download_test_support.dart';
 
+/// The entry.json saves made under it, as they land: the folder of each
+/// `entry.json.tmp` renamed into place. Every other file is left as it is.
+final class _SaveWatch extends IOOverrides {
+  final saved = <String>[];
+
+  @override
+  File createFile(String file) {
+    final made = super.createFile(file);
+    return file.endsWith('entry.json.tmp') ? _WatchedTmp(made, saved) : made;
+  }
+}
+
+String _folderOf(String file) => path.dirname(file);
+
+/// An `entry.json.tmp` that tells [saved] once it is renamed into place.
+/// Only what the service's save does with it is passed on.
+class _WatchedTmp implements File {
+  _WatchedTmp(this._file, this._saved);
+
+  final File _file;
+  final List<String> _saved;
+
+  @override
+  String get path => _file.path;
+
+  @override
+  bool existsSync() => _file.existsSync();
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) => _file.writeAsString(
+    contents,
+    mode: mode,
+    encoding: encoding,
+    flush: flush,
+  );
+
+  @override
+  Future<File> rename(String newPath) async {
+    final renamed = await _file.rename(newPath);
+    _saved.add(_folderOf(newPath));
+    return renamed;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('not passed on: ${invocation.memberName}');
+}
+
 Map<String, Object?> queued(String entry, Map<String, dynamic> json) => {
   ...json,
   'is_completed': false,
@@ -123,42 +176,41 @@ void main() {
     );
   });
 
-  /// [entry]'s entry.json once the service has saved it again: only its
-  /// time is looked at until then (Windows: a read while the service
-  /// renames over the file makes the rename fail).
-  Future<Map<String, dynamic>> savedAgain(String entry, DateTime before) async {
-    final file = File(path.join(h.root.path, entry, 'entry.json'));
+  /// [entry]'s entry.json once the start has saved it again. The save is
+  /// seen through [_SaveWatch], not by looking at the file: on Windows even
+  /// reading its time while the service renames `entry.json.tmp` over it
+  /// can make that rename fail (access denied), the save is lost and the
+  /// wait timed out (1 run in about 40 of the download tests).
+  Future<Map<String, dynamic>> savedAgain(
+    _SaveWatch watch,
+    String entry,
+  ) async {
+    final dir = path.join(h.root.path, entry);
     await until(
-      () =>
-          file.lastModifiedSync().isAfter(before) &&
-          !File('${file.path}.tmp').existsSync(),
+      () => watch.saved.any((d) => path.equals(d, dir)),
       reason: 'entry.json saved',
     );
     await settle();
     return readEntryJson(h.root.path, entry);
   }
 
-  DateTime modified(String entry) =>
-      File(path.join(h.root.path, entry, 'entry.json')).lastModifiedSync();
-
   test('the width and height of the stream picked are saved', () async {
     await start();
+    final watch = _SaveWatch();
     h.plan = (_) => dashPlan(width: 1280, height: 720);
     expect(p1.pageData!.width, 1920);
-    var before = modified(fixtureP1);
-    h.service.startDownload(p1);
-    await until(() => h.transports.isNotEmpty);
+    IOOverrides.runWithIOOverrides(() => h.service.startDownload(p1), watch);
+    await until(() => h.transportsOf(p1).isNotEmpty);
     expect((p1.pageData!.width, p1.pageData!.height), (1280, 720));
-    final page = (await savedAgain(fixtureP1, before))['page_data'] as Map;
+    final page = (await savedAgain(watch, fixtureP1))['page_data'] as Map;
     expect((page['width'], page['height']), (1280, 720));
 
     // a bangumi episode keeps them in its ep
     h.plan = (_) => dashPlan(width: 720, height: 1280);
-    before = modified(fixtureS);
-    h.service.startDownload(s);
+    IOOverrides.runWithIOOverrides(() => h.service.startDownload(s), watch);
     await until(() => h.transportsOf(s).isNotEmpty);
     expect((s.ep!.width, s.ep!.height), (720, 1280));
-    final ep = (await savedAgain(fixtureS, before))['ep'] as Map;
+    final ep = (await savedAgain(watch, fixtureS))['ep'] as Map;
     expect((ep['width'], ep['height']), (720, 1280));
   });
 
