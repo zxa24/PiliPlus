@@ -52,7 +52,9 @@ const recordFixtures = 'test/fixtures/download/input';
 const recordExpected = 'test/fixtures/download/expected';
 
 /// The download root of AC1 列表: [recordFixtures]' three plus the ugc
-/// video's second part, each with `cover.jpg`.
+/// video's second part, each with `cover.jpg`; and a second episode of
+/// [fixtureS]' season (`s_41001/733002`), so the self test's list shots
+/// (`--download-list-shots`) have a bangumi group with its 番剧 badge.
 const listFixtures = 'test/fixtures/download_list';
 
 /// Entry folders of [listFixtures], relative to it.

@@ -55,6 +55,8 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart'
 import 'package:PiliPlus/pages/danmaku/controller.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart'
     show DetailItem;
+import 'package:PiliPlus/pages/download/search/controller.dart'
+    show DownloadSearchController;
 import 'package:PiliPlus/pages/download/view.dart' show DownloadPage;
 import 'package:PiliPlus/pages/danmaku/view.dart' show PlDanmaku;
 import 'package:canvas_danmaku/base_danmaku_painter.dart';
@@ -160,8 +162,10 @@ import 'package:material_ui/material_ui.dart'
         AlertDialog,
         AppBar,
         IconButton,
+        InkWell,
         PopupMenuButton,
         Scaffold,
+        SimpleDialog,
         Tooltip,
         showDialog;
 import 'package:get/get.dart';
@@ -737,12 +741,21 @@ abstract final class SelfTest {
       TextLanguage.debugNative = native.split('+');
     }
     debugDumpUrls = args.contains('--dump-urls');
+    // `--dl-transcribe off`: no background transcript after a download
+    // (it is on by default). The download scenarios compared across builds
+    // (feature-logs/download-platforms AC1) run with it off, so what they
+    // report does not depend on how far a transcript got meanwhile; saved
+    // in the profile, so a later run in it keeps it
+    if (_arg(args, '--dl-transcribe') case final on?) {
+      await GStorage.setting.put(SettingBoxKey.dlTranscribe, on != 'off');
+    }
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
       'args': args,
       // isolated profile: never the user's own data (see isSelfTestProfile)
       'dataDir': appSupportDirPath,
       'downloadDir': downloadPath,
+      'dlTranscribe': Pref.dlTranscribe,
       'checks': <Map<String, dynamic>>[],
     };
     final checks = report['checks'] as List<Map<String, dynamic>>;
@@ -936,6 +949,10 @@ abstract final class SelfTest {
           damageTimes: int.tryParse(_arg(args, '--damage-times') ?? '') ?? 99,
         ),
       );
+    }
+    if (_arg(args, '--download-list-shots') case final fixtures?) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('downloadListShots', () => _downloadListShots(fixtures));
     }
     if (_arg(args, '--download-transcribe') case final bvid?) {
       await scenario(
@@ -10436,6 +10453,20 @@ abstract final class SelfTest {
       ...service.downloadList,
     ].firstWhereOrNull((e) => e.cid == cid);
 
+    // the export folders there before A: a new one when A has stopped is
+    // its own (B starts only after that), left behind by its failed merges
+    // unless the merge removed it (feature-logs/download-platforms AC1)
+    final exportDir = Directory(await DownloadService.exportDir());
+    Set<String> exportFolders() => {
+      for (final e in exportDir.listSync())
+        if (e is Directory &&
+            !RegExp(
+              r'^(s_)?\d+$',
+              caseSensitive: false,
+            ).hasMatch(path.basename(e.path)))
+          path.basename(e.path),
+    };
+    final foldersBefore = exportFolders();
     try {
       final started = DateTime.now();
       double at() => DateTime.now().difference(started).inMilliseconds / 1000;
@@ -10463,6 +10494,9 @@ abstract final class SelfTest {
         return {'pass': false, 'error': 'A never merged', 'a': statusesA};
       }
       final aAfterMerge = find(cidA)?.status.name;
+      final aExportFolderLeft = exportFolders()
+          .difference(foldersBefore)
+          .isNotEmpty;
       final fileA = find(cidA)?.entryDirPath;
       final aStreamsLeft = fileA == null
           ? null
@@ -10555,6 +10589,7 @@ abstract final class SelfTest {
         'cidB': cidB,
         'aStatuses': statusesA,
         'aAfterMerge': aAfterMerge,
+        'aExportFolderLeft': aExportFolderLeft,
         'aStreamsAfterMerge': aStreamsLeft,
         'bInvisibleSeconds': invisible,
         'timeline': timeline,
@@ -10563,6 +10598,188 @@ abstract final class SelfTest {
     } finally {
       DownloadService.selfTestBeforeMerge = null;
       await clean();
+    }
+  }
+
+  /// `--download-list-shots DIR --shots OUT`: the download list as drawn
+  /// (feature-logs/download-platforms AC1 截图对比), from fixed records and
+  /// with no network. DIR (the repo's `test/fixtures/download_list`) is
+  /// copied into a fresh download folder, one entry is set watched half way
+  /// and one to the end, and six shots are taken: the list, the two-part
+  /// video's page, the bangumi's page, an entry's and a group's long-press
+  /// menu, and a search that finds two entries. Builds are compared shot by
+  /// shot, pixel by pixel, so the window is set to one size first and every
+  /// row is opened through its callback (a tap's ink ripple would still be
+  /// fading in the shot).
+  static Future<Map<String, dynamic>> _downloadListShots(
+    String fixtures,
+  ) async {
+    if (_shots == null) return {'pass': false, 'error': 'no --shots DIR'};
+    final from = Directory(fixtures);
+    if (!from.existsSync()) return {'pass': false, 'error': 'no $fixtures'};
+    final service = Get.find<DownloadService>();
+    await service.waitForInitialization;
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      await SelfTestWindow.setSize(const Size(1000, 720));
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    final oldRoot = downloadPath;
+    final root = Directory(path.join(appSupportDirPath, 'download_list_shots'));
+    if (root.existsSync()) await root.delete(recursive: true);
+    for (final e in from.listSync(recursive: true)) {
+      if (e is! File) continue;
+      final to = File(
+        path.join(root.path, path.relative(e.path, from: from.path)),
+      );
+      await to.parent.create(recursive: true);
+      await e.copy(to.path);
+    }
+    downloadPath = root.path;
+    service.reloadDownloadList();
+    await service.waitForInitialization;
+
+    Element? under(Element? root, bool Function(Element) test) {
+      Element? found;
+      void visit(Element e) {
+        if (found != null) return;
+        if (test(e)) {
+          found = e;
+          return;
+        }
+        e.visitChildren(visit);
+      }
+
+      root?.visitChildren(visit);
+      return found;
+    }
+
+    // the routes below stay in the tree (the home page has a 搜索 too): look
+    // on the list page only
+    Element? list() => _findElement((e) => e.widget is DownloadPage);
+    InkWell? inkAbove(Element? e) {
+      InkWell? found;
+      e?.visitAncestorElements((a) {
+        if (a.widget case final InkWell w) found = w;
+        return found == null;
+      });
+      return found;
+    }
+
+    List<String> menu() {
+      final dialog = _findElement((e) => e.widget is SimpleDialog);
+      final texts = <String>[];
+      void visit(Element e) {
+        if (e.widget case final Text t) texts.add(_textOf(t));
+        e.visitChildren(visit);
+      }
+
+      dialog?.visitChildren(visit);
+      return texts;
+    }
+
+    Future<void> settle() => Future.delayed(const Duration(milliseconds: 1500));
+    // the fixtures' two-part video, its first part watched half way, and the
+    // official client's episode, watched to the end
+    const groupTitle = '夹具：同一视频的两个分P';
+    const bangumiTitle = '夹具番剧';
+    const halfCid = 279001;
+    const watchedCid = 279004;
+    final half = service.downloadList.firstWhereOrNull((e) => e.cid == halfCid);
+    final watched = service.downloadList.firstWhereOrNull(
+      (e) => e.cid == watchedCid,
+    );
+    final shots = <String?>[];
+    final result = <String, dynamic>{
+      'entries': service.downloadList.length,
+      'shots': shots,
+    };
+    var routes = 0;
+    try {
+      if (half == null || watched == null) {
+        return result
+          ..['pass'] = false
+          ..['error'] = 'fixtures without cid $halfCid / $watchedCid';
+      }
+      await GStorage.watchProgress.put('$halfCid', half.totalTimeMilli ~/ 2);
+      await GStorage.watchProgress.put('$watchedCid', watched.totalTimeMilli);
+
+      unawaited(Get.to(() => const DownloadPage()));
+      routes++;
+      await settle();
+      result['seasonBadge'] = under(list(), _isText('番剧')) != null;
+      shots.add(await _shot('list_1_cache'));
+
+      for (final (title, name) in const [
+        (groupTitle, 'list_2_group'),
+        (bangumiTitle, 'list_3_bangumi'),
+      ]) {
+        inkAbove(under(list(), _isText(title)))?.onTap?.call();
+        await settle();
+        shots.add(await _shot(name));
+        Get.back();
+        await settle();
+      }
+
+      inkAbove(
+        under(
+          list(),
+          (e) => e.widget is Text && _textOf(e.widget as Text) == watched.title,
+        ),
+      )?.onLongPress?.call();
+      await settle();
+      result['entryMenu'] = menu();
+      shots.add(await _shot('list_4_entry_menu'));
+      Get.back();
+      await settle();
+
+      inkAbove(
+        under(list(), _isText(groupTitle)),
+      )?.onLongPress?.call();
+      await settle();
+      result['groupMenu'] = menu();
+      shots.add(await _shot('list_5_group_menu'));
+      Get.back();
+      await settle();
+
+      final search = under(
+        list(),
+        (e) =>
+            e.widget is IconButton && (e.widget as IconButton).tooltip == '搜索',
+      );
+      (search?.widget as IconButton?)?.onPressed?.call();
+      await settle();
+      if (search != null) routes++;
+      final ctr = Get.find<DownloadSearchController>();
+      ctr.editController.text = '两个分P';
+      // no caret blinking in the shot
+      ctr.focusNode.unfocus();
+      await ctr.onRefresh();
+      await settle();
+      result['searchHits'] = ctr.loadingState.value.data?.length;
+      shots.add(await _shot('list_6_search'));
+
+      const menuItems = ['删除', '更新弹幕'];
+      result['pass'] =
+          shots.length == 6 &&
+          shots.every((s) => s != null && !s.startsWith('failed')) &&
+          result['seasonBadge'] == true &&
+          const ListEquality<String>().equals(result['entryMenu'], menuItems) &&
+          const ListEquality<String>().equals(result['groupMenu'], menuItems) &&
+          result['searchHits'] == 2;
+      return result;
+    } finally {
+      for (var i = 0; i < routes; i++) {
+        Get.back();
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      await GStorage.watchProgress.deleteAll(['$halfCid', '$watchedCid']);
+      downloadPath = oldRoot;
+      service.reloadDownloadList();
+      await service.waitForInitialization;
+      try {
+        await root.delete(recursive: true);
+      } catch (_) {}
     }
   }
 
@@ -10606,6 +10823,15 @@ abstract final class SelfTest {
       }
     }
 
+    // the stream picked, read where the merge is about to start: its
+    // folder and index.json are removed once the merge has worked
+    String? streamKey;
+    final beforeMerge = DownloadService.selfTestBeforeMerge;
+    DownloadService.selfTestBeforeMerge = (entry) async {
+      if (entry.cid == cid) streamKey = _streamKeyOf(entry);
+      await beforeMerge?.call(entry);
+    };
+    final logSince = DateTime.now();
     final quality = VideoQuality.fromCode(qn);
     service.downloadVideo(page, detail, null, quality);
 
@@ -10641,23 +10867,27 @@ abstract final class SelfTest {
 
     final deadline = DateTime.now().add(const Duration(minutes: 15));
     BiliDownloadEntryInfo? done;
-    while (DateTime.now().isBefore(deadline)) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      sample();
-      final cur = service.curDownload.value;
-      if (cur != null && cur.cid == cid) {
-        final s = cur.status.name;
-        if (statuses.isEmpty || statuses.last != s) statuses.add(s);
-        if (s.startsWith('fail')) {
-          return {
-            'pass': false,
-            'error': 'download status $s: ${service.lastError}',
-            'statuses': statuses,
-          };
+    try {
+      while (DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        sample();
+        final cur = service.curDownload.value;
+        if (cur != null && cur.cid == cid) {
+          final s = cur.status.name;
+          if (statuses.isEmpty || statuses.last != s) statuses.add(s);
+          if (s.startsWith('fail')) {
+            return {
+              'pass': false,
+              'error': 'download status $s: ${service.lastError}',
+              'statuses': statuses,
+            };
+          }
         }
+        done = service.downloadList.firstWhereOrNull((e) => e.cid == cid);
+        if (done != null) break;
       }
-      done = service.downloadList.firstWhereOrNull((e) => e.cid == cid);
-      if (done != null) break;
+    } finally {
+      DownloadService.selfTestBeforeMerge = beforeMerge;
     }
     if (done == null) {
       return {'pass': false, 'error': 'timeout', 'statuses': statuses};
@@ -10697,6 +10927,12 @@ abstract final class SelfTest {
     final savedMergedPath = entryJson.existsSync()
         ? (jsonDecode(await entryJson.readAsString()) as Map)['merged_path']
         : null;
+    final saved = entryJson.existsSync()
+        ? jsonDecode(await entryJson.readAsString()) as Map
+        : null;
+    final info = merged == null
+        ? null
+        : File(path.join(path.dirname(merged), DownloadExtras.infoName));
 
     final result = <String, dynamic>{
       // through the parallel fetch: what came from the pieces kept on disk
@@ -10732,6 +10968,24 @@ abstract final class SelfTest {
           for (final f in Directory(path.dirname(merged)).listSync())
             if (f is File) path.basename(f.path): f.lengthSync(),
         },
+      // what the download wrote down (feature-logs/download-platforms AC1):
+      // the record's keys, the values the play URL's resolve put in it and
+      // their copy in the export's own record, the stream picked, and the
+      // tracks the merge wrote
+      'entryJsonKeys': saved?.keys.map((k) => '$k').sorted(),
+      'entryFields': _resolvedFields(saved),
+      if (info != null)
+        'exportFields': _resolvedFields(
+          info.existsSync()
+              ? jsonDecode(await info.readAsString()) as Map
+              : null,
+        ),
+      'streamKey': streamKey,
+      if (merged != null) 'mergedStreams': await _streamsOf(merged),
+      'downloadLog': [
+        for (final (_, line) in EventLog.entries(since: logSince))
+          if (line.contains('[download]')) line,
+      ],
     };
     final prog = result['progress'] as Map;
     result['pass'] =
@@ -10754,6 +11008,78 @@ abstract final class SelfTest {
       result['cleanedUp'] = !(mergedFile?.existsSync() ?? false);
     }
     return result;
+  }
+
+  /// The fields of a download record ([json]: `entry.json`, or the
+  /// export's `librepili.json`) that the play URL's resolve writes
+  /// (DownloadHttp.getVideoUrl), with the size of the stream picked; a key
+  /// the record does not have is left out, not reported as null.
+  static Map<String, Object?>? _resolvedFields(Map? json) => json == null
+      ? null
+      : {
+          for (final key in const [
+            'media_type',
+            'type_tag',
+            'video_quality',
+            'quality_pithy_description',
+            'has_dash_audio',
+          ])
+            if (json.containsKey(key)) key: json[key],
+          for (final part in const ['page_data', 'ep'])
+            if (json[part] case final Map size) ...{
+              '$part.width': size['width'],
+              '$part.height': size['height'],
+            },
+        };
+
+  /// The key the download service gives the stream [entry] is downloading
+  /// (its private `_streamKey`, restated: dash `id/codecid/WxH` of the video
+  /// and the audio picked, or the durl segment sizes), read from the
+  /// `index.json` in the stream folder; null when there is none.
+  static String? _streamKeyOf(BiliDownloadEntryInfo entry) {
+    final file = File(
+      path.join(entry.entryDirPath, entry.streamTypeTag, 'index.json'),
+    );
+    if (!file.existsSync()) return null;
+    try {
+      final json = jsonDecode(file.readAsStringSync());
+      if (json is! Map) return 'not a map';
+      String first(Object? list) {
+        if (list is! List || list.isEmpty || list.first is! Map) return '';
+        final f = list.first as Map;
+        return '${f['id']}/${f['codecid']}/${f['width']}x${f['height']}';
+      }
+
+      if (json['video'] != null) {
+        return 'dash:${first(json['video'])}:${first(json['audio'])}';
+      }
+      if (json['segment_list'] case final List segments) {
+        return 'durl:${segments.map((e) => e is Map ? e['bytes'] : null).join(',')}';
+      }
+      return 'neither dash nor durl';
+    } catch (e) {
+      return 'unreadable: $e';
+    }
+  }
+
+  /// The tracks in [file] as ffmpeg names them (`Video: h264`, `Audio:
+  /// aac`), in order. Read with `ffmpeg -i` (the ffmpeg on PATH; ffprobe is
+  /// not always there): desktop only, null without one.
+  static Future<List<String>?> _streamsOf(String file) async {
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+      return null;
+    }
+    try {
+      final res = await Process.run('ffmpeg', ['-hide_banner', '-i', file]);
+      return [
+        for (final m in RegExp(
+          r'Stream #\d+:\d+.*?: (\w+): (\w+)',
+        ).allMatches('${res.stderr}'))
+          '${m[1]}: ${m[2]}',
+      ];
+    } catch (_) {
+      return null;
+    }
   }
 }
 
