@@ -143,10 +143,8 @@ void main() {
       h.onTransport = (t) => scheduleMicrotask(t.fail);
       await start(patch: queued);
       h.service.startDownload(p1);
-      await until(
-        () => count('no more retries') == 3,
-        reason: 'all three to give up',
-      );
+      // all three give up (a queue that stalls instead is told below)
+      await until(() => count('no more retries') == 3, quiet: true);
 
       // a start and three retries each
       expect(h.transportsOf(p1), hasLength(4));
@@ -192,11 +190,14 @@ void main() {
         if (path.isWithin(p1.entryDirPath, t.path)) scheduleMicrotask(t.fail);
       };
       h.service.startDownload(p1);
-      await until(() => h.transportsOf(p2).isNotEmpty);
+      await until(() => h.transportsOf(p2).isNotEmpty, quiet: true);
       expect(p1.status, DownloadStatus.failDownload);
+      expect(h.transportsOf(p1), hasLength(4));
+      expect(h.transportsOf(p2), hasLength(1));
 
       h.transportsOf(p2).single.complete();
-      await until(() => h.transportsOf(s).isNotEmpty);
+      await until(() => h.transportsOf(s).isNotEmpty, quiet: true);
+      expect(h.transportsOf(s), isNotEmpty);
       expect(h.transportsOf(p1), hasLength(4));
       expect(hasKey(h.service.downloadList, keyOf(p2)), isTrue);
     });
@@ -384,7 +385,8 @@ void main() {
       const again = '音视频文件再次损坏，已删除，可稍后重新开始该下载';
 
       h.service.startDownload(p1);
-      await until(() => count('no more retries') == 1);
+      await until(() => count('no more retries') == 1, quiet: true);
+      expect(count('no more retries'), 1);
       expect(
         h.log.lastWhere((l) => l.contains('no more retries')),
         endsWith('no more retries (merge)'),
@@ -396,14 +398,14 @@ void main() {
       expect(p1.status, DownloadStatus.failMerge);
 
       // the queue goes on: P2's first damage is its own first
-      await until(() => count('no more retries') == 2);
+      await until(() => count('no more retries') == 2, quiet: true);
       expect(h.toasts, [first, again, first, again]);
       expect(h.transportsOf(p2), hasLength(2));
       await until(() => hasKey(h.service.downloadList, keyOf(s)));
 
       // started again by the user: one more download of P1's streams
       h.service.startDownload(p1);
-      await until(() => count('no more retries') == 3);
+      await until(() => count('no more retries') == 3, quiet: true);
       expect(h.toasts.sublist(4), [first, again]);
       expect(h.transportsOf(p1), hasLength(4));
     });

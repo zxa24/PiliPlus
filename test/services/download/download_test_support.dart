@@ -441,11 +441,13 @@ class DownloadHarness {
 
 /// Waits (really: files, timers) until [done], at most [timeout]. A check
 /// that throws is not done yet (Windows: a file read while the service
-/// renames over it).
+/// renames over it). [quiet]: no error at the end of the wait, the
+/// assertions after it say what went wrong (a queue that stalled).
 Future<void> until(
   bool Function() done, {
   Duration timeout = const Duration(seconds: 5),
   String? reason,
+  bool quiet = false,
 }) async {
   bool check() {
     try {
@@ -458,6 +460,7 @@ Future<void> until(
   final end = DateTime.now().add(timeout);
   while (!check()) {
     if (DateTime.now().isAfter(end)) {
+      if (quiet) return;
       throw TimeoutException('waited for ${reason ?? 'a condition'}');
     }
     await Future<void>.delayed(const Duration(milliseconds: 2));
