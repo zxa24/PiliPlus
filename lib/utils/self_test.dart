@@ -10169,6 +10169,68 @@ abstract final class SelfTest {
     String bvid, {
     double? yieldAt,
   }) async {
+    final service = Get.find<DownloadService>();
+    final transcripts = service.transcripts;
+    // the transcript's state as it changes, from before the download: the
+    // background run starts once the merge is done and can end while the
+    // download's comments etc. are still being saved — before the timeline
+    // below starts — so this is what sees it running, and under which key
+    BiliDownloadEntryInfo? entry() => [
+      ...service.waitDownloadQueue,
+      ...service.extrasQueue,
+      ...service.downloadList,
+    ].firstWhereOrNull((e) => e.bvid == bvid);
+    final states = <String>[];
+    final runningKeys = <String>{};
+    var runningSeen = false;
+    double? runningFrom;
+    void note() {
+      if (transcripts.running.value case final running?) {
+        runningKeys.add('$running');
+      }
+      final e = entry();
+      if (e == null) return;
+      final state = transcripts.stateOf(e.cid);
+      if (state != null && state.running) {
+        runningSeen = true;
+        runningFrom ??= state.fraction;
+      }
+      // the percentages are when it was looked at, not what it went through
+      final label = transcriptLabel(
+        state,
+        pending: e.transcriptPending,
+      ).trim().replaceAll(RegExp(r'\d+%'), 'N%');
+      if (label.isNotEmpty && states.lastOrNull != label) states.add(label);
+    }
+
+    final subscriptions = [
+      transcripts.progress.listen((_) => note()),
+      transcripts.running.listen((_) => note()),
+    ];
+    final Map<String, dynamic> result;
+    try {
+      result = await _downloadTranscribeRun(bvid, yieldAt: yieldAt);
+    } finally {
+      for (final s in subscriptions) {
+        unawaited(s.cancel());
+      }
+    }
+    result
+      ..['states'] = states
+      ..['runningSeen'] = runningSeen
+      ..['runningFrom'] = runningFrom
+      ..['runningKeys'] = runningKeys.toList();
+    if (result['checks'] case final Map<String, bool> checks) {
+      checks['seen running under its key'] = runningSeen;
+    }
+    result['pass'] = result['pass'] == true && runningSeen;
+    return result;
+  }
+
+  static Future<Map<String, dynamic>> _downloadTranscribeRun(
+    String bvid, {
+    double? yieldAt,
+  }) async {
     final asr = AsrService.to;
     if (!asr.modelsReady) return {'pass': false, 'reason': 'models missing'};
     final downloaded = await _download(bvid, 32, keep: true);
@@ -10467,6 +10529,7 @@ abstract final class SelfTest {
           path.basename(e.path),
     };
     final foldersBefore = exportFolders();
+    final trailA = _StatusTrail(service, () => find(cidA));
     try {
       final started = DateTime.now();
       double at() => DateTime.now().difference(started).inMilliseconds / 1000;
@@ -10477,16 +10540,35 @@ abstract final class SelfTest {
         if (s != lastA) statusesA.add('${at()}: ${lastA = s}');
       }
 
+      trailA.start();
       service.downloadVideo(pageA, detailA, null, quality);
-      // A merged and failed (or, retried, done): B is downloaded behind it
+      // A merged and failed for good (or, retried, done): B is downloaded
+      // behind it. Failed for good is the "no more retries" line or a
+      // failure that held for 3 s, not the moment a merge fails: a retry
+      // follows that a second or two later, and a B queued in between had
+      // A's retry restarted as a start of the user's (its retries counted
+      // from nothing again, B hidden behind it)
+      bool gaveUpA() => EventLog.entries(since: started).any(
+        (e) =>
+            e.$2.contains('[download] $cidA: ') &&
+            e.$2.contains('no more retries'),
+      );
+      DateTime? failedSince;
       final untilA = DateTime.now().add(const Duration(minutes: 10));
       while (DateTime.now().isBefore(untilA)) {
         await Future.delayed(const Duration(milliseconds: 500));
         noteA();
         final e = find(cidA);
+        failedSince = e != null && e.status.isFailed
+            ? failedSince ?? DateTime.now()
+            : null;
         if (damaged > 0 &&
             e != null &&
-            (e.status.isFailed || service.downloadList.contains(e))) {
+            (service.downloadList.contains(e) ||
+                gaveUpA() ||
+                (failedSince != null &&
+                    DateTime.now().difference(failedSince) >=
+                        const Duration(seconds: 3)))) {
           break;
         }
       }
@@ -10588,6 +10670,9 @@ abstract final class SelfTest {
         'cidA': cidA,
         'cidB': cidB,
         'aStatuses': statusesA,
+        // every status A went through, each as it was set (aStatuses is
+        // sampled every 500 ms and misses the short ones)
+        'aStatusTransitions': trailA.statuses,
         'aAfterMerge': aAfterMerge,
         'aExportFolderLeft': aExportFolderLeft,
         'aStreamsAfterMerge': aStreamsLeft,
@@ -10597,6 +10682,7 @@ abstract final class SelfTest {
       };
     } finally {
       DownloadService.selfTestBeforeMerge = null;
+      trailA.stop();
       await clean();
     }
   }
@@ -10832,6 +10918,16 @@ abstract final class SelfTest {
       await beforeMerge?.call(entry);
     };
     final logSince = DateTime.now();
+    // every status it goes through, each as it is set ([statuses] below is
+    // sampled every 500 ms: a merge shorter than that is seen or not)
+    final trail = _StatusTrail(
+      service,
+      () => [
+        ...service.waitDownloadQueue,
+        ...service.extrasQueue,
+        ...service.downloadList,
+      ].firstWhereOrNull((e) => e.cid == cid),
+    )..start();
     final quality = VideoQuality.fromCode(qn);
     service.downloadVideo(page, detail, null, quality);
 
@@ -10888,6 +10984,7 @@ abstract final class SelfTest {
       }
     } finally {
       DownloadService.selfTestBeforeMerge = beforeMerge;
+      if (done == null) trail.stop();
     }
     if (done == null) {
       return {'pass': false, 'error': 'timeout', 'statuses': statuses};
@@ -10910,6 +11007,7 @@ abstract final class SelfTest {
     // the job's own completion (status, entry.json) runs right after
     await Future.delayed(const Duration(milliseconds: 200));
     sample();
+    trail.stop();
     final values = [for (final r in timeline) r[2] as double];
     var monotonic = true;
     for (var i = 1; i < values.length; i++) {
@@ -10941,6 +11039,7 @@ abstract final class SelfTest {
       'cid': cid,
       'quality': done.qualityPithyDescription,
       'statuses': statuses,
+      'statusTransitions': trail.statuses,
       'mergedPath': merged,
       'mergedExists': mergedFile?.existsSync() ?? false,
       'mergedBytes': mergedFile?.existsSync() == true
@@ -11080,6 +11179,53 @@ abstract final class SelfTest {
     } catch (_) {
       return null;
     }
+  }
+}
+
+/// Every status one download goes through, in order, each read as it is set
+/// rather than sampled: the download service follows each change of an
+/// entry's status with a notification (the current download refreshed, a
+/// list changed, the entry's progress told), and the status is read on every
+/// one of them. [find] gives the entry (null before it is created).
+final class _StatusTrail {
+  _StatusTrail(this.service, this.find);
+
+  final DownloadService service;
+  final BiliDownloadEntryInfo? Function() find;
+
+  /// Adjacent repeats dropped; `none` while there is no entry.
+  final statuses = <String>[];
+  final _subscriptions = <StreamSubscription<Object?>>[];
+  BiliDownloadEntryInfo? _entry;
+
+  void start() {
+    _subscriptions.addAll([
+      service.curDownload.listen((_) => _note()),
+      service.waitDownloadQueue.listen((_) => _note()),
+      service.extrasQueue.listen((_) => _note()),
+    ]);
+    service.flagNotifier.add(_note);
+    _note();
+  }
+
+  void _note() {
+    final entry = find();
+    if (!identical(entry, _entry)) {
+      _entry?.progress.removeListener(_note);
+      _entry = entry?..progress.addListener(_note);
+    }
+    final status = entry?.status.name ?? 'none';
+    if (statuses.lastOrNull != status) statuses.add(status);
+  }
+
+  void stop() {
+    for (final s in _subscriptions) {
+      s.cancel();
+    }
+    _subscriptions.clear();
+    service.flagNotifier.remove(_note);
+    _entry?.progress.removeListener(_note);
+    _entry = null;
   }
 }
 
