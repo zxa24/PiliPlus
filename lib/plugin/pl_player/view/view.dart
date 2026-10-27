@@ -54,6 +54,8 @@ import 'package:PiliPlus/plugin/pl_player/widgets/debug_overlay_view.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/forward_seek.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/mpv_convert_webp.dart';
 import 'package:PiliPlus/plugin/pl_player/widgets/play_pause_btn.dart';
+import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/window_metrics_log.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
@@ -292,6 +294,15 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     );
     videoController = plPlayerController.videoController!;
     plPlayerController.captureVideo = _captureVideo;
+    if (PlatformUtils.isDesktop) {
+      // toggling fullscreen builds a new State (see above): this is the
+      // layout each side of it, once drawn and once settled
+      WidgetsBinding.instance.addPostFrameCallback((_) => _logLayout('built'));
+      _layoutLogTimer = Timer(
+        const Duration(seconds: 1),
+        () => _logLayout('built +1 s'),
+      );
+    }
 
     if (PlatformUtils.isMobile) {
       Future.microtask(() {
@@ -409,6 +420,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       plPlayerController.captureVideo = null;
     }
     removeObserverMobile(this);
+    _layoutLogTimer?.cancel();
     _danmakuListener?.cancel();
     _tapGestureRecognizer.dispose();
     if (_longPressing) {
@@ -966,6 +978,57 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     if (Platform.isAndroid && AndroidHelper.isPipMode) {
       plPlayerController.controls = false;
     }
+    if (PlatformUtils.isDesktop &&
+        (widget.maxWidth != oldWidget.maxWidth ||
+            widget.maxHeight != oldWidget.maxHeight)) {
+      // once a window drag has stopped
+      _layoutLogTimer?.cancel();
+      _layoutLogTimer = Timer(
+        const Duration(milliseconds: 500),
+        () => _logLayout('resized'),
+      );
+    }
+  }
+
+  Timer? _layoutLogTimer;
+
+  /// LibrePili: the size this player was given and the sizes it, its
+  /// bottom bar and its danmaku came out at, in the event log with the
+  /// view's (see [WindowMetricsLog]). Reported 2026-10-27: a fullscreen
+  /// whose bottom bar ran about 2.2 times past the screen's right edge and
+  /// whose danmaku were drawn twice their size, gone once left; these are
+  /// the numbers that say which layer had the wrong size.
+  void _logLayout(String why) {
+    if (!mounted) return;
+    Size? sizeOf(BuildContext? context) {
+      final box = context?.findRenderObject();
+      return box is RenderBox && box.hasSize ? box.size : null;
+    }
+
+    Size? bar, danmaku, danmakuGiven;
+    void visit(Element element) {
+      switch (element.widget) {
+        case BottomControl() when bar == null:
+          bar = sizeOf(element);
+        case DanmakuScreen(:final size) when danmaku == null:
+          danmaku = sizeOf(element);
+          danmakuGiven = size;
+      }
+      if (bar == null || danmaku == null) element.visitChildElements(visit);
+    }
+
+    final player = _playerKey.currentContext;
+    if (player is Element) player.visitChildElements(visit);
+    const text = WindowMetricsLog.sizeText;
+    EventLog.add(
+      'layout',
+      '$why: ${isFullScreen ? 'fullscreen' : 'windowed'}'
+          ' · given ${text(Size(widget.maxWidth, widget.maxHeight))}'
+          ' · player ${text(sizeOf(player))}'
+          ' · bar ${text(bar)}'
+          ' · danmaku ${text(danmaku)} (given ${text(danmakuGiven)})'
+          ' · ${WindowMetricsLog.describe()}',
+    );
   }
 
   void _onPanStart(ScaleStartDetails details) {

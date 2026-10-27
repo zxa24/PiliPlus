@@ -31,6 +31,7 @@ import 'package:PiliPlus/services/power_events.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/services/youtube/stream_relay.dart';
+import 'package:PiliPlus/services/window_metrics_log.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -208,6 +209,9 @@ void main(List<String> args) async {
     appExit();
   }
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
+  // LibrePili: the window's size and scale in the event log (a layout that
+  // came out wrong on entering fullscreen, 2026-10-27)
+  if (PlatformUtils.isDesktop) WindowMetricsLog.start();
   // LibrePili: danmaku spaced as subtitles and comments are (中英文间距),
   // the setting read as each one is drawn
   danmaku.DmUtils.gapsOf = (text) =>

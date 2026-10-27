@@ -40,6 +40,7 @@ import 'package:PiliPlus/plugin/pl_player/models/video_fit_type.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/window_metrics_log.dart';
 import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -4929,6 +4930,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (_fsProcessing) return;
     _fsProcessing = true;
     this.isManualFS = isManualFS;
+    final onOff = status ? 'on' : 'off';
+    if (PlatformUtils.isDesktop) {
+      EventLog.add(
+        'layout',
+        'fullscreen $onOff asked: ${WindowMetricsLog.describe()}',
+      );
+    }
     try {
       if (status) {
         if (PlatformUtils.isMobile) {
@@ -4956,7 +4964,26 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } finally {
       _setFullScreen(status);
       _fsProcessing = false;
+      if (PlatformUtils.isDesktop) unawaited(_logFullScreenSet(onOff));
     }
+  }
+
+  /// LibrePili: the window as Windows has it once fullscreen is set, next
+  /// to the view's metrics (see [WindowMetricsLog]).
+  Future<void> _logFullScreenSet(String onOff) async {
+    String window;
+    try {
+      final bounds = await windowManager.getBounds();
+      window =
+          'window ${bounds.left.toStringAsFixed(0)},'
+          '${bounds.top.toStringAsFixed(0)} ${WindowMetricsLog.sizeText(bounds.size)}';
+    } catch (_) {
+      window = 'window -';
+    }
+    EventLog.add(
+      'layout',
+      'fullscreen $onOff set: $window · ${WindowMetricsLog.describe()}',
+    );
   }
 
   void addPositionListener(ValueChanged<Duration> listener) {
