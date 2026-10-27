@@ -7,7 +7,7 @@
 #
 #   pwsh -NoProfile -File test/mutants/run.ps1 [-Commit <rev>] [-Phase 0|1a|1b]
 #        [-Only M1,M15] [-Slot 1] [-Out <dir>] [-Baseline <dir>] [-NoSelfTest]
-#        [-Flutter <flutter.bat>]
+#        [-Flutter <flutter.bat>] [-Work <dir>] [-SelfTestAll]
 #   pwsh -NoProfile -File test/mutants/run.ps1 -Compare <baseDir>,<otherDir>
 #
 # Unit / widget mutants (those with a `test`): they share ONE worktree,
@@ -58,7 +58,8 @@ param(
     [string[]]$Compare = @(),
     [int]$MinFreeMB = 4000,
     [int]$MemoryWaitMinutes = 10,
-    [switch]$SelfTestAll
+    [switch]$SelfTestAll,
+    [string]$Work = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3.0
@@ -270,7 +271,10 @@ $sha = (git -C $root rev-parse --verify "$Commit^{commit}").Trim()
 if (-not $Out) { $Out = Join-Path $root "_tmp\mutants-results\$(Get-Date -Format yyyyMMdd-HHmmss)" }
 New-Item -ItemType Directory -Force $Out | Out-Null
 $Out = (Resolve-Path $Out).Path
-$work = Join-Path $root '_tmp\mutants'
+# -Work: where the worktrees go. A short path when the checkout itself is
+# deep: MSVC cannot open plugin headers past 260 characters (a build in
+# .claude\worktrees\<agent>\_tmp\mutants\selftest reaches 263)
+$work = if ($Work) { $Work } else { Join-Path $root '_tmp\mutants' }
 New-Item -ItemType Directory -Force $work | Out-Null
 
 $all = Get-Content -Raw (Join-Path $here 'mutants.json') | ConvertFrom-Json -AsHashtable
@@ -319,18 +323,21 @@ function Add-Result($m, [string]$result, [string]$by, [string]$first, [datetime]
 function Remove-Worktree([string]$dir) {
     if (Test-Path -LiteralPath $dir) {
         git -C $root worktree remove --force $dir 2>&1 | Out-Null
-        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        # a build's paths can pass 260 characters; the plugin symlinks are
+        # removed, not followed
+        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath "\\?\$((Resolve-Path -LiteralPath $dir).Path)" -Recurse -Force -ErrorAction SilentlyContinue }
     }
     git -C $root worktree prune 2>&1 | Out-Null
 }
 
-function New-Worktree([string]$dir) {
+function New-Worktree([string]$dir, [switch]$Pub) {
     Remove-Worktree $dir
     git -C $root worktree add --detach $dir $sha 2>&1 | Out-Null
     if ($LASTEXITCODE) { throw "git worktree add $dir failed" }
     # packages: the checkout's resolution when the lock file is the same,
-    # else resolved from the pub cache
-    $lockSame = (Test-Path (Join-Path $root '.dart_tool\package_config.json')) -and
+    # else resolved from the pub cache. A build (-Pub) needs pub get itself:
+    # it also writes the plugin registration (windows/flutter/generated_*)
+    $lockSame = -not $Pub -and (Test-Path (Join-Path $root '.dart_tool\package_config.json')) -and
         ((Get-FileHash (Join-Path $root 'pubspec.lock')).Hash -eq (Get-FileHash (Join-Path $dir 'pubspec.lock')).Hash)
     if ($lockSame) {
         New-Item -ItemType Directory -Force (Join-Path $dir '.dart_tool') | Out-Null
@@ -532,7 +539,22 @@ function Install-Slot([string]$dir) {
 function Invoke-SelfTestMutants($list) {
     $script:stDir = Join-Path $work 'selftest'
     $dir = $script:stDir
-    New-Worktree $dir
+    New-Worktree $dir -Pub
+    # flutter_inappwebview_windows installs NuGet packages at build time:
+    # nuget as the main checkout's build found it, and the packages it
+    # already has (then nothing is fetched)
+    if (-not (Get-Command nuget -ErrorAction SilentlyContinue)) {
+        $cache = Join-Path $main 'build\windows\x64\CMakeCache.txt'
+        $hit = if (Test-Path $cache) { Select-String -Path $cache -Pattern '^NUGET:FILEPATH=(.+)$' | Select-Object -First 1 }
+        $nuget = if ($hit) { $hit.Matches[0].Groups[1].Value } else { $null }
+        if ($nuget -and (Test-Path $nuget)) { $env:PATH = "$(Split-Path $nuget);$env:PATH" }
+    }
+    $packages = Join-Path $main 'build\windows\x64\packages'
+    if (Test-Path $packages) {
+        $to = Join-Path $dir 'build\windows\x64'
+        New-Item -ItemType Directory -Force $to | Out-Null
+        Copy-Item -Recurse $packages $to
+    }
     $scenarios = @($list | ForEach-Object { $_['scenario'] } | Select-Object -Unique)
     $base = $Baseline
     if (-not $base) {
