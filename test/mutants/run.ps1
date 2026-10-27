@@ -10,16 +10,18 @@
 #        [-Flutter <flutter.bat>]
 #   pwsh -NoProfile -File test/mutants/run.ps1 -Compare <baseDir>,<otherDir>
 #
-# Unit / widget mutants (kind unit|widget): one worktree per mutant at
-# _tmp/mutants/<id>/ on -Commit, `git apply` the patch, `flutter test --no-pub
-# <its test file>`; caught = a test fails (its name and the first line of the
-# failure are recorded), survived = all pass, error = the patch does not
-# apply or the code does not compile (a patch bug, not a catch). The worktree
-# is removed afterwards.
+# Unit / widget mutants (those with a `test`): they share ONE worktree,
+# _tmp/mutants/unit/ on -Commit (packages resolved once). Per mutant: `git
+# apply` the patch, `flutter test --no-pub --concurrency=1 <its test file>`,
+# `git checkout -- .` (and `git clean` of files the patch created); caught =
+# a test fails (its name and the first line of the failure are recorded),
+# survived = all pass, error = the patch does not apply or the code does not
+# compile (a patch bug, not a catch).
 #
-# Self-test mutants (kind selftest): only seen by the networked self tests.
-# They share ONE worktree, _tmp/mutants/selftest/ (a MUTANT.txt in it says
-# which patch is applied), built incrementally: first the unmutated build is
+# Self-test mutants (a `scenario` and no `test`; with -SelfTestAll also those
+# a unit test catches first): only seen by the networked self tests.
+# They share ONE worktree, _tmp/mutants/selftest/, built incrementally:
+# first the unmutated build is
 # run as the baseline (unless -Baseline gives reports of the same commit),
 # then per mutant: apply -> `flutter build windows --debug` -> copy into the
 # slot with .claude/test-slot.ps1 (this machine's firewall allows network
@@ -34,8 +36,14 @@
 # two unmutated runs, to see that the comparison does not flag run-to-run
 # noise.
 #
-# An interrupted run leaves its worktree in _tmp/mutants/<id>/ (or
-# _tmp/mutants/selftest/); the next run removes it before using the name.
+# Memory (this machine is short of it): before every mutant, and before the
+# baseline build, free physical memory must be at least -MinFreeMB; below it
+# the run waits (polling every 30 s, logged) up to -MemoryWaitMinutes, then
+# stops cleanly with the results so far (exit 3).
+#
+# A MUTANT.txt in a worktree says which patch is applied. An interrupted run
+# leaves its worktree (_tmp/mutants/unit/ or _tmp/mutants/selftest/); the
+# next run removes it before using the name.
 # Results: <Out>/results.json and results.md, rewritten after every mutant,
 # with each mutant's raw test log / self-test reports beside them.
 param(
@@ -48,7 +56,9 @@ param(
     [switch]$NoSelfTest,
     [string]$Flutter = '',
     [string[]]$Compare = @(),
-    [int]$MinFreeMB = 4000
+    [int]$MinFreeMB = 4000,
+    [int]$MemoryWaitMinutes = 10,
+    [switch]$SelfTestAll
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3.0
@@ -269,9 +279,8 @@ $todo = @($all | Where-Object {
         ($Only.Count -eq 0 -or $Only -contains $_['id']) -and (
             $phases -contains $_['phase'] -or
             # 1b: also the self-test items it touches (--download-transcribe)
-            ($Phase -eq '1b' -and $_['kind'] -eq 'selftest' -and $_['scenario'] -eq 'transcribe'))
+            ($Phase -eq '1b' -and $_.Contains('scenario') -and $_['scenario'] -eq 'transcribe'))
     })
-if ($NoSelfTest) { $todo = @($todo | Where-Object { $_['kind'] -ne 'selftest' }) }
 
 $results = [System.Collections.Generic.List[object]]::new()
 $started = Get-Date
@@ -280,6 +289,7 @@ function Save-Results {
     ConvertTo-Json -InputObject @($results) -Depth 10 | Set-Content -Encoding utf8 (Join-Path $Out 'results.json')
     $md = [System.Collections.Generic.List[string]]::new()
     $md.Add("# AC1 mutation check: $sha (phase $Phase)")
+    if ($script:stopReason) { $md.Add(''); $md.Add("**$($script:stopReason)**") }
     $md.Add('')
     $md.Add("Started $($started.ToString('s')); $(@($results | Where-Object result -eq 'caught').Count) caught, " +
         "$(@($results | Where-Object result -eq 'survived').Count) survived, " +
@@ -354,18 +364,66 @@ function Invoke-Limited([string]$file, [string[]]$argv, [string]$dir, [string]$l
     return $p.ExitCode
 }
 
-# ------------------------------------------------------------------ unit / widget
-function Invoke-UnitMutant($m) {
-    $t0 = Get-Date
-    $id = $m['id']
-    $dir = Join-Path $work $id
-    New-Worktree $dir
-    if (-not (Invoke-Patch $dir $m)) {
-        Remove-Worktree $dir
-        return Add-Result $m 'error' '' 'the patch does not apply' $t0
+# ------------------------------------------------------------------ memory
+$script:stopReason = $null
+$memoryLog = Join-Path $Out 'memory.log'
+
+# true once free physical memory is at least -MinFreeMB; waits (polling every
+# 30 s, logged) up to -MemoryWaitMinutes, then false and the run stops
+function Wait-Memory([string]$before) {
+    $since = Get-Date
+    while ($true) {
+        $free = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
+        if ($free -ge $MinFreeMB) {
+            if ((Get-Date) - $since -gt [timespan]::FromSeconds(1)) {
+                $line = "$(Get-Date -Format s) $before`: $free MB free after waiting $([int]((Get-Date) - $since).TotalSeconds) s"
+                Add-Content -Encoding utf8 $memoryLog $line
+                $line | Out-Host
+            }
+            return $true
+        }
+        $line = "$(Get-Date -Format s) $before`: $free MB free (< $MinFreeMB), waiting"
+        Add-Content -Encoding utf8 $memoryLog $line
+        $line | Out-Host
+        if (((Get-Date) - $since).TotalMinutes -ge $MemoryWaitMinutes) {
+            $script:stopReason = "stopped before $before`: free memory stayed below $MinFreeMB MB for $MemoryWaitMinutes min"
+            Add-Content -Encoding utf8 $memoryLog $script:stopReason
+            return $false
+        }
+        Start-Sleep -Seconds 30
     }
+}
+
+# ------------------------------------------------------------------ shared worktree
+# the files [m]'s patch creates (`--- /dev/null`): removed again on reset
+function Get-CreatedFiles($m) {
+    $prev = ''
+    $made = @()
+    foreach ($l in Get-Content (Join-Path $here $m['patch'])) {
+        if ($prev -eq '--- /dev/null' -and $l.StartsWith('+++ b/')) { $made += $l.Substring(6) }
+        $prev = $l
+    }
+    return , $made
+}
+
+function Set-Mutant([string]$dir, $m) {
+    Set-Content (Join-Path $dir 'MUTANT.txt') ("AC1 mutant $($m['id']) is applied here ($($m['patch'])): a run was " +
+        "interrupted. Undo it with git -C `"$dir`" checkout -- . , or delete the worktree: " +
+        "git worktree remove --force `"$dir`"")
+}
+
+function Reset-Mutant([string]$dir, $m) {
+    git -C $dir checkout -- . 2>&1 | Out-Null
+    $made = Get-CreatedFiles $m
+    if ($made.Count) { git -C $dir clean -fd -- @made 2>&1 | Out-Null }
+    Remove-Item (Join-Path $dir 'MUTANT.txt') -ErrorAction SilentlyContinue
+}
+
+# ------------------------------------------------------------------ unit / widget
+function Invoke-UnitTest([string]$dir, $m, [datetime]$t0) {
+    $id = $m['id']
     $log = Join-Path $Out "$id.test.jsonl"
-    $code = Invoke-Limited $Flutter @('test', '--no-pub', '--reporter', 'json', $m['test']) $dir $log 20
+    $code = Invoke-Limited $Flutter @('test', '--no-pub', '--concurrency=1', '--reporter', 'json', $m['test']) $dir $log 20
     $names = @{}; $prints = @{}; $firstErr = $null; $loadErr = $null; $done = $null
     foreach ($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
         if (-not "$line".StartsWith('{')) { continue }
@@ -382,10 +440,12 @@ function Invoke-UnitMutant($m) {
         }
     }
     if ($null -eq $code) {
-        $r = Add-Result $m 'caught' $m['test'] 'the test run did not end within 20 min' $t0
-    } elseif ($loadErr) {
-        $r = Add-Result $m 'error' '' "does not compile / load: $((("$loadErr" -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1))" $t0
-    } elseif ($firstErr) {
+        return Add-Result $m 'caught' $m['test'] 'the test run did not end within 20 min' $t0
+    }
+    if ($loadErr) {
+        return Add-Result $m 'error' '' "does not compile / load: $((("$loadErr" -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1))" $t0
+    }
+    if ($firstErr) {
         $text = "$($firstErr.error)"
         # widget tests print the failure above a generic error
         if ($text.StartsWith('Test failed. See exception logs above.') -and $firstErr.print) {
@@ -396,31 +456,35 @@ function Invoke-UnitMutant($m) {
         $nonEmpty = @($text -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
         $first = if ($nonEmpty.Count) { $nonEmpty[0] } else { '' }
         # "Expected: [" says nothing on its own: with the next lines
-        if ($first -match '[\[{(]$' -and $nonEmpty.Count -gt 1) { $first = ($nonEmpty | Select-Object -First 3) -join ' ' }
-        $r = Add-Result $m 'caught' "$(Split-Path -Leaf $m['test']): $($firstErr.name)" $first $t0
-    } elseif ($done -eq $true -and $code -eq 0) {
-        $r = Add-Result $m 'survived' '' '' $t0
-    } else {
-        $r = Add-Result $m 'error' '' "flutter test exit $code without a failing test (see $id.test.jsonl)" $t0
+        if ($first -match '[\[{(]$' -and $nonEmpty.Count -gt 1) {
+            $which = $nonEmpty | Where-Object { $_.StartsWith('Which:') } | Select-Object -First 1
+            $first = if ($which) { "$first … $which" } else { ($nonEmpty | Select-Object -First 3) -join ' ' }
+        }
+        return Add-Result $m 'caught' "$(Split-Path -Leaf $m['test']): $($firstErr.name)" $first $t0
+    }
+    if ($done -eq $true -and $code -eq 0) { return Add-Result $m 'survived' '' '' $t0 }
+    return Add-Result $m 'error' '' "flutter test exit $code without a failing test (see $id.test.jsonl)" $t0
+}
+
+function Invoke-UnitMutants($list) {
+    $dir = Join-Path $work 'unit'
+    New-Worktree $dir
+    foreach ($m in $list) {
+        if (-not (Wait-Memory $m['id'])) { return }
+        $t0 = Get-Date
+        Set-Mutant $dir $m
+        if (-not (Invoke-Patch $dir $m)) {
+            Add-Result $m 'error' '' 'the patch does not apply' $t0
+            Reset-Mutant $dir $m
+            continue
+        }
+        try { Invoke-UnitTest $dir $m $t0 } finally { Reset-Mutant $dir $m }
     }
     Remove-Worktree $dir
-    return $r
 }
 
 # ------------------------------------------------------------------ self tests
-function Wait-Memory {
-    $since = Get-Date
-    while ($true) {
-        $free = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
-        if ($free -ge $MinFreeMB) { return }
-        if (((Get-Date) - $since).TotalMinutes -gt 60) { throw "free memory stayed below $MinFreeMB MB for an hour" }
-        "  waiting for memory: $free MB free" | Out-Host
-        Start-Sleep -Seconds 30
-    }
-}
-
 function Invoke-Build([string]$dir, [string]$log) {
-    Wait-Memory
     $code = Invoke-Limited $Flutter @('build', 'windows', '--debug', '--no-pub') $dir $log 60
     return ($code -eq 0) -and (Test-Path (Join-Path $dir 'build\windows\x64\runner\Debug\LibrePili.exe'))
 }
@@ -473,6 +537,7 @@ function Invoke-SelfTestMutants($list) {
     $base = $Baseline
     if (-not $base) {
         $base = Join-Path $Out 'baseline'
+        if (-not (Wait-Memory 'the baseline build')) { return }
         $t0 = Get-Date
         if (-not (Invoke-Build $dir (Join-Path $Out 'baseline.build.log'))) { throw 'the unmutated build failed (baseline.build.log)' }
         "baseline build: $([int]((Get-Date) - $t0).TotalSeconds) s"
@@ -486,12 +551,22 @@ function Invoke-SelfTestMutants($list) {
         }
         "baseline: $([int]((Get-Date) - $t0).TotalSeconds) s"
     }
-    foreach ($m in $list) {
+    foreach ($m0 in $list) {
+        # a mutant a unit test catches first, run here too (-SelfTestAll):
+        # its row is <id>/selftest, judged by its self-test catcher
+        $m = @{} + $m0
+        if ($m0.Contains('test')) {
+            $m['id'] = "$($m0['id'])/selftest"
+            if ($m0.Contains('selftestCatcher')) { $m['catcher'] = $m0['selftestCatcher'] }
+        }
+        $m['kind'] = 'selftest'
+        if (-not (Wait-Memory $m['id'])) { return }
         $t0 = Get-Date
-        $id = $m['id']
-        Set-Content (Join-Path $dir 'MUTANT.txt') "AC1 mutant $id applied here ($($m['patch'])); a run was interrupted. Safe to delete: git worktree remove --force `"$dir`""
-        if (-not (Invoke-Patch $dir $m)) {
+        $id = $m0['id']
+        Set-Mutant $dir $m0
+        if (-not (Invoke-Patch $dir $m0)) {
             Add-Result $m 'error' '' 'the patch does not apply' $t0
+            Reset-Mutant $dir $m0
             continue
         }
         try {
@@ -509,8 +584,7 @@ function Invoke-SelfTestMutants($list) {
                 Add-Result $m 'survived' '' '' $t0
             }
         } finally {
-            git -C $dir checkout -- . 2>&1 | Out-Null
-            Remove-Item (Join-Path $dir 'MUTANT.txt') -ErrorAction SilentlyContinue
+            Reset-Mutant $dir $m0
         }
     }
     Remove-Worktree $dir
@@ -518,10 +592,26 @@ function Invoke-SelfTestMutants($list) {
 
 # ------------------------------------------------------------------ run
 "AC1 mutation check: $sha, phase $Phase, $($todo.Count) mutants -> $Out"
-foreach ($m in @($todo | Where-Object { $_['kind'] -ne 'selftest' })) { Invoke-UnitMutant $m }
-$st = @($todo | Where-Object { $_['kind'] -eq 'selftest' })
-if ($st.Count) { Invoke-SelfTestMutants $st }
+$tUnit = Get-Date
+$unit = @($todo | Where-Object { $_.Contains('test') })
+if ($unit.Count) {
+    Invoke-UnitMutants $unit
+    "unit part: $($unit.Count) mutants, $([int]((Get-Date) - $tUnit).TotalMinutes) min"
+}
+$st = @($todo | Where-Object { $_.Contains('scenario') -and ($SelfTestAll -or -not $_.Contains('test')) })
+if ($NoSelfTest) { $st = @() }
+if ($st.Count -and -not $script:stopReason) {
+    $tSt = Get-Date
+    Invoke-SelfTestMutants $st
+    "self-test part: $($st.Count) mutants, $([int]((Get-Date) - $tSt).TotalMinutes) min"
+}
 Save-Results
 $sv = @($results | Where-Object { $_.result -ne 'caught' })
 "done in $([int]((Get-Date) - $started).TotalMinutes) min: $($results.Count - $sv.Count) caught, $($sv.Count) not ($(($sv | ForEach-Object { "$($_.id) $($_.result)" }) -join ', '))"
+if ($script:stopReason) {
+    $script:stopReason
+    Remove-Worktree (Join-Path $work 'unit')
+    Remove-Worktree (Join-Path $work 'selftest')
+    exit 3
+}
 if ($sv.Count) { exit 1 }

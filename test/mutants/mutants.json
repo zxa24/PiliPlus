@@ -145,9 +145,11 @@
     "location": "lib/http/download.dart:148",
     "change": "getVideoUrl dash: entry.hasDashAudio = false",
     "phase": "both",
-    "kind": "selftest",
+    "kind": "unit",
+    "test": "test/services/download/resolve_fields_test.dart",
+    "catcher": "resolve_fields_test.dart: dash: the quality got, its name, the stream type and the audio flag are written; the quality asked for stays",
     "scenario": "download",
-    "catcher": "--download BV1CToXYMEDz: entryFields.has_dash_audio, mergedStreams (no Audio line)"
+    "selftestCatcher": "--download BV1CToXYMEDz: entryFields.has_dash_audio, mergedStreams (no Audio line)"
   },
   {
     "id": "M16",
@@ -155,9 +157,11 @@
     "location": "lib/http/download.dart:68-71",
     "change": "getVideoUrl dash: no ..qualityPithyDescription",
     "phase": "both",
-    "kind": "selftest",
+    "kind": "unit",
+    "test": "test/services/download/resolve_fields_test.dart",
+    "catcher": "resolve_fields_test.dart: dash: the quality got, its name, the stream type and the audio flag are written; the quality asked for stays",
     "scenario": "download",
-    "catcher": "--download BV1CToXYMEDz: entryFields.quality_pithy_description, folderFiles names"
+    "selftestCatcher": "--download BV1CToXYMEDz: entryFields.quality_pithy_description, folderFiles names"
   },
   {
     "id": "M17",
@@ -165,9 +169,11 @@
     "location": "lib/http/download.dart:68",
     "change": "getVideoUrl dash: no ..videoQuality",
     "phase": "both",
-    "kind": "selftest",
+    "kind": "unit",
+    "test": "test/services/download/resolve_fields_test.dart",
+    "catcher": "resolve_fields_test.dart: dash: the quality got, its name, the stream type and the audio flag are written; the quality asked for stays",
     "scenario": "download",
-    "catcher": "--download BV1CToXYMEDz: entryFields.video_quality"
+    "selftestCatcher": "--download BV1CToXYMEDz: entryFields.video_quality"
   },
   {
     "id": "M18",
@@ -175,9 +181,11 @@
     "location": "lib/http/download.dart:66",
     "change": "getVideoUrl dash: no ..mediaType = 2",
     "phase": "both",
-    "kind": "selftest",
+    "kind": "unit",
+    "test": "test/services/download/resolve_fields_test.dart",
+    "catcher": "resolve_fields_test.dart: dash: the quality got, its name, the stream type and the audio flag are written; the quality asked for stays",
     "scenario": "download",
-    "catcher": "--download BV1CToXYMEDz: entryFields.media_type"
+    "selftestCatcher": "--download BV1CToXYMEDz: entryFields.media_type"
   },
   {
     "id": "M19",
