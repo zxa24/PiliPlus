@@ -7,7 +7,8 @@
 #
 #   pwsh -NoProfile -File test/mutants/run.ps1 [-Commit <rev>] [-Phase 0|1a|1b]
 #        [-Only M1,M15] [-Slot 1] [-Out <dir>] [-Baseline <dir>] [-NoSelfTest]
-#        [-Flutter <flutter.bat>] [-Work <dir>] [-SelfTestAll]
+#        [-Flutter <flutter.bat>] [-Work <dir>] [-SelfTestAll] [-SelfTestTree <dir>]
+#        [-NoUnit] [-AsrModels <dir>]
 #   pwsh -NoProfile -File test/mutants/run.ps1 -Compare <baseDir>,<otherDir>
 #
 # Unit / widget mutants (those with a `test`): they share ONE worktree,
@@ -30,6 +31,12 @@
 # list shots pixel by pixel) -> `git checkout -- .`. Caught = the report's
 # pass is false or a must-match field differs. Each profile's data is deleted
 # after its run; the worktree and its build output at the end.
+#
+# -SelfTestTree <dir>: use an existing checkout of the same lib/ that already
+# has a Windows debug build instead of a new worktree (no cold full build,
+# the memory peak): baseline = an incremental build of it, each mutant
+# restores only the files its patch touched, and at the end the tree is
+# unmutated and rebuilt once, so its build matches its commit again.
 #
 # -Compare <a>,<b> only compares two folders of self-test reports by the same
 # rules (download.json, queue99.json, transcribe.json, listshots.json), e.g.
@@ -59,7 +66,10 @@ param(
     [int]$MinFreeMB = 4000,
     [int]$MemoryWaitMinutes = 10,
     [switch]$SelfTestAll,
-    [string]$Work = ''
+    [string]$Work = '',
+    [string]$SelfTestTree = '',
+    [switch]$NoUnit,
+    [string]$AsrModels = (Join-Path $env:APPDATA 'com.zxa24\LibrePili\selftest\asr')
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3.0
@@ -413,14 +423,23 @@ function Get-CreatedFiles($m) {
     return , $made
 }
 
-function Set-Mutant([string]$dir, $m) {
-    Set-Content (Join-Path $dir 'MUTANT.txt') ("AC1 mutant $($m['id']) is applied here ($($m['patch'])): a run was " +
-        "interrupted. Undo it with git -C `"$dir`" checkout -- . , or delete the worktree: " +
-        "git worktree remove --force `"$dir`"")
+# the files [m]'s patch changes that exist before it (restored on reset)
+function Get-ChangedFiles($m) {
+    $made = Get-CreatedFiles $m
+    return , @(Get-Content (Join-Path $here $m['patch']) | Where-Object { $_ -match '^diff --git a/(\S+) b/' } |
+            ForEach-Object { $Matches[1] } | Where-Object { $made -notcontains $_ } | Select-Object -Unique)
 }
 
+function Set-Mutant([string]$dir, $m) {
+    $files = (Get-ChangedFiles $m) -join ' '
+    Set-Content (Join-Path $dir 'MUTANT.txt') ("AC1 mutant $($m['id']) is applied here ($($m['patch'])): a run was " +
+        "interrupted. Undo it with: git -C `"$dir`" checkout -- $files ; then delete this file.")
+}
+
+# restores only what the patch touched (a build dir beside it stays)
 function Reset-Mutant([string]$dir, $m) {
-    git -C $dir checkout -- . 2>&1 | Out-Null
+    $changed = Get-ChangedFiles $m
+    if ($changed.Count) { git -C $dir checkout -- @changed 2>&1 | Out-Null }
     $made = Get-CreatedFiles $m
     if ($made.Count) { git -C $dir clean -fd -- @made 2>&1 | Out-Null }
     Remove-Item (Join-Path $dir 'MUTANT.txt') -ErrorAction SilentlyContinue
@@ -518,6 +537,14 @@ function Invoke-SelfTest([string]$exe, [string]$scenario, [string]$dir, [string]
             'listshots' { @('--download-list-shots', $fixtures, '--shots', $shots, '--dl-transcribe', 'off') }
         })
     $argv = @($argv | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } })
+    if ($scenario -eq 'transcribe') {
+        # a new profile has no recognition models (they live per profile,
+        # appSupportDir/selftest-<name>/asr): a copy of the self tests' own
+        if (-not (Test-Path (Join-Path $AsrModels 'silero-vad'))) { throw "no ASR models in $AsrModels (-AsrModels)" }
+        $into = Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"
+        New-Item -ItemType Directory -Force $into | Out-Null
+        Copy-Item -Recurse $AsrModels (Join-Path $into 'asr')
+    }
     $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru
     if (-not $p.WaitForExit(30 * 60000)) {
         # ours: started just above
@@ -537,9 +564,22 @@ function Install-Slot([string]$dir) {
 }
 
 function Invoke-SelfTestMutants($list) {
-    $script:stDir = Join-Path $work 'selftest'
-    $dir = $script:stDir
-    New-Worktree $dir -Pub
+    # -SelfTestTree: an existing, unmutated checkout of the same lib/ with a
+    # finished Windows build — only incremental builds then, and the tree is
+    # left as found (unmutated, rebuilt)
+    $own = -not $SelfTestTree
+    if ($own) {
+        $dir = Join-Path $work 'selftest'
+        New-Worktree $dir -Pub
+    } else {
+        $dir = (Resolve-Path $SelfTestTree).Path
+        if (git -C $dir status --porcelain -- lib) { throw "$dir has changes under lib/: not an unmutated tree" }
+        if (-not (Test-Path (Join-Path $dir '.dart_tool\package_config.json'))) {
+            Push-Location $dir
+            try { & $Flutter pub get --offline 2>&1 | Out-Null } finally { Pop-Location }
+        }
+    }
+    $script:stDir = $dir
     # flutter_inappwebview_windows installs NuGet packages at build time:
     # nuget as the main checkout's build found it, and the packages it
     # already has (then nothing is fetched)
@@ -550,11 +590,33 @@ function Invoke-SelfTestMutants($list) {
         if ($nuget -and (Test-Path $nuget)) { $env:PATH = "$(Split-Path $nuget);$env:PATH" }
     }
     $packages = Join-Path $main 'build\windows\x64\packages'
-    if (Test-Path $packages) {
-        $to = Join-Path $dir 'build\windows\x64'
+    $to = Join-Path $dir 'build\windows\x64'
+    if ($own -and (Test-Path $packages) -and -not (Test-Path (Join-Path $to 'packages'))) {
         New-Item -ItemType Directory -Force $to | Out-Null
         Copy-Item -Recurse $packages $to
     }
+    $script:built = 'none'
+    try {
+        Invoke-SelfTestLoop $list $dir
+    } finally {
+        if (-not $own) {
+            # back to the tree as found: unmutated, and its build matching it
+            if ($script:built -ne 'unmutated') {
+                if (Wait-Memory 'the final rebuild of the unmutated tree') {
+                    $t0 = Get-Date
+                    $ok = Invoke-Build $dir (Join-Path $Out 'final.build.log')
+                    if ($ok) { $script:built = 'unmutated' }
+                    "final rebuild of the unmutated tree: $(if ($ok) { 'ok' } else { 'FAILED' }), $([int]((Get-Date) - $t0).TotalSeconds) s"
+                }
+            }
+            $left = git -C $dir status --porcelain -- lib
+            "self-test tree: lib $(if ($left) { "NOT clean: $left" } else { 'unmutated' }); its build: $($script:built)"
+        }
+    }
+    if ($own) { Remove-Worktree $dir }
+}
+
+function Invoke-SelfTestLoop($list, [string]$dir) {
     $scenarios = @($list | ForEach-Object { $_['scenario'] } | Select-Object -Unique)
     $base = $Baseline
     if (-not $base) {
@@ -562,6 +624,7 @@ function Invoke-SelfTestMutants($list) {
         if (-not (Wait-Memory 'the baseline build')) { return }
         $t0 = Get-Date
         if (-not (Invoke-Build $dir (Join-Path $Out 'baseline.build.log'))) { throw 'the unmutated build failed (baseline.build.log)' }
+        $script:built = 'unmutated'
         "baseline build: $([int]((Get-Date) - $t0).TotalSeconds) s"
         $exe = Install-Slot $dir
         foreach ($sc in $scenarios) {
@@ -592,10 +655,12 @@ function Invoke-SelfTestMutants($list) {
             continue
         }
         try {
+            $script:built = "unknown (building $id)"
             if (-not (Invoke-Build $dir (Join-Path $Out "$id.build.log"))) {
                 Add-Result $m 'error' '' "the build failed (see $id.build.log)" $t0
                 continue
             }
+            $script:built = "mutant $id"
             $exe = Install-Slot $dir
             $sc = $m['scenario']
             $rep = Invoke-SelfTest $exe $sc (Join-Path $Out $id) $id
@@ -609,14 +674,12 @@ function Invoke-SelfTestMutants($list) {
             Reset-Mutant $dir $m0
         }
     }
-    Remove-Worktree $dir
 }
-
 # ------------------------------------------------------------------ run
 "AC1 mutation check: $sha, phase $Phase, $($todo.Count) mutants -> $Out"
 $tUnit = Get-Date
 $unit = @($todo | Where-Object { $_.Contains('test') })
-if ($unit.Count) {
+if ($unit.Count -and -not $NoUnit) {
     Invoke-UnitMutants $unit
     "unit part: $($unit.Count) mutants, $([int]((Get-Date) - $tUnit).TotalMinutes) min"
 }
