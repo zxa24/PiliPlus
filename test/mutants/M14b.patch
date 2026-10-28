@@ -1,0 +1,12 @@
+diff --git a/lib/models_new/download/bili_download_entry_info.dart b/lib/models_new/download/bili_download_entry_info.dart
+--- a/lib/models_new/download/bili_download_entry_info.dart
++++ b/lib/models_new/download/bili_download_entry_info.dart
+@@ -88,7 +88,7 @@
+   int get cid => source?.cid ?? pageData!.cid;
+ 
+   @override
+-  DownloadKey get key => 'bili:$cid';
++  DownloadKey get key => 'bili:${pageData?.cid ?? 0}';
+ 
+   @override
+   String get platform => platformId;

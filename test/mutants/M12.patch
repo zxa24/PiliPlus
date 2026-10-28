@@ -10,7 +10,7 @@ diff --git a/lib/services/download/download_transcripts.dart b/lib/services/down
  import 'package:PiliPlus/services/asr/asr_schedule.dart';
  import 'package:PiliPlus/services/asr/asr_service.dart';
  import 'package:PiliPlus/services/asr/transcript_files.dart';
-@@ -129,7 +129,7 @@
+@@ -132,7 +132,7 @@
    Future<void> finished(DownloadEntry entry) async {
      if (!Pref.dlTranscribe || _inSegments(entry)) return;
      entry.transcriptPending = true;
@@ -18,4 +18,4 @@ diff --git a/lib/services/download/download_transcripts.dart b/lib/services/down
 +    progress.putIfAbsent('bili:${(entry as BiliDownloadEntryInfo).avid}', () => 0);
      await save(entry);
      kick();
-   }
+     try {

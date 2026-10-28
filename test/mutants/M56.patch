@@ -1,22 +1,23 @@
 diff --git a/lib/services/download/download_transcripts.dart b/lib/services/download/download_transcripts.dart
 --- a/lib/services/download/download_transcripts.dart
 +++ b/lib/services/download/download_transcripts.dart
-@@ -131,17 +131,7 @@
-   Future<void> finished(DownloadEntry entry) async {
-     if (!Pref.dlTranscribe || _inSegments(entry)) return;
-     entry.transcriptPending = true;
--    var start = 0.0;
+@@ -135,19 +135,6 @@
+     progress.putIfAbsent(entry.key, () => 0);
+     await save(entry);
+     kick();
 -    try {
 -      final kept = await SubtitleCache.instance.open(
 -        platformOf(entry).transcriptKey(entry),
 -        AsrService.recogniserId,
 -      );
--      if (kept.coveredSeconds > 0) {
--        start = _fractionOf(entry, kept.coveredSeconds, kept.mediaEnd);
+-      if (kept.coveredSeconds > 0 && progress[entry.key] == 0) {
+-        progress[entry.key] = _fractionOf(
+-          entry,
+-          kept.coveredSeconds,
+-          kept.mediaEnd,
+-        );
 -      }
 -    } catch (_) {}
--    progress.putIfAbsent(entry.key, () => start);
-+    progress.putIfAbsent(entry.key, () => 0);
-     await save(entry);
-     kick();
    }
+ 
+   /// The cache kept [kept] of a part: the list shows how far it got.

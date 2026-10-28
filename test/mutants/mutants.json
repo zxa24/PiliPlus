@@ -112,7 +112,7 @@
   {
     "id": "M12",
     "patch": "M12.patch",
-    "location": "lib/services/download/download_transcripts.dart:31,132",
+    "location": "lib/services/download/download_transcripts.dart:31,135",
     "change": "DownloadTranscripts.finished: progress.putIfAbsent('bili:<avid>', ...)",
     "phase": "both",
     "kind": "unit",
@@ -138,6 +138,16 @@
     "kind": "unit",
     "test": "test/services/download/keyed_state_test.dart",
     "catcher": "keyed_state_test.dart: a transcript kept while watching counts for the bangumi episode by its source's cid (S)"
+  },
+  {
+    "id": "M14b",
+    "patch": "M14b.patch",
+    "location": "lib/models_new/download/bili_download_entry_info.dart:91",
+    "change": "bilibili entry's key not through source: key => 'bili:${pageData?.cid ?? 0}' (cid unchanged)",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/entry_key_test.dart",
+    "catcher": "entry_key_test.dart: the key: a part by its page_data cid, a bangumi episode by its source cid"
   },
   {
     "id": "M15",
@@ -560,8 +570,8 @@
   {
     "id": "M56",
     "patch": "M56.patch",
-    "location": "lib/services/download/download_transcripts.dart:134-144",
-    "change": "(1b only) 1b reverted: finished only putIfAbsent(key, () => 0), no starting coverage from the cache",
+    "location": "lib/services/download/download_transcripts.dart:138-150",
+    "change": "(1b only) 1b reverted: finished only putIfAbsent(key, () => 0), no starting coverage read from the cache after it",
     "phase": "1b-only",
     "kind": "unit",
     "test": "test/services/download/finished_progress_test.dart",

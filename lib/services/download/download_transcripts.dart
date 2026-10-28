@@ -127,23 +127,27 @@ class DownloadTranscripts {
 
   /// [entry] just finished: marked, and transcribed in its turn. The list
   /// starts from what the cache already has of the part (transcribed while
-  /// it was watched), not from 0 %.
+  /// it was watched), not from 0 %: read once the mark is saved, and only
+  /// for a part still at 0 % (a delete meanwhile has forgotten it).
   Future<void> finished(DownloadEntry entry) async {
     if (!Pref.dlTranscribe || _inSegments(entry)) return;
     entry.transcriptPending = true;
-    var start = 0.0;
+    progress.putIfAbsent(entry.key, () => 0);
+    await save(entry);
+    kick();
     try {
       final kept = await SubtitleCache.instance.open(
         platformOf(entry).transcriptKey(entry),
         AsrService.recogniserId,
       );
-      if (kept.coveredSeconds > 0) {
-        start = _fractionOf(entry, kept.coveredSeconds, kept.mediaEnd);
+      if (kept.coveredSeconds > 0 && progress[entry.key] == 0) {
+        progress[entry.key] = _fractionOf(
+          entry,
+          kept.coveredSeconds,
+          kept.mediaEnd,
+        );
       }
     } catch (_) {}
-    progress.putIfAbsent(entry.key, () => start);
-    await save(entry);
-    kick();
   }
 
   /// The cache kept [kept] of a part: the list shows how far it got.
