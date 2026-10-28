@@ -20,7 +20,7 @@ class PlayerFocus extends StatelessWidget {
     required this.child,
     required this.plPlayerController,
     this.introController,
-    required this.onSendDanmaku,
+    this.onSendDanmaku,
     this.canPlay,
     this.onSkipSegment,
     this.onRefresh,
@@ -29,7 +29,10 @@ class PlayerFocus extends StatelessWidget {
   final Widget child;
   final PlPlayerController plPlayerController;
   final CommonIntroController? introController;
-  final VoidCallback onSendDanmaku;
+
+  /// Null on a page with no danmaku (YouTube): D and Enter leave the danmaku
+  /// alone there. D wrote the danmaku setting from the YouTube page.
+  final VoidCallback? onSendDanmaku;
   final ValueGetter<bool>? canPlay;
   final ValueGetter<bool>? onSkipSegment;
   final VoidCallback? onRefresh;
@@ -177,6 +180,7 @@ class PlayerFocus extends StatelessWidget {
           return true;
 
         case LogicalKeyboardKey.keyD:
+          if (onSendDanmaku == null) return false;
           final newVal = !plPlayerController.enableShowDanmakuAdaptive.value;
           plPlayerController.enableShowDanmakuAdaptive.value = newVal;
           if (!plPlayerController.tempPlayerConf) {
@@ -225,7 +229,7 @@ class PlayerFocus extends StatelessWidget {
           if (onSkipSegment?.call() ?? false) {
             return true;
           }
-          onSendDanmaku();
+          onSendDanmaku?.call();
           return true;
       }
 

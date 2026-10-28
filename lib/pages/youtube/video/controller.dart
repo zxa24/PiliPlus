@@ -239,6 +239,8 @@ class YtVideoController extends GetxController
       );
     }
     if (isClosed) return;
+    // playback the gate held, let go of while this page was covered
+    _resumeHeldPlayback();
     _restartDisplaced();
     translation.retryAfterReturn();
   }
@@ -1303,6 +1305,10 @@ class YtVideoController extends GetxController
       _releaseHold();
       return;
     }
+    // a page over this one (a channel's, a search): the gate letting go
+    // would play this video under it; [onUncovered] goes on with it, as the
+    // bilibili page's setCovered does
+    if (_covered) return;
     if (!plPlayerController.continuePlayInBackground.value &&
         isAppAway(WidgetsBinding.instance.lifecycleState)) {
       _returnListener ??= AppLifecycleListener(
@@ -2166,8 +2172,12 @@ class YtVideoController extends GetxController
         ..onReopen = null
         ..onStepUpDropped = null;
     }
-    videoPlayerServiceHandler?.onVideoDetailDispose(_mediaTag);
-    plPlayerController.dispose();
+    // 返回主页 (onCloseAll) disposed the player for every page already, as
+    // on the bilibili page (view.dart's dispose)
+    if (!plPlayerController.isCloseAll) {
+      videoPlayerServiceHandler?.onVideoDetailDispose(_mediaTag);
+      plPlayerController.dispose();
+    }
     // after the player let go of its streams
     unawaited(_relay?.close());
     super.onClose();

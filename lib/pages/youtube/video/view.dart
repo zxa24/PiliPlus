@@ -9,6 +9,7 @@ library;
 import 'dart:math' as math;
 
 import 'package:PiliPlus/common/skeleton/video_card_h.dart';
+import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/video_intro/intro_metrics.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
@@ -16,6 +17,8 @@ import 'package:PiliPlus/common/widgets/route_aware_mixin.dart';
 import 'package:PiliPlus/models/common/image_type.dart';
 import 'package:PiliPlus/pages/local/fav_sheet.dart';
 import 'package:PiliPlus/pages/video/widgets/on_device_menu.dart';
+import 'package:PiliPlus/pages/video/widgets/player_stand_in.dart'
+    show PlayerLoadingMark;
 import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
@@ -74,6 +77,16 @@ class _YtVideoPageState extends State<YtVideoPage>
       if (_tabs.index == 1) controller.ensureCommentsStarted();
     });
 
+  /// The window's shape, for the 按比例 fullscreen orientation, as the
+  /// bilibili page gives it (view.dart's didChangeDependencies). Without it
+  /// the player kept the last bilibili page's, or 0 (2026-10-28).
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final size = MediaQuery.sizeOf(context);
+    controller.plPlayerController.screenRatio = size.height / size.width;
+  }
+
   /// The same card metrics the rest of the app lists videos with.
   static const _cardExtent = 110.0;
   final _gridDelegate = Grid.videoCardHDelegate();
@@ -82,15 +95,24 @@ class _YtVideoPageState extends State<YtVideoPage>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final player = controller.plPlayerController;
-    final page = Obx(() => _scaffold(theme, player.isFullScreen.value));
+    // back and Esc as on the bilibili page (its plPlayer): in fullscreen
+    // they leave fullscreen. Without this they closed the page and left the
+    // window fullscreen (2026-10-28)
+    final page = Obx(() {
+      final isFullScreen = player.isFullScreen.value;
+      return popScope(
+        canPop: !isFullScreen && !player.isDesktopPip,
+        onPopInvokedWithResult: player.onPopInvokedWithResult,
+        child: _scaffold(theme, isFullScreen),
+      );
+    });
     // the keyboard controls the player as on the bilibili page: without
     // this the page had no key handling at all, and the arrow keys only
     // moved focus from one button to the next
     if (!player.keyboardControl) return page;
     return PlayerFocus(
       plPlayerController: player,
-      // no danmaku to send, nothing to check before playing
-      onSendDanmaku: () {},
+      // no danmaku (no onSendDanmaku), nothing to check before playing
       canPlay: () => true,
       child: page,
     );
@@ -263,67 +285,46 @@ class _YtVideoPageState extends State<YtVideoPage>
     );
   });
 
+  /// Where the player will be, while it is not up: with the way back the
+  /// bilibili page's stand-in has (view.dart's _playerStandIn). The page has
+  /// no app bar, so loading or failed it had none but the system's
+  /// (2026-10-28).
+  Widget _standIn(Widget child) => Stack(
+    fit: StackFit.expand,
+    children: [
+      child,
+      Positioned(
+        top: 0,
+        left: 0,
+        child: SizedBox(
+          width: 42,
+          height: 34,
+          child: IconButton(
+            tooltip: '返回',
+            icon: const Icon(
+              FontAwesomeIcons.arrowLeft,
+              size: 15,
+              color: Colors.white,
+              shadows: [Shadow(blurRadius: 1.5, color: Colors.black)],
+            ),
+            onPressed: Get.back,
+          ),
+        ),
+      ),
+    ],
+  );
+
   Widget _player(ThemeData theme) => Obx(() {
     switch (controller.stage.value) {
       case YtPageStage.loading:
-        return const ColoredBox(
-          color: Colors.black,
-          child: Center(child: CircularProgressIndicator()),
-        );
-      case YtPageStage.failed:
-        return ColoredBox(
-          color: Colors.black,
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    controller.message.value,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.tonal(
-                        onPressed: controller.load,
-                        child: const Text('重试'),
-                      ),
-                      // YouTube refused this network: somewhere else to
-                      // watch it (user 2026-10-03)
-                      if (controller.blocked.value) ...[
-                        OutlinedButton.icon(
-                          onPressed: controller.openInBrowser,
-                          icon: const Icon(Icons.open_in_browser, size: 18),
-                          label: const Text('在浏览器中打开'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: controller.findingInvidious.value
-                              ? null
-                              : controller.openInInvidious,
-                          icon: controller.findingInvidious.value
-                              ? const SizedBox.square(
-                                  dimension: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.public, size: 18),
-                          label: const Text('在 Invidious 中打开'),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
+        return _standIn(
+          const ColoredBox(
+            color: Colors.black,
+            child: Center(child: PlayerLoadingMark()),
           ),
         );
+      case YtPageStage.failed:
+        return _standIn(_failed());
       case YtPageStage.ready:
         final player = controller.plPlayerController;
         // asrPending: transcription is a peer of the stream, so a video whose
@@ -338,7 +339,14 @@ class _YtVideoPageState extends State<YtVideoPage>
           );
         }
         if (player.videoController == null) {
-          return const ColoredBox(color: Colors.black);
+          // the spinner, not a black box with nothing on it (the bilibili
+          // page's audit 2026-10-21)
+          return _standIn(
+            const ColoredBox(
+              color: Colors.black,
+              child: Center(child: PlayerLoadingMark()),
+            ),
+          );
         }
         return LayoutBuilder(
           builder: (context, box) => PLVideoPlayer(
@@ -358,6 +366,61 @@ class _YtVideoPageState extends State<YtVideoPage>
         );
     }
   });
+
+  /// The open failed: why, and what can be done.
+  Widget _failed() => ColoredBox(
+    color: Colors.black,
+    child: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              controller.message.value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                  onPressed: controller.load,
+                  child: const Text('重试'),
+                ),
+                // YouTube refused this network: somewhere else to
+                // watch it (user 2026-10-03)
+                if (controller.blocked.value) ...[
+                  OutlinedButton.icon(
+                    onPressed: controller.openInBrowser,
+                    icon: const Icon(Icons.open_in_browser, size: 18),
+                    label: const Text('在浏览器中打开'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: controller.findingInvidious.value
+                        ? null
+                        : controller.openInInvidious,
+                    icon: controller.findingInvidious.value
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.public, size: 18),
+                    label: const Text('在 Invidious 中打开'),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 
   /// 简介 / 评论 — the same two tabs, in the same order, as the bilibili page.
   Widget _tabbed(ThemeData theme) => Column(

@@ -91,7 +91,10 @@ class YtHeaderControlState extends State<YtHeaderControl>
             child: IconButton(
               tooltip: '返回主页',
               style: btnStyle,
-              onPressed: () => Get.until((route) => route.isFirst),
+              // as the bilibili page's: out of fullscreen first, the player
+              // let go for all the pages it closes. Get.until alone left the
+              // window fullscreen over the home page (2026-10-28)
+              onPressed: plPlayerController.onCloseAll,
               icon: const Icon(
                 Icons.home_outlined,
                 size: 19,

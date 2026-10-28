@@ -78,6 +78,8 @@ import 'package:PiliPlus/pages/youtube/channel/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/widgets/post_card.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart'
+    show exitDesktopFullScreen;
 import 'package:PiliPlus/plugin/pl_player/view/view.dart' show PLVideoPlayer;
 import 'package:PiliPlus/plugin/pl_player/widgets/spaced_subtitle_view.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
@@ -943,6 +945,7 @@ abstract final class SelfTest {
           play: args.contains('--play'),
           replyDetail: args.contains('--reply-detail'),
           fullscreenReplyCheck: args.contains('--fullscreen-reply'),
+          fullscreenEscCheck: args.contains('--fullscreen-esc'),
         ),
       );
     }
@@ -1550,6 +1553,12 @@ abstract final class SelfTest {
     if (_arg(args, '--yt-comment-bilingual') case final video?) {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario('commentBilingualYt', () => _commentBilingualYt(video));
+    }
+    // `--yt-shell-probe ID`: what the YouTube page does where the bilibili
+    // page has a rule (Esc in fullscreen, D, the screen ratio, 返回主页 in
+    // fullscreen; the watch-page inventory, 2026-10-28)
+    if (_arg(args, '--yt-shell-probe') case final video?) {
+      await scenario('ytShellProbe', () => _ytShellProbe(video));
     }
     // `--yt-fullscreen-reply ID [--window-size WxH]`: the comments scrolled
     // down, fullscreen on and off; the list where it was (user 2026-10-28:
@@ -5165,6 +5174,128 @@ abstract final class SelfTest {
       ids: [for (final c in controller.comments) c.commentId],
     );
     Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+    return result;
+  }
+
+  /// Whether the window covers its display. The player's fullscreen is the
+  /// native one (media_kit's), which window_manager's isFullScreen does not
+  /// see: it said false in fullscreen.
+  static bool _windowCoversDisplay() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    return view.physicalSize == view.display.size;
+  }
+
+  /// Fullscreen on, then Esc pressed as a keyboard does: where the app is
+  /// after (the route, the player's flag, the window).
+  static Future<Map<String, Object?>> _fullScreenEsc(
+    PlPlayerController player,
+  ) async {
+    await player.triggerFullScreen(status: true);
+    await Future.delayed(const Duration(seconds: 2));
+    final routeBefore = Get.currentRoute;
+    final windowBefore = _windowCoversDisplay();
+    await _press(LogicalKeyboardKey.escape, PhysicalKeyboardKey.escape);
+    await Future.delayed(const Duration(seconds: 2));
+    return {
+      'routeBefore': routeBefore,
+      'windowBefore': windowBefore,
+      'routeAfter': Get.currentRoute,
+      'playerFullScreenAfter': player.isFullScreen.value,
+      'windowFullScreenAfter': _windowCoversDisplay(),
+    };
+  }
+
+  /// `--yt-shell-probe`: see where it is parsed.
+  static Future<Map<String, dynamic>> _ytShellProbe(String input) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    Future<YtVideoController> open() async {
+      unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+      await Future.delayed(const Duration(seconds: 4));
+      final controller = Get.find<YtVideoController>(tag: videoId);
+      for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+      await Future.delayed(const Duration(seconds: 2));
+      return controller;
+    }
+
+    // what the window is left in, undone for the next step
+    Future<void> leaveFullScreen() async {
+      await exitDesktopFullScreen();
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    // while it loads: the stand-in's way back
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    bool? standInBack;
+    for (var i = 0; i < 40 && standInBack == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (Get.isRegistered<YtVideoController>(tag: videoId) &&
+          Get.find<YtVideoController>(tag: videoId).stage.value == .loading) {
+        await WidgetsBinding.instance.endOfFrame;
+        standInBack =
+            _findElement(
+              (e) =>
+                  e.widget is IconButton &&
+                  (e.widget as IconButton).tooltip == '返回',
+            ) !=
+            null;
+      }
+    }
+    Get.back();
+    await Future.delayed(const Duration(seconds: 2));
+
+    var controller = await open();
+    var player = controller.plPlayerController;
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final result = <String, Object?>{
+      'standInBackWhileLoading': standInBack,
+      'screenRatio': player.screenRatio,
+      'windowRatio': view.physicalSize.height / view.physicalSize.width,
+    };
+
+    // D: the bilibili page's danmaku switch, saved as a setting
+    final key = SettingBoxKey.enableShowDanmaku;
+    final had = GStorage.setting.containsKey(key);
+    final before = GStorage.setting.get(key);
+    await _press(LogicalKeyboardKey.keyD, PhysicalKeyboardKey.keyD);
+    await Future.delayed(const Duration(milliseconds: 500));
+    result['danmakuSetting'] = {
+      'before': before,
+      'after': GStorage.setting.get(key),
+    };
+    had
+        ? await GStorage.setting.put(key, before)
+        : await GStorage.setting.delete(key);
+
+    // 返回主页 in fullscreen, pressed as its button is; first, as Esc can
+    // leave the player's fullscreen flag set
+    await player.triggerFullScreen(status: true);
+    await Future.delayed(const Duration(seconds: 2));
+    final windowBefore = _windowCoversDisplay();
+    final home = _findElement(
+      (e) =>
+          e.widget is IconButton && (e.widget as IconButton).tooltip == '返回主页',
+    );
+    (home?.widget as IconButton?)?.onPressed?.call();
+    await Future.delayed(const Duration(seconds: 2));
+    result['home'] = {
+      'found': home != null,
+      'windowBefore': windowBefore,
+      'routeAfter': Get.currentRoute,
+      'playerFullScreenAfter': player.isFullScreen.value,
+      'windowFullScreenAfter': _windowCoversDisplay(),
+    };
+    await leaveFullScreen();
+
+    if (!Get.currentRoute.startsWith('/ytVideo')) {
+      controller = await open();
+      player = controller.plPlayerController;
+    }
+    result['esc'] = await _fullScreenEsc(player);
+    await leaveFullScreen();
+    if (Get.currentRoute.startsWith('/ytVideo')) Get.back();
     await Future.delayed(const Duration(seconds: 1));
     return result;
   }
@@ -10032,6 +10163,7 @@ abstract final class SelfTest {
     bool play = false,
     bool replyDetail = false,
     bool fullscreenReplyCheck = false,
+    bool fullscreenEscCheck = false,
   }) async {
     const heroTag = 'selftest_offline';
     final service = Get.find<DownloadService>();
@@ -10135,6 +10267,10 @@ abstract final class SelfTest {
         };
       }
     }
+    // `--fullscreen-esc`: Esc in fullscreen, as on the YouTube page's probe
+    final esc = fullscreenEscCheck && PlPlayerController.instance != null
+        ? await _fullScreenEsc(PlPlayerController.instance!)
+        : null;
     // the first comment shown, opened as a tap on it would (评论详情)
     String? detailShot;
     var comments = 0;
@@ -10179,6 +10315,7 @@ abstract final class SelfTest {
       'extras': extras,
       'tabs': ?tabs,
       'fullscreenReply': ?fullscreenReply,
+      'fullscreenEsc': ?esc,
       if (play) ...{
         'positionMs': player?.positionInMilliseconds ?? 0,
         'durationMs': player?.durationInMilliseconds ?? 0,
