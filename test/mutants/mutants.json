@@ -161,7 +161,7 @@
     "test": "test/services/download/resolve_fields_test.dart",
     "catcher": "resolve_fields_test.dart: dash: the quality got, its name, the stream type and the audio flag are written; the quality asked for stays",
     "scenario": "download",
-    "selftestCatcher": "--download BV1CToXYMEDz: entryFields.quality_pithy_description, folderFiles names"
+    "selftestCatcher": "none (survives --download BV1CToXYMEDz, run 2026-10-26): the new entry already has the asked quality's name (download_service.dart:566), the same as the one got here; only the unit test sees it"
   },
   {
     "id": "M17",
@@ -185,7 +185,7 @@
     "test": "test/services/download/resolve_fields_test.dart",
     "catcher": "resolve_fields_test.dart: dash: the quality got, its name, the stream type and the audio flag are written; the quality asked for stays",
     "scenario": "download",
-    "selftestCatcher": "--download BV1CToXYMEDz: entryFields.media_type"
+    "selftestCatcher": "none (survives --download BV1CToXYMEDz, run 2026-10-28): the new entry is already media_type 2 (download_service.dart:557); only the unit test sees it"
   },
   {
     "id": "M19",

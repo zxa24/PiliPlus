@@ -134,7 +134,13 @@ function Get-PixelDiff([string]$a, [string]$b) {
     if (-not (Test-Path -LiteralPath $b)) { return 'missing' }
     if ((Get-FileHash -LiteralPath $a).Hash -eq (Get-FileHash -LiteralPath $b).Hash) { return 0 }
     if (-not ('MutantPixels' -as [type])) {
-        Add-Type -ReferencedAssemblies System.Drawing, System.Drawing.Primitives -TypeDefinition @'
+        # on .NET 9 and later Bitmap lives in System.Drawing.Common and its
+        # interfaces in two System.Private.Windows assemblies (pwsh 7.6)
+        $refs = @('System.Drawing.Common', 'System.Drawing.Primitives') + @(
+            'System.Private.Windows.Core', 'System.Private.Windows.GdiPlus' | Where-Object {
+                try { [void][System.Reflection.Assembly]::Load($_); $true } catch { $false }
+            })
+        Add-Type -ReferencedAssemblies $refs -TypeDefinition @'
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -148,6 +154,9 @@ public static class MutantPixels {
             bmp.UnlockBits(d);
             return bytes;
         }
+    }
+    public static string Size(string file) {
+        using (var bmp = new Bitmap(file)) return bmp.Width + "x" + bmp.Height;
     }
     public static long Diff(string a, string b) {
         int wa, ha, wb, hb;
@@ -163,9 +172,15 @@ public static class MutantPixels {
 '@
     }
     $n = [MutantPixels]::Diff($a, $b)
-    if ($n -lt 0) { return 'size differs' }
+    if ($n -lt 0) { return "size $([MutantPixels]::Size($a)) -> $([MutantPixels]::Size($b))" }
     return $n
 }
+
+# A shot of another size was taken at another screen scale (the window opens
+# on whichever screen Windows picks: 1232x853 at 125 %, 1974x1369 at 200 %
+# here), not changed by the mutant, so it is not compared. Such lines start
+# with this and do not count as a catch.
+$notCompared = 'not compared: '
 
 # AC1's must-match fields of one scenario (design AC1 自测比较表, both builds
 # with phase 0's fields). Returns the differences, the report's own failure
@@ -252,7 +267,8 @@ function Compare-Scenario([string]$scenario, [string]$baseFile, [string]$mutFile
             foreach ($s in (Get-Lines $b 'shots')) {
                 $n = [System.IO.Path]::GetFileName($s)
                 $d = if ($mutShots.ContainsKey($n)) { Get-PixelDiff $s $mutShots[$n] } else { 'missing' }
-                if ("$d" -ne '0') { $diffs.Add("shot ${n}: $d differing pixels") }
+                if ("$d" -like 'size *') { $diffs.Add("${notCompared}shot ${n}: $d (another screen scale)") }
+                elseif ("$d" -ne '0') { $diffs.Add("shot ${n}: $d differing pixels") }
             }
         }
     }
@@ -665,8 +681,12 @@ function Invoke-SelfTestLoop($list, [string]$dir) {
             $sc = $m['scenario']
             $rep = Invoke-SelfTest $exe $sc (Join-Path $Out $id) $id
             $diffs = Compare-Scenario $sc (Join-Path $base "$sc.json") $rep
-            if ($diffs.Count) {
-                Add-Result $m 'caught' "$($sc): $(($diffs[0] -split ':')[0])" $diffs[0] $t0 $diffs
+            $real = @($diffs | Where-Object { -not $_.StartsWith($notCompared) })
+            if ($real.Count) {
+                Add-Result $m 'caught' "$($sc): $(($real[0] -split ':')[0])" $real[0] $t0 $diffs
+            } elseif ($diffs.Count) {
+                # only shots that could not be compared: neither caught nor survived
+                Add-Result $m 'not compared' '' $diffs[0] $t0 $diffs
             } else {
                 Add-Result $m 'survived' '' '' $t0
             }
