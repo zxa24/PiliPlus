@@ -70,12 +70,15 @@ import 'package:PiliPlus/pages/local/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
+import 'package:PiliPlus/pages/youtube/comments/yt_comment_pane.dart'
+    show YtCommentPane;
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/widgets/post_card.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/view/view.dart' show PLVideoPlayer;
 import 'package:PiliPlus/plugin/pl_player/widgets/spaced_subtitle_view.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
@@ -939,6 +942,7 @@ abstract final class SelfTest {
           tab: tab,
           play: args.contains('--play'),
           replyDetail: args.contains('--reply-detail'),
+          fullscreenReplyCheck: args.contains('--fullscreen-reply'),
         ),
       );
     }
@@ -1546,6 +1550,21 @@ abstract final class SelfTest {
     if (_arg(args, '--yt-comment-bilingual') case final video?) {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario('commentBilingualYt', () => _commentBilingualYt(video));
+    }
+    // `--yt-fullscreen-reply ID [--window-size WxH]`: the comments scrolled
+    // down, fullscreen on and off; the list where it was (user 2026-10-28:
+    // it came back at the top)
+    if (_arg(args, '--yt-fullscreen-reply') case final video?) {
+      Size? window;
+      if (_arg(args, '--window-size')?.split('x') case [final w, final h]
+          when double.tryParse(w) != null && double.tryParse(h) != null) {
+        window = Size(double.parse(w), double.parse(h));
+      }
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario(
+        'ytFullscreenReply',
+        () => _ytFullscreenReply(video, window),
+      );
     }
     if (_arg(args, '--net-probe') case final url?) {
       // the app's own sockets (Dart), to a host the player could not reach:
@@ -5145,6 +5164,122 @@ abstract final class SelfTest {
       master: () => translator.toggleTexts(controller.loadedCommentTexts),
       ids: [for (final c in controller.comments) c.commentId],
     );
+    Get.back();
+    await Future.delayed(const Duration(seconds: 1));
+    return result;
+  }
+
+  /// `--yt-fullscreen-reply`: the comment list scrolled down, the video into
+  /// fullscreen and out as the player's button does. Whether the list and
+  /// the player are the ones from before (their State) and where the list is.
+  static Future<Map<String, dynamic>> _ytFullscreenReply(
+    String input,
+    Size? window,
+  ) async {
+    final videoId = tryParseYouTubeVideoId(input) ?? input;
+    if (window != null) {
+      await SelfTestWindow.setSize(window);
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
+    await Future.delayed(const Duration(seconds: 4));
+    final controller = Get.find<YtVideoController>(tag: videoId);
+    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    await _tapText('评论');
+    controller.ensureCommentsStarted();
+    for (var i = 0; i < 80 && controller.comments.isEmpty; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    await Future.delayed(const Duration(seconds: 1));
+    // the pane's vertical list (not a row of chips in it)
+    ScrollableState? list() {
+      final pane = _findElement((e) => e.widget is YtCommentPane);
+      ScrollableState? found;
+      void visit(Element e) {
+        if (found != null) return;
+        if (e case StatefulElement(:final ScrollableState state)
+            when axisDirectionToAxis(state.axisDirection) == Axis.vertical) {
+          found = state;
+          return;
+        }
+        e.visitChildren(visit);
+      }
+
+      pane?.visitChildren(visit);
+      return found;
+    }
+
+    State? playerState() => (_findElement(
+      (e) => e.widget is PLVideoPlayer,
+    ) as StatefulElement?)?.state;
+
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final logical = view.physicalSize / view.devicePixelRatio;
+    final player = controller.plPlayerController;
+    final before = list();
+    final playerBefore = playerState();
+    if (before == null || playerBefore == null) {
+      Get.back();
+      return {
+        'pass': false,
+        'error': 'no comment list or no player',
+        'comments': controller.comments.length,
+      };
+    }
+    final to = math.min(800.0, before.position.maxScrollExtent);
+    before.position.jumpTo(to);
+    await Future.delayed(const Duration(seconds: 1));
+    final at = before.position.pixels;
+    await player.triggerFullScreen(status: true);
+    await Future.delayed(const Duration(seconds: 3));
+    final fullscreen = player.isFullScreen.value;
+    await player.triggerFullScreen(status: false);
+    await Future.delayed(const Duration(seconds: 3));
+    final after = list();
+    final afterPixels = after?.position.pixels;
+    final samePlayer = identical(playerState(), playerBefore);
+    bool shows(String text) =>
+        _findElement(
+          (e) => e.widget is Text && (e.widget as Text).data == text,
+        ) !=
+        null;
+    final tabsAfter = [
+      for (final t in ['相关视频', '简介', '评论'])
+        if (shows(t)) t,
+    ];
+    final afterShot = await _shot('yt_fullscreen_after');
+    // and to the other tab and back (相关视频 on a wide window, 简介 on a
+    // narrow one): recorded, not judged
+    await _tapText(
+      _findElement(
+                (e) => e.widget is Text && (e.widget as Text).data == '相关视频',
+              ) !=
+              null
+          ? '相关视频'
+          : '简介',
+    );
+    await Future.delayed(const Duration(seconds: 1));
+    await _tapText('评论');
+    await Future.delayed(const Duration(seconds: 1));
+    final result = {
+      'window': '${logical.width.round()}x${logical.height.round()}',
+      'comments': controller.comments.length,
+      'scrolledTo': at,
+      'wentFullscreen': fullscreen,
+      'after': afterPixels,
+      'sameList': identical(after, before),
+      'samePlayer': samePlayer,
+      'afterTabSwitch': list()?.position.pixels,
+      'tabsAfter': tabsAfter,
+      'afterShot': ?afterShot,
+    };
+    result['pass'] =
+        at > 0 &&
+        fullscreen &&
+        afterPixels != null &&
+        (afterPixels - at).abs() < 1;
     Get.back();
     await Future.delayed(const Duration(seconds: 1));
     return result;
@@ -9900,6 +10035,7 @@ abstract final class SelfTest {
     int? tab,
     bool play = false,
     bool replyDetail = false,
+    bool fullscreenReplyCheck = false,
   }) async {
     const heroTag = 'selftest_offline';
     final service = Get.find<DownloadService>();
@@ -9957,6 +10093,52 @@ abstract final class SelfTest {
     final detail = Get.find<VideoDetailController>(tag: heroTag);
     final intro = Get.find<LocalIntroController>(tag: heroTag).intro.value;
     final shot = await _shot('offline');
+    // `--fullscreen-reply`: the comments scrolled down, the video into
+    // fullscreen and out again as the player's button does; where the list
+    // is after, and whether it is the same list (its scroll state) or a new one
+    Map<String, Object?>? fullscreenReply;
+    if (fullscreenReplyCheck) {
+      ScrollableState? list() {
+        ScrollableState? found;
+        void visit(Element e) {
+          if (found != null) return;
+          if (e.widget is ReplyItemGrpc) {
+            found = Scrollable.maybeOf(e);
+            return;
+          }
+          e.visitChildren(visit);
+        }
+
+        WidgetsBinding.instance.rootElement?.visitChildren(visit);
+        return found;
+      }
+
+      final before = list();
+      final fs = PlPlayerController.instance;
+      if (before == null || fs == null) {
+        fullscreenReply = {'error': 'no comment list or no player'};
+      } else {
+        final to = math.min(600.0, before.position.maxScrollExtent);
+        before.position.jumpTo(to);
+        await Future.delayed(const Duration(seconds: 1));
+        final at = before.position.pixels;
+        await fs.triggerFullScreen(status: true);
+        await Future.delayed(const Duration(seconds: 3));
+        final during = list();
+        final duringPixels = during?.position.pixels;
+        await fs.triggerFullScreen(status: false);
+        await Future.delayed(const Duration(seconds: 3));
+        final after = list();
+        fullscreenReply = {
+          'scrolledTo': at,
+          'during': duringPixels,
+          'duringSameList': identical(during, before),
+          'after': after?.position.pixels,
+          'afterSameList': identical(after, before),
+          'kept': after != null && (after.position.pixels - at).abs() < 1,
+        };
+      }
+    }
     // the first comment shown, opened as a tap on it would (评论详情)
     String? detailShot;
     var comments = 0;
@@ -10000,6 +10182,7 @@ abstract final class SelfTest {
       'subtitleIndex': detail.vttSubtitlesIndex.value,
       'extras': extras,
       'tabs': ?tabs,
+      'fullscreenReply': ?fullscreenReply,
       if (play) ...{
         'positionMs': player?.positionInMilliseconds ?? 0,
         'durationMs': player?.durationInMilliseconds ?? 0,

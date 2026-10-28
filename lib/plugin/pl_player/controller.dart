@@ -4918,6 +4918,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   // 全屏
   bool _fsProcessing = false;
+
+  /// LibrePili: fullscreen is being turned on or off: the window may already
+  /// have its new size while [isFullScreen] still says the old state.
+  bool get fsProcessing => _fsProcessing;
   Future<void> triggerFullScreen({
     bool status = true,
     bool inAppFullScreen = false,

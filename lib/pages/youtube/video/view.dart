@@ -96,62 +96,101 @@ class _YtVideoPageState extends State<YtVideoPage>
     );
   }
 
+  /// The windowed layout's choice, kept while fullscreen: a narrow window
+  /// gone fullscreen would otherwise be laid out wide, and the switch builds
+  /// the lists anew. Kept too while fullscreen is being turned on or off
+  /// (the window can take its new size before or after the flag changes),
+  /// and while the page is still the fullscreen size once it is off: the
+  /// window can shrink back a few frames later.
+  bool? _wide;
+  Size? _fullScreenSize;
+
   Widget _scaffold(ThemeData theme, bool isFullScreen) => Scaffold(
     backgroundColor: theme.colorScheme.surface,
     // no app bar at all: the back arrow and the menu live in the player's
     // own header, over the video, exactly as they do on the bilibili page.
     // A separate strip above the player is neither what this app looks like
     // nor what the space is for.
-    body: isFullScreen
-        ? _player(theme)
-        : LayoutBuilder(
-            builder: (context, box) {
-              // the same split as the bilibili video page: on a wide window
-              // the player keeps the left and the tabs take a side column,
-              // rather than pushing everything below the fold
-              final wide = box.maxWidth > box.maxHeight && box.maxWidth > 900;
-              if (wide) {
-                final panelWidth = math.min(420.0, box.maxWidth * 0.34);
-                return Row(
+    body: LayoutBuilder(
+      builder: (context, box) {
+        // the same split as the bilibili video page: on a wide window
+        // the player keeps the left and the tabs take a side column,
+        // rather than pushing everything below the fold
+        final switching = controller.plPlayerController.fsProcessing;
+        if (isFullScreen && !switching) {
+          _fullScreenSize = box.biggest;
+        } else if (!isFullScreen &&
+            !switching &&
+            box.biggest != _fullScreenSize) {
+          _fullScreenSize = null;
+        }
+        final keep = isFullScreen || switching || _fullScreenSize != null;
+        final wide = keep && _wide != null
+            ? _wide!
+            : _wide = box.maxWidth > box.maxHeight && box.maxWidth > 900;
+        final Size playerSize;
+        final Widget page;
+        if (wide) {
+          final panelWidth = math.min(420.0, box.maxWidth * 0.34);
+          playerSize = Size(
+            box.maxWidth - panelWidth,
+            math.min(
+              (box.maxWidth - panelWidth) * 9 / 16,
+              box.maxHeight * 0.72,
+            ),
+          );
+          page = Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SizedBox(
-                            height: math.min(
-                              (box.maxWidth - panelWidth) * 9 / 16,
-                              box.maxHeight * 0.72,
-                            ),
-                            child: _player(theme),
-                          ),
-                          Expanded(child: _intro(theme, inSidePanel: true)),
-                        ],
-                      ),
-                    ),
-                    SizedBox(
-                      width: panelWidth,
-                      child: _sidePanel(theme),
-                    ),
+                    SizedBox(height: playerSize.height),
+                    Expanded(child: _intro(theme, inSidePanel: true)),
                   ],
-                );
-              }
-              // 16:9 of the width, but never taller than what is there: a
-              // short window made the aspect box overflow the column
-              final playerHeight = math.min(
-                box.maxWidth * 9 / 16,
-                box.maxHeight * 0.6,
-              );
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(height: playerHeight, child: _player(theme)),
-                  Expanded(child: _tabbed(theme)),
-                ],
-              );
-            },
-          ),
+                ),
+              ),
+              SizedBox(
+                width: panelWidth,
+                child: _sidePanel(theme),
+              ),
+            ],
+          );
+        } else {
+          // 16:9 of the width, but never taller than what is there: a
+          // short window made the aspect box overflow the column
+          playerSize = Size(
+            box.maxWidth,
+            math.min(box.maxWidth * 9 / 16, box.maxHeight * 0.6),
+          );
+          page = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(height: playerSize.height),
+              Expanded(child: _tabbed(theme)),
+            ],
+          );
+        }
+        // fullscreen covers the page rather than replacing it, as on the
+        // bilibili page: the player alone as the body threw the page away,
+        // and the comments, the description and the related list came
+        // back at the top, the player built anew (user 2026-10-28)
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Offstage(offstage: isFullScreen, child: page),
+            Positioned(
+              left: 0,
+              top: 0,
+              width: isFullScreen ? box.maxWidth : playerSize.width,
+              height: isFullScreen ? box.maxHeight : playerSize.height,
+              child: _player(theme),
+            ),
+          ],
+        );
+      },
+    ),
   );
 
   /// The wide layout's right column: 相关视频 / 评论, as on the bilibili page.
