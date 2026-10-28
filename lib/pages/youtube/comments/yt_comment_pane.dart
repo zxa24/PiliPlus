@@ -39,16 +39,25 @@ class YtCommentPane extends StatefulWidget {
   State<YtCommentPane> createState() => _YtCommentPaneState();
 }
 
-class _YtCommentPaneState extends State<YtCommentPane> {
+class _YtCommentPaneState extends State<YtCommentPane>
+    with AutomaticKeepAliveClientMixin {
   YtCommentsMixin get controller => widget.controller;
+
+  /// Kept when its tab is switched away from, as the bilibili list is
+  /// (reply/view.dart): the tab view threw it away, and back on 评论 the
+  /// list was at the top (user 2026-10-28).
+  @override
+  bool get wantKeepAlive => true;
 
   /// The comments pane. It is a [MiniScaffold] because 评论详情 opens as a
   /// sheet *inside* it, the way the bilibili page does it
   /// (reply/view.dart:245): the detail takes over the comment area and
   /// leaves the video where it is, rather than covering the window.
   @override
-  Widget build(BuildContext context) =>
-      MiniScaffold(body: _commentList(Theme.of(context)));
+  Widget build(BuildContext context) {
+    super.build(context);
+    return MiniScaffold(body: _commentList(Theme.of(context)));
+  }
 
   Widget _commentList(ThemeData theme) => Obx(() {
     final items = controller.comments;

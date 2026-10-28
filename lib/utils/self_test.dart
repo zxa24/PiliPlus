@@ -5251,18 +5251,12 @@ abstract final class SelfTest {
     ];
     final afterShot = await _shot('yt_fullscreen_after');
     // and to the other tab and back (相关视频 on a wide window, 简介 on a
-    // narrow one): recorded, not judged
-    await _tapText(
-      _findElement(
-                (e) => e.widget is Text && (e.widget as Text).data == '相关视频',
-              ) !=
-              null
-          ? '相关视频'
-          : '简介',
-    );
+    // narrow one): the list kept there too (user 2026-10-28)
+    await _tapText(shows('相关视频') ? '相关视频' : '简介');
     await Future.delayed(const Duration(seconds: 1));
     await _tapText('评论');
     await Future.delayed(const Duration(seconds: 1));
+    final tabPixels = list()?.position.pixels;
     final result = {
       'window': '${logical.width.round()}x${logical.height.round()}',
       'comments': controller.comments.length,
@@ -5271,7 +5265,7 @@ abstract final class SelfTest {
       'after': afterPixels,
       'sameList': identical(after, before),
       'samePlayer': samePlayer,
-      'afterTabSwitch': list()?.position.pixels,
+      'afterTabSwitch': ?tabPixels,
       'tabsAfter': tabsAfter,
       'afterShot': ?afterShot,
     };
@@ -5279,7 +5273,9 @@ abstract final class SelfTest {
         at > 0 &&
         fullscreen &&
         afterPixels != null &&
-        (afterPixels - at).abs() < 1;
+        (afterPixels - at).abs() < 1 &&
+        tabPixels != null &&
+        (tabPixels - at).abs() < 1;
     Get.back();
     await Future.delayed(const Duration(seconds: 1));
     return result;
