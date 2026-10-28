@@ -5,7 +5,6 @@ import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show BaseMultiSelectMixin;
 import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
-import 'package:PiliPlus/utils/storage.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -47,7 +46,7 @@ class DownloadPageController extends GetxController
     for (final entry in _downloadService.downloadList) {
       // listed as downloading until its comments etc. are saved
       if (_downloadService.isSavingExtras(entry)) continue;
-      final pageId = entry.pageId;
+      final pageId = entry.groupId;
       final page = list.firstWhereOrNull((e) => e.pageId == pageId);
       if (page != null) {
         final aSortKey = entry.sortKey;
@@ -63,10 +62,10 @@ class DownloadPageController extends GetxController
           DownloadPageInfo(
             pageId: pageId,
             dirPath: entry.pageDirPath,
-            title: entry.title,
+            title: entry.groupTitle,
             cover: entry.cover,
             sortKey: entry.sortKey,
-            seasonType: entry.ep?.seasonType,
+            seasonType: _downloadService.platformOf(entry).groupBadge(entry),
             entries: [entry],
           ),
         );
@@ -107,11 +106,10 @@ class DownloadPageController extends GetxController
     );
     if (deleteExported == null) return;
     SmartDialog.showLoading();
-    final watchProgress = GStorage.watchProgress;
     for (final page in allChecked) {
-      await watchProgress.deleteAll(
-        page.entries.map((e) => e.cid.toString()),
-      );
+      await _downloadService
+          .platformOf(page.entries.first)
+          .onDeleted(page.entries);
       await _downloadService.deletePage(
         pageDirPath: page.dirPath,
         refresh: false,

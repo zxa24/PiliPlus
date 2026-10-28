@@ -1,8 +1,7 @@
 diff --git a/lib/pages/download/view.dart b/lib/pages/download/view.dart
-index fdb79ee98..ec255d5c7 100644
 --- a/lib/pages/download/view.dart
 +++ b/lib/pages/download/view.dart
-@@ -345,21 +345,6 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
+@@ -343,21 +343,6 @@
                      isBold: false,
                      type: PBadgeType.gray,
                    ),

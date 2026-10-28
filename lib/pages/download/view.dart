@@ -10,6 +10,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/select_mask.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
+import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/pages/download/controller.dart';
 import 'package:PiliPlus/pages/download/delete_dialog.dart';
@@ -20,7 +21,6 @@ import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
-import 'package:PiliPlus/utils/storage.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -69,7 +69,9 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                 onPressed: () async {
                   final future = [
                     for (final page in _controller.allChecked)
-                      for (final e in page.entries)
+                      // bilibili's own
+                      for (final e
+                          in page.entries.whereType<BiliDownloadEntryInfo>())
                         _downloadService.downloadDanmaku(
                           entry: e,
                           isUpdate: true,
@@ -131,14 +133,14 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                   final queue = _downloadService.waitDownloadQueue;
                   final running = queue.firstWhereOrNull(
                     (e) =>
-                        e.cid == _downloadService.curCid && !e.status.isFailed,
+                        e.key == _downloadService.curCid && !e.status.isFailed,
                   );
                   final entry =
                       running ??
                       // complete videos whose comments etc. are being saved
                       _downloadService.extrasQueue.firstOrNull ??
                       queue.firstWhereOrNull((e) => !e.status.isFailed) ??
-                      queue.firstWhereOrNull((e) => e.cid == cur?.cid) ??
+                      queue.firstWhereOrNull((e) => e.key == cur?.key) ??
                       queue.firstOrNull;
                   final count =
                       _downloadService.waitDownloadQueue.length +
@@ -164,7 +166,7 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                               showTitle: true,
                               // its bar follows the running download: only
                               // when it is that one
-                              isCurr: entry.cid == cur?.cid,
+                              isCurr: entry.key == cur?.key,
                               controller: _controller,
                             ),
                           ),
@@ -209,9 +211,9 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                                     removeList: true,
                                     deleteExported: deleteExported,
                                   );
-                                  GStorage.watchProgress.delete(
-                                    entry.cid.toString(),
-                                  );
+                                  _downloadService.platformOf(entry).onDeleted([
+                                    entry,
+                                  ]);
                                 },
                                 checked: item.checked,
                                 onSelect: (_) => _controller.onSelect(item),
@@ -266,9 +268,9 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                       ),
                     );
                     if (deleteExported == null) return;
-                    await GStorage.watchProgress.deleteAll(
-                      pageInfo.entries.map((e) => e.cid.toString()),
-                    );
+                    await _downloadService
+                        .platformOf(pageInfo.entries.first)
+                        .onDeleted(pageInfo.entries);
                     _downloadService.deletePage(
                       pageDirPath: pageInfo.dirPath,
                       deleteExported: deleteExported,
@@ -276,25 +278,21 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                   },
                   child: const Text('删除', style: TextStyle(fontSize: 14)),
                 ),
-                DialogOption(
-                  onPressed: () async {
-                    Get.back();
-                    final res = await Future.wait(
-                      pageInfo.entries.map(
-                        (e) => _downloadService.downloadDanmaku(
-                          entry: e,
-                          isUpdate: true,
-                        ),
-                      ),
-                    );
-                    if (res.every((e) => e)) {
-                      SmartDialog.showToast('更新成功');
-                    } else {
-                      SmartDialog.showToast('更新失败');
-                    }
-                  },
-                  child: const Text('更新弹幕', style: TextStyle(fontSize: 14)),
-                ),
+                // one platform's group: its own items
+                for (final item
+                    in _downloadService
+                        .platformOf(pageInfo.entries.first)
+                        .groupMenu(pageInfo.entries))
+                  DialogOption(
+                    onPressed: () {
+                      Get.back();
+                      item.onTap();
+                    },
+                    child: Text(
+                      item.label,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
               ],
             ),
           );
@@ -395,7 +393,9 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
                             color: theme.colorScheme.outline,
                           ),
                         ),
-                        pageInfo.entries.first.moreBtn(theme.colorScheme),
+                        _downloadService
+                            .platformOf(first)
+                            .actions(first, theme.colorScheme),
                       ],
                     ),
                   ],

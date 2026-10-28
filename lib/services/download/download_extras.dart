@@ -65,13 +65,16 @@ abstract final class DownloadExtras {
   /// Writes the enabled extras; returns what was written (for self tests).
   /// [cancelled] is polled between steps and requests: once it returns true
   /// (the entry was deleted) nothing more is fetched or written. [progress]
-  /// is told how far each step is.
+  /// is told how far each step is. [transcriptKey]: the part's transcript
+  /// in the subtitle cache (its platform's `transcriptKey`), written beside
+  /// the video with the subtitles.
   static Future<Map<String, Object?>> export({
     required BiliDownloadEntryInfo entry,
     required String folder,
     required String base,
     bool Function()? cancelled,
     DownloadProgress? progress,
+    required SubtitleCacheKey transcriptKey,
   }) async {
     final written = <String, Object?>{};
     void check() {
@@ -143,7 +146,7 @@ abstract final class DownloadExtras {
     if (Pref.dlSaveSubtitle) {
       await step(
         DownloadProgress.stepSubtitles,
-        () => _subtitles(entry, folder, base, check, progress),
+        () => _subtitles(entry, folder, base, check, progress, transcriptKey),
       );
     }
 
@@ -164,6 +167,7 @@ abstract final class DownloadExtras {
     String base,
     void Function() check,
     DownloadProgress? progress,
+    SubtitleCacheKey transcriptKey,
   ) async {
     final res = await VideoHttp.playInfo(
       bvid: entry.bvid,
@@ -211,7 +215,7 @@ abstract final class DownloadExtras {
     try {
       final video = entry.mergedPath ?? path.join(folder, '$base.mp4');
       final kept = await SubtitleCache.instance.open(
-        SubtitleCacheKey.bilibili(entry.cid),
+        transcriptKey,
         AsrService.recogniserId,
       );
       if (await TranscriptFiles.write(kept, video)) {

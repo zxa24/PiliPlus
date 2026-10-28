@@ -1,13 +1,12 @@
-diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
-index fb81c11e9..b5100c75f 100644
---- a/lib/pages/download/detail/widgets/item.dart
-+++ b/lib/pages/download/detail/widgets/item.dart
-@@ -188,7 +188,7 @@ class DetailItem extends StatelessWidget {
-                         } else {
-                           cacheHeight = maxHeight.cacheSize(context);
-                         }
--                        return cover.existsSync()
-+                        return false
-                             ? ClipRRect(
-                                 borderRadius: Style.mdRadius,
-                                 child: Image.file(
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -195,7 +195,7 @@
+   @override
+   ({File? file, String? network}) localCover(DownloadEntry entry) {
+     final cover = File(path.join(entry.entryDirPath, PathUtils.coverName));
+-    return (file: cover.existsSync() ? cover : null, network: entry.cover);
++    return (file: null, network: entry.cover);
+   }
+ 
+   @override

@@ -1,13 +1,12 @@
-diff --git a/lib/services/download/download_extras.dart b/lib/services/download/download_extras.dart
-index d7142b2b1..2b7eb33fe 100644
---- a/lib/services/download/download_extras.dart
-+++ b/lib/services/download/download_extras.dart
-@@ -211,7 +211,7 @@ abstract final class DownloadExtras {
-     try {
-       final video = entry.mergedPath ?? path.join(folder, '$base.mp4');
-       final kept = await SubtitleCache.instance.open(
--        SubtitleCacheKey.bilibili(entry.cid),
-+        SubtitleCacheKey.bilibili(entry.avid),
-         AsrService.recogniserId,
-       );
-       if (await TranscriptFiles.write(kept, video)) {
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -134,7 +134,7 @@
+       base: base,
+       cancelled: cancelled,
+       progress: progress,
+-      transcriptKey: transcriptKey(entry),
++      transcriptKey: SubtitleCacheKey.bilibili(entry.avid),
+     );
+   }
+ 

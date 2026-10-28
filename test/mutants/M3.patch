@@ -1,16 +1,15 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..b414416c5 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -1382,9 +1382,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -1225,9 +1225,9 @@
        extrasQueue.remove(entry);
        flagNotifier.refresh();
      });
--    _extrasJobs[cid] = job;
-+    _extrasJobs[entry.avid] = job;
+-    _extrasJobs[key] = job;
++    _extrasJobs['bili:${(entry as BiliDownloadEntryInfo).avid}'] = job;
      job.whenComplete(() {
--      if (identical(_extrasJobs[cid], job)) {
-+      if (identical(_extrasJobs[entry.avid], job)) {
-         _extrasJobs.remove(cid);
-         _extrasCancelled.remove(cid);
+-      if (identical(_extrasJobs[key], job)) {
++      if (identical(_extrasJobs['bili:${(entry as BiliDownloadEntryInfo).avid}'], job)) {
+         _extrasJobs.remove(key);
+         _extrasCancelled.remove(key);
        }

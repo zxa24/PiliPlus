@@ -1,13 +1,12 @@
-diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..4fecf7b8a 100644
---- a/lib/services/download/download_service.dart
-+++ b/lib/services/download/download_service.dart
-@@ -964,7 +964,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
-             expectedTotal: oldTypeTag == entry.typeTag ? entry.totalBytes : 0,
-           );
-           final audio = mediaFileInfo.audio;
--          if (audio != null && audio.isNotEmpty) {
-+          if (audio != null && audio.isEmpty) {
-             _audioDownloadManager = (newManagerForTest ?? DownloadManager.new)(
-               url: audio.first.baseUrl,
-               backupUrls: audio.first.backupUrl ?? const [],
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -380,7 +380,7 @@
+               expectedTotal: oldTypeTag == entry.typeTag ? entry.totalBytes : 0,
+             );
+         final audio = mediaFileInfo.audio;
+-        if (audio != null && audio.isNotEmpty) {
++        if (audio != null && audio.isEmpty) {
+           _audioDownloadManager =
+               (DownloadService.newManagerForTest ?? DownloadManager.new)(
+                 url: audio.first.baseUrl,

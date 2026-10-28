@@ -1,13 +1,12 @@
-diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
-index fb81c11e9..5afa60776 100644
---- a/lib/pages/download/detail/widgets/item.dart
-+++ b/lib/pages/download/detail/widgets/item.dart
-@@ -95,7 +95,7 @@ class DetailItem extends StatelessWidget {
-                       SmartDialog.showToast('更新失败');
-                     }
-                   },
--                  child: const Text('更新弹幕', style: TextStyle(fontSize: 14)),
-+                  child: const SizedBox.shrink(),
-                 ),
-               ],
-             ),
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -212,6 +212,8 @@
+ 
+   @override
+   List<DownloadMenuItem> menu(DownloadEntry entry) => [
++    // ignore: dead_code
++    if (false)
+     (
+       label: '更新弹幕',
+       onTap: () async {

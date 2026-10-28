@@ -1,13 +1,12 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..a18fc2a7e 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -144,7 +144,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -161,7 +161,7 @@
      // off screen (Android): started again once the app is back, see
      // [_resumeFailedAway]
      if (_away) return;
--    final cid = entry.cid;
-+    final cid = entry.avid;
+-    final key = entry.key;
++    final key = 'bili:${(entry as BiliDownloadEntryInfo).avid}';
      if (status == DownloadStatus.failMerge) {
        // only damaged streams that were removed are worth a start again; the
        // bytes it downloads anew are not progress against the budget below

@@ -1,8 +1,7 @@
 diff --git a/lib/pages/download/search/controller.dart b/lib/pages/download/search/controller.dart
-index 9487084a7..f91746ff6 100644
 --- a/lib/pages/download/search/controller.dart
 +++ b/lib/pages/download/search/controller.dart
-@@ -31,8 +31,7 @@ class DownloadSearchController
+@@ -26,8 +26,7 @@
            .where(
              (e) =>
                  e.title.toLowerCase().contains(text) ||

@@ -1,12 +1,11 @@
 diff --git a/lib/pages/download/search/controller.dart b/lib/pages/download/search/controller.dart
-index 9487084a7..33b459585 100644
 --- a/lib/pages/download/search/controller.dart
 +++ b/lib/pages/download/search/controller.dart
-@@ -65,7 +65,6 @@ class DownloadSearchController
+@@ -60,7 +60,6 @@
      if (deleteExported == null) return;
      SmartDialog.showLoading();
      for (final entry in allChecked) {
--      await GStorage.watchProgress.delete(entry.cid.toString());
+-      await _downloadService.platformOf(entry).onDeleted([entry]);
        await _downloadService.deleteDownload(
          entry: entry,
          removeList: true,

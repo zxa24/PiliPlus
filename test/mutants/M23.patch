@@ -1,8 +1,7 @@
-diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..8c49cfd16 100644
---- a/lib/services/download/download_service.dart
-+++ b/lib/services/download/download_service.dart
-@@ -1039,7 +1039,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -447,7 +447,6 @@
            return _onDone(error);
          }
          // paused / deleted / replaced meanwhile

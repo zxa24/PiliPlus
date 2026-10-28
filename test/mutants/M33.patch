@@ -1,14 +1,13 @@
 diff --git a/lib/pages/download/view.dart b/lib/pages/download/view.dart
-index fdb79ee98..393732add 100644
 --- a/lib/pages/download/view.dart
 +++ b/lib/pages/download/view.dart
-@@ -266,9 +266,6 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
+@@ -268,9 +268,6 @@
                        ),
                      );
                      if (deleteExported == null) return;
--                    await GStorage.watchProgress.deleteAll(
--                      pageInfo.entries.map((e) => e.cid.toString()),
--                    );
+-                    await _downloadService
+-                        .platformOf(pageInfo.entries.first)
+-                        .onDeleted(pageInfo.entries);
                      _downloadService.deletePage(
                        pageDirPath: pageInfo.dirPath,
                        deleteExported: deleteExported,

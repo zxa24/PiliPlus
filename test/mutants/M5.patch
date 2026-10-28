@@ -1,13 +1,12 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..d268bce23 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -1189,7 +1189,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -1028,7 +1028,7 @@
      _audioDownloadManager = null;
      entry.downloadedBytes = entry.totalBytes;
-     final cid = entry.cid;
--    _mergingCids.add(cid);
-+    _mergingCids.add(entry.avid);
-     _mergeDeletedCids.remove(cid);
+     final key = entry.key;
+-    _mergingKeys.add(key);
++    _mergingKeys.add('bili:${(entry as BiliDownloadEntryInfo).avid}');
+     _mergeDeletedKeys.remove(key);
      _updateCurStatus(DownloadStatus.merging);
-     if (selfTestBeforeMerge case final hook?) await hook(entry);
+     // its type is bilibili's

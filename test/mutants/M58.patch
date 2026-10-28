@@ -1,8 +1,7 @@
 diff --git a/lib/http/download.dart b/lib/http/download.dart
-index 8431d1fbb..294cd09ea 100644
 --- a/lib/http/download.dart
 +++ b/lib/http/download.dart
-@@ -64,7 +64,6 @@ abstract final class DownloadHttp {
+@@ -64,7 +64,6 @@
          // still be restarted at the requested quality after logging in
          entry
            ..mediaType = 2

@@ -1,12 +1,11 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..162570c5d 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -177,7 +177,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -194,7 +194,6 @@
      final gen = _startGen;
      Timer(wait, () {
        if (gen != _startGen ||
--          curDownload.value?.cid != cid ||
+-          curDownload.value?.key != key ||
            entry.status != DownloadStatus.retryWait) {
          return;
        }

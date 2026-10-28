@@ -1,12 +1,11 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..49bf96e36 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -148,7 +148,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -165,7 +165,7 @@
      if (status == DownloadStatus.failMerge) {
        // only damaged streams that were removed are worth a start again; the
        // bytes it downloads anew are not progress against the budget below
--      if (entry.downloadedBytes != 0 || !_redownloaded.add(cid)) {
+-      if (entry.downloadedBytes != 0 || !_redownloaded.add(key)) {
 +      if (entry.downloadedBytes != 0) {
          _gaveUp(entry, status, 'merge');
          return;

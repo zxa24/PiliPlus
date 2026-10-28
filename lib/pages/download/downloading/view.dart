@@ -23,14 +23,14 @@ class DownloadingPage extends StatefulWidget {
 }
 
 class _DownloadingPageState extends State<DownloadingPage>
-    with BaseMultiSelectMixin<BiliDownloadEntryInfo>, GridMixin {
+    with BaseMultiSelectMixin<DownloadEntry>, GridMixin {
   final _downloadService = Get.find<DownloadService>();
   late final _waitDownloadQueue = _downloadService.waitDownloadQueue;
   late final _extrasQueue = _downloadService.extrasQueue;
   @override
-  RxList<BiliDownloadEntryInfo> get list => _waitDownloadQueue;
+  RxList<DownloadEntry> get list => _waitDownloadQueue;
   @override
-  RxList<BiliDownloadEntryInfo> get state => _waitDownloadQueue;
+  RxList<DownloadEntry> get state => _waitDownloadQueue;
 
   @override
   Widget build(BuildContext context) {
@@ -96,7 +96,7 @@ class _DownloadingPageState extends State<DownloadingPage>
                           );
                         }
                         final entry = _waitDownloadQueue[index];
-                        final isCurr = entry.cid == _downloadService.curCid;
+                        final isCurr = entry.key == _downloadService.curCid;
                         return DetailItem(
                           entry: entry,
                           downloadService: _downloadService,

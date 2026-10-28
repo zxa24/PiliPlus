@@ -1,12 +1,12 @@
 diff --git a/lib/pages/video/introduction/local/controller.dart b/lib/pages/video/introduction/local/controller.dart
-index 86ad6418a..c33dd4b15 100644
 --- a/lib/pages/video/introduction/local/controller.dart
 +++ b/lib/pages/video/introduction/local/controller.dart
-@@ -72,6 +72,7 @@ class LocalIntroController extends CommonIntroController {
-       final controller = Get.find<DownloadPageController>();
-       for (final e in controller.pages) {
-         final items = e.entries..sort((a, b) => a.sortKey.compareTo(b.sortKey));
-+        // M57b (phase 1 re-targets this): no platform filter
-         final completed = items.where((e) => e.isCompleted);
-         list.addAllIf(completed.isNotEmpty, completed);
-         if (completed.length == 1) {
+@@ -74,7 +74,7 @@
+       final completed = items
+           .where(
+             (e) =>
+-                e.isCompleted && e.platform == BiliDownloadEntryInfo.platformId,
++                e.isCompleted,
+           )
+           .cast<BiliDownloadEntryInfo>();
+       list.addAllIf(completed.isNotEmpty, completed);

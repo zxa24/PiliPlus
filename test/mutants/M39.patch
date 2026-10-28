@@ -1,20 +1,11 @@
 diff --git a/lib/pages/download/downloading/view.dart b/lib/pages/download/downloading/view.dart
-index 7f171aad6..1f5a25511 100644
 --- a/lib/pages/download/downloading/view.dart
 +++ b/lib/pages/download/downloading/view.dart
-@@ -10,6 +10,7 @@ import 'package:PiliPlus/pages/common/multi_select/base.dart'
- import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
- import 'package:PiliPlus/services/download/download_service.dart';
- import 'package:PiliPlus/utils/grid.dart';
-+import 'package:PiliPlus/utils/storage.dart';
- import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
- import 'package:get/get.dart';
- import 'package:material_ui/material_ui.dart'
-@@ -136,6 +137,7 @@ class _DownloadingPageState extends State<DownloadingPage>
+@@ -136,6 +136,7 @@
              _downloadService.curDownload.value?.status ==
              DownloadStatus.downloading;
          for (final entry in allChecked) {
-+          await GStorage.watchProgress.delete(entry.cid.toString());
++          await _downloadService.platformOf(entry).onDeleted([entry]);
            await _downloadService.deleteDownload(
              entry: entry,
              refresh: false,

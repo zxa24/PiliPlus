@@ -10168,9 +10168,11 @@ abstract final class SelfTest {
     const heroTag = 'selftest_offline';
     final service = Get.find<DownloadService>();
     await service.waitForInitialization;
-    final entry = service.downloadList.firstWhereOrNull(
-      (e) => e.mergedPath != null && File(e.mergedPath!).existsSync(),
-    );
+    final entry = service.downloadList
+        .whereType<BiliDownloadEntryInfo>()
+        .firstWhereOrNull(
+          (e) => e.mergedPath != null && File(e.mergedPath!).existsSync(),
+        );
     if (entry == null) {
       return {
         'pass': false,
@@ -10502,11 +10504,14 @@ abstract final class SelfTest {
     // background run starts once the merge is done and can end while the
     // download's comments etc. are still being saved — before the timeline
     // below starts — so this is what sees it running, and under which key
-    BiliDownloadEntryInfo? entry() => [
-      ...service.waitDownloadQueue,
-      ...service.extrasQueue,
-      ...service.downloadList,
-    ].firstWhereOrNull((e) => e.bvid == bvid);
+    BiliDownloadEntryInfo? entry() =>
+        [
+          ...service.waitDownloadQueue,
+          ...service.extrasQueue,
+          ...service.downloadList,
+        ].whereType<BiliDownloadEntryInfo>().firstWhereOrNull(
+          (e) => e.bvid == bvid,
+        );
     final states = <String>[];
     final runningKeys = <String>{};
     var runningSeen = false;
@@ -10516,10 +10521,10 @@ abstract final class SelfTest {
       // the key's form changes with the adapters (cid now, bili:<cid> then),
       // so its own key is written as `entry`, anything else as it is
       if (transcripts.running.value case final running?) {
-        runningKeys.add(e != null && running == e.cid ? 'entry' : '$running');
+        runningKeys.add(e != null && running == e.key ? 'entry' : running);
       }
       if (e == null) return;
-      final state = transcripts.stateOf(e.cid);
+      final state = transcripts.stateOf(e.key);
       if (state != null && state.running) {
         runningSeen = true;
         runningFrom ??= state.fraction;
@@ -10571,14 +10576,17 @@ abstract final class SelfTest {
       };
     }
     final service = Get.find<DownloadService>();
-    final entry = service.downloadList.firstWhereOrNull(
-      (e) => e.bvid == bvid && e.isCompleted && e.mergedPath != null,
-    );
+    final entry = service.downloadList
+        .whereType<BiliDownloadEntryInfo>()
+        .firstWhereOrNull(
+          (e) => e.bvid == bvid && e.isCompleted && e.mergedPath != null,
+        );
     final merged = entry?.mergedPath;
     if (entry == null || merged == null) {
       return {'pass': false, 'reason': 'no finished download'};
     }
     final cid = entry.cid;
+    final key = entry.key;
     final transcripts = service.transcripts;
     final clock = Stopwatch()..start();
     final timeline = <String>[];
@@ -10589,14 +10597,14 @@ abstract final class SelfTest {
     final deadline = DateTime.now().add(const Duration(minutes: 15));
     while (DateTime.now().isBefore(deadline)) {
       final label = transcriptLabel(
-        transcripts.stateOf(cid),
+        transcripts.stateOf(key),
         pending: entry.transcriptPending,
       ).trim();
       if (label != last) {
         timeline.add('${clock.elapsedMilliseconds ~/ 100 / 10} s: $label');
         last = label;
       }
-      final fraction = transcripts.progress[cid] ?? 0;
+      final fraction = transcripts.progress[key] ?? 0;
       if (yieldAt != null && !yielded && fraction >= yieldAt) {
         yielded = true;
         otherAt = clock.elapsedMilliseconds;
@@ -10630,7 +10638,7 @@ abstract final class SelfTest {
           line,
     ];
     final checks = {
-      'transcribed to the end': (transcripts.progress[cid] ?? 0) >= 1,
+      'transcribed to the end': (transcripts.progress[key] ?? 0) >= 1,
       'the mark is gone': !entry.transcriptPending,
       'and from entry.json': !saved.containsKey('transcript_pending'),
       'the files are there': File(TranscriptFiles.srtPath(merged)).existsSync(),
@@ -10672,9 +10680,11 @@ abstract final class SelfTest {
       };
     }
     final service = Get.find<DownloadService>();
-    final entry = service.downloadList.firstWhereOrNull(
-      (e) => e.bvid == bvid && e.isCompleted && e.mergedPath != null,
-    );
+    final entry = service.downloadList
+        .whereType<BiliDownloadEntryInfo>()
+        .firstWhereOrNull(
+          (e) => e.bvid == bvid && e.isCompleted && e.mergedPath != null,
+        );
     final merged = entry?.mergedPath;
     if (entry == null || merged == null) {
       return {'pass': false, 'reason': 'no finished download'};
@@ -10725,6 +10735,7 @@ abstract final class SelfTest {
       entry: entry,
       folder: path.dirname(merged),
       base: path.basenameWithoutExtension(merged),
+      transcriptKey: key,
     );
     final afterExport = srt.existsSync() && json.existsSync();
     // 3. the cache gone
@@ -10799,7 +10810,10 @@ abstract final class SelfTest {
     final cidA = pageA.cid!;
     final cidB = pageB.cid!;
     Future<void> clean() async {
-      for (final e in [...service.downloadList, ...service.waitDownloadQueue]) {
+      for (final e in [
+        ...service.downloadList,
+        ...service.waitDownloadQueue,
+      ].whereType<BiliDownloadEntryInfo>()) {
         if (e.cid == cidA || e.cid == cidB) {
           await service.deleteDownload(
             entry: e,
@@ -10838,11 +10852,14 @@ abstract final class SelfTest {
       }
     };
     final quality = VideoQuality.fromCode(80);
-    BiliDownloadEntryInfo? find(int cid) => [
-      ...service.waitDownloadQueue,
-      ...service.extrasQueue,
-      ...service.downloadList,
-    ].firstWhereOrNull((e) => e.cid == cid);
+    BiliDownloadEntryInfo? find(int cid) =>
+        [
+          ...service.waitDownloadQueue,
+          ...service.extrasQueue,
+          ...service.downloadList,
+        ].whereType<BiliDownloadEntryInfo>().firstWhereOrNull(
+          (e) => e.cid == cid,
+        );
 
     // the export folders there before A: a new one when A has stopped is
     // its own (B starts only after that), left behind by its failed merges
@@ -10923,11 +10940,13 @@ abstract final class SelfTest {
       service.downloadVideo(pageB, detailB, null, quality);
 
       String phaseB() {
-        if (service.waitDownloadQueue.any((e) => e.cid == cidB)) {
-          return service.curCid == cidB ? 'downloading' : 'queued';
+        bool hasB(Iterable<DownloadEntry> list) =>
+            list.whereType<BiliDownloadEntryInfo>().any((e) => e.cid == cidB);
+        if (hasB(service.waitDownloadQueue)) {
+          return service.curCid == 'bili:$cidB' ? 'downloading' : 'queued';
         }
-        if (service.extrasQueue.any((e) => e.cid == cidB)) return 'extras';
-        if (service.downloadList.any((e) => e.cid == cidB)) return 'done';
+        if (hasB(service.extrasQueue)) return 'extras';
+        if (hasB(service.downloadList)) return 'done';
         return 'none';
       }
 
@@ -10944,7 +10963,9 @@ abstract final class SelfTest {
         void visit(Element e) {
           // the one of 「正在缓存」 is the item without a delete action
           if (e.widget case final DetailItem item) {
-            (item.onDelete == null ? slot : list).add(item.entry.cid);
+            (item.onDelete == null ? slot : list).add(
+              (item.entry as BiliDownloadEntryInfo).cid,
+            );
           }
           e.visitChildren(visit);
         }
@@ -11100,10 +11121,9 @@ abstract final class SelfTest {
     const bangumiTitle = '夹具番剧';
     const halfCid = 279001;
     const watchedCid = 279004;
-    final half = service.downloadList.firstWhereOrNull((e) => e.cid == halfCid);
-    final watched = service.downloadList.firstWhereOrNull(
-      (e) => e.cid == watchedCid,
-    );
+    final bili = service.downloadList.whereType<BiliDownloadEntryInfo>();
+    final half = bili.firstWhereOrNull((e) => e.cid == halfCid);
+    final watched = bili.firstWhereOrNull((e) => e.cid == watchedCid);
     final shots = <String?>[];
     final result = <String, dynamic>{
       'entries': service.downloadList.length,
@@ -11234,7 +11254,10 @@ abstract final class SelfTest {
     final cid = page.cid!;
 
     // start from a clean state
-    for (final e in [...service.downloadList, ...service.waitDownloadQueue]) {
+    for (final e in [
+      ...service.downloadList,
+      ...service.waitDownloadQueue,
+    ].whereType<BiliDownloadEntryInfo>()) {
       if (e.cid == cid) {
         await service.deleteDownload(
           entry: e,
@@ -11258,11 +11281,14 @@ abstract final class SelfTest {
     // sampled every 500 ms: a merge shorter than that is seen or not)
     final trail = _StatusTrail(
       service,
-      () => [
-        ...service.waitDownloadQueue,
-        ...service.extrasQueue,
-        ...service.downloadList,
-      ].firstWhereOrNull((e) => e.cid == cid),
+      () =>
+          [
+            ...service.waitDownloadQueue,
+            ...service.extrasQueue,
+            ...service.downloadList,
+          ].whereType<BiliDownloadEntryInfo>().firstWhereOrNull(
+            (e) => e.cid == cid,
+          ),
     )..start();
     final quality = VideoQuality.fromCode(qn);
     service.downloadVideo(page, detail, null, quality);
@@ -11272,11 +11298,14 @@ abstract final class SelfTest {
     final timeline = <List<Object?>>[];
     final started = DateTime.now();
     void sample() {
-      final e = [
-        ...service.waitDownloadQueue,
-        ...service.extrasQueue,
-        ...service.downloadList,
-      ].firstWhereOrNull((e) => e.cid == cid);
+      final e =
+          [
+            ...service.waitDownloadQueue,
+            ...service.extrasQueue,
+            ...service.downloadList,
+          ].whereType<BiliDownloadEntryInfo>().firstWhereOrNull(
+            (e) => e.cid == cid,
+          );
       if (e == null) return;
       final p = e.progress;
       final row = [
@@ -11304,7 +11333,7 @@ abstract final class SelfTest {
         await Future.delayed(const Duration(milliseconds: 500));
         sample();
         final cur = service.curDownload.value;
-        if (cur != null && cur.cid == cid) {
+        if (cur is BiliDownloadEntryInfo && cur.cid == cid) {
           final s = cur.status.name;
           if (statuses.isEmpty || statuses.last != s) statuses.add(s);
           if (s.startsWith('fail')) {
@@ -11315,7 +11344,9 @@ abstract final class SelfTest {
             };
           }
         }
-        done = service.downloadList.firstWhereOrNull((e) => e.cid == cid);
+        done = service.downloadList
+            .whereType<BiliDownloadEntryInfo>()
+            .firstWhereOrNull((e) => e.cid == cid);
         if (done != null) break;
       }
     } finally {
@@ -11330,7 +11361,7 @@ abstract final class SelfTest {
     // includes them (deleting below would cancel them anyway)
     final savingAtCompletion = service.isSavingExtras(done);
     final valueAtCompletion = done.progress.value;
-    final extras = service.extrasDone(cid);
+    final extras = service.extrasDone(done.key);
     if (extras != null) {
       var finished = false;
       unawaited(extras.whenComplete(() => finished = true));

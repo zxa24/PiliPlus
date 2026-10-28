@@ -30,7 +30,7 @@ import 'package:path/path.dart' as path;
 
 /// The key the download service knows [entry] by. The one function under
 /// test/ that phase 1 changes (to `(entry as DownloadEntry).key`).
-Object keyOf(Object entry) => (entry as BiliDownloadEntryInfo).cid;
+Object keyOf(Object entry) => (entry as DownloadEntry).key;
 
 /// [keyOf] for a parameter the service types (an `int` now): passes as
 /// whatever that type is.

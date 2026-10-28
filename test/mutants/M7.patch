@@ -1,13 +1,12 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..a06fba131 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -295,7 +295,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -313,7 +313,7 @@
        // a merge cannot be paused (and the job is already gone): it finishes,
        // but the queue does not carry on after it
-       if (entry != null && _mergingCids.contains(entry.cid)) {
--        _pauseAfterMergeCid = entry.cid;
-+        _pauseAfterMergeCid = entry.avid;
+       if (entry != null && _mergingKeys.contains(entry.key)) {
+-        _pauseAfterMergeKey = entry.key;
++        _pauseAfterMergeKey = 'bili:${(entry as BiliDownloadEntryInfo).avid}';
        } else if (entry?.status.isDownloading ?? false) {
          cancelDownload(isDelete: false, downloadNext: false);
        }

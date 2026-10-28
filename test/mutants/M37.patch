@@ -1,12 +1,11 @@
 diff --git a/lib/pages/download/search/controller.dart b/lib/pages/download/search/controller.dart
-index 9487084a7..3803be5fd 100644
 --- a/lib/pages/download/search/controller.dart
 +++ b/lib/pages/download/search/controller.dart
-@@ -51,7 +51,6 @@ class DownloadSearchController
+@@ -46,7 +46,6 @@
        removeList: true,
        deleteExported: deleteExported,
      );
--    GStorage.watchProgress.delete(entry.cid.toString());
+-    _downloadService.platformOf(entry).onDeleted([entry]);
    }
  
    @override

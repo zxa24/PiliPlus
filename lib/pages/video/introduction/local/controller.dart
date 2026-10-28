@@ -1,4 +1,5 @@
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/models_new/video/video_detail/stat_detail.dart';
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/download/controller.dart';
@@ -61,6 +62,29 @@ class LocalIntroController extends CommonIntroController {
     super.onClose();
   }
 
+  /// The offline playlist from the download page's groups: the complete
+  /// bilibili downloads in each group's order (another platform's open its
+  /// own page), and the groups of one such download.
+  static ({List<BiliDownloadEntryInfo> list, Set<String> aidSet})
+  offlinePlaylist(Iterable<DownloadPageInfo> pages) {
+    final list = <BiliDownloadEntryInfo>[];
+    final aidSet = <String>{};
+    for (final e in pages) {
+      final items = e.entries..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+      final completed = items
+          .where(
+            (e) =>
+                e.isCompleted && e.platform == BiliDownloadEntryInfo.platformId,
+          )
+          .cast<BiliDownloadEntryInfo>();
+      list.addAllIf(completed.isNotEmpty, completed);
+      if (completed.length == 1) {
+        aidSet.add(e.pageId);
+      }
+    }
+    return (list: list, aidSet: aidSet);
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -70,14 +94,9 @@ class LocalIntroController extends CommonIntroController {
     // the download page; then the playlist is just this video.
     if (Get.isRegistered<DownloadPageController>()) {
       final controller = Get.find<DownloadPageController>();
-      for (final e in controller.pages) {
-        final items = e.entries..sort((a, b) => a.sortKey.compareTo(b.sortKey));
-        final completed = items.where((e) => e.isCompleted);
-        list.addAllIf(completed.isNotEmpty, completed);
-        if (completed.length == 1) {
-          aidSet.add(e.pageId);
-        }
-      }
+      final playlist = offlinePlaylist(controller.pages);
+      list.addAll(playlist.list);
+      aidSet.addAll(playlist.aidSet);
     }
     final currCid = videoDetailCtr.cid.value;
     // also when the video is not one of the downloads (e.g. a dropped file)

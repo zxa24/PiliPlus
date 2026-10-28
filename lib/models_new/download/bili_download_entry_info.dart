@@ -1,9 +1,8 @@
 import 'dart:io' show File;
 
+import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
-import 'package:PiliPlus/pages/common/multi_select/base.dart'
-    show MultiSelectData;
-import 'package:PiliPlus/services/download/download_progress.dart';
+import 'package:PiliPlus/models_new/download/download_entry.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -11,21 +10,33 @@ import 'package:PiliPlus/utils/utils.dart';
 import 'package:get/route_manager.dart';
 import 'package:material_ui/material_ui.dart';
 
-class BiliDownloadEntryInfo with MultiSelectData {
+export 'package:PiliPlus/models_new/download/download_entry.dart';
+
+class BiliDownloadEntryInfo extends DownloadEntry {
+  /// [DownloadEntry.platform] of these.
+  static const platformId = 'bilibili';
+
   int mediaType;
   bool hasDashAudio;
+  @override
   bool isCompleted;
+  @override
   int totalBytes;
+  @override
   int downloadedBytes;
+  @override
   final String title;
   String? typeTag;
+  @override
   final String cover;
   int? videoQuality;
   int preferedVideoQuality;
   String qualityPithyDescription;
   final int guessedTotalBytes;
+  @override
   int totalTimeMilli;
   final int danmakuCount;
+  @override
   final int timeUpdateStamp;
   final int timeCreateStamp;
   final bool canPlayInAdvance;
@@ -34,6 +45,7 @@ class BiliDownloadEntryInfo with MultiSelectData {
   final int? spid;
   final String bvid;
   final int? ownerId;
+  @override
   final String? ownerName;
   PageInfo? pageData;
   final String? seasonId;
@@ -43,26 +55,26 @@ class BiliDownloadEntryInfo with MultiSelectData {
   /// Absolute path of the merged single-file video (audio + video), set once
   /// the downloaded DASH streams have been remuxed. Null for legacy entries
   /// that still play from the separate `.m4s` files.
+  @override
   String? mergedPath;
 
   /// The other exported files when the segments of an old (durl) stream had
   /// no common MP4 mapping and were kept as they are: [mergedPath] is then
   /// only the first part, so the entry is complete on disk but not playable
   /// as one video.
+  @override
   List<String>? mergedParts;
 
   /// LibrePili: the video is complete, the extras next to it (comments,
   /// subtitles, ...) are not saved yet; they are saved again after a
   /// restart.
+  @override
   bool extrasPending;
 
   /// LibrePili: the video is complete, its transcript is not: transcribed
   /// in the background (DownloadTranscripts), after a restart too.
+  @override
   bool transcriptPending;
-
-  /// LibrePili: where this download stands over all of its parts. Not
-  /// saved.
-  late final progress = DownloadProgress();
 
   /// LibrePili (Android local player): the video is played from this
   /// `content://` URI (system grant, not copied); [mergedPath] then names it
@@ -73,21 +85,42 @@ class BiliDownloadEntryInfo with MultiSelectData {
   /// position. Not saved.
   String? playKey;
 
-  late String pageDirPath;
-  late String entryDirPath;
-  late DownloadStatus status = .wait;
-
   int get cid => source?.cid ?? pageData!.cid;
+
+  @override
+  DownloadKey get key => 'bili:$cid';
+
+  @override
+  String get platform => platformId;
+
+  @override
+  String get logLabel => '$cid';
 
   /// [typeTag] names the stream sub-folder; an `entry.json` written by
   /// another client may have none, so every path built from it uses this
   /// fallback (never `typeTag!`, which crashes the playback path).
+  @override
   String get streamTypeTag => typeTag ?? '0';
 
   String get pageId => seasonId ?? avid.toString();
 
+  @override
+  String get groupId => pageId;
+
+  @override
+  String get groupTitle => title;
+
+  @override
   int get sortKey => ep?.sortIndex ?? pageData!.page;
 
+  /// The quality downloaded (not the one asked for).
+  @override
+  String? get qualityLabel => switch (videoQuality) {
+    final videoQuality? => VideoQuality.fromCode(videoQuality).shortDesc,
+    null => null,
+  };
+
+  @override
   String get showTitle {
     if (pageData case PageInfo(:final part)) {
       return part != null && part.isNotEmpty ? part : title;
@@ -279,20 +312,6 @@ class BiliDownloadEntryInfo with MultiSelectData {
     if (extrasPending) 'extras_pending': true,
     if (transcriptPending) 'transcript_pending': true,
   };
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) {
-      return true;
-    }
-    if (other is BiliDownloadEntryInfo) {
-      return cid == other.cid;
-    }
-    return false;
-  }
-
-  @override
-  int get hashCode => cid.hashCode;
 }
 
 class PageInfo {
@@ -452,41 +471,5 @@ class EpInfo {
     'link': link,
     'bvid': bvid,
     'sort_index': sortIndex,
-  };
-}
-
-enum DownloadStatus {
-  downloading('正在下载'),
-  audioDownloading('正在下载音频'),
-  getDanmaku('获取弹幕'),
-  getPlayUrl('获取播放地址'),
-  merging('合并音视频'),
-  //
-  completed('下载完成'),
-  failDownload('下载失败'),
-  failDownloadAudio('音频下载失败'),
-  failDanmaku('获取弹幕失败'),
-  failPlayUrl('获取播放地址失败'),
-  failMerge('合并音视频失败'),
-  pause('暂停中'),
-  wait('等待中'),
-  // LibrePili: the video is complete, the extras next to it are not
-  extrasWait('等待保存评论等'),
-  savingExtras('保存评论等'),
-  // LibrePili: failed, started again on its own in a while
-  retryWait('下载失败，稍后自动重试'),
-  ;
-
-  final String message;
-  const DownloadStatus(this.message);
-
-  bool get isDownloading => index <= 4;
-
-  /// LibrePili: stopped by a failure (the danmaku's is not one: the video
-  /// goes on without it). The queue passes over these (`nextDownload` of
-  /// the download service).
-  bool get isFailed => switch (this) {
-    failDownload || failDownloadAudio || failPlayUrl || failMerge => true,
-    _ => false,
   };
 }

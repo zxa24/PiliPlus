@@ -1,22 +1,30 @@
 diff --git a/lib/services/download/download_transcripts.dart b/lib/services/download/download_transcripts.dart
-index e777ba1a0..19926c537 100644
 --- a/lib/services/download/download_transcripts.dart
 +++ b/lib/services/download/download_transcripts.dart
-@@ -214,7 +214,7 @@ class DownloadTranscripts {
+@@ -28,7 +28,7 @@
+ import 'dart:io';
+ import 'dart:math' as math;
+ 
+-import 'package:PiliPlus/models_new/download/download_entry.dart';
++import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+ import 'package:PiliPlus/services/asr/asr_schedule.dart';
+ import 'package:PiliPlus/services/asr/asr_service.dart';
+ import 'package:PiliPlus/services/asr/transcript_files.dart';
+@@ -220,7 +220,7 @@
      try {
        final kept = await TranscriptFiles.read(
          entry.mergedPath!,
--        SubtitleCacheKey.bilibili(cid),
-+        SubtitleCacheKey.bilibili(entry.avid),
+-        platform.transcriptKey(entry),
++        SubtitleCacheKey.bilibili((entry as BiliDownloadEntryInfo).avid),
          AsrService.recogniserId,
        );
        if (kept != null) await AsrService.to.cache.adopt(kept);
-@@ -227,7 +227,7 @@ class DownloadTranscripts {
+@@ -233,7 +233,7 @@
      final session = _session = await AsrService.to.start(
-       key: 'download:$cid',
+       key: platform.transcriptSessionKey(entry),
        source: entry.mergedPath!,
--      cache: SubtitleCacheKey.bilibili(cid),
-+      cache: SubtitleCacheKey.bilibili(entry.avid),
+-      cache: platform.transcriptKey(entry),
++      cache: SubtitleCacheKey.bilibili((entry as BiliDownloadEntryInfo).avid),
      );
-     running.value = cid;
-     progress.putIfAbsent(cid, () => 0);
+     running.value = key;
+     progress.putIfAbsent(key, () => 0);

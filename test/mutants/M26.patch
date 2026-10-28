@@ -1,5 +1,4 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..b35bc9da3 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
 @@ -1,5 +1,5 @@
@@ -9,12 +8,17 @@ index 5958ef741..b35bc9da3 100644
  import 'dart:io'
      show
          Directory,
-@@ -1094,7 +1094,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
-   static Future<void> _writeEntryJson(BiliDownloadEntryInfo entry) async {
-     final entryJsonFile = File(path.join(entry.entryDirPath, _entryFile));
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -37,7 +37,9 @@
+     final entryJsonFile = File(path.join(entry.entryDirPath, recordFile));
      final tmp = File('${entryJsonFile.path}.tmp');
--    await tmp.writeAsString(jsonEncode(entry.toJson()), flush: true);
-+    await tmp.writeAsString(const JsonEncoder.withIndent(' ').convert(entry.toJson()), flush: true);
+     await tmp.writeAsString(
+-      jsonEncode((entry as BiliDownloadEntryInfo).toJson()),
++      const JsonEncoder.withIndent(' ').convert(
++        (entry as BiliDownloadEntryInfo).toJson(),
++      ),
+       flush: true,
+     );
      await tmp.rename(entryJsonFile.path);
-   }
- 

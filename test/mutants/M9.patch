@@ -1,13 +1,15 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..7eb3d7fde 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -1993,7 +1993,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -1526,7 +1526,10 @@
      // their retries, and one whose streams are damaged failed again on every
      // start — after each other download completed. They wait for the user.
      final next = waitDownloadQueue.firstWhereOrNull(
--      (e) => !e.status.isFailed && e.cid != curDownload.value?.cid,
-+      (e) => !e.status.isFailed && e.avid != curDownload.value?.avid,
+-      (e) => !e.status.isFailed && e.key != curDownload.value?.key,
++      (e) =>
++          !e.status.isFailed &&
++          (e as BiliDownloadEntryInfo).avid !=
++              (curDownload.value as BiliDownloadEntryInfo?)?.avid,
      );
      if (next != null) startDownload(next);
    }

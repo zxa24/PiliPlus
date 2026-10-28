@@ -1,13 +1,12 @@
-diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..3d2ab5058 100644
---- a/lib/services/download/download_service.dart
-+++ b/lib/services/download/download_service.dart
-@@ -961,7 +961,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
-             // beside the file wins; this is for partials saved before it,
-             // and only while the entry's size is this quality's: after
-             // another quality ran it is that one's
--            expectedTotal: oldTypeTag == entry.typeTag ? entry.totalBytes : 0,
-+            expectedTotal: 0,
-           );
-           final audio = mediaFileInfo.audio;
-           if (audio != null && audio.isNotEmpty) {
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -377,7 +377,7 @@
+               // beside the file wins; this is for partials saved before it,
+               // and only while the entry's size is this quality's: after
+               // another quality ran it is that one's
+-              expectedTotal: oldTypeTag == entry.typeTag ? entry.totalBytes : 0,
++              expectedTotal: 0,
+             );
+         final audio = mediaFileInfo.audio;
+         if (audio != null && audio.isNotEmpty) {

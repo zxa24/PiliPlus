@@ -1,8 +1,7 @@
 diff --git a/lib/pages/download/detail/widgets/item.dart b/lib/pages/download/detail/widgets/item.dart
-index fb81c11e9..64d0dbf73 100644
 --- a/lib/pages/download/detail/widgets/item.dart
 +++ b/lib/pages/download/detail/widgets/item.dart
-@@ -142,7 +142,6 @@ class DetailItem extends StatelessWidget {
+@@ -123,7 +123,6 @@
                Future.delayed(const Duration(milliseconds: 400), () {
                  if (context.mounted) {
                    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member

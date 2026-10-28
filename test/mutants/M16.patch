@@ -1,8 +1,7 @@
 diff --git a/lib/http/download.dart b/lib/http/download.dart
-index 8431d1fbb..beb75e954 100644
 --- a/lib/http/download.dart
 +++ b/lib/http/download.dart
-@@ -65,10 +65,7 @@ abstract final class DownloadHttp {
+@@ -65,10 +65,7 @@
          entry
            ..mediaType = 2
            ..typeTag = targetVideoQa.toString()

@@ -4362,6 +4362,7 @@ class VideoDetailController extends GetxController
       }
       final Set<int> cidSet = downloadService.downloadList
           .followedBy(downloadService.waitDownloadQueue)
+          .whereType<BiliDownloadEntryInfo>()
           .map((e) => e.cid)
           .toSet();
       final index = episodes.indexWhere(

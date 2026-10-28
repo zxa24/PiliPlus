@@ -1,8 +1,7 @@
 diff --git a/lib/http/download.dart b/lib/http/download.dart
-index 8431d1fbb..59d6802b5 100644
 --- a/lib/http/download.dart
 +++ b/lib/http/download.dart
-@@ -145,7 +145,7 @@ abstract final class DownloadHttp {
+@@ -145,7 +145,7 @@
          }
          // assigned from the stream just resolved: an entry re-resolved to a
          // video-only stream must not keep the flag from an earlier attempt

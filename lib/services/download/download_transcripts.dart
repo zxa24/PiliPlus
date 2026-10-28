@@ -28,10 +28,11 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/download/download_entry.dart';
 import 'package:PiliPlus/services/asr/asr_schedule.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_files.dart';
+import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/model_bench/model_bench.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
@@ -63,34 +64,39 @@ class DownloadTranscripts {
   DownloadTranscripts({
     required this.entries,
     required this.save,
+    required this.platformOf,
   });
 
   /// The downloads, as the service has them.
-  final List<BiliDownloadEntryInfo> Function() entries;
+  final List<DownloadEntry> Function() entries;
 
-  /// Writes an entry's entry.json.
-  final Future<void> Function(BiliDownloadEntryInfo entry) save;
+  /// Writes an entry's record.
+  final Future<void> Function(DownloadEntry entry) save;
 
-  /// How far each part's transcript has got, by cid: 0..1 of its length.
-  /// Only parts known to have one, or to be waiting for one.
-  final progress = <int, double>{}.obs;
+  /// An entry's platform: its transcript's cache and session keys.
+  final DownloadPlatform Function(DownloadEntry entry) platformOf;
+
+  /// How far each part's transcript has got, by [DownloadEntry.key]: 0..1
+  /// of its length. Only parts known to have one, or to be waiting for one.
+  final progress = <DownloadKey, double>{}.obs;
 
   /// The part transcribing now.
-  final running = RxnInt();
+  final running = RxnString();
 
-  TranscriptState? stateOf(int cid) {
-    final fraction = progress[cid];
+  TranscriptState? stateOf(DownloadKey key) {
+    final fraction = progress[key];
     if (fraction == null) return null;
-    return (fraction: fraction, running: running.value == cid);
+    return (fraction: fraction, running: running.value == key);
   }
 
   AsrSession? _session;
   Timer? _retry;
   Timer? _watch;
 
-  /// Failed runs per cid: past [_maxFailures] the part is given up on (its
-  /// mark goes), so a file the recogniser cannot read is not tried for ever.
-  final _failures = <int, int>{};
+  /// Failed runs per entry: past [_maxFailures] the part is given up on
+  /// (its mark goes), so a file the recogniser cannot read is not tried for
+  /// ever.
+  final _failures = <DownloadKey, int>{};
   static const _maxFailures = 3;
 
   /// How often a wait (another job, no power, no models) looks again.
@@ -104,44 +110,44 @@ class DownloadTranscripts {
       if (!entry.isCompleted || merged == null) continue;
       final kept = await TranscriptFiles.read(
         merged,
-        SubtitleCacheKey.bilibili(entry.cid),
+        platformOf(entry).transcriptKey(entry),
         AsrService.recogniserId,
       );
       if (kept != null) {
-        progress[entry.cid] = _fractionOf(
+        progress[entry.key] = _fractionOf(
           entry,
           kept.coveredSeconds,
           kept.mediaEnd,
         );
       } else if (entry.transcriptPending && !_inSegments(entry)) {
-        progress[entry.cid] = 0;
+        progress[entry.key] = 0;
       }
     }
   }
 
   /// [entry] just finished: marked, and transcribed in its turn.
-  Future<void> finished(BiliDownloadEntryInfo entry) async {
+  Future<void> finished(DownloadEntry entry) async {
     if (!Pref.dlTranscribe || _inSegments(entry)) return;
     entry.transcriptPending = true;
-    progress.putIfAbsent(entry.cid, () => 0);
+    progress.putIfAbsent(entry.key, () => 0);
     await save(entry);
     kick();
   }
 
   /// The cache kept [kept] of a part: the list shows how far it got.
-  void kept(SubtitleCacheEntry kept, BiliDownloadEntryInfo entry) {
-    progress[entry.cid] = _fractionOf(
+  void kept(SubtitleCacheEntry kept, DownloadEntry entry) {
+    progress[entry.key] = _fractionOf(
       entry,
       kept.coveredSeconds,
       kept.mediaEnd,
     );
   }
 
-  /// [cid]'s download was deleted: not transcribed any more.
-  Future<void> forget(int cid) async {
-    progress.remove(cid);
-    _failures.remove(cid);
-    if (running.value == cid) {
+  /// [key]'s download was deleted: not transcribed any more.
+  Future<void> forget(DownloadKey key) async {
+    progress.remove(key);
+    _failures.remove(key);
+    if (running.value == key) {
       final session = _session;
       _session = null;
       running.value = null;
@@ -152,7 +158,7 @@ class DownloadTranscripts {
   }
 
   static double _fractionOf(
-    BiliDownloadEntryInfo entry,
+    DownloadEntry entry,
     double covered,
     double? mediaEnd,
   ) {
@@ -179,10 +185,9 @@ class DownloadTranscripts {
   /// only the first of them, so a transcript of it would stop at its end
   /// and still read as complete (its length is that segment's). Not
   /// transcribed in the background.
-  static bool _inSegments(BiliDownloadEntryInfo entry) =>
-      entry.mergedParts != null;
+  static bool _inSegments(DownloadEntry entry) => entry.mergedParts != null;
 
-  BiliDownloadEntryInfo? _pending() {
+  DownloadEntry? _pending() {
     for (final entry in entries()) {
       if (!entry.transcriptPending ||
           !entry.isCompleted ||
@@ -208,13 +213,14 @@ class DownloadTranscripts {
       _later();
       return;
     }
-    final cid = entry.cid;
+    final key = entry.key;
+    final platform = platformOf(entry);
     // what is kept beside the video goes on where it was, as on the page,
     // rather than from the start when the cache has lost it
     try {
       final kept = await TranscriptFiles.read(
         entry.mergedPath!,
-        SubtitleCacheKey.bilibili(cid),
+        platform.transcriptKey(entry),
         AsrService.recogniserId,
       );
       if (kept != null) await AsrService.to.cache.adopt(kept);
@@ -225,13 +231,16 @@ class DownloadTranscripts {
       return;
     }
     final session = _session = await AsrService.to.start(
-      key: 'download:$cid',
+      key: platform.transcriptSessionKey(entry),
       source: entry.mergedPath!,
-      cache: SubtitleCacheKey.bilibili(cid),
+      cache: platform.transcriptKey(entry),
     );
-    running.value = cid;
-    progress.putIfAbsent(cid, () => 0);
-    EventLog.add('asr', 'transcribing download $cid in the background');
+    running.value = key;
+    progress.putIfAbsent(key, () => 0);
+    EventLog.add(
+      'asr',
+      'transcribing download ${entry.logLabel} in the background',
+    );
     _watch?.cancel();
     var looking = false;
     _watch = Timer.periodic(const Duration(seconds: 2), (_) async {
@@ -245,8 +254,8 @@ class DownloadTranscripts {
     });
   }
 
-  Future<void> _look(AsrSession session, BiliDownloadEntryInfo entry) async {
-    final fraction = progress[entry.cid] = _fractionOf(
+  Future<void> _look(AsrSession session, DownloadEntry entry) async {
+    final fraction = progress[entry.key] = _fractionOf(
       entry,
       session.coveredSeconds,
       session.duration,
@@ -285,31 +294,32 @@ class DownloadTranscripts {
 
   Future<void> _end(
     AsrSession session,
-    BiliDownloadEntryInfo entry, {
+    DownloadEntry entry, {
     required _Outcome outcome,
   }) async {
     if (!identical(_session, session)) return;
     _watch?.cancel();
     _session = null;
     running.value = null;
-    final cid = entry.cid;
+    final key = entry.key;
+    final label = entry.logLabel;
     // displaced: a page's own took its place, and goes on from the cache
     if (session.wasDisplaced) {
-      EventLog.add('asr', 'background transcription of $cid gave way');
+      EventLog.add('asr', 'background transcription of $label gave way');
     } else {
       await AsrService.to.stop(only: session);
     }
     if (outcome == _Outcome.done) {
-      progress[cid] = 1;
+      progress[key] = 1;
       entry.transcriptPending = false;
       await save(entry);
-      _failures.remove(cid);
-      EventLog.add('asr', 'download $cid transcribed');
+      _failures.remove(key);
+      EventLog.add('asr', 'download $label transcribed');
     } else if (outcome == _Outcome.failed) {
-      final n = _failures[cid] = (_failures[cid] ?? 0) + 1;
+      final n = _failures[key] = (_failures[key] ?? 0) + 1;
       EventLog.add(
         'asr',
-        'background transcription of $cid failed ($n): '
+        'background transcription of $label failed ($n): '
             '${session.state.value.message}',
       );
       if (n >= _maxFailures) {
@@ -317,7 +327,7 @@ class DownloadTranscripts {
         await save(entry);
       }
     }
-    if (kDebugMode) debugPrint('download transcripts: $cid ${outcome.name}');
+    if (kDebugMode) debugPrint('download transcripts: $label ${outcome.name}');
     // the next at once after one done; a wait before trying again otherwise
     outcome == _Outcome.done ? kick() : _later();
   }

@@ -7,9 +7,7 @@ import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/video_progress_indicator.dart';
 import 'package:PiliPlus/common/widgets/select_mask.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
-import 'package:PiliPlus/models/common/video/source_type.dart';
-import 'package:PiliPlus/models/common/video/video_quality.dart';
-import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/download/download_entry.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/downloading/view.dart';
@@ -18,14 +16,10 @@ import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
-import 'package:PiliPlus/utils/page_utils.dart';
-import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
-import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:path/path.dart' as path;
 
 class DetailItem extends StatelessWidget {
   const DetailItem({
@@ -42,7 +36,7 @@ class DetailItem extends StatelessWidget {
     this.onSelect,
   });
 
-  final BiliDownloadEntryInfo entry;
+  final DownloadEntry entry;
   final ChangeNotifier? progress;
   final DownloadService downloadService;
 
@@ -53,14 +47,16 @@ class DetailItem extends StatelessWidget {
   //
   final MultiSelectBase controller;
   final bool? checked;
-  final ValueChanged<BiliDownloadEntryInfo>? onSelect;
+  final ValueChanged<DownloadEntry>? onSelect;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final outline = theme.colorScheme.outline;
-    final cid = entry.source?.cid ?? entry.pageData?.cid;
+    // what the entry's platform does its own way (design §3.1)
+    final platform = downloadService.platformOf(entry);
     final canDel = onDelete != null;
+    final titles = platform.titleLines(entry, showTitle);
     final enableMultiSelect = controller.enableMultiSelect.value;
     // the video is complete, comments etc. are still being saved
     final savingExtras = downloadService.isSavingExtras(entry);
@@ -82,21 +78,17 @@ class DetailItem extends StatelessWidget {
                   },
                   child: const Text('删除', style: TextStyle(fontSize: 14)),
                 ),
-                DialogOption(
-                  onPressed: () async {
-                    Get.back();
-                    final res = await downloadService.downloadDanmaku(
-                      entry: entry,
-                      isUpdate: true,
-                    );
-                    if (res) {
-                      SmartDialog.showToast('更新成功');
-                    } else {
-                      SmartDialog.showToast('更新失败');
-                    }
-                  },
-                  child: const Text('更新弹幕', style: TextStyle(fontSize: 14)),
-                ),
+                for (final item in platform.menu(entry))
+                  DialogOption(
+                    onPressed: () {
+                      Get.back();
+                      item.onTap();
+                    },
+                    child: Text(
+                      item.label,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
               ],
             ),
           )
@@ -126,18 +118,7 @@ class DetailItem extends StatelessWidget {
                 '该视频分为${parts.length + 1}个文件保存，此处仅播放第1个',
               );
             }
-            await PageUtils.toVideoPage(
-              aid: entry.avid,
-              cid: cid!,
-              cover: entry.cover,
-              title: entry.showTitle,
-              isVertical: entry.pageData?.isVertical ?? false,
-              extraArguments: {
-                'sourceType': SourceType.file,
-                'entry': entry,
-                'dirPath': entry.entryDirPath,
-              },
-            );
+            await platform.openOffline(entry);
             if (context.mounted) {
               Future.delayed(const Duration(milliseconds: 400), () {
                 if (context.mounted) {
@@ -149,7 +130,7 @@ class DetailItem extends StatelessWidget {
           } else {
             final curDownload = downloadService.curDownload.value;
             if (curDownload != null &&
-                curDownload.cid == cid &&
+                curDownload.key == entry.key &&
                 curDownload.status.isDownloading) {
               downloadService.cancelDownload(
                 isDelete: false,
@@ -177,18 +158,19 @@ class DetailItem extends StatelessWidget {
                     aspectRatio: Style.aspectRatio,
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        final cover = File(
-                          path.join(entry.entryDirPath, PathUtils.coverName),
+                        final (file: cover, :network) = platform.localCover(
+                          entry,
                         );
+                        final byWidth = platform.coverCacheWidth(entry);
                         final maxWidth = constraints.maxWidth;
                         final maxHeight = constraints.maxHeight;
                         int? cacheWidth, cacheHeight;
-                        if (entry.pageData?.cacheWidth ?? false) {
+                        if (byWidth ?? false) {
                           cacheWidth = maxWidth.cacheSize(context);
                         } else {
                           cacheHeight = maxHeight.cacheSize(context);
                         }
-                        return cover.existsSync()
+                        return cover != null
                             ? ClipRRect(
                                 borderRadius: Style.mdRadius,
                                 child: Image.file(
@@ -207,17 +189,18 @@ class DetailItem extends StatelessWidget {
                                 ),
                               )
                             : NetworkImgLayer(
-                                src: entry.cover,
+                                // none: a placeholder
+                                src: network ?? '',
                                 width: maxWidth,
                                 height: maxHeight,
-                                cacheWidth: entry.pageData?.cacheWidth,
+                                cacheWidth: byWidth,
                               );
                       },
                     ),
                   ),
-                  if (entry.videoQuality case final videoQuality?)
+                  if (entry.qualityLabel case final quality?)
                     PBadge(
-                      text: VideoQuality.fromCode(videoQuality).shortDesc,
+                      text: quality,
                       right: 6.0,
                       top: 6.0,
                       type: PBadgeType.gray,
@@ -226,10 +209,9 @@ class DetailItem extends StatelessWidget {
                     ListenableBuilder(
                       listenable: progress!,
                       builder: (_, _) {
-                        final progress = GStorage.watchProgress.get(
-                          cid.toString(),
-                        );
-                        if (progress != null) {
+                        final watched = platform.progressOf(entry);
+                        if (watched != null) {
+                          final progress = watched.positionMs;
                           return Positioned(
                             left: 0,
                             right: 0,
@@ -241,7 +223,7 @@ class DetailItem extends StatelessWidget {
                                   padding: const .only(right: 6, bottom: 3),
                                   child: PBadge(
                                     isStack: false,
-                                    text: progress >= entry.totalTimeMilli - 400
+                                    text: watched.finished
                                         ? '已看完'
                                         : '${DurationUtils.formatDuration(
                                                 progress ~/ 1000,
@@ -298,43 +280,26 @@ class DetailItem extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          showTitle ? entry.title : entry.showTitle,
+                          titles.first.text,
                           textAlign: TextAlign.start,
                           style: TextStyle(
                             fontSize: theme.textTheme.bodyMedium!.fontSize,
                             height: 1.42,
                             letterSpacing: 0.3,
                           ),
-                          maxLines: showTitle
-                              ? entry.ep != null
-                                    ? 1
-                                    : 2
-                              : 2,
+                          maxLines: titles.first.maxLines,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        if (showTitle) ...[
-                          if (entry.pageData?.part case final part?)
-                            if (part != entry.title)
-                              Text(
-                                part,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                          if (entry.ep?.showTitle case final showTitle?)
-                            Text(
-                              showTitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
+                        for (final line in titles.more)
+                          Text(
+                            line.text,
+                            maxLines: line.maxLines,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant,
                             ),
-                        ],
+                          ),
                       ],
                     ),
                     if (entry.isCompleted && !savingExtras) ...[
@@ -346,7 +311,7 @@ class DetailItem extends StatelessWidget {
                             // segments kept apart: only the first part plays
                             '${entry.mergedParts != null ? '分${entry.mergedParts!.length + 1}段  ' : ''}'
                             '${CacheManager.formatSize(entry.totalBytes)}${entry.ownerName != null ? '  ${entry.ownerName}' : ''}'
-                            '${transcriptLabel(downloadService.transcripts.stateOf(entry.cid), pending: entry.transcriptPending, appOpenOnly: PlatformUtils.isMobile)}',
+                            '${transcriptLabel(downloadService.transcripts.stateOf(entry.key), pending: entry.transcriptPending, appOpenOnly: PlatformUtils.isMobile)}',
                             style: TextStyle(
                               fontSize: 12,
                               height: 1.6,
@@ -358,7 +323,7 @@ class DetailItem extends StatelessWidget {
                       Positioned(
                         right: 0,
                         bottom: 0,
-                        child: entry.moreBtn(theme.colorScheme),
+                        child: platform.actions(entry, theme.colorScheme),
                       ),
                     ] else
                       Positioned(
@@ -414,7 +379,7 @@ class DetailItem extends StatelessWidget {
   /// which part is running, the bytes while the streams download.
   Widget entryProgress(
     ThemeData theme,
-    BiliDownloadEntryInfo entry, {
+    DownloadEntry entry, {
     bool active = false,
   }) {
     final progress = entry.progress;

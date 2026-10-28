@@ -1,14 +1,13 @@
 diff --git a/lib/pages/download/view.dart b/lib/pages/download/view.dart
-index fdb79ee98..e8d8cb1e6 100644
 --- a/lib/pages/download/view.dart
 +++ b/lib/pages/download/view.dart
-@@ -209,9 +209,6 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
+@@ -211,9 +211,6 @@
                                      removeList: true,
                                      deleteExported: deleteExported,
                                    );
--                                  GStorage.watchProgress.delete(
--                                    entry.cid.toString(),
--                                  );
+-                                  _downloadService.platformOf(entry).onDeleted([
+-                                    entry,
+-                                  ]);
                                  },
                                  checked: item.checked,
                                  onSelect: (_) => _controller.onSelect(item),

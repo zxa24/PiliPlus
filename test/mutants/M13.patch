@@ -1,13 +1,16 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 5958ef741..26f8ccf13 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -411,7 +411,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
-     final cid = int.tryParse(id.substring(5));
-     if (cid == null) return;
+@@ -432,7 +432,11 @@
+     final id = entry.key.id;
      for (final download in downloadList) {
--      if (download.cid != cid || !download.isCompleted) continue;
-+      if (download.pageId != downloadList.firstWhere((d) => d.cid == cid).pageId || !download.isCompleted) continue;
+       if (!download.isCompleted ||
+-          platformOf(download).transcriptKey(download).id != id) {
++          (download as BiliDownloadEntryInfo).pageId !=
++              downloadList
++                  .whereType<BiliDownloadEntryInfo>()
++                  .firstWhere((d) => SubtitleCacheKey.bilibili(d.cid).id == id)
++                  .pageId) {
+         continue;
+       }
        final merged = download.mergedPath;
-       if (merged == null || !File(merged).existsSync()) continue;
-       transcripts.kept(entry, download);

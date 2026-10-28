@@ -1,13 +1,21 @@
 diff --git a/lib/services/download/download_transcripts.dart b/lib/services/download/download_transcripts.dart
-index e777ba1a0..4adeb4380 100644
 --- a/lib/services/download/download_transcripts.dart
 +++ b/lib/services/download/download_transcripts.dart
-@@ -229,7 +229,7 @@ class DownloadTranscripts {
+@@ -28,7 +28,7 @@
+ import 'dart:io';
+ import 'dart:math' as math;
+ 
+-import 'package:PiliPlus/models_new/download/download_entry.dart';
++import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+ import 'package:PiliPlus/services/asr/asr_schedule.dart';
+ import 'package:PiliPlus/services/asr/asr_service.dart';
+ import 'package:PiliPlus/services/asr/transcript_files.dart';
+@@ -235,7 +235,7 @@
        source: entry.mergedPath!,
-       cache: SubtitleCacheKey.bilibili(cid),
+       cache: platform.transcriptKey(entry),
      );
--    running.value = cid;
-+    running.value = entry.avid;
-     progress.putIfAbsent(cid, () => 0);
-     EventLog.add('asr', 'transcribing download $cid in the background');
-     _watch?.cancel();
+-    running.value = key;
++    running.value = 'bili:${(entry as BiliDownloadEntryInfo).avid}';
+     progress.putIfAbsent(key, () => 0);
+     EventLog.add(
+       'asr',

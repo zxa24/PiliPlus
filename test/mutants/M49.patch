@@ -1,30 +1,12 @@
-diff --git a/lib/pages/download/view.dart b/lib/pages/download/view.dart
-index fdb79ee98..18af16b85 100644
---- a/lib/pages/download/view.dart
-+++ b/lib/pages/download/view.dart
-@@ -276,25 +276,6 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
-                   },
-                   child: const Text('删除', style: TextStyle(fontSize: 14)),
-                 ),
--                DialogOption(
--                  onPressed: () async {
--                    Get.back();
--                    final res = await Future.wait(
--                      pageInfo.entries.map(
--                        (e) => _downloadService.downloadDanmaku(
--                          entry: e,
--                          isUpdate: true,
--                        ),
--                      ),
--                    );
--                    if (res.every((e) => e)) {
--                      SmartDialog.showToast('更新成功');
--                    } else {
--                      SmartDialog.showToast('更新失败');
--                    }
--                  },
--                  child: const Text('更新弹幕', style: TextStyle(fontSize: 14)),
--                ),
-               ],
-             ),
-           );
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -230,6 +230,8 @@
+ 
+   @override
+   List<DownloadMenuItem> groupMenu(List<DownloadEntry> entries) => [
++    // ignore: dead_code
++    if (false)
+     (
+       label: '更新弹幕',
+       onTap: () async {

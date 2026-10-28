@@ -13,7 +13,6 @@ import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/grid.dart';
-import 'package:PiliPlus/utils/storage.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -37,15 +36,15 @@ class DownloadDetailPage extends StatefulWidget {
 }
 
 class _DownloadDetailPageState extends State<DownloadDetailPage>
-    with BaseMultiSelectMixin<BiliDownloadEntryInfo>, GridMixin {
+    with BaseMultiSelectMixin<DownloadEntry>, GridMixin {
   StreamSubscription? _sub;
-  final _downloadItems = RxList<BiliDownloadEntryInfo>();
+  final _downloadItems = RxList<DownloadEntry>();
   final _controller = Get.find<DownloadPageController>();
   final _downloadService = Get.find<DownloadService>();
   @override
-  RxList<BiliDownloadEntryInfo> get list => _downloadItems;
+  RxList<DownloadEntry> get list => _downloadItems;
   @override
-  RxList<BiliDownloadEntryInfo> get state => _downloadItems;
+  RxList<DownloadEntry> get state => _downloadItems;
 
   @override
   void initState() {
@@ -103,7 +102,9 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
                   visualDensity: VisualDensity.compact,
                 ),
                 onPressed: () async {
+                  // bilibili's own
                   final futures = allChecked
+                      .whereType<BiliDownloadEntryInfo>()
                       .map(
                         (e) => _downloadService.downloadDanmaku(
                           entry: e,
@@ -174,7 +175,9 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
                                 deleteExported: deleteExported,
                               );
                             }
-                            GStorage.watchProgress.delete(entry.cid.toString());
+                            _downloadService.platformOf(entry).onDeleted([
+                              entry,
+                            ]);
                           },
                           controller: this,
                         );
@@ -205,9 +208,9 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
     final isDeleteAll = allChecked.length == _downloadItems.length;
     await Future.wait([
       if (isDeleteAll) _closeSub(),
-      GStorage.watchProgress.deleteAll(
-        allChecked.map((e) => e.cid.toString()),
-      ),
+      // one group: one platform
+      if (allChecked.isNotEmpty)
+        _downloadService.platformOf(allChecked.first).onDeleted(allChecked),
       for (final entry in allChecked)
         _downloadService.deleteDownload(
           entry: entry,

@@ -1,14 +1,12 @@
 diff --git a/lib/pages/download/detail/view.dart b/lib/pages/download/detail/view.dart
-index d53e317ea..476e1d45e 100644
 --- a/lib/pages/download/detail/view.dart
 +++ b/lib/pages/download/detail/view.dart
-@@ -205,9 +205,6 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
-     final isDeleteAll = allChecked.length == _downloadItems.length;
+@@ -209,8 +209,6 @@
      await Future.wait([
        if (isDeleteAll) _closeSub(),
--      GStorage.watchProgress.deleteAll(
--        allChecked.map((e) => e.cid.toString()),
--      ),
+       // one group: one platform
+-      if (allChecked.isNotEmpty)
+-        _downloadService.platformOf(allChecked.first).onDeleted(allChecked),
        for (final entry in allChecked)
          _downloadService.deleteDownload(
            entry: entry,

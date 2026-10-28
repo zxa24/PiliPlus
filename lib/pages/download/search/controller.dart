@@ -1,30 +1,25 @@
 import 'package:PiliPlus/http/loading_state.dart';
-import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/download/download_entry.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show BaseMultiSelectMixin;
 import 'package:PiliPlus/pages/common/search/common_search_controller.dart';
 import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
-import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 
 class DownloadSearchController
-    extends
-        CommonSearchController<
-          List<BiliDownloadEntryInfo>,
-          BiliDownloadEntryInfo
-        >
-    with BaseMultiSelectMixin<BiliDownloadEntryInfo> {
+    extends CommonSearchController<List<DownloadEntry>, DownloadEntry>
+    with BaseMultiSelectMixin<DownloadEntry> {
   final _downloadService = Get.find<DownloadService>();
 
   @override
-  List<BiliDownloadEntryInfo> get list => loadingState.value.data!;
+  List<DownloadEntry> get list => loadingState.value.data!;
   @override
-  Rx<LoadingState<List<BiliDownloadEntryInfo>?>> get state => loadingState;
+  Rx<LoadingState<List<DownloadEntry>?>> get state => loadingState;
 
   @override
-  Future<LoadingState<List<BiliDownloadEntryInfo>>> customGetData() async {
+  Future<LoadingState<List<DownloadEntry>>> customGetData() async {
     final text = editController.text.toLowerCase();
     return Success(
       _downloadService.downloadList
@@ -40,7 +35,7 @@ class DownloadSearchController
 
   void onRemoveSingle(
     int index,
-    BiliDownloadEntryInfo entry,
+    DownloadEntry entry,
     bool deleteExported,
   ) {
     loadingState
@@ -51,7 +46,7 @@ class DownloadSearchController
       removeList: true,
       deleteExported: deleteExported,
     );
-    GStorage.watchProgress.delete(entry.cid.toString());
+    _downloadService.platformOf(entry).onDeleted([entry]);
   }
 
   @override
@@ -65,7 +60,7 @@ class DownloadSearchController
     if (deleteExported == null) return;
     SmartDialog.showLoading();
     for (final entry in allChecked) {
-      await GStorage.watchProgress.delete(entry.cid.toString());
+      await _downloadService.platformOf(entry).onDeleted([entry]);
       await _downloadService.deleteDownload(
         entry: entry,
         removeList: true,

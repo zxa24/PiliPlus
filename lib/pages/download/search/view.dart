@@ -27,8 +27,8 @@ class _DownloadSearchPageState
     extends
         CommonSearchPageState<
           DownloadSearchPage,
-          List<BiliDownloadEntryInfo>,
-          BiliDownloadEntryInfo
+          List<DownloadEntry>,
+          DownloadEntry
         >
     with GridMixin {
   @override
@@ -58,7 +58,9 @@ class _DownloadSearchPageState
     TextButton(
       style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
       onPressed: () async {
+        // bilibili's own
         final future = controller.allChecked
+            .whereType<BiliDownloadEntryInfo>()
             .map(
               (e) => _downloadService.downloadDanmaku(
                 entry: e,
@@ -82,7 +84,7 @@ class _DownloadSearchPageState
   ];
 
   @override
-  Widget buildList(List<BiliDownloadEntryInfo> list) {
+  Widget buildList(List<DownloadEntry> list) {
     if (list.isNotEmpty) {
       return SliverGrid.builder(
         gridDelegate: gridDelegate,
