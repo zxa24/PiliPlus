@@ -441,26 +441,21 @@ class DownloadHarness {
   }
 }
 
-/// Waits (really: files, timers) until [done], at most [timeout]. A check
-/// that throws is not done yet (Windows: a file read while the service
-/// renames over it). [quiet]: no error at the end of the wait, the
-/// assertions after it say what went wrong (a queue that stalled).
+/// Waits (really: files, timers) until [done], at most [timeout]. [done]
+/// looks at the service and the fakes, not at entry.json: on Windows a read
+/// of it while a save renames entry.json.tmp over it can make that rename
+/// fail, and the save is lost. A save is seen landing through an
+/// IOOverrides that wraps the rename (`_SaveWatch` in start_args_test.dart).
+/// [quiet]: no error at the end of the wait, the assertions after it say
+/// what went wrong (a queue that stalled).
 Future<void> until(
   bool Function() done, {
   Duration timeout = const Duration(seconds: 5),
   String? reason,
   bool quiet = false,
 }) async {
-  bool check() {
-    try {
-      return done();
-    } on FileSystemException {
-      return false;
-    }
-  }
-
   final end = DateTime.now().add(timeout);
-  while (!check()) {
+  while (!done()) {
     if (DateTime.now().isAfter(end)) {
       if (quiet) return;
       throw TimeoutException('waited for ${reason ?? 'a condition'}');

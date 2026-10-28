@@ -161,6 +161,33 @@ void main() {
       expect(s.status, DownloadStatus.failDownload);
     });
 
+    test('a retry that failed after receiving bytes starts its count over; '
+        'the other part counts its own', () async {
+      await start(patch: queued);
+      var p1Starts = 0;
+      h.onTransport = (t) {
+        // P1's third start gets somewhere before it fails: bytes on disk
+        if (path.isWithin(p1.entryDirPath, t.path) && ++p1Starts == 3) {
+          File(t.path)
+            ..parent.createSync(recursive: true)
+            ..writeAsBytesSync(List.filled(100, 1));
+        }
+        scheduleMicrotask(t.fail);
+      };
+      h.service.startDownload(p1);
+      await until(() => count('no more retries') == 3, quiet: true);
+
+      // P1: two retries, then the one with bytes counts as the first again
+      // and three more follow; P2, the same video's other part, has its own
+      // three, as S does
+      expect(h.transportsOf(p1), hasLength(6));
+      expect(h.transportsOf(p2), hasLength(4));
+      expect(h.transportsOf(s), hasLength(4));
+      expect(count('again in'), 11);
+      expect(p1.status, DownloadStatus.failDownload);
+      expect(p2.status, DownloadStatus.failDownload);
+    });
+
     test('a retry waiting for its timer does not start once another entry '
         'is the current one', () async {
       h.onTransport = (_) {};

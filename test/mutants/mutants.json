@@ -37,7 +37,7 @@
     "phase": "both",
     "kind": "unit",
     "test": "test/services/download/keyed_state_test.dart",
-    "catcher": "keyed_state_test.dart: extras re-reading the list does not queue a second extras job for one still saving"
+    "catcher": "keyed_state_test.dart: extras re-reading the list does not queue a second extras job for one still saving; one marked with none is queued"
   },
   {
     "id": "M5",
@@ -47,7 +47,7 @@
     "phase": "both",
     "kind": "unit",
     "test": "test/services/download/keyed_state_test.dart",
-    "catcher": "keyed_state_test.dart: merging an entry being merged is not started or paused again; the queue goes on with the other part"
+    "catcher": "keyed_state_test.dart: merging an entry being merged is not started or paused again; the queue goes on with the other part after it"
   },
   {
     "id": "M6",
@@ -415,7 +415,7 @@
     "phase": "both",
     "kind": "widget",
     "test": "test/pages/download/detail_item_test.dart",
-    "catcher": "detail_item_test.dart: the watch progress: 「已看完」 near the end, the position before it"
+    "catcher": "detail_item_test.dart: the watch progress: 「已看完」 near the end, the position otherwise; redrawn when told"
   },
   {
     "id": "M42",
@@ -586,5 +586,27 @@
     "kind": "widget",
     "test": "test/pages/video/local_playlist_filter_test.dart",
     "catcher": "local_playlist_filter_test.dart: no fake-platform entries"
+  },
+  {
+    "id": "M58",
+    "patch": "M58.patch",
+    "location": "lib/http/download.dart:67",
+    "change": "getVideoUrl dash: no ..typeTag",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/resolve_fields_test.dart",
+    "catcher": "resolve_fields_test.dart: dash: the quality got, its name, the stream type and the audio flag are written; the quality asked for stays",
+    "scenario": "download",
+    "selftestCatcher": "none (expected to survive --download BV1CToXYMEDz, not yet run): the new entry already has the asked quality's type_tag (download_service.dart:563), the same as the one got here; only the unit test sees it"
+  },
+  {
+    "id": "M59",
+    "patch": "M59.patch",
+    "location": "lib/services/download/download_service.dart:157",
+    "change": "_retryLater: a failed retry that received bytes resets _retries[entry.avid], not the cid's count",
+    "phase": "both",
+    "kind": "unit",
+    "test": "test/services/download/keyed_state_test.dart",
+    "catcher": "keyed_state_test.dart: the queue a retry that failed after receiving bytes starts its count over; the other part counts its own"
   }
 ]

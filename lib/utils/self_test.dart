@@ -745,9 +745,16 @@ abstract final class SelfTest {
     // (it is on by default). The download scenarios compared across builds
     // (feature-logs/download-platforms AC1) run with it off, so what they
     // report does not depend on how far a transcript got meanwhile; saved
-    // in the profile, so a later run in it keeps it
-    if (_arg(args, '--dl-transcribe') case final on?) {
-      await GStorage.setting.put(SettingBoxKey.dlTranscribe, on != 'off');
+    // in the profile, so a later run in it keeps it. Only `on` and `off`:
+    // a typo must not leave it on and the run look like one with it off
+    String? argError;
+    switch (_arg(args, '--dl-transcribe')) {
+      case null:
+        break;
+      case final on && ('on' || 'off'):
+        await GStorage.setting.put(SettingBoxKey.dlTranscribe, on == 'on');
+      case final other:
+        argError = '--dl-transcribe takes on or off, not "$other"';
     }
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
@@ -760,6 +767,10 @@ abstract final class SelfTest {
     };
     final checks = report['checks'] as List<Map<String, dynamic>>;
     var ok = true;
+    if (argError != null) {
+      report['error'] = argError;
+      ok = false;
+    }
 
     Future<void> scenario(
       String name,
@@ -10185,10 +10196,12 @@ abstract final class SelfTest {
     var runningSeen = false;
     double? runningFrom;
     void note() {
-      if (transcripts.running.value case final running?) {
-        runningKeys.add('$running');
-      }
       final e = entry();
+      // the key's form changes with the adapters (cid now, bili:<cid> then),
+      // so its own key is written as `entry`, anything else as it is
+      if (transcripts.running.value case final running?) {
+        runningKeys.add(e != null && running == e.cid ? 'entry' : '$running');
+      }
       if (e == null) return;
       final state = transcripts.stateOf(e.cid);
       if (state != null && state.running) {
@@ -10795,6 +10808,13 @@ abstract final class SelfTest {
       await settle();
       result['seasonBadge'] = under(list(), _isText('番剧')) != null;
       shots.add(await _shot('list_1_cache'));
+      // the scale of the screen the window opened on (Windows picks it) and
+      // so the size of all six shots: shots are compared at one size only
+      final view = WidgetsBinding.instance.renderViews.first.flutterView;
+      result['devicePixelRatio'] = view.devicePixelRatio;
+      result['shotSize'] =
+          '${view.physicalSize.width.round()}x'
+          '${view.physicalSize.height.round()}';
 
       for (final (title, name) in const [
         (groupTitle, 'list_2_group'),
