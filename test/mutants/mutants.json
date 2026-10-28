@@ -560,8 +560,8 @@
   {
     "id": "M56",
     "patch": "M56.patch",
-    "location": "lib/services/download/download_transcripts.dart:125",
-    "change": "(1b only) 1b reverted: finished only putIfAbsent(key, () => 0). Phase 0 has no 1b, so on phase 0 this patch only marks the line (no behaviour change); phase 1 re-targets it to replace 1b's starting coverage with putIfAbsent(…, 0)",
+    "location": "lib/services/download/download_transcripts.dart:134-144",
+    "change": "(1b only) 1b reverted: finished only putIfAbsent(key, () => 0), no starting coverage from the cache",
     "phase": "1b-only",
     "kind": "unit",
     "test": "test/services/download/finished_progress_test.dart",
