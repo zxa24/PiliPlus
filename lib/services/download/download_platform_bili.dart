@@ -34,13 +34,33 @@ final class _BiliPlatform implements DownloadPlatform {
   /// from [DownloadService._saveEntry], which keeps the writes apart.
   @override
   Future<void> save(DownloadEntry entry) async {
+    // deleted meanwhile (a save queued before the delete): not made again
+    if (!Directory(entry.entryDirPath).existsSync()) return;
     final entryJsonFile = File(path.join(entry.entryDirPath, recordFile));
     final tmp = File('${entryJsonFile.path}.tmp');
     await tmp.writeAsString(
       jsonEncode((entry as BiliDownloadEntryInfo).toJson()),
       flush: true,
     );
-    await tmp.rename(entryJsonFile.path);
+    await _replaceWith(tmp, entryJsonFile.path);
+  }
+
+  /// Renames [tmp] over [target], again a few times (about 1.5 s in all)
+  /// while Windows refuses it: it does as long as another program has
+  /// [target] open (an antivirus scan, a file manager, a reader of the
+  /// file), and the save used to be lost then, its `.tmp` left behind
+  /// (measured 2026-10-28: 74 of 3000 saves with another isolate polling
+  /// the file's modified time).
+  static Future<void> _replaceWith(File tmp, String target) async {
+    for (var wait = 50; ; wait *= 2) {
+      try {
+        await tmp.rename(target);
+        return;
+      } on FileSystemException {
+        if (wait > 800) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: wait));
+      }
+    }
   }
 
   /// The danmaku: the service's [DownloadService.downloadDanmaku], also
@@ -463,7 +483,7 @@ extension _BiliDownload on DownloadService {
   ) async {
     final tmp = File('${file.path}.tmp');
     await tmp.writeAsString(jsonEncode(mediaFileInfo.toJson()), flush: true);
-    await tmp.rename(file.path);
+    await _BiliPlatform._replaceWith(tmp, file.path);
   }
 
   /// Turns the downloaded streams into one complete video file in the export

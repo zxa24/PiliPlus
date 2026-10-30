@@ -5,6 +5,7 @@
 // the encoder, the file name or the tmp + rename shows up against them.
 // Saving does not keep the input as it was: toJson orders the keys and
 // drops fields this app does not know (the official client's entry).
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -139,5 +140,41 @@ void main() {
     expect(renames, hasLength(2));
     expect(writes[1], greaterThan(renames[0]));
     expect(readEntryJson(h.root.path, recordUgc)['total_bytes'], 2);
+  });
+
+  test('saved while another program has entry.json open: the rename is '
+      'tried again and lands, no .tmp left', () async {
+    await start();
+    final ugc = h.entry(recordUgc)..totalBytes = 7;
+    final file = File(p.join(h.root.path, recordUgc, 'entry.json'));
+    // Windows refuses a rename over a file another handle has open
+    final held = file.openSync();
+    final release = Future<void>.delayed(
+      const Duration(milliseconds: 300),
+      held.closeSync,
+    );
+    await h.service.saveEntryForTest(ugc);
+    await release;
+    expect(readEntryJson(h.root.path, recordUgc)['total_bytes'], 7);
+    expect(File('${file.path}.tmp').existsSync(), isFalse);
+  });
+
+  test('deleted while a save it did not wait for is still under way: the '
+      'folder is gone', () async {
+    await start();
+    final ugc = h.entry(recordUgc)..totalBytes = 9;
+    final file = File(p.join(h.root.path, recordUgc, 'entry.json'));
+    // keeps the save under way (its rename refused) for 300 ms
+    final held = file.openSync();
+    final release = Future<void>.delayed(
+      const Duration(milliseconds: 300),
+      held.closeSync,
+    );
+    unawaited(h.service.saveEntryForTest(ugc));
+    await settle();
+    await h.service.deleteDownload(entry: ugc, removeList: true);
+    await release;
+    await settle(200);
+    expect(Directory(p.join(h.root.path, recordUgc)).existsSync(), isFalse);
   });
 }

@@ -925,12 +925,20 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       (_) => platformOf(entry).save(entry),
     );
     // a failed save must not stall the ones behind it
-    final chained = _entrySaves[dir] = save.catchError((_) {});
+    final chained = _entrySaves[dir] = save.catchError((Object e) {
+      EventLog.add('download', 'entry record not saved: $e');
+    });
     chained.whenComplete(() {
       if (identical(_entrySaves[dir], chained)) _entrySaves.remove(dir);
     });
     return save;
   }
+
+  /// Until the saves of [entry]'s record under way are on disk: a delete
+  /// waits for them, or on Windows the folder stays (a file being written
+  /// cannot be removed, and the delete's error is swallowed by `tryDel`).
+  Future<void> _savesDone(DownloadEntry entry) =>
+      _entrySaves[entry.entryDirPath] ?? Future<void>.value();
 
   /// Tests only: an entry saved the way the downloads save it.
   @visibleForTesting
@@ -1047,6 +1055,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       // deleted while merging (the merge may have kept files open, so the
       // delete may not have removed everything)
       await _deleteMerged(entry);
+      await _savesDone(entry);
       await Directory(entry.entryDirPath).tryDel(recursive: true);
       waitDownloadQueue.remove(entry);
       if (curDownload.value == null && !pauseNext) nextDownload();
@@ -1562,6 +1571,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     }
     await _cancelExtras(entry.key);
     if (deleteExported) await _deleteMerged(entry);
+    await _savesDone(entry);
     final downloadDir = Directory(entry.pageDirPath);
     // the download folder may have changed since this entry was listed: a
     // path outside the configured root is not ours to remove
@@ -1604,6 +1614,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       }
       await _cancelExtras(entry.key);
       if (deleteExported) await _deleteMerged(entry);
+      await _savesDone(entry);
     }
     waitDownloadQueue.removeWhere((e) => e.pageDirPath == pageDirPath);
     final pageDir = Directory(pageDirPath);
