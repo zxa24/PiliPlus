@@ -58,6 +58,9 @@ import 'package:PiliPlus/pages/download/detail/widgets/item.dart'
 import 'package:PiliPlus/pages/download/search/controller.dart'
     show DownloadSearchController;
 import 'package:PiliPlus/pages/download/view.dart' show DownloadPage;
+import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
+import 'package:PiliPlus/models/common/search/search_type.dart';
+import 'package:PiliPlus/http/search.dart';
 import 'package:PiliPlus/pages/danmaku/view.dart' show PlDanmaku;
 import 'package:canvas_danmaku/base_danmaku_painter.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart' show DanmakuScreen;
@@ -946,6 +949,26 @@ abstract final class SelfTest {
           replyDetail: args.contains('--reply-detail'),
           fullscreenReplyCheck: args.contains('--fullscreen-reply'),
           fullscreenEscCheck: args.contains('--fullscreen-esc'),
+        ),
+      );
+    }
+    // `--open-captcha [--hold N] [--shots DIR]`: the geetest dialog a
+    // search's risk check opens (RequestUtils.validate), with a gt and a
+    // challenge from the login's captcha endpoint; passes when the page
+    // shows any of the captcha (its `[captcha]` lines). With
+    // `--captcha-search KEYWORD` the search itself, which opens it only
+    // when the risk check asks (the path a user meets). With `--captcha-gt
+    // GT` that id instead (a geetest v4 one, which gettype.php does not
+    // know): passes when the dialog closes itself with the reason
+    if (args.contains('--open-captcha')) {
+      final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario(
+        'openCaptcha',
+        () => _openCaptcha(
+          hold,
+          search: _arg(args, '--captcha-search'),
+          v4Gt: _arg(args, '--captcha-gt'),
         ),
       );
     }
@@ -10151,6 +10174,77 @@ abstract final class SelfTest {
       // numbers
       'durationMs': player?.durationInMilliseconds ?? 0,
       'danmakuLoaded': PlDanmakuController.lastLoadedCount,
+    };
+  }
+
+  static Future<Map<String, dynamic>> _openCaptcha(
+    int hold, {
+    String? search,
+    String? v4Gt,
+  }) async {
+    if (v4Gt != null) {
+      final shown = GeetestWebviewDialog.geetest(v4Gt, 'selftest');
+      var closed = false;
+      try {
+        await shown.timeout(Duration(seconds: hold));
+        closed = true;
+      } on TimeoutException {
+        Get.back();
+      }
+      final lines = [
+        for (final line in EventLog.recent)
+          if (line.contains('[captcha]')) line,
+      ];
+      return {
+        'pass': closed && lines.any((l) => l.contains('not shown:')),
+        'closed': closed,
+        'lines': lines,
+      };
+    }
+    if (search != null) {
+      final res = await SearchHttp.searchByType(
+        searchType: SearchType.video,
+        keyword: search,
+        page: 1,
+        onSuccess: (token) => EventLog.add('captcha', 'passed: vtoken'),
+      );
+      if (res is! Error || res.errMsg != '触发风控') {
+        return {'pass': false, 'reason': 'no risk check: $res'};
+      }
+      // RequestUtils.validate registers, then opens the dialog
+      await Future<void>.delayed(Duration(seconds: hold));
+      final shot = await _shot('captcha-search');
+      final lines = [
+        for (final line in EventLog.recent)
+          if (line.contains('[captcha]')) line,
+      ];
+      return {
+        'pass': lines.any(RegExp('geetest boxes shown: [1-9]').hasMatch),
+        'lines': lines,
+        'shot': ?shot,
+      };
+    }
+    final res = await Request().get(Api.getCaptcha);
+    final data = res.data;
+    final geetest = data is Map ? (data['data']?['geetest']) : null;
+    final gt = geetest?['gt'];
+    final challenge = geetest?['challenge'];
+    if (gt is! String || challenge is! String) {
+      return {'pass': false, 'reason': 'no captcha: $data'};
+    }
+    final shown = GeetestWebviewDialog.geetest(gt, challenge);
+    await Future<void>.delayed(Duration(seconds: hold));
+    final shot = await _shot('captcha');
+    final lines = [
+      for (final line in EventLog.recent)
+        if (line.contains('[captcha]')) line,
+    ];
+    Get.back();
+    await shown;
+    return {
+      'pass': lines.any(RegExp('geetest boxes shown: [1-9]').hasMatch),
+      'lines': lines,
+      'shot': ?shot,
     };
   }
 

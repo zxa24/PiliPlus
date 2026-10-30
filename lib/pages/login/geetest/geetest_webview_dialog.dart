@@ -6,6 +6,7 @@ import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/main.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
@@ -49,7 +50,12 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
   late bool _linuxWebviewLoading = true;
 
   static String _showJs(String response) =>
-      't=Geetest($response).onSuccess(()=>R("success",t.getValidate())).onError(o=>R("error",o)).onClose(o=>R("close",o));t.onReady(()=>t.verify())';
+      't=Geetest($response).onSuccess(()=>R("success",t.getValidate())).onError(o=>R("error",o)).onClose(o=>R("close",o));t.onReady(()=>{R("ready");t.verify()})';
+
+  /// What of the captcha is on the page, for the log: a dialog that came up
+  /// empty said nothing of why (its errors went to debugPrint only)
+  static const _probeJs =
+      '(()=>{const v=[...document.querySelectorAll("[class*=geetest_]")].filter(e=>e.offsetWidth>0&&e.offsetHeight>0);return "geetest boxes shown: "+v.length+", page "+innerWidth+"x"+innerHeight+", body "+document.body.scrollWidth+"x"+document.body.scrollHeight})()';
 
   @override
   void initState() {
@@ -57,6 +63,16 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
     _future = _getConfig(widget.gt, widget.challenge);
     if (Platform.isLinux) {
       _initLinuxWebview();
+    } else {
+      // closed with the reason as soon as the config fails, not left blank
+      // until (or after) the page loads
+      _future.then((config) {
+        if (config is Error && mounted) {
+          EventLog.add('captcha', 'not shown: ${config.errMsg}');
+          config.toast();
+          Get.back();
+        }
+      });
     }
   }
 
@@ -73,13 +89,17 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
       ),
     );
     if (res.data case final String data) {
-      if (data.startsWith('(') && data.endsWith(')')) {
-        final Map<String, dynamic> config;
-        try {
-          config = jsonDecode(data.substring1);
-        } catch (e) {
-          return Error(e.toString());
-        }
+      // a JSONP answer in parentheses; an error comes as bare JSON
+      final body = data.startsWith('(') && data.endsWith(')')
+          ? data.substring1
+          : data;
+      final Object? config;
+      try {
+        config = jsonDecode(body);
+      } catch (e) {
+        return Error('验证码配置无法读取：$e');
+      }
+      if (config is Map<String, dynamic>) {
         if (config['status'] == 'success') {
           return Success(
             jsonEncode(
@@ -95,12 +115,22 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
               }),
             ),
           );
-        } else {
-          return Error(data);
         }
+        EventLog.add('captcha', 'gettype: $body');
+        // error_34 "captcha not found": the id is geetest v4's (a search's
+        // risk check sent one on 2026-10-30; v4's gcaptcha4 answered it),
+        // which this dialog cannot show. It used to hang here, blank
+        if (config['error_code'] == 'error_34') {
+          return const Error('B站这次要求的验证码类型暂不支持，请稍后再试');
+        }
+        return Error('验证码加载失败：${config['user_error'] ?? config['error']}');
       }
+      return Error('验证码加载失败：$body');
     }
-    return Error(res.data['message']);
+    return Error(switch (res.data) {
+      {'message': final Object message} => '验证码加载失败：$message',
+      _ => '验证码加载失败',
+    });
   }
 
   Future<void> _initLinuxWebview() async {
@@ -273,7 +303,27 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
               ..addJavaScriptHandler(
                 handlerName: 'error',
                 callback: (args) {
-                  debugPrint('geetest error: $args');
+                  // the captcha cannot go on (an expired challenge, its
+                  // scripts not loading): said, and closed, not left blank
+                  EventLog.add('captcha', 'geetest error: $args');
+                  if (!mounted) return;
+                  SmartDialog.showToast('验证码出错，请稍后再试');
+                  Get.back();
+                },
+              )
+              ..addJavaScriptHandler(
+                handlerName: 'ready',
+                callback: (_) {
+                  EventLog.add('captcha', 'geetest ready: shown');
+                  Future.delayed(const Duration(seconds: 2), () async {
+                    if (!mounted) return;
+                    try {
+                      final r = await ctr.evaluateJavascript(source: _probeJs);
+                      EventLog.add('captcha', '$r');
+                    } catch (e) {
+                      EventLog.add('captcha', 'probe failed: $e');
+                    }
+                  });
                 },
               )
               ..addJavaScriptHandler(
@@ -284,12 +334,30 @@ class _GeetestWebviewDialogState extends State<GeetestWebviewDialog> {
           onLoadStop: (ctr, _) async {
             final config = await _future;
             if (!mounted) return;
+            // a failed config has closed the dialog already (initState)
             if (config case Success(:final response)) {
+              final loaded = await ctr.evaluateJavascript(
+                source: 'typeof Geetest',
+              );
+              EventLog.add('captcha', 'page loaded: Geetest is $loaded');
               ctr.evaluateJavascript(source: _showJs(response));
-            } else {
-              config.toast();
-              Get.back();
             }
+          },
+          onReceivedError: (_, request, error) => EventLog.add(
+            'captcha',
+            'load failed: ${request.url} ${error.type} ${error.description}',
+          ),
+          onReceivedHttpError: (_, request, response) => EventLog.add(
+            'captcha',
+            'http ${response.statusCode}: ${request.url}',
+          ),
+          onConsoleMessage: (_, message) {
+            final text = message.message;
+            EventLog.add(
+              'captcha',
+              'console ${message.messageLevel}: '
+                  '${text.length > 300 ? text.substring(0, 300) : text}',
+            );
           },
         ),
         Positioned(

@@ -26,6 +26,7 @@ import 'package:PiliPlus/pages/fav_detail/controller.dart'
     show BaseFavController;
 import 'package:PiliPlus/pages/group_panel/view.dart';
 import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_library.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
@@ -574,6 +575,13 @@ abstract final class RequestUtils {
       SmartDialog.showToast("null data");
       return;
     }
+    // which captcha the risk check asks for: the dialog speaks geetest v3
+    // only (gettype.php), and a v4 id there answers "captcha not found"
+    EventLog.add(
+      'captcha',
+      'risk check: type ${resData['type']}, fields ${resData.keys.toList()}, '
+          'geetest ${(resData['geetest'] as Map?)?.keys.toList()}',
+    );
 
     CaptchaDataModel captchaData = CaptchaDataModel();
 
