@@ -16,7 +16,11 @@ import 'package:material_ui/material_ui.dart';
 /// On 2026-10-30 the check handed out a geetest v4 captcha, which the
 /// geetest dialog cannot show; and v4's answer goes to the encrypted
 /// `gaia-vgate/v2/validate`, which only the component's own code writes
-/// (read from search.bilibili.com's bundle that day). Its requests need to come from a bilibili.com page (they are
+/// (read from search.bilibili.com's bundle that day).
+///
+/// The page logs (through its console, into [EventLog]) each click and
+/// each request to geetest or gaia-vgate: when an answer does not go
+/// through, the log says whether the click arrived and what was sent. Its requests need to come from a bilibili.com page (they are
 /// cross-origin with credentials), so a small page of the site is opened
 /// and emptied first.
 class GaiaWebviewDialog extends StatefulWidget {
@@ -58,6 +62,8 @@ class _GaiaWebviewDialogState extends State<GaiaWebviewDialog> {
 (()=>{
 document.body.innerHTML='';
 const R=(n,o)=>window.flutter_inappwebview.callHandler(n,o);
+try{new PerformanceObserver(l=>l.getEntries().forEach(e=>{if(/geetest|gaia-vgate/.test(e.name))console.log('request '+e.name.split('?')[0])})).observe({type:'resource',buffered:true})}catch(_){}
+document.addEventListener('click',e=>{const t=e.target;console.log('click '+t.tagName+'.'+String(t.className).slice(0,60))},true);
 const s=document.createElement('script');
 s.src='$_loader';
 s.onload=()=>CaptchaLoader.load()
