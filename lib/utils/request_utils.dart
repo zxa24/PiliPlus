@@ -1,4 +1,5 @@
 import 'dart:convert' show jsonEncode;
+import 'dart:io' show Platform;
 import 'dart:math';
 
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
@@ -25,6 +26,7 @@ import 'package:PiliPlus/pages/dynamics_tab/controller.dart';
 import 'package:PiliPlus/pages/fav_detail/controller.dart'
     show BaseFavController;
 import 'package:PiliPlus/pages/group_panel/view.dart';
+import 'package:PiliPlus/pages/login/geetest/gaia_webview_dialog.dart';
 import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_library.dart';
@@ -564,6 +566,16 @@ abstract final class RequestUtils {
     String vVoucher,
     ValueChanged<String> onSuccess,
   ) async {
+    // bilibili's own captcha component: it shows whichever captcha the
+    // check asks for (geetest v4 since 2026-10-30, which the geetest dialog
+    // below cannot show) and returns the token. Linux's web view is a
+    // window of its own that cannot open the component's page, and keeps
+    // the older path
+    if (!Platform.isLinux) {
+      final token = await GaiaWebviewDialog.verify(vVoucher);
+      if (token != null) onSuccess(token);
+      return;
+    }
     final res = await ValidateHttp.gaiaVgateRegister(vVoucher);
     if (!res.isSuccess) {
       res.toast();

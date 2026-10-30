@@ -58,6 +58,7 @@ import 'package:PiliPlus/pages/download/detail/widgets/item.dart'
 import 'package:PiliPlus/pages/download/search/controller.dart'
     show DownloadSearchController;
 import 'package:PiliPlus/pages/download/view.dart' show DownloadPage;
+import 'package:PiliPlus/pages/login/geetest/gaia_webview_dialog.dart';
 import 'package:PiliPlus/pages/login/geetest/geetest_webview_dialog.dart';
 import 'package:PiliPlus/models/common/search/search_type.dart';
 import 'package:PiliPlus/http/search.dart';
@@ -959,7 +960,10 @@ abstract final class SelfTest {
     // `--captcha-search KEYWORD` the search itself, which opens it only
     // when the risk check asks (the path a user meets). With `--captcha-gt
     // GT` that id instead (a geetest v4 one, which gettype.php does not
-    // know): passes when the dialog closes itself with the reason
+    // know): passes when the dialog closes itself with the reason. With
+    // `--captcha-voucher V` bilibili's own captcha component on V (a made
+    // up one: passes when the component loaded and the server, not the
+    // browser, refused it)
     if (args.contains('--open-captcha')) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
       _shots = _arg(args, '--shots') ?? _shots;
@@ -969,6 +973,7 @@ abstract final class SelfTest {
           hold,
           search: _arg(args, '--captcha-search'),
           v4Gt: _arg(args, '--captcha-gt'),
+          voucher: _arg(args, '--captcha-voucher'),
         ),
       );
     }
@@ -10181,7 +10186,35 @@ abstract final class SelfTest {
     int hold, {
     String? search,
     String? v4Gt,
+    String? voucher,
   }) async {
+    if (voucher != null) {
+      final shown = GaiaWebviewDialog.verify(voucher);
+      var closed = false;
+      try {
+        await shown.timeout(Duration(seconds: hold));
+        closed = true;
+      } on TimeoutException {
+        await _shot('captcha-voucher');
+        Get.back();
+      }
+      final lines = [
+        for (final line in EventLog.recent)
+          if (line.contains('[captcha]')) line,
+      ];
+      return {
+        'pass':
+            lines.any((l) => l.contains('risk sdk: loaded')) &&
+            lines.any(
+              (l) =>
+                  l.contains('risk sdk: failed') &&
+                  !l.contains('not loaded') &&
+                  !l.contains('Network Error'),
+            ),
+        'closed': closed,
+        'lines': lines,
+      };
+    }
     if (v4Gt != null) {
       final shown = GeetestWebviewDialog.geetest(v4Gt, 'selftest');
       var closed = false;
@@ -10211,7 +10244,8 @@ abstract final class SelfTest {
       if (res is! Error || res.errMsg != '触发风控') {
         return {'pass': false, 'reason': 'no risk check: $res'};
       }
-      // RequestUtils.validate registers, then opens the dialog
+      // RequestUtils.validate opens bilibili's captcha component (the
+      // geetest dialog on Linux)
       await Future<void>.delayed(Duration(seconds: hold));
       final shot = await _shot('captcha-search');
       final lines = [
@@ -10219,7 +10253,9 @@ abstract final class SelfTest {
           if (line.contains('[captcha]')) line,
       ];
       return {
-        'pass': lines.any(RegExp('geetest boxes shown: [1-9]').hasMatch),
+        'pass': lines.any(
+          RegExp(r'risk sdk: shown: [1-9]|geetest boxes shown: [1-9]').hasMatch,
+        ),
         'lines': lines,
         'shot': ?shot,
       };
