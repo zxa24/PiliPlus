@@ -170,5 +170,18 @@ to `%APPDATA%\com.zxa24\LibrePili\selftest-<profile>\` and `<dir>\temp\`
 to `%TEMP%\LibrePili\selftest-<profile>\` (a snapshot with neither is all
 appdata), and in every copied `.json` replaces `${PROFILE_APPDATA}` /
 `${PROFILE_TEMP}` with those folders — so download records can hold the
-new absolute `merged_path` (design v7 wp6#13). The snapshot folder is
-hashed into the manifest's `media`.
+new absolute `merged_path` (design v7 wp6#13). The profile's two folders
+are emptied first.
+
+A snapshot's `place.json` (`{ media: "<media.json>", place: [{ file, to }]
+}`) names files of the media folder that `media.json` lists (`root`,
+`%VAR%` expanded, and each file's `sha256`; outside the repository): each
+is checked against its hash, then copied to `to` (`appdata/…` or
+`temp/…`). A missing file or another hash refuses the run; the media's
+`make_media.ps1` makes them. The manifest's `media` hashes these source
+files, and a snapshot folder outside `test/fixtures` (one under it is
+pinned by the manifest's `fixtures` tree, which does not change with the
+checkout's line endings). The snapshots of S0b are
+`test/fixtures/watch_page/<name>` (its README); by hand:
+`pwsh -NoProfile -File test/mutants/wp_restore_profile.ps1 -Snapshot
+<dir> -Profile <name>`.

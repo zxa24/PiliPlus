@@ -33,9 +33,25 @@
     "enableSponsorBlock:bool=false",
     "pgcSkipType:int=1",
     "enableAutoEnter:bool=false",
-    "autoPlayEnable:bool=true"
+    "autoPlayEnable:bool=true",
+    "horizontalScreen:bool=true",
+    "horizontalSeasonPanel:bool=true",
+    "enableVerticalExpand:bool=false",
+    "defaultShowComment:bool=false",
+    "showVideoReply:bool=true",
+    "showBangumiReply:bool=true",
+    "showRelatedVideo:bool=true",
+    "preInitPlayer:bool=false",
+    "keyboardControl:bool=true",
+    "darkVideoPage:bool=false",
+    "removeSafeArea:bool=false",
+    "autoPiP:bool=false",
+    "showWindowTitleBar:bool=true",
+    "fullScreenMode:int=0",
+    "hideInteraction:bool=true"
   ],
-  "prefsStillToDecide": "design §5 「变异 runner 每次新建 profile：设置」 also lists horizontalScreen, horizontalSeasonPanel, enableVerticalExpand, defaultShowComment, showVideoReply, showBangumiReply, showRelatedVideo, preInitPlayer, keyboardControl, darkVideoPage, removeSafeArea, autoPiP, showWindowTitleBar, fullScreenMode (an index that rotates the screen), hideInteraction: per check, in the field tables' run.prefs, or here once their values are chosen",
+  "prefsAbout": "design §5 「变异 runner 每次新建 profile：设置」: every key by its storage key, with the type lib/utils/self_test_pref.dart settingTypes reads it as. Pinned so that nothing depends on the window or the machine: horizontalScreen true (unset, its first read writes isTablet, the window's shortest side >= 600, storage_pref.dart:827-835; the branches of §6.1 need it on), horizontalSeasonPanel true (its default is horizontalScreen, :575-578), fullScreenMode 0 = auto, a value that rotates (unset, the first read writes none when horizontalScreen && isTablet, :233-242; none and gravity make changeOrientation return). The rest are the app's own defaults written out: enableVerticalExpand false (:892), defaultShowComment false (:1178), showVideoReply true (:442), showBangumiReply true (:567), showRelatedVideo true (:439), preInitPlayer false (:677), keyboardControl true (:1273), darkVideoPage false (:750), removeSafeArea false (:1343), autoPiP false (:1005), showWindowTitleBar true (:1279), hideInteraction true (:564). A check that needs another value sets it in its table's run.prefs (merged by key, the table's last): e.g. enableVerticalExpand true for the three-column / split 9:16 rows, horizontalScreen false for R7h and R15a, defaultShowComment true for R4a, horizontalMemberPage true for the UP popup (K1), transcription on for R9c.",
+  "materials": "wp_materials.json: the online ids with the evidence each was chosen on, and the offline snapshots (test/fixtures/watch_page/<name>; a field table uses one as run.profile \"snapshot:test/fixtures/watch_page/<name>\")",
   "media": [],
   "mutants": [
     {

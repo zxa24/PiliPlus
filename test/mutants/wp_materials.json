@@ -1,0 +1,335 @@
+{
+  "about": "The watch-page checks' materials (design feature-logs/watch-page-shell/design.md §5 S0b 「素材与前置条件」): online ids, each with what was checked and the answer that shows it, and the offline snapshots. Read by the field tables (run.args, run.profile) and the later S0b parts. The online ids were checked against bilibili's public web API with no login and no cookies (python urllib, user-agent \"Dart/3.6 (dart:io)\" as the app sends; a browser user-agent without cookies gets HTTP 412), 4-6 s between requests, about 35 in all, from this machine (ip_region PT). The raw answers were not kept: each item quotes the values that show it, copied from them by script.",
+  "checked": "2026-10-31",
+  "statuses": {
+    "confirmed": "the API shows the property the design asks for, unlogged",
+    "unconfirmed": "a candidate that a cookieless request could not show (not a login matter): confirm on the check's first run",
+    "未覆盖": "needs login (the runner never logs in, design wp5#14): the checks needing it are uncovered",
+    "notFound": "none chosen yet"
+  },
+  "login": "never: every run has a new, logged-out profile (run.ps1 makes and deletes one per run; design wp5#14)",
+  "online": [
+    {
+      "id": "pgc",
+      "for": "design §5 在线素材: a pgc (pgc rows of R3 / R4, R7 PGC 简介详情)",
+      "status": "confirmed",
+      "url": "https://www.bilibili.com/bangumi/play/ep32374",
+      "epId": 32374,
+      "seasonId": 1733,
+      "bvid": "BV1fx411K7F1",
+      "cid": 34441989712,
+      "title": "罗小黑战记",
+      "login": "not needed: the episode is free (status 2, no badge); logged out, the app opens it as pgc but asks its play URL through the ugc API (lib/pages/video/controller.dart:700-704, 2131)",
+      "region": "plays from this machine (nav ip_region PT): x/player/wbi/playurl for its bvid / cid answered code 0 with DASH, unlogged. The season has rights.area_limit 338, a limit id that was not checked region by region: from another region it may not play",
+      "evidence": [
+        {
+          "endpoint": "/pgc/view/web/season?season_id=1733",
+          "code": 0,
+          "shows": "episodes[0]: ep_id 32374, status 2, badge \"\", dimension {'height': 1080, 'rotate': 0, 'width': 1920}; season type 4 (国创), payment price 0.0",
+          "at": "2026-10-31T17:53:24-0400"
+        },
+        {
+          "endpoint": "/x/player/wbi/playurl?bvid=BV1fx411K7F1&cid=34441989712&qn=16&fnval=16",
+          "code": 0,
+          "shows": "dash present, quality 16, accept_quality [120, 112, 80, 64, 32, 16]",
+          "at": "2026-10-31T17:53:38-0400"
+        }
+      ],
+      "openedInApp": "2026-10-31 slot 2, new logged-out profile, plan prefs: --open-bili https://www.bilibili.com/bangumi/play/ep32374 --hold 8 --wp-read: played true, isUgc false, 1080P 高清, uiErrors none, tabs [reply]"
+    },
+    {
+      "id": "ugc-landscape",
+      "for": "design §5 在线素材 (wp4#1): a landscape ugc whose comment tab index differs between the branches with showRelatedVideo off (portrait [简介, 评论]: 1, landscape [评论]: 0; R3e / R3f, 在线 B 站全屏换父检查); also R7d PostPanel and R7e 笔记",
+      "status": "confirmed",
+      "url": "https://www.bilibili.com/video/BV1wbxr6REXk",
+      "bvid": "BV1wbxr6REXk",
+      "aid": 117533508110876,
+      "cid": 43198449904,
+      "title": "“若神不能理解我，那祂便算不上神！！”",
+      "login": "not needed",
+      "why": "one part, no ugc_season (no 播放列表 tab), landscape, comments open: the index difference is the two layouts' own. PostPanel shows with kDebugMode || enableSponsorBlock (header_control.dart:1694-1701; the runner builds debug), 笔记 with epId == null (B:1255-1259): design wp6#19",
+      "evidence": [
+        {
+          "endpoint": "/x/web-interface/wbi/view?bvid=BV1wbxr6REXk",
+          "code": 0,
+          "shows": {
+            "dimension": {
+              "width": 1920,
+              "height": 1080,
+              "rotate": 0
+            },
+            "orientation": "landscape",
+            "pages": [
+              "landscape"
+            ],
+            "ugc_season": null,
+            "stat.reply": 1441,
+            "owner": {
+              "mid": 246370149,
+              "name": "33不是山山"
+            }
+          },
+          "at": "2026-10-31T17:48:24-0400"
+        },
+        {
+          "endpoint": "/x/v2/reply/wbi/main?oid=117533508110876&type=1&mode=3",
+          "code": 0,
+          "shows": "16 replies on the first page, cursor.all_count 1441",
+          "at": "2026-10-31T17:49:34-0400"
+        }
+      ],
+      "openedInApp": "2026-10-31 slot 2, new logged-out profile, plan prefs: --open-bili https://www.bilibili.com/video/BV1wbxr6REXk --hold 8 --wp-read: played true, uiErrors none, branch landscape (sideBySide) at 1265.5x682.5, tabs [related, reply]"
+    },
+    {
+      "id": "ugc-landscape-season",
+      "for": "design §5 在线素材 (wp4#3): a landscape ugc with a collection (R4a 截断与重置的区分; R7 选集)",
+      "status": "confirmed",
+      "url": "https://www.bilibili.com/video/BV1Ntxr6xE7Y",
+      "bvid": "BV1Ntxr6xE7Y",
+      "aid": 117533457781213,
+      "cid": 43207623180,
+      "title": "【漫士】这可能是人类提出最深刻的数学/计算机问题",
+      "login": "not needed",
+      "evidence": [
+        {
+          "endpoint": "/x/web-interface/wbi/view?bvid=BV1Ntxr6xE7Y",
+          "code": 0,
+          "shows": {
+            "dimension": {
+              "width": 1920,
+              "height": 1080,
+              "rotate": 0
+            },
+            "orientation": "landscape",
+            "pages": [
+              "landscape"
+            ],
+            "ugc_season": {
+              "id": 2621160,
+              "title": "图灵的沉思：理论计算机",
+              "episodes": 6
+            },
+            "stat.reply": 1667,
+            "owner": {
+              "mid": 266765166,
+              "name": "漫士沉思录"
+            }
+          },
+          "at": "2026-10-31T17:48:09-0400"
+        }
+      ]
+    },
+    {
+      "id": "ugc-portrait-season",
+      "for": "design §5 在线素材: a portrait ugc with a collection (R4 「三栏 + 合集」)",
+      "status": "confirmed",
+      "url": "https://www.bilibili.com/video/BV1q8x56uEDU",
+      "bvid": "BV1q8x56uEDU",
+      "aid": 117516412128714,
+      "cid": 43115284107,
+      "title": "1944滇缅竹林：远征军教盟军吃虎皮笋，油手把风笛吹成妖笛【AI全民制作人】",
+      "login": "not needed",
+      "evidence": [
+        {
+          "endpoint": "/x/web-interface/wbi/view?bvid=BV1q8x56uEDU",
+          "code": 0,
+          "shows": {
+            "dimension": {
+              "width": 1080,
+              "height": 1920,
+              "rotate": 0
+            },
+            "orientation": "portrait",
+            "pages": [
+              "portrait"
+            ],
+            "ugc_season": {
+              "id": 9035414,
+              "title": "舌尖上的战争国际版",
+              "episodes": 58
+            },
+            "stat.reply": 1013,
+            "owner": {
+              "mid": 386600212,
+              "name": "墨八分钱"
+            }
+          },
+          "at": "2026-10-31T17:48:14-0400"
+        }
+      ]
+    },
+    {
+      "id": "ugc-portrait",
+      "for": "design §5 在线素材: a portrait ugc (R1)",
+      "status": "confirmed",
+      "url": "https://www.bilibili.com/video/BV16gxB6gEy4",
+      "bvid": "BV16gxB6gEy4",
+      "aid": 117531327076031,
+      "cid": 43186129805,
+      "title": "当代驾遇到驾校教练",
+      "login": "not needed",
+      "evidence": [
+        {
+          "endpoint": "/x/web-interface/wbi/view?bvid=BV16gxB6gEy4",
+          "code": 0,
+          "shows": {
+            "dimension": {
+              "width": 1080,
+              "height": 1920,
+              "rotate": 0
+            },
+            "orientation": "portrait",
+            "pages": [
+              "portrait"
+            ],
+            "ugc_season": null,
+            "stat.reply": 295,
+            "owner": {
+              "mid": 95515699,
+              "name": "粤知一二"
+            }
+          },
+          "at": "2026-10-31T17:48:19-0400"
+        }
+      ]
+    },
+    {
+      "id": "ugc-viewpoints",
+      "for": "design §5 在线素材: a video with view points (R7b 看点)",
+      "status": "confirmed",
+      "url": "https://www.bilibili.com/video/BV1rCxe6wEN9",
+      "bvid": "BV1rCxe6wEN9",
+      "aid": 117529565533597,
+      "cid": 43180295092,
+      "title": "一条视频看10月世界：中东在燃烧，法国在骚乱，中国网友在跨国吵架",
+      "login": "not needed",
+      "why": "the page takes view points only of type 2 (lib/pages/video/controller.dart:3933-3934), with showViewPoints on (default true, storage_pref.dart:435-436)",
+      "evidence": [
+        {
+          "endpoint": "/x/web-interface/popular?ps=50&pn=1",
+          "shows": "dimension {'width': 1920, 'height': 1080, 'rotate': 0}, videos 1, no season_id",
+          "at": "2026-10-31T17:46:31-0400"
+        },
+        {
+          "endpoint": "/x/player/wbi/v2?bvid=BV1rCxe6wEN9&cid=43180295092",
+          "code": 0,
+          "shows": "5 view_points, types [2]: ['开篇', '特朗普还能赢吗？', '欧洲还赶得上趟吗？', '中土大论战，吵出来的新机会', '结语']",
+          "at": "2026-10-31T17:50:29-0400"
+        }
+      ]
+    },
+    {
+      "id": "ugc-ai-summary",
+      "for": "design §5 在线素材: a video with an AI summary (R7f; B:2060 aiConclusionResult!)",
+      "status": "未覆盖",
+      "reason": "needs login. The app asks for it only when logged in: getAiConclusion shows 账号未登录 and returns null otherwise (lib/pages/video/introduction/ugc/controller.dart:840-843), so logged out aiConclusionResult stays null and the sheet never opens; the API itself answers -101 账号未登录 unlogged. The runner never logs in (design wp5#14). R7f's catcher would need a self-test hook that sets aiConclusionResult, which is not a material",
+      "evidence": [
+        {
+          "endpoint": "/x/web-interface/view/conclusion/get (wbi), bvid BV1wbxr6REXk, BV1Ntxr6xE7Y, BV1q8x56uEDU",
+          "code": -101,
+          "shows": "账号未登录",
+          "at": "2026-10-31T17:49:19-0400"
+        }
+      ]
+    },
+    {
+      "id": "open-medialist",
+      "for": "design §5 在线素材: an open with a non-empty mediaList (R7c 播放列表, BC:801-803)",
+      "status": "unconfirmed",
+      "how": "as the UP page's 播放全部 opens it (lib/pages/member_video/controller.dart:185-203): PageUtils.toVideoPage(bvid, cid) with extraArguments sourceType: SourceType.archive, mediaId: <mid>, oid: <aid>, favTitle, isContinuePlaying: true; the page then asks /x/v2/medialist/resource/list type=1 biz_id=<mid> (VideoDetailController.getMediaList -> UserHttp.getMediaList). No self-test option opens it this way yet",
+      "candidate": {
+        "mid": 266765166,
+        "bvid": "BV1Ntxr6xE7Y",
+        "aid": 117533457781213,
+        "cid": 43207623180,
+        "mediaType": 1
+      },
+      "reason": "a cookieless request answers HTTP 412; the app sends an anonymous web cookie (LoginUtils.setAnonymousWebCookie, lib/http/init.dart:41-46), which this check did not (no cookies). Not a login matter: confirm on the R7c check's first run that mediaList is non-empty, else choose again",
+      "evidence": [
+        {
+          "endpoint": "/x/v2/medialist/resource/list?mobi_app=web&type=1&biz_id=266765166&oid=117533457781213&otype=2&ps=20&with_current=true",
+          "code": "http-error",
+          "shows": "HTTP Error 412: Precondition Failed",
+          "at": "2026-10-31T17:52:21-0400"
+        }
+      ]
+    },
+    {
+      "id": "up-popup",
+      "for": "design §5 在线素材: an UP page entry (R7 UP 弹层; K1's second catcher calls onShowMemberPage, B:2228-2239, with --pref horizontalMemberPage:bool=true)",
+      "status": "unconfirmed",
+      "url": "https://www.bilibili.com/video/BV1Ntxr6xE7Y",
+      "mid": 266765166,
+      "name": "漫士沉思录",
+      "how": "open ugc-landscape-season and call onShowMemberPage for its owner; the popup (lib/pages/video/member/controller.dart) asks MemberHttp.memberInfo (/x/space/wbi/acc/info), memberStat (/x/relation/stat), memberView and spaceArchive (app API)",
+      "reason": "acc/info answers -352 风控校验失败 to a cookieless request, relation/stat answers 0. The sheet opens on the page either way (K1 and R7 read its host and rect); its content may not load. Confirm on the first run that the sheet opens, and record what its header shows",
+      "evidence": [
+        {
+          "endpoint": "/x/space/wbi/acc/info?mid=266765166",
+          "code": -352,
+          "shows": "风控校验失败",
+          "at": "2026-10-31T17:52:34-0400"
+        },
+        {
+          "endpoint": "/x/relation/stat?vmid=266765166",
+          "code": 0,
+          "shows": "follower 1525532",
+          "at": "2026-10-31T17:52:41-0400"
+        }
+      ]
+    },
+    {
+      "id": "ugc-orient-mp",
+      "for": "design §5 在线素材 and AC-S1c: wps-orient-mp, a multi-part ugc whose parts differ in orientation (at least one landscape and one portrait; R1 alternative, the E group of AC-S1c)",
+      "status": "notFound",
+      "reason": "none found in this pass's request budget: the multi-part videos checked (BV1BJnR66Eij 4 parts, BV1tkxJ6iEbY 2, BV13SxN6vE2L 2, BV1XBxv6WExn 4) are landscape in every part, and the web search then answered with risk control (v_voucher) and was stopped. Needed in S1c (and as an R1 alternative; R1c / R1d also have the other way, opening a portrait video with isVertical false). Choose before S1c by /x/web-interface/wbi/view pages[].dimension",
+      "evidence": [
+        {
+          "endpoint": "/x/web-interface/wbi/view (pages[].dimension)",
+          "shows": "BV1BJnR66Eij LLLL, BV1tkxJ6iEbY LL, BV13SxN6vE2L LL, BV1XBxv6WExn LLLL (L = landscape)"
+        },
+        {
+          "endpoint": "/x/web-interface/wbi/search/type?search_type=video",
+          "shows": "data.v_voucher only, on the 5th query: stopped",
+          "at": "2026-10-31T17:51:50-0400"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "BV1GJ411x7h7 (the video S0a's smoke run opened) now answers -404 啥都木有 to /x/web-interface/wbi/view from this machine: not used"
+  ],
+  "offline": {
+    "media": "test/fixtures/watch_page/media.json: folder %LOCALAPPDATA%\\LibrePili-test-media\\watch_page, SHA-256 of each file; test/fixtures/watch_page/make_media.ps1 makes them with ffmpeg",
+    "snapshots": {
+      "landscape": {
+        "profile": "snapshot:test/fixtures/watch_page/landscape",
+        "entry": "cid:281001",
+        "video": "640x360, 6 s",
+        "comments": 5,
+        "intro": true,
+        "for": "素材 1 (16:9; the comment tab at 1280x720) and the AC-S0a 核对 snapshot"
+      },
+      "portrait": {
+        "profile": "snapshot:test/fixtures/watch_page/portrait",
+        "entry": "cid:281002",
+        "video": "360x640, 6 s",
+        "comments": 5,
+        "intro": true,
+        "for": "素材 1 (9:16; the comment tab at 420x800); E1's offline portrait file"
+      },
+      "list10": {
+        "profile": "snapshot:test/fixtures/watch_page/list10",
+        "entries": 10,
+        "playing": {
+          "cid": 281104,
+          "index": 3,
+          "title": "夹具列表 04"
+        },
+        "comments": 5,
+        "intro": false,
+        "for": "素材 3 (R4: opened from the download page, the playing one at index 3, no saved intro)"
+      }
+    }
+  }
+}

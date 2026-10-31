@@ -1,0 +1,19 @@
+{
+  "about": "one completed 16:9 download with a comment attachment and a saved intro (design §5 S0b 素材 1; the AC-S0a 核对 snapshot, §5 S0a)",
+  "made": "test/watch_page/fixtures_test.dart (WP_FIXTURES_WRITE=1)",
+  "media": "../media.json",
+  "place": [
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具横屏 [360P 流畅]/夹具横屏 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171001/c_281001/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具横屏 [360P 流畅]/cover.jpg"
+    }
+  ]
+}

@@ -131,7 +131,8 @@
 #   rerunOn       regex over a report's raw text that counts as a network
 #                 retry or risk control (default $wpRerunDefault below)
 #   run           { args: [...], prefs: ["k:type=v"...], planPrefs: true,
-#                   profile: "fresh" | "snapshot:<dir>", asr: false,
+#                   profile: "fresh" | "snapshot:<dir>" (Restore-WpProfile:
+#                   test/fixtures/watch_page/<name>), asr: false,
 #                   minutes: 30 }  — args may use ${SHOTS} ${FIXTURES} ${OUT}
 #                 planPrefs false = do not add wp-mutants.json's prefs (the
 #                 S0a 核对 runs must be today's exact command lines).
@@ -1761,7 +1762,7 @@ function Test-WpPlanMutants($list, $tableSet, $allMutants) {
 }
 
 # media a set of checks' runs read: the plan's list and the tables'
-# snapshots (hashed into the report folders' manifests)
+# snapshots' placed media (hashed into the report folders' manifests)
 function Get-WpMedia($plan, $tables) {
     $out = [System.Collections.Generic.List[string]]::new()
     foreach ($x in @($plan.media)) { if (-not $out.Contains($x)) { $out.Add($x) } }
@@ -1769,11 +1770,104 @@ function Get-WpMedia($plan, $tables) {
         $pf = "$($t['run']['profile'])"
         if ($pf.StartsWith('snapshot:')) {
             $x = $pf.Substring(9); if (-not [System.IO.Path]::IsPathRooted($x)) { $x = Join-Path $root $x }
-            if (-not $out.Contains($x)) { $out.Add($x) }
+            # a snapshot under test/fixtures is pinned by the manifest's
+            # fixtures tree (git's, the same whatever line endings the
+            # checkout has; hashing its files would differ between an LF
+            # and a CRLF checkout of one commit); one elsewhere is hashed
+            $fx = [System.IO.Path]::GetFullPath((Join-Path $root 'test\fixtures')).TrimEnd('\') + '\'
+            $inFixtures = [System.IO.Path]::GetFullPath($x).StartsWith($fx, [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $inFixtures -and -not $out.Contains($x)) { $out.Add($x) }
+            # and the source media its place.json puts into the profile (the
+            # files as made, not the records rewritten into the profile)
+            foreach ($m in (Get-WpPlacedMedia $x)) { if (-not $out.Contains($m.source)) { $out.Add($m.source) } }
         }
         if ($t['run']['asr'] -eq $true -and -not $out.Contains($AsrModels)) { $out.Add($AsrModels) }
     }
     return , $out.ToArray()
+}
+
+# ------------------------------------------------------------------ watch_page: profile snapshots
+# A snapshot folder (test/fixtures/watch_page/<name>, design §5 S0b 素材):
+#   appdata\  -> %APPDATA%\com.zxa24\LibrePili\selftest-<profile>\
+#   temp\     -> %TEMP%\LibrePili\selftest-<profile>\
+#               (a snapshot with neither is all appdata)
+#   place.json  { media: "<media.json, relative to place.json>",
+#                 place: [{ file, to }] }: files of the media folder (not
+#               in the repository) copied to <to> (relative to the snapshot:
+#               appdata/... or temp/...), each checked against media.json's
+#               sha256 first. media.json: { root (%VAR% expanded), files:
+#               { <file>: { sha256 } } }; make_media.ps1 beside it makes them.
+# In every .json copied, ${PROFILE_APPDATA} and ${PROFILE_TEMP} become the
+# two folders (download records keep the absolute merged_path, design v7
+# wp6#13). The manifest hashes the source media (and a snapshot folder
+# outside test/fixtures; one under it is pinned by the fixtures tree), never
+# the rewritten copies.
+
+# the media a snapshot places: [{ source, to, sha256 }] (empty without
+# place.json)
+function Get-WpPlacedMedia([string]$src) {
+    $placeFile = Join-Path $src 'place.json'
+    if (-not (Test-Path -LiteralPath $placeFile)) { return , @() }
+    $place = Get-Content -LiteralPath $placeFile -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+    $mediaFile = [System.IO.Path]::GetFullPath((Join-Path $src "$($place['media'])"))
+    if (-not (Test-Path -LiteralPath $mediaFile)) { throw "$placeFile names media $mediaFile, which is not there" }
+    $media = Get-Content -LiteralPath $mediaFile -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+    $mediaRoot = [Environment]::ExpandEnvironmentVariables("$($media['root'])")
+    if (-not [System.IO.Path]::IsPathRooted($mediaRoot)) { $mediaRoot = Join-Path (Split-Path -Parent $mediaFile) $mediaRoot }
+    $out = foreach ($p in @($place['place'])) {
+        $name = "$($p['file'])"
+        if (-not $media['files'] -or -not $media['files'].Contains($name)) { throw "$placeFile places $name, which $mediaFile does not list" }
+        @{ source = (Join-Path $mediaRoot $name); to = "$($p['to'])"; sha256 = "$($media['files'][$name]['sha256'])"; maker = (Join-Path (Split-Path -Parent $mediaFile) 'make_media.ps1') }
+    }
+    return , @($out)
+}
+
+# restores snapshot folder $src into profile $profileName (see above);
+# returns the profile's appdata folder. The profile's folders are emptied
+# first: a run starts from the snapshot and nothing else.
+function Restore-WpProfile([string]$src, [string]$profileName) {
+    if (-not [System.IO.Path]::IsPathRooted($src)) { $src = Join-Path $root $src }
+    if (-not (Test-Path -LiteralPath $src -PathType Container)) { throw "no snapshot folder $src" }
+    $placed = Get-WpPlacedMedia $src
+    # every media file checked before anything is written
+    foreach ($m in $placed) {
+        if (-not (Test-Path -LiteralPath $m.source -PathType Leaf)) { throw "snapshot $src`: no media file $($m.source) (make it: pwsh -NoProfile -File `"$($m.maker)`")" }
+        $h = (Get-FileHash -LiteralPath $m.source -Algorithm SHA256).Hash
+        if ($h -ne $m.sha256) { throw "snapshot $src`: $($m.source) has SHA-256 $h, media.json records $($m.sha256) (another ffmpeg build? see make_media.ps1)" }
+    }
+    $appdata = Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"
+    $temp = Join-Path $env:TEMP "LibrePili\selftest-$profileName"
+    foreach ($d in $appdata, $temp) { if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force } }
+    $pairs = if ((Test-Path -LiteralPath (Join-Path $src 'appdata')) -or (Test-Path -LiteralPath (Join-Path $src 'temp'))) {
+        @(@{ from = (Join-Path $src 'appdata'); to = $appdata }, @{ from = (Join-Path $src 'temp'); to = $temp })
+    } else { @(@{ from = $src; to = $appdata }) }
+    foreach ($pr in $pairs) {
+        if (-not (Test-Path -LiteralPath $pr.from)) { continue }
+        New-Item -ItemType Directory -Force $pr.to | Out-Null
+        # item by item with -LiteralPath: export folders are named like
+        # "<title> [360P 流畅]", and [ ] are wildcards to -Path
+        foreach ($f in @(Get-ChildItem -LiteralPath $pr.from -Recurse -File)) {
+            if ($pr.from -eq $src -and $f.Name -eq 'place.json' -and $f.DirectoryName -eq $src) { continue }
+            $to = Join-Path $pr.to ([System.IO.Path]::GetRelativePath($pr.from, $f.FullName))
+            New-Item -ItemType Directory -Force (Split-Path -Parent $to) | Out-Null
+            Copy-Item -LiteralPath $f.FullName -Destination $to -Force
+        }
+        foreach ($j in @(Get-ChildItem -LiteralPath $pr.to -Recurse -File -Filter *.json)) {
+            $text = Get-Content -LiteralPath $j.FullName -Raw -Encoding utf8
+            if ($text -notmatch '\$\{PROFILE_(APPDATA|TEMP)\}') { continue }
+            $text = $text.Replace('${PROFILE_APPDATA}', ($appdata -replace '\\', '\\')).Replace('${PROFILE_TEMP}', ($temp -replace '\\', '\\'))
+            Set-Content -LiteralPath $j.FullName -Value $text -Encoding utf8 -NoNewline
+        }
+    }
+    foreach ($m in $placed) {
+        $rel = $m.to -replace '/', '\'
+        $to = if ($rel.StartsWith('appdata\')) { Join-Path $appdata $rel.Substring(8) }
+        elseif ($rel.StartsWith('temp\')) { Join-Path $temp $rel.Substring(5) }
+        else { throw "snapshot $src`: place.json 'to' must start with appdata/ or temp/, not $($m.to)" }
+        New-Item -ItemType Directory -Force (Split-Path -Parent $to) | Out-Null
+        Copy-Item -LiteralPath $m.source -Destination $to -Force
+    }
+    return $appdata
 }
 
 # the media keys of $want that $have lacks or hashes otherwise (empty =
@@ -2618,34 +2712,14 @@ function Get-WpRunArgs($t, $plan, [string]$profileName, [string]$report, [string
     return , $argv.ToArray()
 }
 
-# "snapshot:<dir>": the profile's data restored from it before the run.
-# <dir>\appdata\ goes to %APPDATA%\com.zxa24\LibrePili\selftest-<profile>\
-# and <dir>\temp\ to %TEMP%\LibrePili\selftest-<profile>\ (a snapshot
-# without either is all appdata); in every .json copied, ${PROFILE_APPDATA}
-# and ${PROFILE_TEMP} become those folders (download records keep absolute
-# paths, design v7 wp6#13)
+# "snapshot:<dir>": the profile's data restored from it before the run
+# (Restore-WpProfile: the folders, place.json's media, ${PROFILE_APPDATA}
+# and ${PROFILE_TEMP} in every .json copied)
 function Restore-WpSnapshot($t, [string]$profileName) {
     $spec = "$($t['run']['profile'])"
     if (-not $spec.StartsWith('snapshot:')) { return }
-    $src = $spec.Substring(9)
-    if (-not [System.IO.Path]::IsPathRooted($src)) { $src = Join-Path $root $src }
-    if (-not (Test-Path -LiteralPath $src -PathType Container)) { throw "field table $($t['id']): no snapshot folder $src" }
-    $appdata = Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"
-    $temp = Join-Path $env:TEMP "LibrePili\selftest-$profileName"
-    $pairs = if ((Test-Path (Join-Path $src 'appdata')) -or (Test-Path (Join-Path $src 'temp'))) {
-        @(@{ from = (Join-Path $src 'appdata'); to = $appdata }, @{ from = (Join-Path $src 'temp'); to = $temp })
-    } else { @(@{ from = $src; to = $appdata }) }
-    foreach ($pr in $pairs) {
-        if (-not (Test-Path -LiteralPath $pr.from)) { continue }
-        New-Item -ItemType Directory -Force $pr.to | Out-Null
-        Copy-Item -Path (Join-Path $pr.from '*') -Destination $pr.to -Recurse -Force
-        foreach ($j in @(Get-ChildItem -LiteralPath $pr.to -Recurse -File -Filter *.json)) {
-            $text = Get-Content -LiteralPath $j.FullName -Raw -Encoding utf8
-            if ($text -notmatch '\$\{PROFILE_(APPDATA|TEMP)\}') { continue }
-            $text = $text.Replace('${PROFILE_APPDATA}', ($appdata -replace '\\', '\\')).Replace('${PROFILE_TEMP}', ($temp -replace '\\', '\\'))
-            Set-Content -LiteralPath $j.FullName -Value $text -Encoding utf8 -NoNewline
-        }
-    }
+    try { Restore-WpProfile $spec.Substring(9) $profileName | Out-Null }
+    catch { throw "field table $($t['id']): $($_.Exception.Message)" }
 }
 
 # runs one check from a slot's exe; returns the report path. Same rules as

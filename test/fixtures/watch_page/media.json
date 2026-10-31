@@ -1,0 +1,23 @@
+{
+  "about": "The watch-page offline media (design §5 S0b 素材与前置条件): not in the repository. make_media.ps1 makes them into root and checks each against sha256; the snapshots' place.json put them into a profile (run.ps1 Restore-WpProfile), which refuses a file whose hash differs.",
+  "root": "%LOCALAPPDATA%\\LibrePili-test-media\\watch_page",
+  "ffmpeg": "ffmpeg version 8.1.2-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+  "files": {
+    "landscape.mp4": {
+      "sha256": "D9F8F07D66290068A161977FE499B88D5D3A085AA47965A0FBCFB13277667179",
+      "bytes": 256011
+    },
+    "portrait.mp4": {
+      "sha256": "53CC878105D0AF89FB6A905A02F75C679135AA4EA765617D16C162B1C1B0A5B7",
+      "bytes": 267928
+    },
+    "cover_landscape.jpg": {
+      "sha256": "044C7AB932F3EB80403B9FEBD91444956136C3878CFA3E4D094D3B994ECEA322",
+      "bytes": 7043
+    },
+    "cover_portrait.jpg": {
+      "sha256": "5E737F63DF859ADF7CED5C3A101C2AED25484F42DB8D5EC4CDB9E65F2CCCE3E3",
+      "bytes": 8793
+    }
+  }
+}

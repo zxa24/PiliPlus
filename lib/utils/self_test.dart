@@ -2049,10 +2049,19 @@ abstract final class SelfTest {
       ..['eventLog'] = EventLog.recent
       ..['finishedAt'] = DateTime.now().toIso8601String();
     await File(out).writeAsString(
-      const JsonEncoder.withIndent('  ').convert(report),
+      const JsonEncoder.withIndent('  ', _reportEncodable).convert(report),
     );
     appExit(ok ? 0 : 1);
   }
+
+  /// JSON has no NaN or infinity: a reading that comes out as one is
+  /// written as a reading that could not be taken
+  /// (test/mutants/WP_REPORT_SHAPE.md 「Unreadable readings」). Left to the
+  /// encoder it throws, no report is written and the app never exits (an
+  /// offline page's comment tab once did, with a NaN among its readings).
+  static Object? _reportEncodable(Object? value) => value is double
+      ? {r'$unread': 'nonFinite:$value'}
+      : (value as dynamic).toJson();
 
   // ------------------------------------------------------------ watch page
   //

@@ -1,0 +1,127 @@
+{
+  "about": "ten completed 16:9 downloads, one video each, the same media file in each one's folder, comment attachments and no saved intro; listed newest first, so row k is 夹具列表 k+1 and R4 plays index 3 (cid 281104) opened from the download page (design §5 S0b 素材 3)",
+  "made": "test/watch_page/fixtures_test.dart (WP_FIXTURES_WRITE=1)",
+  "media": "../media.json",
+  "place": [
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 01 [360P 流畅]/夹具列表 01 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171101/c_281101/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 01 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 02 [360P 流畅]/夹具列表 02 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171102/c_281102/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 02 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 03 [360P 流畅]/夹具列表 03 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171103/c_281103/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 03 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 04 [360P 流畅]/夹具列表 04 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171104/c_281104/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 04 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 05 [360P 流畅]/夹具列表 05 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171105/c_281105/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 05 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 06 [360P 流畅]/夹具列表 06 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171106/c_281106/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 06 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 07 [360P 流畅]/夹具列表 07 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171107/c_281107/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 07 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 08 [360P 流畅]/夹具列表 08 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171108/c_281108/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 08 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 09 [360P 流畅]/夹具列表 09 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171109/c_281109/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 09 [360P 流畅]/cover.jpg"
+    },
+    {
+      "file": "landscape.mp4",
+      "to": "appdata/download/夹具列表 10 [360P 流畅]/夹具列表 10 [360P 流畅].mp4"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/171110/c_281110/cover.jpg"
+    },
+    {
+      "file": "cover_landscape.jpg",
+      "to": "appdata/download/夹具列表 10 [360P 流畅]/cover.jpg"
+    }
+  ]
+}
