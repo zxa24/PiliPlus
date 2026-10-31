@@ -140,6 +140,8 @@ import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/settings_import.dart';
 import 'package:PiliPlus/utils/self_test_window.dart';
+import 'package:PiliPlus/utils/self_test_probe.dart';
+import 'package:PiliPlus/utils/self_test_watch.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart'
@@ -348,7 +350,6 @@ final class _CuttingProxy {
       final socket = await response.detachSocket(writeHeaders: true);
       _open.add(socket);
       var left = cutAt - from;
-      final clock = Stopwatch()..start();
       var sent = 0;
       Stopwatch? paced;
       await for (final chunk in answer) {
@@ -470,6 +471,32 @@ abstract final class SelfTest {
   /// controllers say.
   static final uiErrors = <String>[];
 
+  /// The same errors, one object each (design §5 「uiErrors」, the report
+  /// shape test/mutants/WP_REPORT_SHAPE.md §4): `text` is the entry of
+  /// [uiErrors] as it is, the rest is read from the error itself, uncut:
+  /// `kind` (the first sentence), `widget` and `origin` (the
+  /// "error-causing widget" and where it was created, repo-relative when
+  /// it lies under the repository's `lib/`; null without one), `context`
+  /// and the first app `frames`. Kept in step with [uiErrors] (an entry is
+  /// added and taken out with its string): the watch-page checks write
+  /// these ([wpChecks]), every other check the strings as before.
+  static final uiErrorEntries = <Map<String, Object?>>[];
+
+  /// The checks of the watch-page plan (design §5 S0b): their report is
+  /// test/mutants/WP_REPORT_SHAPE.md's. `uiErrors` is always written, as
+  /// [uiErrorEntries], and does not make `pass` false (the online page has
+  /// a known overflow in its related-video cards; the runner compares the
+  /// errors with the unmutated run instead, design §5 「uiErrors」);
+  /// `measured` is the boolean the check set, false when it set none. Every
+  /// other check keeps today's report: the string entries, written only
+  /// when there are some, and `pass` false with any (the download plan
+  /// counts on that). Keyed by the check's name, as design §5 「uiErrors」
+  /// has it, so a standalone `--open-offline` / `--open-bili` run reports
+  /// this way too and no longer fails on a UI error (the online page's
+  /// known overflow failed every one of them); the S0a 「核对」 runs today's
+  /// self-test on S0a and its parent, so it is not affected.
+  static final wpChecks = <String>{'openOffline', 'openBili', 'wpRead'};
+
   static void _watchForUiErrors() {
     final previous = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -484,31 +511,120 @@ abstract final class SelfTest {
             (line) => line.contains('widget'),
             orElse: () => '',
           );
-      uiErrors.add(
-        // keep enough of the report to name the widget and its file:line —
-        // the first line alone said "a RenderFlex overflowed" and nothing else
-        '${details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().substring(0, math.min(320, details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().length))}'
-        '${where.isEmpty ? '' : ' @ $where'}'
-        '${(info ?? '').isEmpty ? '' : ' :: ${info!.replaceAll(RegExp(r'\s+'), ' ').trim()}'}'
-        // the frames that say whose code it was: an assertion inside the
-        // framework names no widget, and its first line names no file
-        '${_appFrames(details.stack)}',
-      );
+      final text =
+          // keep enough of the report to name the widget and its file:line —
+          // the first line alone said "a RenderFlex overflowed" and nothing else
+          '${details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().substring(0, math.min(320, details.toString().replaceAll(RegExp(r'\s+'), ' ').trim().length))}'
+          '${where.isEmpty ? '' : ' @ $where'}'
+          '${(info ?? '').isEmpty ? '' : ' :: ${info!.replaceAll(RegExp(r'\s+'), ' ').trim()}'}'
+          // the frames that say whose code it was: an assertion inside the
+          // framework names no widget, and its first line names no file
+          '${_appFrames(details.stack)}';
+      uiErrors.add(text);
+      uiErrorEntries.add(_uiErrorEntry(details, text, where));
       previous?.call(details);
     };
   }
 
+  /// One framework error as the watch-page report holds it (see
+  /// [uiErrorEntries]). The creation location comes from the "relevant
+  /// error-causing widget" block the widget inspector adds in a debug
+  /// build (`debugTransformDebugCreator`): `<Widget> file:///…/x.dart:L:C`.
+  static Map<String, Object?> _uiErrorEntry(
+    FlutterErrorDetails details,
+    String text,
+    String where,
+  ) {
+    String? widget;
+    String? origin;
+    String? originUri;
+    try {
+      for (final node in details.toDiagnosticsNode().getProperties()) {
+        if (node.name != 'The relevant error-causing widget was') continue;
+        final children = node.getChildren();
+        if (children.isEmpty) break;
+        final line = children.first.toDescription().trim();
+        widget = RegExp(r'^[A-Za-z_$][\w$]*').firstMatch(line)?.group(0);
+        final at = RegExp(r'(\S+\.dart:\d+(?::\d+)?)$').firstMatch(line);
+        if (at != null) {
+          // `Row:file:///…` (the location's name first) when it has one
+          originUri = at.group(1)!;
+          if (originUri.indexOf('file:///') case final i when i > 0) {
+            originUri = originUri.substring(i);
+          }
+          var p = originUri;
+          if (p.startsWith('file:///')) p = Uri.decodeFull(p.substring(8));
+          p = p.replaceAll(r'\', '/');
+          // repo-relative only under this app's checkout; a widget created
+          // in a package (the pub cache, packages/…) keeps its URI and the
+          // runner strips what it knows
+          origin = _repoRelative(p) ?? originUri;
+        }
+        break;
+      }
+    } catch (_) {}
+    String kind;
+    try {
+      kind = details.summary.toDescription();
+    } catch (_) {
+      kind = '${details.exception}';
+    }
+    kind = kind.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final stop = kind.indexOf('. ');
+    if (stop >= 0) kind = kind.substring(0, stop);
+    if (kind.endsWith('.')) kind = kind.substring(0, kind.length - 1);
+    return {
+      'text': text,
+      'kind': kind,
+      'widget': widget,
+      'origin': origin,
+      if (originUri != null && originUri != origin) 'originUri': originUri,
+      'context': where.isEmpty ? null : where,
+      'frames': _appFrameList(details.stack),
+    };
+  }
+
+  /// The roots seen, and whether each is this app's checkout.
+  static final _checkoutRoots = <String, bool>{};
+
+  /// [path] (a source file, `/` separated) relative to the app's checkout
+  /// when it lies in that checkout's `lib/`, else null. The root is the
+  /// part before the last `/lib/` (the app has no `lib` folder inside
+  /// `lib/`), taken as the checkout when its pubspec names this package:
+  /// a package's own `lib/` (material_ui in the pub cache,
+  /// packages/canvas_danmaku) is not. A debug build bakes in the paths of
+  /// the checkout it was built from.
+  static String? _repoRelative(String path) {
+    final lib = path.lastIndexOf('/lib/');
+    if (lib < 0) return null;
+    final root = path.substring(0, lib);
+    final ours = _checkoutRoots[root] ??= () {
+      try {
+        return File('$root/pubspec.yaml')
+            .readAsLinesSync()
+            .any((l) => l.trim() == 'name: PiliPlus');
+      } catch (_) {
+        return false;
+      }
+    }();
+    return ours ? path.substring(lib + 1) : null;
+  }
+
   /// Up to four stack frames from outside the Flutter framework.
   static String _appFrames(StackTrace? stack) {
-    if (stack == null) return '';
-    final frames = stack
+    final frames = _appFrameList(stack);
+    return frames.isEmpty ? '' : ' ## ${frames.join(' | ')}';
+  }
+
+  static List<String> _appFrameList(StackTrace? stack) {
+    if (stack == null) return const [];
+    return stack
         .toString()
         .split('\n')
         .where((l) => l.contains('package:') && !l.contains('package:flutter/'))
         .take(4)
         .map((l) => l.replaceAll(RegExp(r'\s+'), ' ').trim())
         .toList();
-    return frames.isEmpty ? '' : ' ## ${frames.join(' | ')}';
   }
 
   // ------------------------------------------------------------ driving UI
@@ -631,6 +747,7 @@ abstract final class SelfTest {
       return uiErrors.sublist(seen).toList();
     } finally {
       uiErrors.removeRange(seen, uiErrors.length);
+      uiErrorEntries.removeRange(seen, uiErrorEntries.length);
       await SelfTestWindow.setSize(before);
       await Future.delayed(const Duration(milliseconds: 600));
     }
@@ -765,6 +882,14 @@ abstract final class SelfTest {
       case final other:
         argError = '--dl-transcribe takes on or off, not "$other"';
     }
+    // the watch-page hooks of S0a (feature-logs/watch-page-shell/design.md
+    // §5 S0a), set before any page opens; what was set goes into the
+    // report's "hooks"
+    final hooks = <String, Object?>{};
+    argError ??= _setWatchPageHooks(args, hooks);
+    // what a check that leaves its page open for --wp-read puts back after
+    // the reading, not before (its proxy, its hooks, its settings)
+    final afterWpRead = <Future<void> Function()>[];
     final report = <String, dynamic>{
       'startedAt': DateTime.now().toIso8601String(),
       'args': args,
@@ -780,6 +905,7 @@ abstract final class SelfTest {
       report['error'] = argError;
       ok = false;
     }
+    if (hooks.isNotEmpty) report['hooks'] = hooks;
 
     Future<void> scenario(
       String name,
@@ -838,14 +964,25 @@ abstract final class SelfTest {
       assert(!result.containsKey('name'), 'scenario $name wrote "name"');
       result['name'] = name;
       result['ms'] = sw.elapsedMilliseconds;
-      if (uiErrors.isNotEmpty) {
+      if (wpChecks.contains(name)) {
+        // the watch-page report (WP_REPORT_SHAPE.md): measured only as the
+        // boolean true, uiErrors always and as objects, and not in pass
+        assert(
+          !result.containsKey('uiErrors'),
+          'scenario $name wrote "uiErrors"',
+        );
+        result
+          ..['measured'] = result['measured'] == true
+          ..['uiErrors'] = List<Map<String, Object?>>.from(uiErrorEntries);
+      } else if (uiErrors.isNotEmpty) {
         // a scenario that drove the UI into an error state did not pass,
         // whatever else it measured
         result
           ..['pass'] = false
           ..['uiErrors'] = List<String>.from(uiErrors);
-        uiErrors.clear();
       }
+      uiErrors.clear();
+      uiErrorEntries.clear();
       ok &= result['pass'] == true;
       checks.add(result);
     }
@@ -937,19 +1074,28 @@ abstract final class SelfTest {
         ),
       );
     }
+    // `--open-offline [--entry N | --entry cid:C | --entry avid:A]
+    // [--window-size WxH [--monitor WxH@DPI]] [--tab N] [--hold S] ...`:
+    // a completed download opened as from the download list (the first one
+    // with its file there, or the one --entry names); --window-size sets
+    // the window's content to that logical size first (WpWindow)
     if (args.contains('--open-offline')) {
       final hold = int.tryParse(_arg(args, '--hold') ?? '') ?? 15;
       final tab = int.tryParse(_arg(args, '--tab') ?? '');
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario(
         'openOffline',
-        () => _openOffline(
-          hold,
-          tab: tab,
-          play: args.contains('--play'),
-          replyDetail: args.contains('--reply-detail'),
-          fullscreenReplyCheck: args.contains('--fullscreen-reply'),
-          fullscreenEscCheck: args.contains('--fullscreen-esc'),
+        () => _inWindow(
+          args,
+          () => _openOffline(
+            hold,
+            tab: tab,
+            entry: _arg(args, '--entry'),
+            play: args.contains('--play'),
+            replyDetail: args.contains('--reply-detail'),
+            fullscreenReplyCheck: args.contains('--fullscreen-reply'),
+            fullscreenEscCheck: args.contains('--fullscreen-esc'),
+          ),
         ),
       );
     }
@@ -1223,8 +1369,14 @@ abstract final class SelfTest {
         ...?_arg(args, '--tried-hosts')?.split(','),
       };
       // started the way a viewer's page starts it, so what the page does
-      // for playback (resuming after a CDN switch) is what is tested
-      final autoplay = args.contains('--autoplay');
+      // for playback (resuming after a CDN switch) is what is tested: the
+      // page's own autoplay, the profile's setting (`--pref
+      // autoPlayEnable:bool=…`, design §5 S0b), not written here.
+      // `--autoplay` says the run needs it on, and is refused with it off
+      // (_autoplayRefusal); without it the page is opened as the setting
+      // has it, autoplay off included, and nothing presses play. Before S0b
+      // the test wrote the setting from `--autoplay` and, without it,
+      // pressed play itself before the player existed (DEV_LOG 2026-10-27)
       // `--video-qa 16`: the quality opened with (360P), as a viewer's
       // default quality setting would have it
       final videoQa = int.tryParse(_arg(args, '--video-qa') ?? '');
@@ -1234,8 +1386,6 @@ abstract final class SelfTest {
       final codecsDefault = codecs == 'default';
       final overrides = <String, Object>{
         if (!codecsDefault) SettingBoxKey.preferCodecs: ?codecs?.split(','),
-        // explicit either way: the default is on since 2026-09-29
-        SettingBoxKey.autoPlayEnable: autoplay,
         SettingBoxKey.defaultVideoQa: ?videoQa,
         // moving comments over a frozen picture would look like playback
         // to anything comparing frames
@@ -1258,36 +1408,81 @@ abstract final class SelfTest {
       try {
         await scenario(
           'openBili',
-          () => _openBili(
-            url,
-            hold,
-            autoplay: autoplay,
-            recovery: !args.contains('--no-recovery'),
-            sampleMs: int.tryParse(_arg(args, '--sample-ms') ?? '') ?? 2000,
-            sampleSeconds: int.tryParse(_arg(args, '--sample-for') ?? '') ?? 50,
-            seekTo: int.tryParse(_arg(args, '--seek-to') ?? ''),
-            seekAfterMs: int.tryParse(_arg(args, '--seek-after') ?? '') ?? 0,
-            dumpUrls: args.contains('--dump-urls'),
-            noHostSwitch: args.contains('--no-host-switch'),
+          () => _inWindow(
+            args,
+            () async =>
+                _autoplayRefusal(
+                  '--open-bili --autoplay',
+                  needed: args.contains('--autoplay'),
+                ) ??
+                await _openBili(
+                  url,
+                  hold,
+                  keepPage: args.contains('--wp-read'),
+                  recovery: !args.contains('--no-recovery'),
+                  sampleMs:
+                      int.tryParse(_arg(args, '--sample-ms') ?? '') ?? 2000,
+                  sampleSeconds:
+                      int.tryParse(_arg(args, '--sample-for') ?? '') ?? 50,
+                  seekTo: int.tryParse(_arg(args, '--seek-to') ?? ''),
+                  seekAfterMs:
+                      int.tryParse(_arg(args, '--seek-after') ?? '') ?? 0,
+                  dumpUrls: args.contains('--dump-urls'),
+                  noHostSwitch: args.contains('--no-host-switch'),
+                ),
           ),
         );
       } finally {
-        VideoUtils.debugWrapVideoUrl = null;
-        PlPlayerController.debugWrapAll = null;
-        PlPlayerController.debugNoHandover = false;
-        PlPlayerController.debugNoHealthSteps = false;
-        ParallelFetch.debugUpstream = null;
-        if (cut != null) {
-          stderr.writeln('cutting proxy: ${cut.requests.join(' | ')}');
-          await cut.close();
+        Future<void> cleanUp() async {
+          VideoUtils.debugWrapVideoUrl = null;
+          PlPlayerController.debugWrapAll = null;
+          PlPlayerController.debugNoHandover = false;
+          PlPlayerController.debugNoHealthSteps = false;
+          ParallelFetch.debugUpstream = null;
+          if (cut != null) {
+            stderr.writeln('cutting proxy: ${cut.requests.join(' | ')}');
+            await cut.close();
+          }
+          for (final MapEntry(:key, :value) in before.entries) {
+            value == null
+                ? await GStorage.setting.delete(key)
+                : await GStorage.setting.put(key, value);
+          }
         }
-        for (final MapEntry(:key, :value) in before.entries) {
-          value == null
-              ? await GStorage.setting.delete(key)
-              : await GStorage.setting.put(key, value);
+
+        // the page is kept for --wp-read: what it plays through stays
+        // until the reading is done
+        if (args.contains('--wp-read')) {
+          afterWpRead.add(cleanUp);
+        } else {
+          await cleanUp();
         }
       }
     }
+    // `--wp-read [--wp-tag T] [--wp-hold S] [--wp-rounds N]`: opens
+    // nothing; run after `--open-offline` / `--open-bili` (in the same
+    // command line), it records every accessor reading of the page named T
+    // (its heroTag), or of every mounted watch page without --wp-tag, S s
+    // (0) after the checks before it, N times 1 s apart (1; the last is
+    // reported). A recording check: pass = measured. With `--wp-walks off`
+    // (u#11's control) the readings walk nothing and answer walksOff; with
+    // --wp-walks either way the F0 recorder runs and `control.rebuilds`
+    // holds the pages' rebuild counts, to compare a run with walks on with
+    // one with them off.
+    if (args.contains('--wp-read')) {
+      await scenario(
+        'wpRead',
+        () => _wpRead(
+          tag: _arg(args, '--wp-tag'),
+          hold: int.tryParse(_arg(args, '--wp-hold') ?? '') ?? 0,
+          rounds: int.tryParse(_arg(args, '--wp-rounds') ?? '') ?? 1,
+        ),
+      );
+    }
+    for (final cleanUp in afterWpRead) {
+      await cleanUp();
+    }
+    afterWpRead.clear();
     if (_arg(args, '--danmaku-probe') case final bv?) {
       // the reverse checks: each assertion has to fail without its fix
       PlDanmaku.debugFollowBuffering = !args.contains('--no-buffer-follow');
@@ -1429,25 +1624,20 @@ abstract final class SelfTest {
     if (_arg(args, '--covered-query') case final first?) {
       final i = args.indexOf('--covered-query');
       final second = i + 2 < args.length ? args[i + 2] : '';
-      final autoplayBefore = GStorage.setting.get(SettingBoxKey.autoPlayEnable);
-      await GStorage.setting.put(SettingBoxKey.autoPlayEnable, true);
+      // autoplay is the profile's, as for --open-bili (design §6.4 R9)
       try {
         await scenario(
           'coveredQuery',
-          () => _coveredQuery(
-            first,
-            second,
-            delay: int.tryParse(_arg(args, '--query-delay') ?? '') ?? 12,
-          ),
+          () async =>
+              _autoplayRefusal('--covered-query', needed: true) ??
+              await _coveredQuery(
+                first,
+                second,
+                delay: int.tryParse(_arg(args, '--query-delay') ?? '') ?? 12,
+              ),
         );
       } finally {
         VideoDetailController.debugQueryDelay = null;
-        autoplayBefore == null
-            ? await GStorage.setting.delete(SettingBoxKey.autoPlayEnable)
-            : await GStorage.setting.put(
-                SettingBoxKey.autoPlayEnable,
-                autoplayBefore,
-              );
       }
     }
     if (_arg(args, '--history-probe') case final bili?) {
@@ -1833,6 +2023,25 @@ abstract final class SelfTest {
       await scenario('debugOverlay', overlayWatch.finish);
     }
 
+    // the hooks' outcome, the F0 record, and the screen the watch-page
+    // checks ran on (runner 补充⑦: reports of two screens are not compared)
+    if (hooks.containsKey('failOpenCid')) {
+      hooks['failOpenCidUsed'] = PlPlayerController.debugFailOpenCid == null;
+    }
+    if (SelfTestProbe.recorder case final recorder?) {
+      recorder.stop();
+      report['fsRecord'] = recorder.toJson();
+    }
+    if (checks.any((c) => wpChecks.contains(c['name']))) {
+      final display = await WpRead.display().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => WpRead.unread('display: no answer'),
+      );
+      // not written off Windows: a missing display is "not checked"
+      if (!(display is Map && display[r'$unread'] == 'notWindows')) {
+        report['display'] = display;
+      }
+    }
     report
       ..['pass'] = ok
       // what the app noted on the way (slow and failed requests, the
@@ -1843,6 +2052,212 @@ abstract final class SelfTest {
       const JsonEncoder.withIndent('  ').convert(report),
     );
     appExit(ok ? 0 : 1);
+  }
+
+  // ------------------------------------------------------------ watch page
+  //
+  // The base the watch-page checks stand on (design §5 S0b; the report
+  // shape is test/mutants/WP_REPORT_SHAPE.md, the readings
+  // lib/utils/self_test_watch.dart).
+
+  /// The S0a hooks' self-test options, set at the start of the run:
+  ///
+  /// - `--fail-open-cid C`: the player's next open of part C fails, once
+  ///   ([PlPlayerController.debugFailOpenCid], R10b);
+  /// - `--fs-scope`: the probe scope on the bilibili page
+  ///   ([SelfTestProbe.fsScope], F0), inserted from the page's first build;
+  /// - `--fs-record`: the F0 record ([FsProbeRecorder]) from the start of
+  ///   the run, written into the report's `fsRecord`;
+  /// - `--wp-walks on|off`: the readings walk the tree or not (u#11's
+  ///   control, [WpRead.walks]); either starts the F0 record, whose
+  ///   `rebuilds` the control compares;
+  /// - `--release-gate S|covered [--release-gate-tag T]`: the subtitle gate
+  ///   of bilibili page T (the first one mounted without a tag) let down
+  ///   ([VideoDetailController.debugReleaseGate], R9c) S s after the page
+  ///   is mounted, or the moment another route covers it.
+  ///
+  /// Returns what is wrong with them, or null; [hooks] gets what was set.
+  static String? _setWatchPageHooks(
+    List<String> args,
+    Map<String, Object?> hooks,
+  ) {
+    if (_arg(args, '--fail-open-cid') case final cid?) {
+      final n = int.tryParse(cid);
+      if (n == null) return '--fail-open-cid takes a cid, not "$cid"';
+      PlPlayerController.debugFailOpenCid = n;
+      hooks['failOpenCid'] = n;
+    }
+    if (args.contains('--fs-scope')) {
+      SelfTestProbe.fsScope = true;
+      hooks['fsScope'] = true;
+    }
+    switch (_arg(args, '--wp-walks')) {
+      case null:
+        break;
+      case final w && ('on' || 'off'):
+        WpRead.walks = w == 'on';
+        hooks['wpWalks'] = w;
+      case final other:
+        return '--wp-walks takes on or off, not "$other"';
+    }
+    if (args.contains('--fs-record') || args.contains('--wp-walks')) {
+      SelfTestProbe.recorder = FsProbeRecorder()..start();
+      hooks['fsRecord'] = true;
+    }
+    if (_arg(args, '--release-gate') case final at?) {
+      if (at != 'covered' && int.tryParse(at) == null) {
+        return '--release-gate takes seconds or "covered", not "$at"';
+      }
+      final release = <String, Object?>{'when': at};
+      hooks['releaseGate'] = release;
+      unawaited(
+        _releaseGateWhen(at, _arg(args, '--release-gate-tag'), release),
+      );
+    }
+    return null;
+  }
+
+  /// Waits for the bilibili page [tag] (the first one mounted), then for
+  /// [when], and lets its gate down; [out] records when and on which page.
+  static Future<void> _releaseGateWhen(
+    String when,
+    String? tag,
+    Map<String, Object?> out,
+  ) async {
+    final seconds = int.tryParse(when);
+    final clock = Stopwatch()..start();
+    // the page, chosen once: the one named, or the first bilibili page
+    // mounted (the page table keeps the order pages were mounted in)
+    String? locked = tag;
+    Stopwatch? mounted;
+    while (clock.elapsed < const Duration(minutes: 30)) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      locked ??= WpRead.mountOrder().firstWhereOrNull(
+        (t) => WpRead.find(t).page?.kind == 'bili',
+      );
+      final t = locked;
+      if (t == null) continue;
+      final page = WpRead.find(t).page;
+      if (page == null || page.kind != 'bili') {
+        // the page it waits for went away (or never came, when named)
+        if (mounted != null) {
+          out
+            ..['tag'] = t
+            ..['error'] = 'the page went away before the gate was let down';
+          return;
+        }
+        continue;
+      }
+      mounted ??= Stopwatch()..start();
+      final now = seconds != null
+          ? mounted.elapsedMilliseconds >= seconds * 1000
+          : !identical(Ctl.routes.stack.lastOrNull, page.route);
+      if (!now) continue;
+      final ctr = Get.find<VideoDetailController>(tag: t);
+      final up = ctr.asrPending.value;
+      ctr.debugReleaseGate();
+      out
+        ..['tag'] = t
+        ..['atMs'] = clock.elapsedMilliseconds
+        ..['gateWasUp'] = up;
+      EventLog.add('selftest', 'gate let down ($when) on $t; it was up: $up');
+      return;
+    }
+    out['error'] = 'no bilibili page for the gate within 30 min';
+  }
+
+  /// The rule for a check that needs the page to start playback itself
+  /// (design §5 S0b, §6.4 R9: `--covered-query`, and `--open-bili` with
+  /// `--autoplay`): [needed] and autoplay off in the profile, it is not run
+  /// (its report says why, and measured is false), instead of the test
+  /// writing the setting, or pressing play, itself. Not [needed], the
+  /// check runs with the profile's setting.
+  static Map<String, dynamic>? _autoplayRefusal(
+    String option, {
+    required bool needed,
+  }) => !needed || Pref.autoPlayEnable
+      ? null
+      : {
+          'pass': false,
+          'measured': false,
+          'error':
+              '$option needs autoplay on in the profile '
+              '(--pref ${SettingBoxKey.autoPlayEnable}:bool=true)',
+        };
+
+  /// [body] in the window `--window-size` / `--monitor` ask for (WpWindow),
+  /// or refused when the window cannot be made that size; the check's
+  /// `window` is the window at its end (`logical` as the app lays out) and
+  /// what was asked.
+  static Future<Map<String, dynamic>> _inWindow(
+    List<String> args,
+    Future<Map<String, dynamic>> Function() body,
+  ) async {
+    final asked = await WpWindow.apply((name) => _arg(args, name));
+    if (asked?['error'] case final error?) {
+      return {
+        'pass': false,
+        'measured': false,
+        'error': error,
+        'window': {...WpRead.appWindow(), 'asked': asked},
+      };
+    }
+    final result = await body();
+    result['window'] = {...WpRead.appWindow(), 'asked': ?asked};
+    return result;
+  }
+
+  static Object _rebuilds() => switch (SelfTestProbe.recorder) {
+    final recorder? => Map.of(recorder.rebuilds),
+    null => WpRead.unread('noRecorder'),
+  };
+
+  /// `--wp-read`: see where it is parsed.
+  static Future<Map<String, dynamic>> _wpRead({
+    String? tag,
+    int hold = 0,
+    int rounds = 1,
+  }) async {
+    await Future.delayed(Duration(seconds: hold));
+    final before = _rebuilds();
+    Map<String, Object?> one = const {};
+    Map<String, Object?> pages = const {};
+    for (var i = 0; i < math.max(1, rounds); i++) {
+      if (i > 0) await Future.delayed(const Duration(seconds: 1));
+      if (tag != null) {
+        one = WpRead.read(tag);
+      } else {
+        pages = WpRead.readAll();
+      }
+    }
+    // a frame or two after the last walk, so a rebuild it caused is counted
+    await Future.delayed(const Duration(seconds: 1));
+    final bool measured;
+    final Object end;
+    if (tag != null) {
+      measured = one['measured'] == true;
+      end = one;
+    } else {
+      measured =
+          pages.isNotEmpty &&
+          pages.values.every((p) => p is Map && p['measured'] == true);
+      end = pages.length == 1
+          ? pages.values.single!
+          : WpRead.unread(pages.isEmpty ? 'noPage' : 'severalPages');
+    }
+    return {
+      'pass': measured,
+      'measured': measured,
+      'tags': WpRead.tags(),
+      'end': end,
+      if (tag == null) 'pages': pages,
+      'window': WpRead.appWindow(),
+      'control': {
+        'walks': WpRead.walks ? 'on' : 'off',
+        'rebuildsBefore': before,
+        'rebuilds': _rebuilds(),
+      },
+    };
   }
 
   // ------------------------------------------------------------ scenarios
@@ -5184,7 +5599,7 @@ abstract final class SelfTest {
     } catch (e) {
       return {'pass': false, 'reason': 'the page never opened: $e'};
     }
-    controller.tabCtr.animateTo(1);
+    WpRead.tabsOf(controller).animateTo(1);
     final reply = Get.find<VideoReplyController>(tag: controller.heroTag);
     if (reply.loadingState.value is Loading) unawaited(reply.queryData());
     for (var i = 0; i < 80 && reply.loadingState.value is! Success; i++) {
@@ -5593,7 +6008,7 @@ abstract final class SelfTest {
   static Future<Map<String, Object?>> _commentsProbe(
     VideoDetailController controller,
   ) async {
-    controller.tabCtr.animateTo(1);
+    WpRead.tabsOf(controller).animateTo(1);
     final reply = Get.find<VideoReplyController>(tag: controller.heroTag);
     if (reply.loadingState.value is Loading) unawaited(reply.queryData());
     for (var i = 0; i < 80 && reply.loadingState.value is! Success; i++) {
@@ -6414,7 +6829,7 @@ abstract final class SelfTest {
       return;
     }
     if (kind.startsWith('tab')) {
-      page.tabCtr.animateTo(int.tryParse(kind.substring(3)) ?? 0);
+      WpRead.tabsOf(page).animateTo(int.tryParse(kind.substring(3)) ?? 0);
       await Future.delayed(const Duration(seconds: 3));
       await _shot('page_${at}_$kind');
       return;
@@ -6475,7 +6890,7 @@ abstract final class SelfTest {
   static Future<Map<String, dynamic>> _openBili(
     String url,
     int holdSeconds, {
-    bool autoplay = false,
+    bool keepPage = false,
     bool recovery = true,
     int sampleMs = 2000,
     int sampleSeconds = 50,
@@ -6557,7 +6972,9 @@ abstract final class SelfTest {
     final completedSub = player.videoPlayerController?.stream.completed.listen(
       (done) => log.add('== completed=$done'),
     );
-    if (!autoplay) await player.play();
+    // the page starts playback itself: autoplay is on (_autoplayRefusal).
+    // Pressing play here, as the test once did with it off, came before
+    // the player had a source (DEV_LOG 2026-10-27)
     // `--rate 3 --rate-at 10`: the speed changed while playing, as a viewer
     // changes it
     if (_rate case final rate?) {
@@ -6778,8 +7195,14 @@ abstract final class SelfTest {
 
     final qa = controller.currentVideoQa.value;
     final dash = controller.data.dash;
+    // every reading of the page, at the end (lib/utils/self_test_watch.dart)
+    final end = WpRead.read(controller.heroTag);
     final result = {
       'pass': played,
+      // the hold was sampled and the page read at the end: measured as
+      // the endpoint is (a page that no longer validates is not)
+      'measured': end['measured'] == true,
+      'end': end,
       'routed': routed,
       'route': Get.currentRoute,
       'bvid': controller.bvid,
@@ -6854,8 +7277,11 @@ abstract final class SelfTest {
     await logSub?.cancel();
     await completedSub?.cancel();
     result['mpvLog'] = log;
-    Get.back();
-    await Future.delayed(const Duration(seconds: 1));
+    // left open for `--wp-read` after it, closed otherwise as before
+    if (!keepPage) {
+      Get.back();
+      await Future.delayed(const Duration(seconds: 1));
+    }
     return result;
   }
 
@@ -10411,6 +10837,7 @@ abstract final class SelfTest {
   static Future<Map<String, dynamic>> _openOffline(
     int hold, {
     int? tab,
+    String? entry,
     bool play = false,
     bool replyDetail = false,
     bool fullscreenReplyCheck = false,
@@ -10419,18 +10846,41 @@ abstract final class SelfTest {
     const heroTag = 'selftest_offline';
     final service = Get.find<DownloadService>();
     await service.waitForInitialization;
-    final entry = service.downloadList
+    // the completed ones with their file there, in the download list's
+    // order; `--entry N` (an index into these), `cid:C` or `avid:A` picks
+    // one, else the first
+    final completed = service.downloadList
         .whereType<BiliDownloadEntryInfo>()
-        .firstWhereOrNull(
-          (e) => e.mergedPath != null && File(e.mergedPath!).existsSync(),
-        );
-    if (entry == null) {
+        .where((e) => e.mergedPath != null && File(e.mergedPath!).existsSync())
+        .toList();
+    final BiliDownloadEntryInfo? found;
+    switch (entry?.split(':')) {
+      case null:
+        found = completed.firstOrNull;
+      case [final n] when (int.tryParse(n) ?? -1) >= 0:
+        found = completed.elementAtOrNull(int.parse(n));
+      case ['cid', final c] when int.tryParse(c) != null:
+        found = completed.firstWhereOrNull((e) => e.cid == int.parse(c));
+      case ['avid', final a] when int.tryParse(a) != null:
+        found = completed.firstWhereOrNull((e) => e.avid == int.parse(a));
+      case _:
+        return {
+          'pass': false,
+          'error': '--entry takes N, cid:C or avid:A, not "$entry"',
+        };
+    }
+    if (found == null) {
       return {
         'pass': false,
-        'error': 'no completed download with a video file',
+        'error': entry == null
+            ? 'no completed download with a video file'
+            : 'no completed download for --entry $entry '
+                  '(${completed.length} with a video file)',
+        'completed': completed.length,
       };
     }
-    final merged = entry.mergedPath!;
+    final chosen = found;
+    final merged = chosen.mergedPath!;
     final folder = Directory(path.dirname(merged));
     final base = path.basenameWithoutExtension(merged);
     final extras = [
@@ -10441,15 +10891,15 @@ abstract final class SelfTest {
     ];
     unawaited(
       PageUtils.toVideoPage(
-        aid: entry.avid,
-        cid: entry.cid,
-        cover: entry.cover,
-        title: entry.showTitle,
-        isVertical: entry.pageData?.isVertical ?? false,
+        aid: chosen.avid,
+        cid: chosen.cid,
+        cover: chosen.cover,
+        title: chosen.showTitle,
+        isVertical: chosen.pageData?.isVertical ?? false,
         extraArguments: {
           'sourceType': SourceType.file,
-          'entry': entry,
-          'dirPath': entry.entryDirPath,
+          'entry': chosen,
+          'dirPath': chosen.entryDirPath,
           'heroTag': heroTag,
         },
       ),
@@ -10465,8 +10915,9 @@ abstract final class SelfTest {
     if (tab != null) {
       await Future.delayed(const Duration(seconds: 5));
       final ctr = Get.find<VideoDetailController>(tag: heroTag);
-      tabs = 'tabs=${ctr.tabCtr.length}, showReply=${ctr.showReply}';
-      if (tab < ctr.tabCtr.length) ctr.tabCtr.animateTo(tab);
+      final tabCtr = WpRead.tabsOf(ctr);
+      tabs = 'tabs=${tabCtr.length}, showReply=${ctr.showReply}';
+      if (tab < tabCtr.length) tabCtr.animateTo(tab);
     }
     await Future.delayed(Duration(seconds: hold));
     // read only: getInstance() would raise the player count
@@ -10477,27 +10928,46 @@ abstract final class SelfTest {
     // `--fullscreen-reply`: the comments scrolled down, the video into
     // fullscreen and out again as the player's button does; where the list
     // is after, and whether it is the same list (its scroll state) or a new one
+    // the page this check opened, checked before anything is done to it:
+    // a page that does not validate is not read in another's place
+    if (WpRead.find(heroTag) case (page: null, :final why)) {
+      return {
+        'pass': false,
+        'measured': false,
+        'error': 'the offline page does not validate: $why',
+        'end': WpRead.read(heroTag),
+      };
+    }
     Map<String, Object?>? fullscreenReply;
     if (fullscreenReplyCheck) {
+      // in this page only (a page under it is still mounted), and without
+      // a dependency: Scrollable.maybeOf would make the comment depend on
+      // the scroll view, and the check would change what it measures
+      // (design §5 「自测」)
       ScrollableState? list() {
         ScrollableState? found;
         void visit(Element e) {
           if (found != null) return;
           if (e.widget is ReplyItemGrpc) {
-            found = Scrollable.maybeOf(e);
+            found = e.findAncestorStateOfType<ScrollableState>();
             return;
           }
           e.visitChildren(visit);
         }
 
-        WidgetsBinding.instance.rootElement?.visitChildren(visit);
+        // this page only: gone or covered by another validation failure,
+        // no list (and the step that wanted one says so)
+        WpRead.find(heroTag).page?.subtree.visitChildren(visit);
         return found;
       }
 
       final before = list();
       final fs = PlPlayerController.instance;
       if (before == null || fs == null) {
-        fullscreenReply = {'error': 'no comment list or no player'};
+        fullscreenReply = {
+          'error': 'no comment list or no player',
+          'page': WpRead.find(heroTag).why ?? 'validates',
+        };
       } else {
         final to = math.min(600.0, before.position.maxScrollExtent);
         before.position.jumpTo(to);
@@ -10537,16 +11007,29 @@ abstract final class SelfTest {
         e.visitChildren(visit);
       }
 
-      WidgetsBinding.instance.rootElement?.visitChildren(visit);
+      // this page's comments only
+      WpRead.find(heroTag).page?.subtree.visitChildren(visit);
       if (first case final w?) {
         w.replyReply?.call(w.replyItem, null);
         await Future.delayed(const Duration(seconds: 3));
         detailShot = await _shot('offline_detail');
       }
     }
+    // every reading of the page, at the end (lib/utils/self_test_watch.dart)
+    final end = WpRead.read(heroTag);
     return {
       'pass': true,
-      'title': entry.showTitle,
+      // the page opened and was held, and read at the end: measured as the
+      // endpoint is
+      'measured': end['measured'] == true,
+      'entry': {
+        'index': completed.indexOf(chosen),
+        'of': completed.length,
+        'cid': chosen.cid,
+        'avid': chosen.avid,
+      },
+      'end': end,
+      'title': chosen.showTitle,
       'introPath': detail.localIntroPath,
       if (intro != null)
         'intro': {

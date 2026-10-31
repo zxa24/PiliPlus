@@ -19,9 +19,9 @@
   "preconditions": [],
   "fields": [
     { "name": "logicalSize", "path": "window.logical", "status": "must-same" },
-    { "name": "branch", "path": "end.branch", "status": "must-same" },
-    { "name": "playerRect", "path": "end.rects.player", "status": "must-same", "expectedFor": ["wp-R2a"] },
-    { "name": "tabRoles", "path": "end.tabs.roles", "status": "must-same" },
+    { "name": "branch", "path": "end.branch.geometry.label", "status": "must-same" },
+    { "name": "playerRect", "path": "end.branch.geometry.player.rect", "status": "must-same", "expectedFor": ["wp-R2a"] },
+    { "name": "tabRoles", "path": "end.tabs[0].roles", "status": "must-same" },
     { "name": "eventLog", "path": "@eventLog", "status": "unstable" }
   ],
   "uiErrors": { "status": "must-same", "unstable": [], "expectedFor": [] },
