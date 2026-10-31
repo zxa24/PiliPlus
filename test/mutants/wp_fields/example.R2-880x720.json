@@ -1,0 +1,29 @@
+{
+  "example": true,
+  "about": "EXAMPLE field table (example: true = skipped by run.ps1). Schema: run.ps1's header and test/mutants/WP_REPORT_SHAPE.md. The real tables are written with the checks in a later part of S0b, one file per check, named <id>.json.",
+  "id": "example.R2-880x720",
+  "check": "openOffline",
+  "report": "R2-880x720.json",
+  "type": "recording",
+  "batch": null,
+  "network": false,
+  "run": {
+    "args": ["--open-offline", "--window-size", "880x720", "--hold", "4"],
+    "prefs": ["horizontalScreen:bool=true"],
+    "planPrefs": true,
+    "profile": "snapshot:test/fixtures/wp_offline_snapshot",
+    "asr": false,
+    "minutes": 10
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    { "name": "logicalSize", "path": "window.logical", "status": "must-same" },
+    { "name": "branch", "path": "end.branch", "status": "must-same" },
+    { "name": "playerRect", "path": "end.rects.player", "status": "must-same", "expectedFor": ["wp-R2a"] },
+    { "name": "tabRoles", "path": "end.tabs.roles", "status": "must-same" },
+    { "name": "eventLog", "path": "@eventLog", "status": "unstable" }
+  ],
+  "uiErrors": { "status": "must-same", "unstable": [], "expectedFor": [] },
+  "evidence": "wp-R2a (playerRect)"
+}

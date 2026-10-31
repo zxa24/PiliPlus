@@ -1,0 +1,65 @@
+{
+  "plan": "watch_page",
+  "about": "watch_page mutants (design feature-logs/watch-page-shell/design.md §6.6). Read by run.ps1 -Plan watch_page; schema in run.ps1's header and below. The entries are written in a later part of S0b; the two below are EXAMPLES (example: true), skipped by the runner.",
+  "schema": {
+    "phases": "-Phase -> the landing steps (\"landing\") whose mutants run in it",
+    "defaultPhase": "-Phase when none is given",
+    "prefs": "k:type=v written with --pref into every run (unless the field table's run says planPrefs false); a table's own prefs override by key",
+    "media": "files or folders outside the repository the runs read (offline media, models), hashed into every report folder's manifest; ${AsrModels} = -AsrModels, %VAR% expanded, relative = from the repository root",
+    "mutant": {
+      "id": "wp-<design id>, e.g. wp-R2a",
+      "patch": "wp-<design id>.patch, beside this file",
+      "location": "file:line the patch changes (S1 rewrites it; -CheckTestSide ignores it)",
+      "change": "what the patch does, with its source",
+      "landing": "the step it is written in (§6.6 「落地」): S0, S1b, S1c or S2",
+      "catcher": "the design's 「抓它的检查」, as text",
+      "kind": "selftest",
+      "catchers": "[{check: <field table id>, expected: [<field names of that table>, or \"uiErrorKeys\"]}]: caught when an expected field differs from the unmutated baseline; the fields must name the mutant in expectedFor",
+      "uncovered": "optional: why no check can reach it (未覆盖): listed, not run"
+    }
+  },
+  "phases": {
+    "S0": ["S0"],
+    "S1": ["S0"],
+    "S1b": ["S1b"],
+    "S1c": ["S1c"],
+    "S2": ["S2"]
+  },
+  "defaultPhase": "S0",
+  "prefs": [
+    "themeMode:int=0",
+    "uiScale:double=1.0",
+    "enableShowDanmaku:bool=false",
+    "enableSponsorBlock:bool=false",
+    "pgcSkipType:int=1",
+    "enableAutoEnter:bool=false",
+    "autoPlayEnable:bool=true"
+  ],
+  "prefsStillToDecide": "design §5 「变异 runner 每次新建 profile：设置」 also lists horizontalScreen, horizontalSeasonPanel, enableVerticalExpand, defaultShowComment, showVideoReply, showBangumiReply, showRelatedVideo, preInitPlayer, keyboardControl, darkVideoPage, removeSafeArea, autoPiP, showWindowTitleBar, fullScreenMode (an index that rotates the screen), hideInteraction: per check, in the field tables' run.prefs, or here once their values are chosen",
+  "media": [],
+  "mutants": [
+    {
+      "example": true,
+      "id": "wp-R2a",
+      "patch": "wp-R2a.patch",
+      "location": "lib/pages/video/view.dart:979",
+      "change": "EXAMPLE ONLY: the right column's clamp 280 -> 300 (B:979-991)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "880×720 (the player rect)",
+      "catchers": [
+        { "check": "R2-880x720", "expected": ["playerRect"] }
+      ]
+    },
+    {
+      "example": true,
+      "id": "wp-R5e",
+      "location": "lib/pages/video/view.dart:820",
+      "change": "EXAMPLE ONLY: with no play URL, tapping the collapsed bar does not call queryVideoUrl (B:820-826)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 tapping the bar with no URL",
+      "uncovered": "EXAMPLE of an uncovered entry: the test cannot clear videoUrl outside a query"
+    }
+  ]
+}
