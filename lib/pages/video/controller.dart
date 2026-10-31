@@ -96,6 +96,7 @@ import 'package:PiliPlus/utils/extension/nested_scroll_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -2990,6 +2991,14 @@ class VideoDetailController extends GetxController
     if (!asrPending.value) return;
     EventLog.add('gate', 'viewer chose 先播放视频');
     _holdingForSubtitles = false;
+    _closeAsrGate();
+  }
+
+  /// Self-test (R9c): lets the gate down as a subtitle list arriving does,
+  /// at the moment the test picks (with the page covered, say). Does
+  /// nothing outside the self-test; nothing else calls it.
+  void debugReleaseGate() {
+    if (!isSelfTestProfile) return;
     _closeAsrGate();
   }
 

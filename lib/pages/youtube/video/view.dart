@@ -35,7 +35,9 @@ import 'package:PiliPlus/plugin/pl_player/widgets/play_pause_btn.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/grid.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/self_test_probe.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/common/widgets/dialog/qr_share.dart';
@@ -76,6 +78,15 @@ class _YtVideoPageState extends State<YtVideoPage>
       // open it, and it is a second network round trip
       if (_tabs.index == 1) controller.ensureCommentsStarted();
     });
+
+  @override
+  void initState() {
+    super.initState();
+    // guarded here and in dispose, not only inside: [tag] is late, and
+    // reading it first is not free (it looks for a controller under the
+    // bare id)
+    if (isSelfTestProfile) SelfTestProbe.addPage(tag, context);
+  }
 
   /// The window's shape, for the 按比例 fullscreen orientation, as the
   /// bilibili page gives it (view.dart's didChangeDependencies). Without it
@@ -139,6 +150,13 @@ class _YtVideoPageState extends State<YtVideoPage>
         // the player keeps the left and the tabs take a side column,
         // rather than pushing everything below the fold
         final switching = controller.plPlayerController.fsProcessing;
+        SelfTestProbe.recorder?.built(
+          'yt',
+          tag,
+          box.biggest,
+          isFullScreen: isFullScreen,
+          fsProcessing: switching,
+        );
         if (isFullScreen && !switching) {
           _fullScreenSize = box.biggest;
         } else if (!isFullScreen &&
@@ -945,6 +963,7 @@ class _YtVideoPageState extends State<YtVideoPage>
 
   @override
   void dispose() {
+    if (isSelfTestProfile) SelfTestProbe.removePage(tag, context);
     _tabs.dispose();
     _sideTabs.dispose();
     Get.delete<YtVideoController>(tag: tag);

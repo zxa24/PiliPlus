@@ -58,6 +58,7 @@ import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/self_test_probe.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -572,6 +573,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   static PlayCallback? _playCallBack;
 
   static Future<void>? playIfExists() {
+    // self-test: which page answers is logged by the page itself (R9)
+    if (isSelfTestProfile) {
+      EventLog.add(
+        'selftest',
+        'play callback ${_playCallBack == null ? 'not set' : 'called'}',
+      );
+    }
     return _playCallBack?.call();
   }
 
@@ -881,6 +889,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
       if (_playerCount == 0) {
         return;
+      }
+      // self-test (R10b): this part's open fails here, once, past all that
+      // an open does first, into the catch below as a failed open does
+      if (debugFailOpenCid != null && debugFailOpenCid == cid) {
+        debugFailOpenCid = null;
+        throw StateError('self-test: the open of $cid fails');
       }
       // 配置Player 音轨、字幕等等
       await _createVideoController(dataSource, seekTo, volume, open);
@@ -2043,6 +2057,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// Self-test (`--no-hold`): no picture held, the control for the probe.
   static bool debugNoHeldPicture = false;
+
+  /// Self-test: the next [setDataSource] of this cid fails as an open that
+  /// cannot set the player up does, and leaves [dataStatus] at error; once,
+  /// then cleared. Nothing else sets it.
+  static int? debugFailOpenCid;
 
   /// Self-test (`--switch-at N:handover`): the streams of a faster host or
   /// a lower quality put in place, as for a buffer that does not keep up.
@@ -4933,6 +4952,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     if (_fsProcessing) return;
     _fsProcessing = true;
+    SelfTestProbe.recorder?.fullScreenAsked(status, inAppFullScreen);
     this.isManualFS = isManualFS;
     final onOff = status ? 'on' : 'off';
     if (PlatformUtils.isDesktop) {
@@ -4968,6 +4988,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } finally {
       _setFullScreen(status);
       _fsProcessing = false;
+      SelfTestProbe.recorder?.fullScreenSet(status);
       if (PlatformUtils.isDesktop) unawaited(_logFullScreenSet(onOff));
     }
   }
@@ -5305,8 +5326,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
+  /// Self-test (R8): what a back did, as [onPopInvokedWithResult] took it.
+  static void _logPop(bool didPop, String taken) {
+    if (isSelfTestProfile) {
+      EventLog.add('selftest', 'pop: didPop $didPop, $taken');
+    }
+  }
+
   void onPopInvokedWithResult(bool didPop, Object? result) {
     if (didPop) {
+      _logPop(didPop, 'paused and callback cleared');
       if (playerStatus.isPlaying) {
         pause();
       }
@@ -5324,17 +5353,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     if (controlsLock.value) {
+      _logPop(didPop, 'controls unlocked');
       onLockControl(false);
       return;
     }
     if (isDesktopPip) {
+      _logPop(didPop, 'desktop pip left');
       exitDesktopPip();
       return;
     }
     if (isFullScreen.value) {
+      _logPop(didPop, 'fullscreen left');
       triggerFullScreen(status: false);
       return;
     }
+    _logPop(didPop, 'Get.back');
     Get.back();
   }
 }

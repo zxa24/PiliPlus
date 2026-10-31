@@ -47,6 +47,7 @@ import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/request_utils.dart';
 import 'package:PiliPlus/utils/self_test.dart';
+import 'package:PiliPlus/utils/self_test_pref.dart';
 import 'package:PiliPlus/utils/self_test_window.dart';
 import 'package:PiliPlus/utils/cjk_autospace.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -155,6 +156,27 @@ Future<void> clearScratchFiles({DateTime? before}) async {
   }
 }
 
+/// Self-test (`--min-window 540x400`): a smaller minimum window, for the
+/// layouts the usual 400×720 cannot reach (design §6.1, landscape narrower
+/// than 560); only when the self-test runs.
+Size? _selfTestMinimumSize(List<String> args) {
+  if (!isSelfTestProfile) return null;
+  final i = args.indexOf('--min-window');
+  if (i < 0) return null;
+  final parts = i + 1 < args.length ? args[i + 1].split('x') : const [''];
+  final w = double.tryParse(parts.first);
+  final h = parts.length == 2 ? double.tryParse(parts.last) : null;
+  // NaN is not above 0 either
+  bool usable(double v) => v > 0 && v.isFinite;
+  if (w == null || h == null || !usable(w) || !usable(h)) {
+    // refused, not ignored: the test would measure the usual minimum
+    const message = '--min-window takes WxH, both above 0, as 540x400';
+    stderr.writeln(message);
+    SelfTest.abort(args, message);
+  }
+  return Size(w, h);
+}
+
 Future<void> _initAppPath() async {
   var dir = (await getApplicationSupportDirectory()).path;
   if (isSelfTestProfile) {
@@ -200,6 +222,8 @@ void main(List<String> args) async {
     if (isSelfTestProfile) SelfTest.abort(args, e);
     appExit();
   }
+  // LibrePili: the self-test's settings, before anything below reads them
+  if (isSelfTestProfile) await SelfTestPref.apply(args);
   // LibrePili: a downloaded, verified update put in place before the UI
   // (Windows, Linux; user 2026-10-20: "applied on the next launch"): the
   // helper started waits for this process to end, so it ends here. Past
@@ -334,7 +358,7 @@ void main(List<String> args) async {
     await windowManager.ensureInitialized();
 
     final windowOptions = WindowOptions(
-      minimumSize: const Size(400, 720),
+      minimumSize: _selfTestMinimumSize(args) ?? const Size(400, 720),
       skipTaskbar: false,
       titleBarStyle: Pref.showWindowTitleBar
           ? TitleBarStyle.normal

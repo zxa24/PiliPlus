@@ -57,6 +57,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart'
     show shutdownTimerService;
@@ -69,7 +70,9 @@ import 'package:PiliPlus/utils/max_screen_size.dart';
 import 'package:PiliPlus/utils/mobile_observer.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/self_test_probe.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -147,6 +150,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
     PlPlayerController.setPlayCallBack(playCallBack);
     videoDetailController = Get.put(VideoDetailController(), tag: heroTag);
+    SelfTestProbe.addPage(heroTag, context);
 
     if (videoDetailController.removeSafeArea) {
       hideSystemBar();
@@ -220,6 +224,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   }
 
   Future<void>? playCallBack() {
+    if (isSelfTestProfile) {
+      EventLog.add(
+        'selftest',
+        'play callback answered: bilibili page $heroTag, controller '
+            '${identityHashCode(videoDetailController)}',
+      );
+    }
     if (!isShowing) {
       plPlayerController
         ?..addStatusLister(playerListener)
@@ -379,6 +390,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   @override
   void dispose() {
+    SelfTestProbe.removePage(heroTag, context);
     plPlayerController
       ?..removeStatusLister(playerListener)
       ..removePositionListener(positionListener);
@@ -917,6 +929,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     if (enableVerticalExpand) {
       return Obx(() {
         if (videoDetailController.isVertical.value && !isPortrait) {
+          SelfTestProbe.threeColumn(heroTag, true);
           final double videoHeight = maxHeight - padding.vertical;
           final double width = videoHeight / Style.aspectRatio16x9;
           final videoWidth = isFullScreen ? maxWidth : width;
@@ -973,9 +986,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           );
         }
 
+        SelfTestProbe.threeColumn(heroTag, false);
         return _childWhenDisabledLandscapeInner(isFullScreen);
       });
     }
+    SelfTestProbe.threeColumn(heroTag, false);
     return _childWhenDisabledLandscapeInner(isFullScreen);
   }
 
@@ -990,6 +1005,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     final videoHeight = isFullScreen
         ? maxHeight - (isWindowMode && !isPortrait ? 0 : padding.top)
         : height;
+    SelfTestProbe.split16x9(heroTag, height > maxHeight);
     if (height > maxHeight) {
       return childSplit(Style.aspectRatio16x9);
     }
@@ -1099,14 +1115,17 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       return Obx(
         () {
           if (videoDetailController.isVertical.value && !isPortrait) {
+            SelfTestProbe.split9x16(heroTag, true);
             return childSplit(9 / 16);
           }
 
+          SelfTestProbe.split9x16(heroTag, false);
           return _childWhenDisabledAlmostSquareInner(isFullScreen);
         },
       );
     }
 
+    SelfTestProbe.split9x16(heroTag, false);
     return _childWhenDisabledAlmostSquareInner(isFullScreen);
   }
 
@@ -1410,17 +1429,31 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   @override
   Widget build(BuildContext context) {
+    SelfTestProbe.recorder?.built('build', heroTag, Size(maxWidth, maxHeight));
     Widget child;
     if (videoDetailController.plPlayerController.isPipMode) {
+      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);
       child = plPlayer(width: maxWidth, height: maxHeight, isPipMode: true);
     } else if (!videoDetailController.horizontalScreen) {
+      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.portrait);
       child = childWhenDisabled;
     } else if (maxWidth / maxHeight >= kScreenRatio) {
+      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.landscape);
       child = childWhenDisabledLandscape;
     } else if (maxWidth / Style.aspectRatio16x9 < 0.4 * maxHeight) {
+      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.portrait);
       child = childWhenDisabled;
     } else {
+      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.almostSquare);
       child = childWhenDisabledAlmostSquare;
+    }
+    // self-test (F0): the probe scope, the first thing under the choice
+    if (SelfTestProbe.fsScope) {
+      child = SelfTestFsScope(
+        tag: heroTag,
+        player: videoDetailController.plPlayerController,
+        child: child,
+      );
     }
     if (videoDetailController.plPlayerController.keyboardControl) {
       child = PlayerFocus(
@@ -1607,87 +1640,108 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   Widget videoPlayer({required double width, required double height}) {
     final isFullScreen = this.isFullScreen;
+    // LibrePili: each layer under a key naming its role, for the self-test
+    // to read the order by (SelfTestProbe.slotBlack); a KeyedSubtree makes
+    // no render object, so a Positioned under it still reaches the Stack
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        const Positioned.fill(
-          child: ColoredBox(
-            color: Colors.black,
-            isAntiAlias: false,
+        const KeyedSubtree(
+          key: ValueKey(SelfTestProbe.slotBlack),
+          child: Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black,
+              isAntiAlias: false,
+            ),
           ),
         ),
 
-        plPlayer(width: width, height: height),
+        KeyedSubtree(
+          key: const ValueKey(SelfTestProbe.slotPlayer),
+          child: plPlayer(width: width, height: height),
+        ),
 
         // LibrePili: the player is hidden while it waits for the subtitles
         // the switch makes on the device; this was a silent black box (3A)
-        Obx(
-          () => videoDetailController.asrPending.value
-              ? Positioned.fill(
-                  child: SubtitleGate(
-                    skippable: videoDetailController.asrGateSkippable.value,
-                    onSkip: videoDetailController.skipSubtitleGate,
-                  ),
-                )
-              : const SizedBox.shrink(),
+        KeyedSubtree(
+          key: const ValueKey(SelfTestProbe.slotGate),
+          child: Obx(
+            () => videoDetailController.asrPending.value
+                ? Positioned.fill(
+                    child: SubtitleGate(
+                      skippable: videoDetailController.asrGateSkippable.value,
+                      onSkip: videoDetailController.skipSubtitleGate,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
         ),
 
-        Obx(() {
-          if (!videoDetailController.autoPlay) {
-            return Positioned.fill(
-              child: GestureDetector(
-                onTap: handlePlay,
-                behavior: .opaque,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Obx(
-                      () => NetworkImgLayer(
-                        type: .emote,
-                        quality: 60,
-                        src: videoDetailController.cover.value,
-                        width: width,
-                        height: height,
-                        cacheWidth: true,
-                        getPlaceHolder: () => Center(
-                          child: Image.asset(Assets.loading),
+        KeyedSubtree(
+          key: const ValueKey(SelfTestProbe.slotCover),
+          child: Obx(() {
+            if (!videoDetailController.autoPlay) {
+              return Positioned.fill(
+                child: GestureDetector(
+                  onTap: handlePlay,
+                  behavior: .opaque,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Obx(
+                        () => NetworkImgLayer(
+                          type: .emote,
+                          quality: 60,
+                          src: videoDetailController.cover.value,
+                          width: width,
+                          height: height,
+                          cacheWidth: true,
+                          getPlaceHolder: () => Center(
+                            child: Image.asset(Assets.loading),
+                          ),
                         ),
                       ),
-                    ),
-                    // a tap while the play URL is asked for: it plays once
-                    // the URL is in (see handlePlay)
-                    Obx(
-                      () => videoDetailController.playAfterQuery.value
-                          ? const Center(child: PlayerLoadingMark())
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
+                      // a tap while the play URL is asked for: it plays once
+                      // the URL is in (see handlePlay)
+                      Obx(
+                        () => videoDetailController.playAfterQuery.value
+                            ? const Center(child: PlayerLoadingMark())
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          }
-          return const SizedBox.shrink();
-        }),
-        manualPlayerWidget(height),
+              );
+            }
+            return const SizedBox.shrink();
+          }),
+        ),
+        KeyedSubtree(
+          key: const ValueKey(SelfTestProbe.slotManualPlayer),
+          child: manualPlayerWidget(height),
+        ),
 
         if (videoDetailController.plPlayerController.enableBlock ||
             videoDetailController.continuePlayingPart)
-          Positioned(
-            left: 16,
-            bottom: isFullScreen ? max(75, maxHeight * 0.25) : 75,
-            width: MediaQuery.textScalerOf(context).scale(120),
-            child: AnimatedList(
-              padding: EdgeInsets.zero,
-              key: videoDetailController.listKey,
-              reverse: true,
-              shrinkWrap: true,
-              initialItemCount: videoDetailController.listData.length,
-              itemBuilder: (context, index, animation) {
-                return videoDetailController.buildItem(
-                  videoDetailController.listData[index],
-                  animation,
-                );
-              },
+          KeyedSubtree(
+            key: const ValueKey(SelfTestProbe.slotPartList),
+            child: Positioned(
+              left: 16,
+              bottom: isFullScreen ? max(75, maxHeight * 0.25) : 75,
+              width: MediaQuery.textScalerOf(context).scale(120),
+              child: AnimatedList(
+                padding: EdgeInsets.zero,
+                key: videoDetailController.listKey,
+                reverse: true,
+                shrinkWrap: true,
+                initialItemCount: videoDetailController.listData.length,
+                itemBuilder: (context, index, animation) {
+                  return videoDetailController.buildItem(
+                    videoDetailController.listData[index],
+                    animation,
+                  );
+                },
+              ),
             ),
           ),
 
@@ -1722,67 +1776,73 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         //     child: const Text('index'),
         //   ),
         // ),
-        Obx(
-          () {
-            if (videoDetailController.showSteinEdgeInfo.value) {
-              try {
-                return Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      left: 16,
-                      right: 16,
-                      bottom: plPlayerController?.showControls.value == true
-                          ? 75
-                          : 16,
-                    ),
-                    child: Wrap(
-                      spacing: 25,
-                      runSpacing: 10,
-                      children: videoDetailController
-                          .steinEdgeInfo!
-                          .edges!
-                          .questions!
-                          .first
-                          .choices!
-                          .map((item) {
-                            return FilledButton.tonal(
-                              style: FilledButton.styleFrom(
-                                shape: const RoundedRectangleBorder(
-                                  borderRadius: .all(.circular(6)),
+        KeyedSubtree(
+          key: const ValueKey(SelfTestProbe.slotChoices),
+          child: Obx(
+            () {
+              if (videoDetailController.showSteinEdgeInfo.value) {
+                try {
+                  return Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        left: 16,
+                        right: 16,
+                        bottom: plPlayerController?.showControls.value == true
+                            ? 75
+                            : 16,
+                      ),
+                      child: Wrap(
+                        spacing: 25,
+                        runSpacing: 10,
+                        children: videoDetailController
+                            .steinEdgeInfo!
+                            .edges!
+                            .questions!
+                            .first
+                            .choices!
+                            .map((item) {
+                              return FilledButton.tonal(
+                                style: FilledButton.styleFrom(
+                                  shape: const RoundedRectangleBorder(
+                                    borderRadius: .all(.circular(6)),
+                                  ),
+                                  backgroundColor: theme
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withValues(alpha: 0.8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 15,
+                                    vertical: 10,
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
-                                backgroundColor: theme
-                                    .colorScheme
-                                    .secondaryContainer
-                                    .withValues(alpha: 0.8),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 15,
-                                  vertical: 10,
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              onPressed: () {
-                                ugcIntroController.onChangeEpisode(
-                                  item,
-                                  isStein: true,
-                                );
-                                videoDetailController.getSteinEdgeInfo(item.id);
-                              },
-                              child: Text(item.option!),
-                            );
-                          })
-                          .toList(),
+                                onPressed: () {
+                                  ugcIntroController.onChangeEpisode(
+                                    item,
+                                    isStein: true,
+                                  );
+                                  videoDetailController.getSteinEdgeInfo(
+                                    item.id,
+                                  );
+                                },
+                                child: Text(item.option!),
+                              );
+                            })
+                            .toList(),
+                      ),
                     ),
-                  ),
-                );
-              } catch (e) {
-                if (kDebugMode) debugPrint('build stein edges: $e');
-                return const SizedBox.shrink();
+                  );
+                } catch (e) {
+                  if (kDebugMode) debugPrint('build stein edges: $e');
+                  return const SizedBox.shrink();
+                }
               }
-            }
-            return const SizedBox.shrink();
-          },
+              return const SizedBox.shrink();
+            },
+          ),
         ),
       ],
     );

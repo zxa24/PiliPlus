@@ -2,6 +2,7 @@
 
 #include <d3d11.h>
 #include <flutter/standard_method_codec.h>
+#include <flutter_windows.h>
 #include <wrl/client.h>
 
 #include <optional>
@@ -64,6 +65,60 @@ bool Offers(const std::vector<GUID>& profiles, const GUID& wanted) {
 // Whether the default GPU offers an AV1 decoder.
 bool HasAv1Decoder() { return Offers(DecoderProfiles(), kAv1Profile0); }
 
+// LibrePili: a screen as the self-test picks it, by resolution (physical
+// pixels) and DPI rather than by the order Windows enumerates them in.
+struct Monitor {
+  HMONITOR handle;
+  RECT work;
+  int width;
+  int height;
+  UINT dpi;
+  bool primary;
+};
+
+BOOL CALLBACK CollectMonitor(HMONITOR handle, HDC, LPRECT, LPARAM data) {
+  MONITORINFO info{};
+  info.cbSize = sizeof(info);
+  if (!::GetMonitorInfo(handle, &info)) return TRUE;
+  reinterpret_cast<std::vector<Monitor>*>(data)->push_back(
+      {handle, info.rcWork, info.rcMonitor.right - info.rcMonitor.left,
+       info.rcMonitor.bottom - info.rcMonitor.top,
+       FlutterDesktopGetDpiForMonitor(handle),
+       (info.dwFlags & MONITORINFOF_PRIMARY) != 0});
+  return TRUE;
+}
+
+std::vector<Monitor> Monitors() {
+  std::vector<Monitor> monitors;
+  ::EnumDisplayMonitors(nullptr, nullptr, CollectMonitor,
+                        reinterpret_cast<LPARAM>(&monitors));
+  return monitors;
+}
+
+SIZE ClientSize(HWND window) {
+  RECT client;
+  ::GetClientRect(window, &client);
+  return {client.right - client.left, client.bottom - client.top};
+}
+
+// Sizes |window| so that its client area is |width| x |height|: the frame a
+// title bar (or none) adds is measured, not assumed, then the client area is
+// read back and the outer size corrected once for what came out different
+// (a minimum size can still stop it short: what it got is returned).
+SIZE SetClientSize(HWND window, int width, int height) {
+  for (int i = 0; i < 2; i++) {
+    RECT outer;
+    ::GetWindowRect(window, &outer);
+    const SIZE got = ClientSize(window);
+    if (got.cx == width && got.cy == height) break;
+    ::SetWindowPos(window, nullptr, 0, 0,
+                   outer.right - outer.left + width - got.cx,
+                   outer.bottom - outer.top + height - got.cy,
+                   SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+  }
+  return ClientSize(window);
+}
+
 // LibrePili: {"avc": bool, "hevc": bool, "vp9": bool, "av1": bool}, for
 // marking a quality that would be decoded in software.
 flutter::EncodableMap HardwareDecoders() {
@@ -120,7 +175,9 @@ bool FlutterWindow::OnCreate() {
       });
 
   // window_manager's show / setSize bring the window to the top and take
-  // the focus; the self-test runs behind whatever the user is doing
+  // the focus; the self-test runs behind whatever the user is doing.
+  // Registered whatever the arguments, as before: only its Dart side calls
+  // it, and only the self-test calls that (lib/utils/self_test_window.dart)
   self_test_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "librepili/selftest",
@@ -128,22 +185,125 @@ bool FlutterWindow::OnCreate() {
   self_test_channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
         const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
-        // a missing or non-int size is answered as an error, not an
-        // uncaught std::out_of_range / bad_variant_access
+        // a missing argument map or a missing or mistyped value is answered
+        // as bad-arguments, not an uncaught std::out_of_range /
+        // bad_variant_access
         const auto int_arg = [args](const char* key) -> const int* {
+          if (!args) return nullptr;
           const auto it = args->find(flutter::EncodableValue(key));
           return it == args->end() ? nullptr : std::get_if<int>(&it->second);
         };
-        if (call.method_name() == "resize" && args) {
+        const auto double_arg = [args](const char* key) -> const double* {
+          if (!args) return nullptr;
+          const auto it = args->find(flutter::EncodableValue(key));
+          return it == args->end() ? nullptr
+                                   : std::get_if<double>(&it->second);
+        };
+        const HWND window = GetHandle();
+        const auto& method = call.method_name();
+        if (method == "resize") {
           const int* width = int_arg("width");
           const int* height = int_arg("height");
           if (!width || !height) {
             result->Error("bad-arguments", "resize takes int width, height");
             return;
           }
-          ::SetWindowPos(GetHandle(), nullptr, 0, 0, *width, *height,
+          ::SetWindowPos(window, nullptr, 0, 0, *width, *height,
                          SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
           result->Success();
+        } else if (method == "monitors") {
+          flutter::EncodableList list;
+          for (const auto& monitor : Monitors()) {
+            list.push_back(flutter::EncodableValue(flutter::EncodableMap{
+                {flutter::EncodableValue("width"),
+                 flutter::EncodableValue(monitor.width)},
+                {flutter::EncodableValue("height"),
+                 flutter::EncodableValue(monitor.height)},
+                {flutter::EncodableValue("dpi"),
+                 flutter::EncodableValue(static_cast<int>(monitor.dpi))},
+                {flutter::EncodableValue("primary"),
+                 flutter::EncodableValue(monitor.primary)},
+            }));
+          }
+          result->Success(flutter::EncodableValue(list));
+        } else if (method == "moveToMonitor") {
+          const int* width = int_arg("width");
+          const int* height = int_arg("height");
+          const int* dpi = int_arg("dpi");
+          if (!width || !height || !dpi) {
+            result->Error("bad-arguments",
+                          "moveToMonitor takes int width, height, dpi");
+            return;
+          }
+          std::vector<Monitor> matches;
+          for (const auto& monitor : Monitors()) {
+            if (monitor.width == *width && monitor.height == *height &&
+                static_cast<int>(monitor.dpi) == *dpi) {
+              matches.push_back(monitor);
+            }
+          }
+          if (matches.size() != 1) {
+            result->Error(matches.empty() ? "no-monitor" : "ambiguous-monitor",
+                          "no single screen of that size and DPI");
+            return;
+          }
+          // a maximized window would keep its restored place on the old
+          // screen
+          if (::IsZoomed(window)) ::ShowWindow(window, SW_SHOWNOACTIVATE);
+          ::SetWindowPos(window, nullptr, matches[0].work.left,
+                         matches[0].work.top, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+          result->Success();
+        } else if (method == "contentSize") {
+          const double* width = double_arg("width");
+          const double* height = double_arg("height");
+          const double* scale = double_arg("scale");
+          if (!width || !height || !scale) {
+            result->Error("bad-arguments",
+                          "contentSize takes double width, height, scale");
+            return;
+          }
+          if (::IsZoomed(window)) {
+            result->Error("maximized", "restore the window first");
+            return;
+          }
+          // the DPI the window has now: after a move to another screen,
+          // that screen's
+          UINT dpi = FlutterDesktopGetDpiForHWND(window);
+          const auto physical = [&dpi, scale](double logical) {
+            return static_cast<int>(logical * dpi / 96.0 * *scale + 0.5);
+          };
+          SIZE got = SetClientSize(window, physical(*width), physical(*height));
+          // a resize that reaches onto another screen can change the DPI on
+          // the way (WM_DPICHANGED inside SetWindowPos, which applies the
+          // suggested rect): the target again, at the DPI now in effect
+          if (const UINT now = FlutterDesktopGetDpiForHWND(window);
+              now != dpi) {
+            dpi = now;
+            got = SetClientSize(window, physical(*width), physical(*height));
+          }
+          result->Success(flutter::EncodableValue(flutter::EncodableMap{
+              {flutter::EncodableValue("width"),
+               flutter::EncodableValue(static_cast<int>(got.cx))},
+              {flutter::EncodableValue("height"),
+               flutter::EncodableValue(static_cast<int>(got.cy))},
+              {flutter::EncodableValue("dpi"),
+               flutter::EncodableValue(static_cast<int>(dpi))},
+          }));
+        } else if (method == "maximize") {
+          // SW_MAXIMIZE activates; the window then goes back to the bottom
+          // without activating, as main.cpp places the self-test's
+          ::ShowWindow(window, SW_MAXIMIZE);
+          ::SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+          result->Success(flutter::EncodableValue(::IsZoomed(window) != 0));
+        } else if (method == "restore") {
+          // back to the restored size and place, not activated
+          ::ShowWindow(window, SW_SHOWNOACTIVATE);
+          result->Success(flutter::EncodableValue(::IsZoomed(window) != 0));
+        } else if (method == "foreground") {
+          result->Success(
+              flutter::EncodableValue(::GetForegroundWindow() == window));
         } else {
           result->NotImplemented();
         }
