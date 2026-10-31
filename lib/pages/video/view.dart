@@ -517,8 +517,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       ?..addStatusLister(playerListener)
       ..addPositionListener(positionListener);
     // LibrePili: opened again only if another page took the player; still
-    // this page's, it goes on as it was (it was opened again every time)
-    if (videoDetailController.autoPlay) {
+    // this page's, it goes on as it was (it was opened again every time).
+    // A play URL that came while covered opens now
+    if (videoDetailController.openAtReturn()) {
+      // that open is the return's: nothing else is resumed or opened
+    } else if (videoDetailController.autoPlay) {
       final play = videoDetailController.playerStatus?.isPlaying ?? false;
       if (!videoDetailController.resumeOwnPlayer(play: play)) {
         // the picture taken at the push, with the spinner, until a frame

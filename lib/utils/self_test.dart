@@ -1424,6 +1424,32 @@ abstract final class SelfTest {
         ),
       );
     }
+    // `--covered-query A B [--query-delay S]`: A's play URL held S s (12),
+    // B pushed over A meanwhile
+    if (_arg(args, '--covered-query') case final first?) {
+      final i = args.indexOf('--covered-query');
+      final second = i + 2 < args.length ? args[i + 2] : '';
+      final autoplayBefore = GStorage.setting.get(SettingBoxKey.autoPlayEnable);
+      await GStorage.setting.put(SettingBoxKey.autoPlayEnable, true);
+      try {
+        await scenario(
+          'coveredQuery',
+          () => _coveredQuery(
+            first,
+            second,
+            delay: int.tryParse(_arg(args, '--query-delay') ?? '') ?? 12,
+          ),
+        );
+      } finally {
+        VideoDetailController.debugQueryDelay = null;
+        autoplayBefore == null
+            ? await GStorage.setting.delete(SettingBoxKey.autoPlayEnable)
+            : await GStorage.setting.put(
+                SettingBoxKey.autoPlayEnable,
+                autoplayBefore,
+              );
+      }
+    }
     if (_arg(args, '--history-probe') case final bili?) {
       // a fresh profile does not start the player on its own: without it
       // the bilibili page never opens a source to record
@@ -8178,6 +8204,101 @@ abstract final class SelfTest {
       'secondLength': bLength,
       'secondSaved': saved,
       'status': player.playerStatus.value.name,
+    };
+  }
+
+  /// LibrePili: a video page whose play URL comes while another video page
+  /// is over it (the request held [delay] s by the self-test hook) leaves
+  /// the player to the page on top, and opens its stream at the return (it
+  /// replaced the video on top: audit wps-pass-5 J5, 2026-10-30).
+  static Future<Map<String, dynamic>> _coveredQuery(
+    String first,
+    String second, {
+    int delay = 12,
+  }) async {
+    final firstBvid = RegExp(r'BV[0-9A-Za-z]{10}').stringMatch(first);
+    if (firstBvid == null) return {'pass': false, 'reason': 'A is no BV id'};
+    String url(String s) =>
+        s.startsWith('http') ? s : 'https://www.bilibili.com/video/$s';
+    VideoDetailController.debugQueryDelay = (bvid, _) =>
+        bvid == firstBvid ? Duration(seconds: delay) : null;
+
+    Future<VideoDetailController?> top(
+      bool Function(VideoDetailController) ready,
+    ) async {
+      for (var i = 0; i < 150; i++) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        try {
+          final page = Get.find<VideoDetailController>(
+            tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+          );
+          if (ready(page)) return page;
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    unawaited(PiliScheme.routePushFromUrl(url(first)));
+    final a = await top((page) => page.bvid == firstBvid && page.isQuerying);
+    if (a == null) {
+      return {'pass': false, 'reason': 'A never asked for its URL'};
+    }
+    final player = a.plPlayerController;
+    final aQueryingAtPush = a.isQuerying;
+    final aAnswer = a.queryDone;
+    unawaited(PiliScheme.routePushFromUrl(url(second)));
+    final b = await top(
+      (page) =>
+          !identical(page, a) &&
+          page.ownsPlayer &&
+          player.playerStatus.value.isPlaying &&
+          !player.firstFrameWait.value,
+    );
+    if (b == null) return {'pass': false, 'reason': 'B never played'};
+    final aAnsweredBeforeB = aAnswer == null || a.queryDone == null;
+    final opensBefore = player.openCount;
+    await aAnswer?.timeout(Duration(seconds: delay + 20), onTimeout: () {});
+    // long enough for a stream opened on A's answer to be up
+    await Future.delayed(const Duration(seconds: 4));
+    final covered = {
+      'bOwns': b.ownsPlayer,
+      'aOwns': a.ownsPlayer,
+      'opens': player.openCount - opensBefore,
+      'playing': player.playerStatus.value.isPlaying,
+      'aVideoUrl': a.videoUrl != null,
+    };
+
+    Get.back();
+    var back = false;
+    for (var i = 0; i < 100 && !back; i++) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      back =
+          a.ownsPlayer &&
+          player.playerStatus.value.isPlaying &&
+          !player.firstFrameWait.value;
+    }
+    await Future.delayed(const Duration(seconds: 2));
+    final at = player.videoPlayerController?.state.position.inMilliseconds;
+    return {
+      'pass':
+          aQueryingAtPush &&
+          !aAnsweredBeforeB &&
+          covered['bOwns'] == true &&
+          covered['aOwns'] == false &&
+          covered['playing'] == true &&
+          back &&
+          a.ownsPlayer &&
+          player.playerStatus.value.isPlaying &&
+          (at ?? 0) > 1000,
+      'aQueryingAtPush': aQueryingAtPush,
+      'aAnsweredBeforeB': aAnsweredBeforeB,
+      'whileCovered': covered,
+      'afterReturn': {
+        'aOwns': a.ownsPlayer,
+        'playing': player.playerStatus.value.isPlaying,
+        'firstFrameWait': player.firstFrameWait.value,
+        'positionMs': at,
+      },
     };
   }
 

@@ -1611,6 +1611,10 @@ class VideoDetailController extends GetxController
   /// faster, so that the quality is what changes. Nothing else sets it.
   static bool debugNoHostSwitch = false;
 
+  /// For the self-test (`--covered-query`): how long a part's play URL waits
+  /// before it is asked for, null for no wait. Nothing else sets it.
+  static Duration? Function(String bvid, int cid)? debugQueryDelay;
+
   /// `--tried-hosts a,b`: hosts taken as already given up on for the part,
   /// as after an earlier failover (the user's copy, 2026-10-12).
   static Set<String> debugTriedHosts = const {};
@@ -1802,10 +1806,38 @@ class VideoDetailController extends GetxController
   }
 
   Future<void>? _initPlayerIfNeeded(bool autoFullScreenFlag) {
-    if (_renewing && !isFileSource) {
-      final play = plPlayerController.renewalPlays;
-      if (play) _autoPlay.value = true;
-      return playerInit(autoplay: play);
+    final renewalPlays = _renewing && !isFileSource
+        ? plPlayerController.renewalPlays
+        : null;
+    // another page is over this one: opened now, the stream took the player
+    // from the video page on top (its video replaced by this one's) or
+    // played under any other; it opens at the return (audit wps-pass-5 J5)
+    if (_covered) {
+      _openAtReturn = (autoFullScreenFlag, renewalPlays);
+      return null;
+    }
+    return _openPlayer(autoFullScreenFlag, renewalPlays);
+  }
+
+  /// The open [_initPlayerIfNeeded] put off while this page was covered:
+  /// its auto-fullscreen flag, and what a renewal's open was to do.
+  (bool, bool?)? _openAtReturn;
+
+  /// Back on top (the page's didPopNext): the stream whose play URL came
+  /// while another page was over this one opens now. False when there was
+  /// none.
+  bool openAtReturn() {
+    final open = _openAtReturn;
+    if (open == null) return false;
+    _openAtReturn = null;
+    _openPlayer(open.$1, open.$2);
+    return true;
+  }
+
+  Future<void>? _openPlayer(bool autoFullScreenFlag, bool? renewalPlays) {
+    if (renewalPlays != null) {
+      if (renewalPlays) _autoPlay.value = true;
+      return playerInit(autoplay: renewalPlays);
     }
     if (_autoPlay.value ||
         (plPlayerController.preInitPlayer && !plPlayerController.processing) &&
@@ -2216,6 +2248,9 @@ class VideoDetailController extends GetxController
       preferCodecs = isWiFi ? Pref.preferCodecs : Pref.preferCodecsCellular;
     }
 
+    if (debugQueryDelay?.call(bvid, queryCid) case final delay?) {
+      await Future<void>.delayed(delay);
+    }
     final result = await _getVideoUrl(VideoQuality.hdrVivid.code);
 
     // superseded meanwhile: the queued request fetches the current episode.
