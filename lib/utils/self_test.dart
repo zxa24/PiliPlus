@@ -13,6 +13,7 @@ import 'package:PiliPlus/http/app_proxy.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/pages/download/controller.dart';
 import 'package:PiliPlus/pages/mine/view.dart';
 import 'package:PiliPlus/pages/rcmd/controller.dart';
 import 'package:PiliPlus/http/member.dart';
@@ -26,6 +27,7 @@ import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/pages/scan/view.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show Content, Emote, ReplyInfo;
+import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_translation.dart';
@@ -495,7 +497,12 @@ abstract final class SelfTest {
   /// this way too and no longer fails on a UI error (the online page's
   /// known overflow failed every one of them); the S0a 「核对」 runs today's
   /// self-test on S0a and its parent, so it is not affected.
-  static final wpChecks = <String>{'openOffline', 'openBili', 'wpRead'};
+  static final wpChecks = <String>{
+    'openOffline',
+    'openBili',
+    'wpRead',
+    'wpSteps',
+  };
 
   static void _watchForUiErrors() {
     final previous = FlutterError.onError;
@@ -1459,6 +1466,13 @@ abstract final class SelfTest {
         }
       }
     }
+    // `--wp-open SPEC --wp-steps "STEP;STEP;..."`: the watch-page behaviour
+    // checks of design §6.4 (S0b): one page opened and driven step by
+    // step, read at the steps' moments (see _wpSteps for both lists)
+    if (args.contains('--wp-open')) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('wpSteps', () => _inWindow(args, () => _wpSteps(args)));
+    }
     // `--wp-read [--wp-tag T] [--wp-hold S] [--wp-rounds N]`: opens
     // nothing; run after `--open-offline` / `--open-bili` (in the same
     // command line), it records every accessor reading of the page named T
@@ -2267,6 +2281,272 @@ abstract final class SelfTest {
         'rebuilds': _rebuilds(),
       },
     };
+  }
+
+  // ------------------------------------------------------------ wp steps
+
+  /// `--wp-open SPEC --wp-steps "STEP;STEP;..." [--wp-ready play|page]
+  /// [--wp-hold S] [--wp-query-delay S] [--window-size WxH] [--shots DIR]`:
+  /// the watch-page behaviour checks of design §6.4 (S0b), check `wpSteps`.
+  /// One page is opened in the window --window-size sets (its first build
+  /// is at that size), waited for (`play`: until it plays, refused up front
+  /// with autoplay off; `page`: only until it validates; at most S s, 30),
+  /// then driven by the steps in order. Every reading is WpRead's of that
+  /// page by its tag (self_test_watch.dart): its lists keyed by role, every
+  /// list seen earlier in the run still there (`absent: true`, every key
+  /// `absent`), plus `kept`: whether the player State, the tab area's
+  /// State and each list's Scrollable (same keys) are the same objects as
+  /// at the first reading. A recording check: pass = measured = the page
+  /// opened and every step ran, every reading validated and every
+  /// `require` held. What a regression can change is a value, never a
+  /// stop: a step with nothing to act on is skipped and recorded
+  /// (events.skipped, and the step's own event); only the harness stops a
+  /// run (the window refused, the page never opened, a list that cannot
+  /// be seeded, a design precondition). Field tables: test/mutants/wp_fields/.
+  ///
+  /// SPEC: `offline:<cid:C | avid:A | N>` (a completed download, tag
+  /// selftest_wp), `downloads:<cid:C>` (the download page pushed first, so
+  /// its controller gives the offline page its whole list, then that
+  /// entry opened as the page does), `bili:<url>` (PiliScheme),
+  /// `bvid:<BV>:<cid>:vert0|vert1` (PageUtils.toVideoPage with that
+  /// isVertical and no dimension, tag selftest_wp, design §6.4 R1
+  /// 「isVertical 变化」), `yt:<id>`.
+  ///
+  /// STEP (`moments`, `events`, `shots` are the report's):
+  /// - `read:L` moments[L] = a reading; `shot:L` a screenshot (--shots)
+  /// - `settle` (no metrics change for 1 s, then a frame); `wait:MS`
+  /// - `size:WxH` the window's content (logical); `maximize`, `restore`
+  ///   (these cover a screen: fullscreen batch only). In fullscreen each of
+  ///   these reads moments[before:<step>] first (§6.2)
+  /// - `fs:inapp|native` reads enterBefore, asks fullscreen as the player's
+  ///   button does, reads enterDone once it is done (§6.2: the flag at its
+  ///   value, fsProcessing false, 1 s without didChangeMetrics, a frame);
+  ///   `fsexit` reads exitBefore and exitDone the same way and records
+  ///   events.exitCleared. From the ask to 1 s after exitDone every frame
+  ///   is recorded (`frames`, record only)
+  /// - `tab:R` the first tab bar's controller to the tab of role R (or
+  ///   `#N`); `taptab:R` a tap on that tab, as a pointer does
+  /// - `seed:R=PX` list of role R moved to PX (or its end) and verified off
+  ///   0 (events[seed:R]; a list that cannot be seeded stops the run);
+  ///   `scroll:R=PX|max` the same unverified; `wheel:R=DY*N` N mouse-wheel
+  ///   notches of DY over it
+  /// - `waitlist:R[@MS]` until list R is there with content and its extent
+  ///   unchanged for 1 s (the data / layout milestone; events[step])
+  /// - `play`, `pause`, `seek:MS`
+  /// - `waitfor:C[@MS]` C one of playing, paused, url, querying, vertical,
+  ///   tabs=N, pixels:R>N, max:R>N (20 s by default; events[step] whether
+  ///   it came; never a stop)
+  /// - `require:C` a design precondition, C as for waitfor or notvertical,
+  ///   r5f (R5f's premises; a file stands for the play URL offline),
+  ///   grew:A:B (the tab count was A, later B); false = not measured
+  /// - `tapbar`, `tapsettings` the portrait branch's collapsed bar (R5)
+  ///   and its 「更多设置」 (events.tapbar, events.settings: did a sheet
+  ///   open; not built = `{"$unread": "not built"}`, skipped)
+  /// - `nullplayed`, `nullurl` the test's own state injections of R5f /
+  ///   R5e (playedTime, videoUrl set to null)
+  /// - `expandplay[:N]` collapse, play and watch the expand animation, up
+  ///   to N attempts for one whose sampled tick lies in the informative
+  ///   range (events.expandStarted, events.expand; R5b, M1, T3; see
+  ///   _WpRun._expandPlay)
+  /// - `tabwatch` records every change of the tab set or index with the
+  ///   season panels built (events.tabSeq, R4a; `--wp-tabwatch` starts it
+  ///   as soon as the page validates); `snap:L` the controller's scalars
+  ///   now, unsettled (events[snap:L]); `opens:mark`, `opens:delta`
+  ///   (events.opensDelta: the player's opens since the mark, R5f / R5g)
+  /// - `nextep` the pgc page's next episode as the episode panel picks it,
+  ///   until the page's cid changes (同步调用 T1)
+  static Future<Map<String, dynamic>> _wpSteps(List<String> args) async {
+    final spec = _arg(args, '--wp-open') ?? '';
+    final steps = [
+      for (final s in (_arg(args, '--wp-steps') ?? '').split(';'))
+        if (s.trim().isNotEmpty) s.trim(),
+    ];
+    final run = _WpRun(spec, steps);
+    if (_arg(args, '--wp-query-delay') case final s?) {
+      final seconds = int.tryParse(s);
+      if (seconds == null) {
+        return run.result(error: '--wp-query-delay takes seconds, not "$s"');
+      }
+      VideoDetailController.debugQueryDelay = (_, _) =>
+          Duration(seconds: seconds);
+      run.events['queryDelay'] = seconds;
+    }
+    try {
+      final tag = await _wpOpenPage(spec, run);
+      if (tag == null) return run.result(error: run.error ?? 'no page');
+      run
+        ..tag = tag
+        ..kind = WpRead.find(tag).page!.kind
+        ..note('opened $tag (${WpRead.find(tag).page!.kind})');
+      // `--wp-tabwatch`: the tab watch from the moment the page validates,
+      // before it is ready (R4a: the collection can come in the first
+      // second)
+      if (args.contains('--wp-tabwatch')) await run.step('tabwatch');
+      await run.ready(
+        _arg(args, '--wp-ready') ?? 'play',
+        int.tryParse(_arg(args, '--wp-hold') ?? '') ?? 30,
+      );
+      for (final step in steps) {
+        run.note(step);
+        await run.step(step);
+      }
+      return run.result();
+    } on _WpStop catch (stop) {
+      return run.result(error: stop.reason);
+    } catch (e, s) {
+      return run.result(error: '$e', stack: '$s');
+    } finally {
+      run.dispose();
+      VideoDetailController.debugQueryDelay = null;
+    }
+  }
+
+  /// [spec]'s page opened (see [_wpSteps]); its tag once it validates, or
+  /// null with [_WpRun.error] set.
+  static Future<String?> _wpOpenPage(String spec, _WpRun run) async {
+    final before = WpRead.tags().toSet();
+    final colon = spec.indexOf(':');
+    final kind = colon < 0 ? spec : spec.substring(0, colon);
+    final rest = colon < 0 ? '' : spec.substring(colon + 1);
+    String? tag;
+    switch (kind) {
+      case 'offline':
+        final entry = await _wpDownload(rest.isEmpty ? null : rest, run);
+        if (entry == null) return null;
+        tag = 'selftest_wp';
+        unawaited(
+          PageUtils.toVideoPage(
+            aid: entry.avid,
+            cid: entry.cid,
+            cover: entry.cover,
+            title: entry.showTitle,
+            isVertical: entry.pageData?.isVertical ?? false,
+            extraArguments: {
+              'sourceType': SourceType.file,
+              'entry': entry,
+              'dirPath': entry.entryDirPath,
+              'heroTag': tag,
+            },
+          ),
+        );
+      case 'downloads':
+        // the download page first: the offline page's list (and its jump
+        // to the one playing) comes from its controller (design §5 素材)
+        unawaited(Get.toNamed('/download'));
+        final clock = Stopwatch()..start();
+        while (clock.elapsed < const Duration(seconds: 20) &&
+            !(Get.isRegistered<DownloadPageController>() &&
+                Get.find<DownloadPageController>().pages.isNotEmpty)) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        if (!Get.isRegistered<DownloadPageController>()) {
+          run.error = 'the download page did not open';
+          return null;
+        }
+        run.events['downloadPageRows'] =
+            Get.find<DownloadPageController>().pages.length;
+        await Future.delayed(const Duration(seconds: 1));
+        final entry = await _wpDownload(rest, run);
+        if (entry == null) return null;
+        unawaited(
+          Get.find<DownloadService>().platformOf(entry).openOffline(entry),
+        );
+      case 'bili':
+        unawaited(PiliScheme.routePushFromUrl(rest));
+      case 'bvid':
+        final parts = rest.split(':');
+        final cid = parts.length == 3 ? int.tryParse(parts[1]) : null;
+        if (cid == null || (parts[2] != 'vert0' && parts[2] != 'vert1')) {
+          run.error = '--wp-open bvid:<BV>:<cid>:vert0|vert1, not "$spec"';
+          return null;
+        }
+        tag = 'selftest_wp';
+        unawaited(
+          PageUtils.toVideoPage(
+            bvid: parts[0],
+            cid: cid,
+            isVertical: parts[2] == 'vert1',
+            extraArguments: {'heroTag': tag},
+          ),
+        );
+      case 'yt':
+        // the page keeps the bare id as its tag when it is the first
+        tag = rest;
+        unawaited(Get.toNamed('/ytVideo', parameters: {'id': rest}));
+      default:
+        run.error =
+            '--wp-open takes offline:, downloads:, bili:, bvid: or '
+            'yt:, not "$spec"';
+        return null;
+    }
+    final clock = Stopwatch()..start();
+    while (clock.elapsed < const Duration(seconds: 30)) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      final t =
+          tag ??
+          WpRead.mountOrder().firstWhereOrNull(
+            (t) => !before.contains(t) && WpRead.find(t).page != null,
+          );
+      if (t != null && WpRead.find(t).page != null) return t;
+    }
+    run.error =
+        'the page did not validate within 30 s: '
+        '${tag == null ? 'no new page' : WpRead.find(tag).why}';
+    return null;
+  }
+
+  /// A completed download with its file there, as `--entry` picks one.
+  static Future<BiliDownloadEntryInfo?> _wpDownload(
+    String? entry,
+    _WpRun run,
+  ) async {
+    final service = Get.find<DownloadService>();
+    await service.waitForInitialization;
+    final completed = service.downloadList
+        .whereType<BiliDownloadEntryInfo>()
+        .where((e) => e.mergedPath != null && File(e.mergedPath!).existsSync())
+        .toList();
+    final found = switch (entry?.split(':')) {
+      null => completed.firstOrNull,
+      [final n] when (int.tryParse(n) ?? -1) >= 0 => completed.elementAtOrNull(
+        int.parse(n),
+      ),
+      ['cid', final c] when int.tryParse(c) != null =>
+        completed.firstWhereOrNull((e) => e.cid == int.parse(c)),
+      ['avid', final a] when int.tryParse(a) != null =>
+        completed.firstWhereOrNull((e) => e.avid == int.parse(a)),
+      _ => null,
+    };
+    if (found == null) {
+      run.error =
+          'no completed download for "${entry ?? 'the first'}" '
+          '(${completed.length} with a video file)';
+    } else {
+      run.events['entry'] = {
+        'index': completed.indexOf(found),
+        'of': completed.length,
+        'cid': found.cid,
+      };
+    }
+    return found;
+  }
+
+  /// Taps [e]'s centre as a pointer does; false when it has no box.
+  static Future<bool> _wpTapElement(Element e) async {
+    final box = e.findRenderObject();
+    if (box is! RenderBox || !box.hasSize || !box.attached) return false;
+    final position = box.localToGlobal(box.size.center(Offset.zero));
+    final pointer = ++_pointer;
+    final binding = GestureBinding.instance
+      ..handlePointerEvent(
+        PointerDownEvent(pointer: pointer, position: position),
+      );
+    await Future.delayed(const Duration(milliseconds: 60));
+    binding.handlePointerEvent(
+      PointerUpEvent(pointer: pointer, position: position),
+    );
+    await Future.delayed(const Duration(milliseconds: 300));
+    return true;
   }
 
   // ------------------------------------------------------------ scenarios
@@ -12529,4 +12809,790 @@ class _GateWatch {
     },
     'shot': shotPath,
   };
+}
+
+/// A `--wp-steps` check stopped: not measured, for [reason]. Only the
+/// harness stops a run (the window refused, the page never opened, the
+/// material cannot give the state, a precondition the design makes part of
+/// measured); what a regression can change is recorded as a value and the
+/// run goes on (S0b part 3a review).
+final class _WpStop implements Exception {
+  _WpStop(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => reason;
+}
+
+/// One `--wp-steps` check as it runs (SelfTest._wpSteps): the page it drives
+/// and what it has read.
+final class _WpRun {
+  _WpRun(this.spec, this.steps);
+
+  final String spec;
+  final List<String> steps;
+  String? tag;
+  String? kind;
+  String? error;
+  final moments = <String, Object?>{};
+  final events = <String, Object?>{};
+  final shots = <String, Object?>{};
+  final _log = <String>[];
+  final _clock = Stopwatch()..start();
+  final _cleanUps = <void Function()>[];
+
+  /// Steps that found nothing to act on (a button not built, a list not
+  /// there): recorded, the run goes on (events.skipped).
+  final _skipped = <Object?>[];
+
+  /// The identities the first reading saw: what `kept` compares with.
+  Map<String, Object?>? _base;
+
+  /// Every list key a reading has seen, with its last record: a list gone
+  /// later is still written, with every key `absent`, never dropped.
+  final _seenLists = <String, Map<String, Object?>>{};
+
+  /// Every list key `kept` has seen.
+  final _keptKeys = <String>{};
+
+  void note(String what) => _log.add('${_clock.elapsedMilliseconds} $what');
+
+  Never stop(String reason) => throw _WpStop(reason);
+
+  /// [step] had nothing to act on: recorded, not a stop.
+  void skip(String step, String why) {
+    _skipped.add({'step': step, 'why': why});
+    note('skipped $step: $why');
+  }
+
+  VideoDetailController get bili {
+    if (kind != 'bili') stop('a bilibili page step on a $kind page');
+    return Get.find<VideoDetailController>(tag: tag);
+  }
+
+  YtVideoController get yt => Get.find<YtVideoController>(tag: tag);
+
+  PlPlayerController get player =>
+      kind == 'yt' ? yt.plPlayerController : bili.plPlayerController;
+
+  // ------------------------------------------------------------ result
+
+  Map<String, dynamic> result({String? error, String? stack}) {
+    final why = error ?? this.error;
+    final measured =
+        why == null &&
+        moments.isNotEmpty &&
+        moments.values.every((m) => m is Map && m['measured'] == true);
+    events['skipped'] = _skipped;
+    return {
+      'pass': measured,
+      'measured': measured,
+      'error': ?(why ?? (measured ? null : 'a reading did not validate')),
+      'stack': ?stack,
+      'open': spec,
+      'tag': tag ?? WpRead.unread('noPage'),
+      'kind': kind ?? WpRead.unread('noPage'),
+      'steps': steps,
+      'moments': moments,
+      'events': events,
+      if (shots.isNotEmpty) 'shots': shots,
+      if (_frames.isNotEmpty)
+        'frames': {'columns': _frameColumns, 'rows': _frames},
+      'log': _log,
+    };
+  }
+
+  void dispose() {
+    _framesOn = false;
+    for (final c in _cleanUps.reversed) {
+      try {
+        c();
+      } catch (_) {}
+    }
+    _cleanUps.clear();
+  }
+
+  // ------------------------------------------------------------ reading
+
+  Map<String, Object?> _identities() => {
+    'player': WpRead.playerState(tag!),
+    'tabArea': WpRead.tabAreaState(tag!),
+    'lists': WpRead.listStates(tag!),
+  };
+
+  /// Whether each identity is the object the first reading saw: true /
+  /// false, `new` (not there then), `none` (not there now). The lists by
+  /// the same keys as the reading's `lists`; one seen before and not there
+  /// now is `none`, never a dropped key.
+  Map<String, Object?> _kept() {
+    final now = _identities();
+    final base = _base ??= now;
+    Object one(Object? then, Object? now) => now == null
+        ? 'none'
+        : then == null
+        ? 'new'
+        : identical(then, now);
+    final thenLists = base['lists']! as Map<String, ScrollableState>;
+    final nowLists = now['lists']! as Map<String, ScrollableState>;
+    _keptKeys
+      ..addAll(thenLists.keys)
+      ..addAll(nowLists.keys);
+    return {
+      'player': one(base['player'], now['player']),
+      'tabArea': one(base['tabArea'], now['tabArea']),
+      'lists': {
+        for (final key in _keptKeys) key: one(thenLists[key], nowLists[key]),
+      },
+      'gone': [
+        for (final key in thenLists.keys)
+          if (!nowLists.containsKey(key)) key,
+      ],
+    };
+  }
+
+  /// The reading's lists, every one any reading of this run has seen: one
+  /// there now has `absent: false`, one gone has every key `absent`.
+  Object _lists(Object? lists) {
+    if (lists is! Map<String, Object?>) {
+      return lists ?? WpRead.unread('noLists');
+    }
+    final out = <String, Object?>{};
+    for (final MapEntry(:key, :value) in lists.entries) {
+      if (value is Map<String, Object?>) {
+        _seenLists[key] = value;
+        out[key] = {...value, 'absent': false};
+      } else {
+        out[key] = value;
+      }
+    }
+    for (final MapEntry(:key, :value) in _seenLists.entries) {
+      out.putIfAbsent(
+        key,
+        () => {for (final k in value.keys) k: 'absent', 'absent': true},
+      );
+    }
+    return out;
+  }
+
+  /// A reading now: WpRead's of the page, its lists kept by key across the
+  /// run, `kept`, and the bilibili page's tab controller (its index and
+  /// length, read through WpRead.tabsOf, the one place S1 moves it behind a
+  /// getter).
+  Map<String, Object?> readNow() {
+    final r = Map<String, Object?>.of(WpRead.read(tag!));
+    if (r['measured'] == true && WpRead.walks) {
+      r['lists'] = _lists(r['lists']);
+      r['kept'] = _kept();
+    }
+    if (kind == 'bili' && Get.isRegistered<VideoDetailController>(tag: tag)) {
+      final tabs = WpRead.tabsOf(Get.find<VideoDetailController>(tag: tag));
+      r['tabCtr'] = {'index': tabs.index, 'length': tabs.length};
+    } else {
+      r['tabCtr'] = 'none';
+    }
+    return r;
+  }
+
+  /// [label]'s reading, settled first (§6.2: 1 s without a metrics change,
+  /// then read after a frame).
+  Future<void> read(String label) async {
+    final r = await WpRead.settled(readNow);
+    if (r == null) stop('read $label: the window never settled');
+    moments[label] = r;
+    if (r['measured'] != true) {
+      stop('read $label: the page does not validate (${r['page']})');
+    }
+  }
+
+  // ------------------------------------------------------------ waiting
+
+  Future<void> ready(String mode, int seconds) async {
+    if (mode != 'play' && mode != 'page') {
+      stop('--wp-ready takes play or page, not "$mode"');
+    }
+    // play waits for playback: with autoplay off there is none to wait for
+    if (mode == 'play' && kind == 'bili' && !bili.autoPlay) {
+      stop(
+        '--wp-ready play needs autoplay on; with it off use --wp-ready page',
+      );
+    }
+    final clock = Stopwatch()..start();
+    bool done() {
+      if (mode == 'page') return true;
+      if (kind == 'yt') return yt.stage.value != YtPageStage.loading;
+      final c = bili;
+      if (!c.isFileSource && c.isQuerying) return false;
+      return c.videoState.value;
+    }
+
+    while (!done() && clock.elapsed < Duration(seconds: seconds)) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    events['ready'] = done();
+    note('ready ${done()} after ${clock.elapsedMilliseconds} ms');
+    if (!done()) stop('the page was not ready within $seconds s ($mode)');
+    if (await WpRead.settled(() => true) == null) {
+      stop('the window never settled after opening');
+    }
+  }
+
+  ScrollableState? _list(String role) =>
+      WpRead.listStates(tag!)[WpRead.listKey(role)];
+
+  bool _cond(String c) => switch (c) {
+    'playing' => player.playerStatus.isPlaying,
+    'paused' => player.playerStatus.value == PlayerStatus.paused,
+    'url' => !bili.isQuerying && bili.videoUrl != null,
+    'querying' => bili.isQuerying,
+    'vertical' => bili.isVertical.value,
+    'notvertical' => !bili.isVertical.value,
+    'fullscreen' => player.isFullScreen.value,
+    'windowed' => !player.isFullScreen.value,
+    // R5f's premises (§6.6): a play URL, or a file (the offline page has
+    // no URL: handlePlay and the bar skip that check for it, B:812-826)
+    'r5f' =>
+      !bili.isQuerying &&
+          (bili.isFileSource || bili.videoUrl != null) &&
+          bili.ownsPlayer &&
+          bili.playedTime == null,
+    final t when t.startsWith('tabs=') =>
+      WpRead.tabsOf(bili).length == int.tryParse(t.substring(5)),
+    final g when g.startsWith('grew:') => _grew(g),
+    // pixels:ROLE>N, max:ROLE>N: the list's offset / extent now
+    final m when m.startsWith('pixels:') || m.startsWith('max:') => _extent(m),
+    _ => stop('no condition "$c"'),
+  };
+
+  bool _extent(String c) {
+    final colon = c.indexOf(':');
+    final gt = c.indexOf('>');
+    if (gt < 0) stop('$c: ROLE>N');
+    final list = _list(c.substring(colon + 1, gt));
+    final n = double.parse(c.substring(gt + 1));
+    if (list == null || !list.position.hasContentDimensions) return false;
+    final p = list.position;
+    return (c.startsWith('pixels:') ? p.pixels : p.maxScrollExtent) > n;
+  }
+
+  /// `grew:A:B`: the tab watch saw A tabs and, later, B.
+  bool _grew(String g) {
+    final p = g.split(':');
+    final seq = (events['tabSeq'] as List?) ?? const [];
+    final lengths = [for (final s in seq) (s as Map)['length']];
+    final a = lengths.indexOf(int.tryParse(p.elementAtOrNull(1) ?? ''));
+    return a >= 0 &&
+        lengths.skip(a + 1).contains(int.tryParse(p.elementAtOrNull(2) ?? ''));
+  }
+
+  // ------------------------------------------------------------ steps
+
+  Future<void> step(String step) async {
+    final colon = step.indexOf(':');
+    final verb = colon < 0 ? step : step.substring(0, colon);
+    final arg = colon < 0 ? '' : step.substring(colon + 1);
+    switch (verb) {
+      case 'read':
+        await read(arg);
+      case 'shot':
+        shots[arg] =
+            await SelfTest._shot('wp_$arg') ?? WpRead.unread('noShots');
+      case 'settle':
+        if (await WpRead.settled(() => true) == null) {
+          stop('settle: the window never settled');
+        }
+      case 'wait':
+        await Future.delayed(Duration(milliseconds: int.parse(arg)));
+      case 'size':
+        if (player.isFullScreen.value) await read('before:$step');
+        final asked = await WpWindow.apply(
+          (name) => name == '--window-size' ? arg : null,
+        );
+        if (asked?['error'] case final e?) stop('size $arg: $e');
+      case 'maximize' || 'restore':
+        if (player.isFullScreen.value) await read('before:$step');
+        // maximize answers whether the window is maximized after it,
+        // restore whether it is STILL maximized (flutter_window.cpp)
+        final ok = verb == 'maximize'
+            ? await SelfTestWindow.maximize()
+            : !await SelfTestWindow.restore();
+        if (!ok) stop('$verb: the window did not');
+        if (await WpRead.settled(() => true) == null) {
+          stop('$verb: the window never settled');
+        }
+      case 'fs':
+        if (arg != 'inapp' && arg != 'native') {
+          stop('fs takes inapp or native, not "$arg"');
+        }
+        await read('enterBefore');
+        _startFrames();
+        unawaited(
+          player.triggerFullScreen(
+            status: true,
+            inAppFullScreen: arg == 'inapp',
+          ),
+        );
+        await _fsDone(true, 'enterDone');
+      case 'fsexit':
+        await read('exitBefore');
+        unawaited(player.triggerFullScreen(status: false));
+        await _fsDone(false, 'exitDone');
+        // the exit left fullscreen, flag and all (§6.4 R3)
+        events['exitCleared'] =
+            !player.isFullScreen.value && !player.fsProcessing;
+        await Future.delayed(const Duration(seconds: 1));
+        _framesOn = false;
+      case 'tab' || 'taptab':
+        final bars = WpRead.tabBars(tag!);
+        if (bars.isEmpty) {
+          skip(step, 'no tab bar');
+          events[step] = WpRead.unread('noTabBar');
+          return;
+        }
+        final bar = bars.first;
+        final i = arg.startsWith('#')
+            ? int.parse(arg.substring(1))
+            : bar.roles.indexOf(arg);
+        if (i < 0 || i >= bar.tabs.length) {
+          skip(step, 'no such tab in ${bar.roles}');
+          events[step] = WpRead.unread('noSuchTab');
+          return;
+        }
+        if (verb == 'tab') {
+          final ctr = bar.bar.controller;
+          if (ctr == null) stop('$step: the tab bar has no controller');
+          ctr.animateTo(i);
+          await Future.delayed(const Duration(milliseconds: 600));
+        } else if (!await SelfTest._wpTapElement(bar.tabs[i])) {
+          skip(step, 'the tab has no box');
+          events[step] = WpRead.unread('noBox');
+          return;
+        }
+        if (await WpRead.settled(() => true) == null) {
+          stop('$step: the window never settled');
+        }
+      case 'scroll' || 'wheel' || 'seed':
+        final eq = arg.indexOf('=');
+        if (eq < 0) stop('$verb takes ROLE=..., not "$arg"');
+        final role = arg.substring(0, eq);
+        final value = arg.substring(eq + 1);
+        final list = _list(role);
+        if (list == null) {
+          final have = WpRead.listStates(tag!).keys;
+          // seeding is the harness's: a list that cannot be seeded is not
+          // the state the check is about
+          if (verb == 'seed') stop('$step: no list "$role" ($have)');
+          skip(step, 'no list "$role" ($have)');
+          events[step] = WpRead.unread('noList');
+          return;
+        }
+        if (verb == 'wheel') {
+          final parts = value.split('*');
+          if (parts.length != 2) stop('wheel takes ROLE=DY*N, not "$arg"');
+          final box = list.context.findRenderObject();
+          if (box is! RenderBox || !box.hasSize) stop('$step: no box');
+          await SelfTest._scroll(
+            box.localToGlobal(box.size.center(Offset.zero)),
+            double.parse(parts[0]),
+            times: int.parse(parts[1]),
+          );
+        } else {
+          final p = list.position;
+          final to = value == 'max'
+              ? p.maxScrollExtent
+              : math.min(double.parse(value), p.maxScrollExtent);
+          p.jumpTo(to);
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+        final pixels = list.position.pixels;
+        note('$role at $pixels');
+        if (verb == 'seed') {
+          // a verified nonzero offset: what a return to the top, or a kept
+          // position, is then measured against
+          if (pixels <= 0) {
+            stop(
+              '$step: the list could not be moved off 0 '
+              '(max ${list.position.maxScrollExtent})',
+            );
+          }
+          events[step] = WpRead.half(pixels);
+        }
+      case 'waitlist':
+        // the data / layout milestone a reading of this list depends on:
+        // the list there, with content, its extent unchanged for 1 s
+        final at = arg.indexOf('@');
+        final role = at < 0 ? arg : arg.substring(0, at);
+        final ms = at < 0 ? 20000 : int.parse(arg.substring(at + 1));
+        final clock = Stopwatch()..start();
+        double? last;
+        final still = Stopwatch();
+        var met = false;
+        while (clock.elapsedMilliseconds < ms) {
+          final list = _list(role);
+          final p = list?.position;
+          final max = p != null && p.hasContentDimensions
+              ? p.maxScrollExtent
+              : null;
+          if (max == null || max <= 0 || max != last) {
+            last = max;
+            still
+              ..reset()
+              ..start();
+          } else if (still.elapsedMilliseconds >= 1000) {
+            met = true;
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        events[step] = met;
+        if (!met) skip(step, 'the list did not settle within $ms ms');
+      case 'play':
+        await player.play();
+        await Future.delayed(const Duration(milliseconds: 300));
+      case 'pause':
+        await player.pause();
+        await Future.delayed(const Duration(milliseconds: 300));
+      case 'seek':
+        await player.seekTo(
+          Duration(milliseconds: int.parse(arg)),
+          isSeek: false,
+        );
+        await Future.delayed(const Duration(milliseconds: 300));
+      case 'waitfor':
+        // recorded, never a stop: what a regression delays shows in the
+        // readings after it; a precondition is a `require`
+        final at = arg.indexOf('@');
+        final c = at < 0 ? arg : arg.substring(0, at);
+        final ms = at < 0 ? 20000 : int.parse(arg.substring(at + 1));
+        final clock = Stopwatch()..start();
+        var met = _cond(c);
+        while (!met && clock.elapsedMilliseconds <= ms) {
+          await Future.delayed(const Duration(milliseconds: 50));
+          met = _cond(c);
+        }
+        events[step] = met;
+        if (!met) skip(step, 'not within $ms ms');
+      case 'require':
+        // the design's preconditions (part of measured: §6.4 R1 isVertical,
+        // R4 2 -> 3 tabs, §6.6 R5f, M5): none of them a §6.6 mutant changes
+        final held = _cond(arg);
+        events[step] = held;
+        if (!held) stop('$step: it does not hold');
+      case 'tapbar' || 'tapsettings':
+        final bar = WpRead.collapsedBar(tag!);
+        final target = verb == 'tapbar' ? bar.label : bar.settings;
+        if (target == null) {
+          // what the bar shows is the reading's (extras.bar): a button a
+          // regression took away is recorded, the run goes on
+          skip(step, 'not built');
+          events[verb == 'tapbar' ? 'tapbar' : 'settings'] = WpRead.unread(
+            'not built',
+          );
+          return;
+        }
+        final routes = Ctl.routes.stack.length;
+        if (!await SelfTest._wpTapElement(target)) stop('$step: no box');
+        if (verb == 'tapbar') {
+          events['tapbar'] = 'tapped';
+        } else {
+          await Future.delayed(const Duration(seconds: 1));
+          final opened = Ctl.routes.stack.length > routes;
+          events['settings'] = {'opened': opened};
+          if (opened) {
+            Get.back();
+            await Future.delayed(const Duration(milliseconds: 800));
+          }
+        }
+      case 'snap':
+        // the controller's scalars this moment, no settling, no walk
+        // (an event-defined reading: right after a tap, R5e)
+        final page = WpRead.find(tag!).page;
+        events['snap:$arg'] = page == null
+            ? WpRead.unread('pageRoute')
+            : WpRead.controllerScalars(page);
+      case 'nullplayed':
+        bili.playedTime = null;
+      case 'nullurl':
+        if (bili.isQuerying) stop('$step: the page is asking its URL');
+        bili.videoUrl = null;
+      case 'expandplay':
+        await _expandPlay(arg.isEmpty ? 3 : int.parse(arg));
+      case 'tabwatch':
+        _watchTabs();
+      case 'opens':
+        if (arg == 'mark') {
+          _opensMark = player.openCount;
+        } else {
+          final mark = _opensMark ?? stop('opens:delta before opens:mark');
+          events['opensDelta'] = player.openCount - mark;
+        }
+      case 'nextep':
+        final ctr = bili;
+        final from = ctr.cid.value;
+        final next = Get.find<PgcIntroController>(tag: tag).nextPlay();
+        events['nextep'] = {'from': from, 'moved': next};
+        if (!next) stop('$step: there is no next episode');
+        final clock = Stopwatch()..start();
+        while (ctr.cid.value == from) {
+          if (clock.elapsed > const Duration(seconds: 20)) {
+            stop('$step: the cid did not change');
+          }
+          await Future.delayed(const Duration(milliseconds: 50));
+        }
+      default:
+        stop('no step "$step"');
+    }
+  }
+
+  int? _opensMark;
+
+  /// Waits for the fullscreen flag to be [target] with fsProcessing false,
+  /// then reads [label] once settled (§6.2 「完成」).
+  Future<void> _fsDone(bool target, String label) async {
+    final clock = Stopwatch()..start();
+    while (player.isFullScreen.value != target || player.fsProcessing) {
+      if (clock.elapsed > const Duration(seconds: 10)) {
+        stop('fullscreen $target: the flag never settled');
+      }
+      await Future.delayed(const Duration(milliseconds: 20));
+    }
+    events['${label}Ms'] = clock.elapsedMilliseconds;
+    await read(label);
+  }
+
+  // ------------------------------------------------------------ expand
+
+  /// `expandplay[:N]` (R5b, M1, T3; design §6.4 R5 「读数的时刻」): paused,
+  /// the portrait header collapsed to the bar, then played; the page's
+  /// expand animation watched. One attempt counts when the expansion
+  /// started below 0.5 (1 − offset / videoHeight) and its first tick at or
+  /// above 0.5 that we saw was at most 0.9: in that range a height that
+  /// follows `value` and one that follows `value²` differ by more than
+  /// 0.05, and the header still changes from frame to frame, so a stale
+  /// player height shows. Up to N attempts (3); events.expandStarted is
+  /// whether any attempt started an expansion, events.expand the counted
+  /// attempt or, with none, `sampled: false` and both checks
+  /// `notSampled`. The page's AnimationController is made lazily by the
+  /// page (BC `animationController`): it is read only once the page has
+  /// made it (`animController`), never made here.
+  Future<void> _expandPlay(int attempts) async {
+    final ctr = bili;
+    final tries = <Map<String, Object?>>[];
+    Map<String, Object?>? counted;
+    var started = false;
+    for (var i = 0; i < attempts && counted == null; i++) {
+      await player.seekTo(Duration.zero, isSeek: false);
+      await player.pause();
+      await Future.delayed(const Duration(milliseconds: 300));
+      final outer = _list('nestedOuter');
+      if (outer == null) stop('expandplay: no nestedOuter list (not portrait)');
+      outer.position.jumpTo(outer.position.maxScrollExtent);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (await WpRead.settled(() => true) == null) {
+        stop('expandplay: the window never settled');
+      }
+      final offset = ctr.scrollCtr.hasClients ? ctr.scrollCtr.offset : 0.0;
+      final videoHeight = ctr.videoHeight;
+      final start = videoHeight > 0 ? 1 - offset / videoHeight : 1.0;
+      final t = await _watchExpand(start);
+      tries.add(t);
+      if (t['started'] == true) started = true;
+      if (t['inRange'] == true) counted = t;
+    }
+    double r3(Object? v) => ((v as num) * 1000).roundToDouble() / 1000;
+    events['expandStarted'] = started;
+    events['expandAttempts'] = [
+      for (final t in tries)
+        {
+          'start': r3(t['start']!),
+          'sampledAt': t['value'] == null ? 'none' : r3(t['value']),
+          'inRange': t['inRange'],
+        },
+    ];
+    final c = counted;
+    events['expand'] = c == null
+        ? {
+            'sampled': false,
+            'headerFollowsValue': 'notSampled',
+            'playerMatchesHeader': 'notSampled',
+          }
+        : {
+            'sampled': true,
+            'startBelowHalf': true,
+            'value': r3(c['value']),
+            'headerHeight': c['headerHeight'],
+            'videoHeight': c['videoHeight'],
+            'playerMaxHeight': c['playerMaxHeight'],
+            'headerFollowsValue': c['headerFollowsValue'],
+            'playerMatchesHeader': c['playerMatchesHeader'],
+          };
+  }
+
+  /// One expansion: played, watched until it has run (1.5 s).
+  Future<Map<String, Object?>> _watchExpand(double start) async {
+    final ctr = bili;
+    final out = <String, Object?>{'start': start, 'started': false};
+    AnimationController? anim;
+    var on = true;
+    var sampled = false;
+    void onTick() {
+      final a = anim;
+      if (!on || sampled || a == null || !ctr.isExpanding || a.value < 0.5) {
+        return;
+      }
+      sampled = true;
+      final value = a.value;
+      final videoHeight = ctr.videoHeight;
+      out['value'] = value;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final extras = WpRead.read(tag!)['extras'];
+        Object? header;
+        Object? playerMax;
+        if (extras case {
+          'header': {'maxExtent': final h},
+          'playerBox': {'maxHeight': final p},
+        }) {
+          header = h;
+          playerMax = p;
+        }
+        out
+          ..['headerHeight'] = header ?? WpRead.unread('noHeader')
+          ..['videoHeight'] = WpRead.half(videoHeight)
+          ..['playerMaxHeight'] = playerMax ?? WpRead.unread('noPlayer')
+          ..['headerFollowsValue'] = header is double
+              ? (header / videoHeight - value).abs() < 0.05
+              : WpRead.unread('noHeader')
+          ..['playerMatchesHeader'] = header is double && playerMax is double
+              ? playerMax == header
+              : WpRead.unread('noHeader');
+      });
+    }
+
+    // every frame: the page's controller once it has made it, and whether
+    // it is expanding
+    void frame(Duration _) {
+      if (!on) return;
+      if (anim == null && ctr.animController != null) {
+        anim = ctr.animController!..addListener(onTick);
+      }
+      if (ctr.isExpanding) out['started'] = true;
+      WidgetsBinding.instance.addPostFrameCallback(frame);
+    }
+
+    WidgetsBinding.instance
+      ..addPostFrameCallback(frame)
+      ..scheduleFrame();
+    try {
+      await player.play();
+      await Future.delayed(const Duration(milliseconds: 1500));
+    } finally {
+      on = false;
+      anim?.removeListener(onTick);
+    }
+    final v = out['value'];
+    out['inRange'] =
+        start < 0.5 && v is double && v >= 0.5 && v <= 0.9 && sampled;
+    return out;
+  }
+
+  /// Every change of the bilibili page's tab set or index, with the roles
+  /// and the season panels built then (R4 「截断与重置的区分」, 同步调用):
+  /// polled, so a change undone within 30 ms is not seen.
+  void _watchTabs() {
+    final ctr = bili;
+    final seq = <Object?>[];
+    events['tabSeq'] = seq;
+    Object? last;
+    void poll() {
+      final tabs = WpRead.tabsOf(ctr);
+      final key = (identityHashCode(tabs), tabs.length, tabs.index);
+      if (key == last) return;
+      last = key;
+      final bars = WpRead.tabBars(tag!);
+      seq.add({
+        'length': tabs.length,
+        'index': tabs.index,
+        'roles': bars.isEmpty ? 'none' : bars.first.roles,
+        'panels': WpRead.panels(tag!),
+      });
+    }
+
+    poll();
+    final timer = Timer.periodic(
+      const Duration(milliseconds: 30),
+      (_) => poll(),
+    );
+    _cleanUps.add(timer.cancel);
+  }
+
+  // ------------------------------------------------------------ frames
+
+  static const _frameColumns = [
+    'ms',
+    'frame',
+    'width',
+    'height',
+    'isFullScreen',
+    'fsProcessing',
+    'first',
+    'threeColumn',
+    'split16x9',
+    'split9x16',
+    'tabs',
+    'index',
+    'tabAreaOffstage',
+  ];
+  final _frames = <List<Object?>>[];
+  var _framesOn = false;
+  var _frameNo = 0;
+  static _WpRun? _framesFor;
+  static var _framesHooked = false;
+
+  /// The per-frame record of §6.2 「逐帧记录」 (record only: no field table
+  /// compares it): cheap scalars each frame; the one walk is up from the
+  /// tab area (its GlobalKey's element) for whether it is offstage.
+  void _startFrames() {
+    _framesOn = true;
+    _framesFor = this;
+    if (!_framesHooked) {
+      _framesHooked = true;
+      SchedulerBinding.instance.addPersistentFrameCallback((_) {
+        final run = _framesFor;
+        if (run != null && run._framesOn) run._frame();
+      });
+    }
+  }
+
+  void _frame() {
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+    final ratio = (view?.devicePixelRatio ?? 1) * Pref.uiScale;
+    final p = player;
+    final branch = SelfTestProbe.branches[tag];
+    Object? tabs;
+    Object? index;
+    Object? offstage;
+    if (kind == 'bili') {
+      final ctr = bili;
+      final t = WpRead.tabsOf(ctr);
+      tabs = t.length;
+      index = t.index;
+      final area = ctr.childKey.currentContext;
+      offstage = area is Element ? WpRead.offstage(area) : null;
+    }
+    _frames.add([
+      _clock.elapsedMilliseconds,
+      _frameNo++,
+      WpRead.half((view?.physicalSize.width ?? 0) / ratio),
+      WpRead.half((view?.physicalSize.height ?? 0) / ratio),
+      p.isFullScreen.value,
+      p.fsProcessing,
+      branch?.first,
+      branch?.threeColumn,
+      branch?.split16x9,
+      branch?.split9x16,
+      tabs,
+      index,
+      offstage,
+    ]);
+  }
 }

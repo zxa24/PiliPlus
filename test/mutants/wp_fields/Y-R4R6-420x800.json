@@ -1,0 +1,3210 @@
+{
+  "id": "Y-R4R6-420x800",
+  "about": "design §6.4 R4 / R6 on the YouTube page (record): the intro seeded to 300, the comments seeded to 600; the current tab (评论) tapped again (R6), the tabs switched and back (R4: each list kept and where it was), the narrow <-> wide layouts",
+  "check": "wpSteps",
+  "report": "Y-R4R6-420x800.json",
+  "type": "recording",
+  "batch": null,
+  "network": true,
+  "run": {
+    "args": [
+      "--wp-open",
+      "yt:dQw4w9WgXcQ",
+      "--window-size",
+      "420x800",
+      "--wp-steps",
+      "pause;settle;waitlist:intro;seed:intro=300;settle;read:start;taptab:reply;waitlist:reply;seed:reply=600;read:reply;taptab:reply;wait:800;settle;read:replyAgain;taptab:intro;wait:800;settle;read:back;taptab:reply;wait:800;settle;read:replyBack;size:1280x720;read:wide;size:420x800;read:end"
+    ],
+    "prefs": [],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 8
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "window.logical",
+      "path": "window.logical",
+      "status": "must-same"
+    },
+    {
+      "name": "kind",
+      "path": "kind",
+      "status": "must-same"
+    },
+    {
+      "name": "start.window",
+      "path": "moments.start.window",
+      "status": "must-same"
+    },
+    {
+      "name": "start.page.top",
+      "path": "moments.start.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "start.page.above",
+      "path": "moments.start.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "start.page.route",
+      "path": "moments.start.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.scalars",
+      "path": "moments.start.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.label",
+      "path": "moments.start.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.nested",
+      "path": "moments.start.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.columns",
+      "path": "moments.start.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.player",
+      "path": "moments.start.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.intro",
+      "path": "moments.start.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.tabArea",
+      "path": "moments.start.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.tabBars",
+      "path": "moments.start.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].in",
+      "path": "moments.start.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].roles",
+      "path": "moments.start.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].texts",
+      "path": "moments.start.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "start.tabs[0].index",
+      "path": "moments.start.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].length",
+      "path": "moments.start.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].rect",
+      "path": "moments.start.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].offstage",
+      "path": "moments.start.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.role",
+      "path": "moments.start.lists.tabBar.role",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.tab",
+      "path": "moments.start.lists.tabBar.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.controller",
+      "path": "moments.start.lists.tabBar.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.axis",
+      "path": "moments.start.lists.tabBar.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.pixels",
+      "path": "moments.start.lists.tabBar.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.max",
+      "path": "moments.start.lists.tabBar.max",
+      "status": "unstable"
+    },
+    {
+      "name": "start.lists.tabBar.physics",
+      "path": "moments.start.lists.tabBar.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.viewport",
+      "path": "moments.start.lists.tabBar.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.offstage",
+      "path": "moments.start.lists.tabBar.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabBar.absent",
+      "path": "moments.start.lists.tabBar.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.role",
+      "path": "moments.start.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.tab",
+      "path": "moments.start.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.controller",
+      "path": "moments.start.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.axis",
+      "path": "moments.start.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.pixels",
+      "path": "moments.start.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.max",
+      "path": "moments.start.lists.tabView.max",
+      "status": "unstable"
+    },
+    {
+      "name": "start.lists.tabView.physics",
+      "path": "moments.start.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.viewport",
+      "path": "moments.start.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.offstage",
+      "path": "moments.start.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.tabView.absent",
+      "path": "moments.start.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.role",
+      "path": "moments.start.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.tab",
+      "path": "moments.start.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.controller",
+      "path": "moments.start.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.axis",
+      "path": "moments.start.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.pixels",
+      "path": "moments.start.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.max",
+      "path": "moments.start.lists.intro.max",
+      "status": "unstable"
+    },
+    {
+      "name": "start.lists.intro.physics",
+      "path": "moments.start.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.viewport",
+      "path": "moments.start.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.offstage",
+      "path": "moments.start.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro.absent",
+      "path": "moments.start.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.role",
+      "path": "moments.start.lists.intro#2.role",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.tab",
+      "path": "moments.start.lists.intro#2.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.controller",
+      "path": "moments.start.lists.intro#2.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.axis",
+      "path": "moments.start.lists.intro#2.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.pixels",
+      "path": "moments.start.lists.intro#2.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.max",
+      "path": "moments.start.lists.intro#2.max",
+      "status": "unstable"
+    },
+    {
+      "name": "start.lists.intro#2.physics",
+      "path": "moments.start.lists.intro#2.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.viewport",
+      "path": "moments.start.lists.intro#2.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.offstage",
+      "path": "moments.start.lists.intro#2.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.intro#2.absent",
+      "path": "moments.start.lists.intro#2.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "start.slots",
+      "path": "moments.start.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "start.sheet",
+      "path": "moments.start.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "start.player",
+      "path": "moments.start.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabCtr",
+      "path": "moments.start.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.intro",
+      "path": "moments.start.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.header",
+      "path": "moments.start.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.bar",
+      "path": "moments.start.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.playerBox",
+      "path": "moments.start.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.panels",
+      "path": "moments.start.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.controller.stage",
+      "path": "moments.start.extras.controller.stage",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.controller.playerStatus",
+      "path": "moments.start.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.player",
+      "path": "moments.start.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.tabArea",
+      "path": "moments.start.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.gone",
+      "path": "moments.start.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.lists.tabBar",
+      "path": "moments.start.kept.lists.tabBar",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.lists.tabView",
+      "path": "moments.start.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.lists.intro",
+      "path": "moments.start.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.lists.intro#2",
+      "path": "moments.start.kept.lists.intro#2",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.window",
+      "path": "moments.reply.window",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.page.top",
+      "path": "moments.reply.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.page.above",
+      "path": "moments.reply.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.page.route",
+      "path": "moments.reply.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.scalars",
+      "path": "moments.reply.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.geometry.label",
+      "path": "moments.reply.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.geometry.nested",
+      "path": "moments.reply.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.geometry.columns",
+      "path": "moments.reply.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.geometry.player",
+      "path": "moments.reply.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.geometry.intro",
+      "path": "moments.reply.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.geometry.tabArea",
+      "path": "moments.reply.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.branch.geometry.tabBars",
+      "path": "moments.reply.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.tabs[0].in",
+      "path": "moments.reply.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.tabs[0].roles",
+      "path": "moments.reply.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.tabs[0].texts",
+      "path": "moments.reply.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "reply.tabs[0].index",
+      "path": "moments.reply.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.tabs[0].length",
+      "path": "moments.reply.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.tabs[0].rect",
+      "path": "moments.reply.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.tabs[0].offstage",
+      "path": "moments.reply.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.role",
+      "path": "moments.reply.lists.tabBar.role",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.tab",
+      "path": "moments.reply.lists.tabBar.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.controller",
+      "path": "moments.reply.lists.tabBar.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.axis",
+      "path": "moments.reply.lists.tabBar.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.pixels",
+      "path": "moments.reply.lists.tabBar.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.max",
+      "path": "moments.reply.lists.tabBar.max",
+      "status": "unstable"
+    },
+    {
+      "name": "reply.lists.tabBar.physics",
+      "path": "moments.reply.lists.tabBar.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.viewport",
+      "path": "moments.reply.lists.tabBar.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.offstage",
+      "path": "moments.reply.lists.tabBar.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabBar.absent",
+      "path": "moments.reply.lists.tabBar.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.role",
+      "path": "moments.reply.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.tab",
+      "path": "moments.reply.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.controller",
+      "path": "moments.reply.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.axis",
+      "path": "moments.reply.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.pixels",
+      "path": "moments.reply.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.max",
+      "path": "moments.reply.lists.tabView.max",
+      "status": "unstable"
+    },
+    {
+      "name": "reply.lists.tabView.physics",
+      "path": "moments.reply.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.viewport",
+      "path": "moments.reply.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.offstage",
+      "path": "moments.reply.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.tabView.absent",
+      "path": "moments.reply.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.role",
+      "path": "moments.reply.lists.reply.role",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.tab",
+      "path": "moments.reply.lists.reply.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.controller",
+      "path": "moments.reply.lists.reply.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.axis",
+      "path": "moments.reply.lists.reply.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.pixels",
+      "path": "moments.reply.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.max",
+      "path": "moments.reply.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "reply.lists.reply.physics",
+      "path": "moments.reply.lists.reply.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.viewport",
+      "path": "moments.reply.lists.reply.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.offstage",
+      "path": "moments.reply.lists.reply.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.reply.absent",
+      "path": "moments.reply.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.role",
+      "path": "moments.reply.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.tab",
+      "path": "moments.reply.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.controller",
+      "path": "moments.reply.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.axis",
+      "path": "moments.reply.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.pixels",
+      "path": "moments.reply.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.max",
+      "path": "moments.reply.lists.intro.max",
+      "status": "unstable"
+    },
+    {
+      "name": "reply.lists.intro.physics",
+      "path": "moments.reply.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.viewport",
+      "path": "moments.reply.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.offstage",
+      "path": "moments.reply.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro.absent",
+      "path": "moments.reply.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.role",
+      "path": "moments.reply.lists.intro#2.role",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.tab",
+      "path": "moments.reply.lists.intro#2.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.controller",
+      "path": "moments.reply.lists.intro#2.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.axis",
+      "path": "moments.reply.lists.intro#2.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.pixels",
+      "path": "moments.reply.lists.intro#2.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.max",
+      "path": "moments.reply.lists.intro#2.max",
+      "status": "unstable"
+    },
+    {
+      "name": "reply.lists.intro#2.physics",
+      "path": "moments.reply.lists.intro#2.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.viewport",
+      "path": "moments.reply.lists.intro#2.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.offstage",
+      "path": "moments.reply.lists.intro#2.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.lists.intro#2.absent",
+      "path": "moments.reply.lists.intro#2.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.slots",
+      "path": "moments.reply.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.sheet",
+      "path": "moments.reply.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.player",
+      "path": "moments.reply.player",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.tabCtr",
+      "path": "moments.reply.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.extras.intro",
+      "path": "moments.reply.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.extras.header",
+      "path": "moments.reply.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.extras.bar",
+      "path": "moments.reply.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.extras.playerBox",
+      "path": "moments.reply.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.extras.panels",
+      "path": "moments.reply.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.extras.controller.stage",
+      "path": "moments.reply.extras.controller.stage",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.extras.controller.playerStatus",
+      "path": "moments.reply.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.player",
+      "path": "moments.reply.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.tabArea",
+      "path": "moments.reply.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.gone",
+      "path": "moments.reply.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.lists.tabBar",
+      "path": "moments.reply.kept.lists.tabBar",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.lists.tabView",
+      "path": "moments.reply.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.lists.intro",
+      "path": "moments.reply.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.lists.intro#2",
+      "path": "moments.reply.kept.lists.intro#2",
+      "status": "must-same"
+    },
+    {
+      "name": "reply.kept.lists.reply",
+      "path": "moments.reply.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.window",
+      "path": "moments.replyAgain.window",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.page.top",
+      "path": "moments.replyAgain.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.page.above",
+      "path": "moments.replyAgain.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.page.route",
+      "path": "moments.replyAgain.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.scalars",
+      "path": "moments.replyAgain.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.geometry.label",
+      "path": "moments.replyAgain.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.geometry.nested",
+      "path": "moments.replyAgain.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.geometry.columns",
+      "path": "moments.replyAgain.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.geometry.player",
+      "path": "moments.replyAgain.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.geometry.intro",
+      "path": "moments.replyAgain.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.geometry.tabArea",
+      "path": "moments.replyAgain.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.branch.geometry.tabBars",
+      "path": "moments.replyAgain.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.tabs[0].in",
+      "path": "moments.replyAgain.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.tabs[0].roles",
+      "path": "moments.replyAgain.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.tabs[0].texts",
+      "path": "moments.replyAgain.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "replyAgain.tabs[0].index",
+      "path": "moments.replyAgain.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.tabs[0].length",
+      "path": "moments.replyAgain.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.tabs[0].rect",
+      "path": "moments.replyAgain.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.tabs[0].offstage",
+      "path": "moments.replyAgain.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.role",
+      "path": "moments.replyAgain.lists.tabBar.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.tab",
+      "path": "moments.replyAgain.lists.tabBar.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.controller",
+      "path": "moments.replyAgain.lists.tabBar.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.axis",
+      "path": "moments.replyAgain.lists.tabBar.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.pixels",
+      "path": "moments.replyAgain.lists.tabBar.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.max",
+      "path": "moments.replyAgain.lists.tabBar.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.physics",
+      "path": "moments.replyAgain.lists.tabBar.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.viewport",
+      "path": "moments.replyAgain.lists.tabBar.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.offstage",
+      "path": "moments.replyAgain.lists.tabBar.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabBar.absent",
+      "path": "moments.replyAgain.lists.tabBar.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.role",
+      "path": "moments.replyAgain.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.tab",
+      "path": "moments.replyAgain.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.controller",
+      "path": "moments.replyAgain.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.axis",
+      "path": "moments.replyAgain.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.pixels",
+      "path": "moments.replyAgain.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.max",
+      "path": "moments.replyAgain.lists.tabView.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyAgain.lists.tabView.physics",
+      "path": "moments.replyAgain.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.viewport",
+      "path": "moments.replyAgain.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.offstage",
+      "path": "moments.replyAgain.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.tabView.absent",
+      "path": "moments.replyAgain.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.role",
+      "path": "moments.replyAgain.lists.reply.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.tab",
+      "path": "moments.replyAgain.lists.reply.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.controller",
+      "path": "moments.replyAgain.lists.reply.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.axis",
+      "path": "moments.replyAgain.lists.reply.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.pixels",
+      "path": "moments.replyAgain.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.max",
+      "path": "moments.replyAgain.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyAgain.lists.reply.physics",
+      "path": "moments.replyAgain.lists.reply.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.viewport",
+      "path": "moments.replyAgain.lists.reply.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.offstage",
+      "path": "moments.replyAgain.lists.reply.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.reply.absent",
+      "path": "moments.replyAgain.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.role",
+      "path": "moments.replyAgain.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.tab",
+      "path": "moments.replyAgain.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.controller",
+      "path": "moments.replyAgain.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.axis",
+      "path": "moments.replyAgain.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.pixels",
+      "path": "moments.replyAgain.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.max",
+      "path": "moments.replyAgain.lists.intro.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyAgain.lists.intro.physics",
+      "path": "moments.replyAgain.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.viewport",
+      "path": "moments.replyAgain.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.offstage",
+      "path": "moments.replyAgain.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro.absent",
+      "path": "moments.replyAgain.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.role",
+      "path": "moments.replyAgain.lists.intro#2.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.tab",
+      "path": "moments.replyAgain.lists.intro#2.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.controller",
+      "path": "moments.replyAgain.lists.intro#2.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.axis",
+      "path": "moments.replyAgain.lists.intro#2.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.pixels",
+      "path": "moments.replyAgain.lists.intro#2.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.max",
+      "path": "moments.replyAgain.lists.intro#2.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.physics",
+      "path": "moments.replyAgain.lists.intro#2.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.viewport",
+      "path": "moments.replyAgain.lists.intro#2.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.offstage",
+      "path": "moments.replyAgain.lists.intro#2.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.lists.intro#2.absent",
+      "path": "moments.replyAgain.lists.intro#2.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.slots",
+      "path": "moments.replyAgain.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.sheet",
+      "path": "moments.replyAgain.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.player",
+      "path": "moments.replyAgain.player",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.tabCtr",
+      "path": "moments.replyAgain.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.extras.intro",
+      "path": "moments.replyAgain.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.extras.header",
+      "path": "moments.replyAgain.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.extras.bar",
+      "path": "moments.replyAgain.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.extras.playerBox",
+      "path": "moments.replyAgain.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.extras.panels",
+      "path": "moments.replyAgain.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.extras.controller.stage",
+      "path": "moments.replyAgain.extras.controller.stage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.extras.controller.playerStatus",
+      "path": "moments.replyAgain.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.player",
+      "path": "moments.replyAgain.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.tabArea",
+      "path": "moments.replyAgain.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.gone",
+      "path": "moments.replyAgain.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.lists.tabBar",
+      "path": "moments.replyAgain.kept.lists.tabBar",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.lists.tabView",
+      "path": "moments.replyAgain.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.lists.intro",
+      "path": "moments.replyAgain.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.lists.intro#2",
+      "path": "moments.replyAgain.kept.lists.intro#2",
+      "status": "must-same"
+    },
+    {
+      "name": "replyAgain.kept.lists.reply",
+      "path": "moments.replyAgain.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "back.window",
+      "path": "moments.back.window",
+      "status": "must-same"
+    },
+    {
+      "name": "back.page.top",
+      "path": "moments.back.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "back.page.above",
+      "path": "moments.back.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "back.page.route",
+      "path": "moments.back.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.scalars",
+      "path": "moments.back.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.geometry.label",
+      "path": "moments.back.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.geometry.nested",
+      "path": "moments.back.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.geometry.columns",
+      "path": "moments.back.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.geometry.player",
+      "path": "moments.back.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.geometry.intro",
+      "path": "moments.back.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.geometry.tabArea",
+      "path": "moments.back.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "back.branch.geometry.tabBars",
+      "path": "moments.back.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "back.tabs[0].in",
+      "path": "moments.back.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "back.tabs[0].roles",
+      "path": "moments.back.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "back.tabs[0].texts",
+      "path": "moments.back.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "back.tabs[0].index",
+      "path": "moments.back.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "back.tabs[0].length",
+      "path": "moments.back.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "back.tabs[0].rect",
+      "path": "moments.back.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "back.tabs[0].offstage",
+      "path": "moments.back.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.role",
+      "path": "moments.back.lists.tabBar.role",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.tab",
+      "path": "moments.back.lists.tabBar.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.controller",
+      "path": "moments.back.lists.tabBar.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.axis",
+      "path": "moments.back.lists.tabBar.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.pixels",
+      "path": "moments.back.lists.tabBar.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.max",
+      "path": "moments.back.lists.tabBar.max",
+      "status": "unstable"
+    },
+    {
+      "name": "back.lists.tabBar.physics",
+      "path": "moments.back.lists.tabBar.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.viewport",
+      "path": "moments.back.lists.tabBar.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.offstage",
+      "path": "moments.back.lists.tabBar.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabBar.absent",
+      "path": "moments.back.lists.tabBar.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.role",
+      "path": "moments.back.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.tab",
+      "path": "moments.back.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.controller",
+      "path": "moments.back.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.axis",
+      "path": "moments.back.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.pixels",
+      "path": "moments.back.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.max",
+      "path": "moments.back.lists.tabView.max",
+      "status": "unstable"
+    },
+    {
+      "name": "back.lists.tabView.physics",
+      "path": "moments.back.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.viewport",
+      "path": "moments.back.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.offstage",
+      "path": "moments.back.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.tabView.absent",
+      "path": "moments.back.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.role",
+      "path": "moments.back.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.tab",
+      "path": "moments.back.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.controller",
+      "path": "moments.back.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.axis",
+      "path": "moments.back.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.pixels",
+      "path": "moments.back.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.max",
+      "path": "moments.back.lists.intro.max",
+      "status": "unstable"
+    },
+    {
+      "name": "back.lists.intro.physics",
+      "path": "moments.back.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.viewport",
+      "path": "moments.back.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.offstage",
+      "path": "moments.back.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro.absent",
+      "path": "moments.back.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.role",
+      "path": "moments.back.lists.intro#2.role",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.tab",
+      "path": "moments.back.lists.intro#2.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.controller",
+      "path": "moments.back.lists.intro#2.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.axis",
+      "path": "moments.back.lists.intro#2.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.pixels",
+      "path": "moments.back.lists.intro#2.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.max",
+      "path": "moments.back.lists.intro#2.max",
+      "status": "unstable"
+    },
+    {
+      "name": "back.lists.intro#2.physics",
+      "path": "moments.back.lists.intro#2.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.viewport",
+      "path": "moments.back.lists.intro#2.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.offstage",
+      "path": "moments.back.lists.intro#2.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.intro#2.absent",
+      "path": "moments.back.lists.intro#2.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.role",
+      "path": "moments.back.lists.reply.role",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.tab",
+      "path": "moments.back.lists.reply.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.controller",
+      "path": "moments.back.lists.reply.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.axis",
+      "path": "moments.back.lists.reply.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.pixels",
+      "path": "moments.back.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.max",
+      "path": "moments.back.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "back.lists.reply.physics",
+      "path": "moments.back.lists.reply.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.viewport",
+      "path": "moments.back.lists.reply.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.offstage",
+      "path": "moments.back.lists.reply.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "back.lists.reply.absent",
+      "path": "moments.back.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "back.slots",
+      "path": "moments.back.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "back.sheet",
+      "path": "moments.back.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "back.player",
+      "path": "moments.back.player",
+      "status": "must-same"
+    },
+    {
+      "name": "back.tabCtr",
+      "path": "moments.back.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "back.extras.intro",
+      "path": "moments.back.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "back.extras.header",
+      "path": "moments.back.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "back.extras.bar",
+      "path": "moments.back.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "back.extras.playerBox",
+      "path": "moments.back.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "back.extras.panels",
+      "path": "moments.back.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "back.extras.controller.stage",
+      "path": "moments.back.extras.controller.stage",
+      "status": "must-same"
+    },
+    {
+      "name": "back.extras.controller.playerStatus",
+      "path": "moments.back.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.player",
+      "path": "moments.back.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.tabArea",
+      "path": "moments.back.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.gone",
+      "path": "moments.back.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.lists.tabBar",
+      "path": "moments.back.kept.lists.tabBar",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.lists.tabView",
+      "path": "moments.back.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.lists.intro",
+      "path": "moments.back.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.lists.intro#2",
+      "path": "moments.back.kept.lists.intro#2",
+      "status": "must-same"
+    },
+    {
+      "name": "back.kept.lists.reply",
+      "path": "moments.back.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.window",
+      "path": "moments.replyBack.window",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.page.top",
+      "path": "moments.replyBack.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.page.above",
+      "path": "moments.replyBack.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.page.route",
+      "path": "moments.replyBack.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.scalars",
+      "path": "moments.replyBack.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.geometry.label",
+      "path": "moments.replyBack.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.geometry.nested",
+      "path": "moments.replyBack.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.geometry.columns",
+      "path": "moments.replyBack.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.geometry.player",
+      "path": "moments.replyBack.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.geometry.intro",
+      "path": "moments.replyBack.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.geometry.tabArea",
+      "path": "moments.replyBack.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.branch.geometry.tabBars",
+      "path": "moments.replyBack.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.tabs[0].in",
+      "path": "moments.replyBack.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.tabs[0].roles",
+      "path": "moments.replyBack.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.tabs[0].texts",
+      "path": "moments.replyBack.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "replyBack.tabs[0].index",
+      "path": "moments.replyBack.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.tabs[0].length",
+      "path": "moments.replyBack.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.tabs[0].rect",
+      "path": "moments.replyBack.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.tabs[0].offstage",
+      "path": "moments.replyBack.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.role",
+      "path": "moments.replyBack.lists.tabBar.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.tab",
+      "path": "moments.replyBack.lists.tabBar.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.controller",
+      "path": "moments.replyBack.lists.tabBar.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.axis",
+      "path": "moments.replyBack.lists.tabBar.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.pixels",
+      "path": "moments.replyBack.lists.tabBar.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.max",
+      "path": "moments.replyBack.lists.tabBar.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyBack.lists.tabBar.physics",
+      "path": "moments.replyBack.lists.tabBar.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.viewport",
+      "path": "moments.replyBack.lists.tabBar.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.offstage",
+      "path": "moments.replyBack.lists.tabBar.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabBar.absent",
+      "path": "moments.replyBack.lists.tabBar.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.role",
+      "path": "moments.replyBack.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.tab",
+      "path": "moments.replyBack.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.controller",
+      "path": "moments.replyBack.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.axis",
+      "path": "moments.replyBack.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.pixels",
+      "path": "moments.replyBack.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.max",
+      "path": "moments.replyBack.lists.tabView.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyBack.lists.tabView.physics",
+      "path": "moments.replyBack.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.viewport",
+      "path": "moments.replyBack.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.offstage",
+      "path": "moments.replyBack.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.tabView.absent",
+      "path": "moments.replyBack.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.role",
+      "path": "moments.replyBack.lists.reply.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.tab",
+      "path": "moments.replyBack.lists.reply.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.controller",
+      "path": "moments.replyBack.lists.reply.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.axis",
+      "path": "moments.replyBack.lists.reply.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.pixels",
+      "path": "moments.replyBack.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.max",
+      "path": "moments.replyBack.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyBack.lists.reply.physics",
+      "path": "moments.replyBack.lists.reply.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.viewport",
+      "path": "moments.replyBack.lists.reply.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.offstage",
+      "path": "moments.replyBack.lists.reply.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.reply.absent",
+      "path": "moments.replyBack.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.role",
+      "path": "moments.replyBack.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.tab",
+      "path": "moments.replyBack.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.controller",
+      "path": "moments.replyBack.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.axis",
+      "path": "moments.replyBack.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.pixels",
+      "path": "moments.replyBack.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.max",
+      "path": "moments.replyBack.lists.intro.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyBack.lists.intro.physics",
+      "path": "moments.replyBack.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.viewport",
+      "path": "moments.replyBack.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.offstage",
+      "path": "moments.replyBack.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro.absent",
+      "path": "moments.replyBack.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.role",
+      "path": "moments.replyBack.lists.intro#2.role",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.tab",
+      "path": "moments.replyBack.lists.intro#2.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.controller",
+      "path": "moments.replyBack.lists.intro#2.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.axis",
+      "path": "moments.replyBack.lists.intro#2.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.pixels",
+      "path": "moments.replyBack.lists.intro#2.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.max",
+      "path": "moments.replyBack.lists.intro#2.max",
+      "status": "unstable"
+    },
+    {
+      "name": "replyBack.lists.intro#2.physics",
+      "path": "moments.replyBack.lists.intro#2.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.viewport",
+      "path": "moments.replyBack.lists.intro#2.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.offstage",
+      "path": "moments.replyBack.lists.intro#2.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.lists.intro#2.absent",
+      "path": "moments.replyBack.lists.intro#2.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.slots",
+      "path": "moments.replyBack.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.sheet",
+      "path": "moments.replyBack.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.player",
+      "path": "moments.replyBack.player",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.tabCtr",
+      "path": "moments.replyBack.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.extras.intro",
+      "path": "moments.replyBack.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.extras.header",
+      "path": "moments.replyBack.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.extras.bar",
+      "path": "moments.replyBack.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.extras.playerBox",
+      "path": "moments.replyBack.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.extras.panels",
+      "path": "moments.replyBack.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.extras.controller.stage",
+      "path": "moments.replyBack.extras.controller.stage",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.extras.controller.playerStatus",
+      "path": "moments.replyBack.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.player",
+      "path": "moments.replyBack.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.tabArea",
+      "path": "moments.replyBack.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.gone",
+      "path": "moments.replyBack.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.lists.tabBar",
+      "path": "moments.replyBack.kept.lists.tabBar",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.lists.tabView",
+      "path": "moments.replyBack.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.lists.intro",
+      "path": "moments.replyBack.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.lists.intro#2",
+      "path": "moments.replyBack.kept.lists.intro#2",
+      "status": "must-same"
+    },
+    {
+      "name": "replyBack.kept.lists.reply",
+      "path": "moments.replyBack.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.window",
+      "path": "moments.wide.window",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.page.top",
+      "path": "moments.wide.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.page.above",
+      "path": "moments.wide.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.page.route",
+      "path": "moments.wide.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.scalars",
+      "path": "moments.wide.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.geometry.label",
+      "path": "moments.wide.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.geometry.nested",
+      "path": "moments.wide.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.geometry.columns",
+      "path": "moments.wide.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.geometry.player",
+      "path": "moments.wide.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.geometry.intro",
+      "path": "moments.wide.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.geometry.tabArea",
+      "path": "moments.wide.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.branch.geometry.tabBars",
+      "path": "moments.wide.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.tabs[0].in",
+      "path": "moments.wide.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.tabs[0].roles",
+      "path": "moments.wide.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.tabs[0].texts",
+      "path": "moments.wide.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "wide.tabs[0].index",
+      "path": "moments.wide.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.tabs[0].length",
+      "path": "moments.wide.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.tabs[0].rect",
+      "path": "moments.wide.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.tabs[0].offstage",
+      "path": "moments.wide.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.role",
+      "path": "moments.wide.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.tab",
+      "path": "moments.wide.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.controller",
+      "path": "moments.wide.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.axis",
+      "path": "moments.wide.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.pixels",
+      "path": "moments.wide.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.max",
+      "path": "moments.wide.lists.intro.max",
+      "status": "unstable"
+    },
+    {
+      "name": "wide.lists.intro.physics",
+      "path": "moments.wide.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.viewport",
+      "path": "moments.wide.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.offstage",
+      "path": "moments.wide.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro.absent",
+      "path": "moments.wide.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.role",
+      "path": "moments.wide.lists.intro#2.role",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.tab",
+      "path": "moments.wide.lists.intro#2.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.controller",
+      "path": "moments.wide.lists.intro#2.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.axis",
+      "path": "moments.wide.lists.intro#2.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.pixels",
+      "path": "moments.wide.lists.intro#2.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.max",
+      "path": "moments.wide.lists.intro#2.max",
+      "status": "unstable"
+    },
+    {
+      "name": "wide.lists.intro#2.physics",
+      "path": "moments.wide.lists.intro#2.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.viewport",
+      "path": "moments.wide.lists.intro#2.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.offstage",
+      "path": "moments.wide.lists.intro#2.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.intro#2.absent",
+      "path": "moments.wide.lists.intro#2.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.role",
+      "path": "moments.wide.lists.tabBar.role",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.tab",
+      "path": "moments.wide.lists.tabBar.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.controller",
+      "path": "moments.wide.lists.tabBar.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.axis",
+      "path": "moments.wide.lists.tabBar.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.pixels",
+      "path": "moments.wide.lists.tabBar.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.max",
+      "path": "moments.wide.lists.tabBar.max",
+      "status": "unstable"
+    },
+    {
+      "name": "wide.lists.tabBar.physics",
+      "path": "moments.wide.lists.tabBar.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.viewport",
+      "path": "moments.wide.lists.tabBar.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.offstage",
+      "path": "moments.wide.lists.tabBar.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabBar.absent",
+      "path": "moments.wide.lists.tabBar.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.role",
+      "path": "moments.wide.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.tab",
+      "path": "moments.wide.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.controller",
+      "path": "moments.wide.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.axis",
+      "path": "moments.wide.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.pixels",
+      "path": "moments.wide.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.max",
+      "path": "moments.wide.lists.tabView.max",
+      "status": "unstable"
+    },
+    {
+      "name": "wide.lists.tabView.physics",
+      "path": "moments.wide.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.viewport",
+      "path": "moments.wide.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.offstage",
+      "path": "moments.wide.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.tabView.absent",
+      "path": "moments.wide.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.role",
+      "path": "moments.wide.lists.related.role",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.tab",
+      "path": "moments.wide.lists.related.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.controller",
+      "path": "moments.wide.lists.related.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.axis",
+      "path": "moments.wide.lists.related.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.pixels",
+      "path": "moments.wide.lists.related.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.max",
+      "path": "moments.wide.lists.related.max",
+      "status": "unstable"
+    },
+    {
+      "name": "wide.lists.related.physics",
+      "path": "moments.wide.lists.related.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.viewport",
+      "path": "moments.wide.lists.related.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.offstage",
+      "path": "moments.wide.lists.related.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.related.absent",
+      "path": "moments.wide.lists.related.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.role",
+      "path": "moments.wide.lists.reply.role",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.tab",
+      "path": "moments.wide.lists.reply.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.controller",
+      "path": "moments.wide.lists.reply.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.axis",
+      "path": "moments.wide.lists.reply.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.pixels",
+      "path": "moments.wide.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.max",
+      "path": "moments.wide.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "wide.lists.reply.physics",
+      "path": "moments.wide.lists.reply.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.viewport",
+      "path": "moments.wide.lists.reply.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.offstage",
+      "path": "moments.wide.lists.reply.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.lists.reply.absent",
+      "path": "moments.wide.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.slots",
+      "path": "moments.wide.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.sheet",
+      "path": "moments.wide.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.player",
+      "path": "moments.wide.player",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.tabCtr",
+      "path": "moments.wide.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.extras.intro",
+      "path": "moments.wide.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.extras.header",
+      "path": "moments.wide.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.extras.bar",
+      "path": "moments.wide.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.extras.playerBox",
+      "path": "moments.wide.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.extras.panels",
+      "path": "moments.wide.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.extras.controller.stage",
+      "path": "moments.wide.extras.controller.stage",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.extras.controller.playerStatus",
+      "path": "moments.wide.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.player",
+      "path": "moments.wide.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.tabArea",
+      "path": "moments.wide.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.gone",
+      "path": "moments.wide.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.lists.tabBar",
+      "path": "moments.wide.kept.lists.tabBar",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.lists.tabView",
+      "path": "moments.wide.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.lists.intro",
+      "path": "moments.wide.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.lists.intro#2",
+      "path": "moments.wide.kept.lists.intro#2",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.lists.reply",
+      "path": "moments.wide.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "wide.kept.lists.related",
+      "path": "moments.wide.kept.lists.related",
+      "status": "must-same"
+    },
+    {
+      "name": "end.window",
+      "path": "moments.end.window",
+      "status": "must-same"
+    },
+    {
+      "name": "end.page.top",
+      "path": "moments.end.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "end.page.above",
+      "path": "moments.end.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "end.page.route",
+      "path": "moments.end.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.scalars",
+      "path": "moments.end.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.label",
+      "path": "moments.end.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.nested",
+      "path": "moments.end.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.columns",
+      "path": "moments.end.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.player",
+      "path": "moments.end.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.intro",
+      "path": "moments.end.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.tabArea",
+      "path": "moments.end.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.tabBars",
+      "path": "moments.end.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].in",
+      "path": "moments.end.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].roles",
+      "path": "moments.end.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].texts",
+      "path": "moments.end.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "end.tabs[0].index",
+      "path": "moments.end.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].length",
+      "path": "moments.end.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].rect",
+      "path": "moments.end.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].offstage",
+      "path": "moments.end.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.role",
+      "path": "moments.end.lists.tabBar.role",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.tab",
+      "path": "moments.end.lists.tabBar.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.controller",
+      "path": "moments.end.lists.tabBar.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.axis",
+      "path": "moments.end.lists.tabBar.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.pixels",
+      "path": "moments.end.lists.tabBar.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.max",
+      "path": "moments.end.lists.tabBar.max",
+      "status": "unstable"
+    },
+    {
+      "name": "end.lists.tabBar.physics",
+      "path": "moments.end.lists.tabBar.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.viewport",
+      "path": "moments.end.lists.tabBar.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.offstage",
+      "path": "moments.end.lists.tabBar.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabBar.absent",
+      "path": "moments.end.lists.tabBar.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.role",
+      "path": "moments.end.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.tab",
+      "path": "moments.end.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.controller",
+      "path": "moments.end.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.axis",
+      "path": "moments.end.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.pixels",
+      "path": "moments.end.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.max",
+      "path": "moments.end.lists.tabView.max",
+      "status": "unstable"
+    },
+    {
+      "name": "end.lists.tabView.physics",
+      "path": "moments.end.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.viewport",
+      "path": "moments.end.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.offstage",
+      "path": "moments.end.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.tabView.absent",
+      "path": "moments.end.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.role",
+      "path": "moments.end.lists.reply.role",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.tab",
+      "path": "moments.end.lists.reply.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.controller",
+      "path": "moments.end.lists.reply.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.axis",
+      "path": "moments.end.lists.reply.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.pixels",
+      "path": "moments.end.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.max",
+      "path": "moments.end.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "end.lists.reply.physics",
+      "path": "moments.end.lists.reply.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.viewport",
+      "path": "moments.end.lists.reply.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.offstage",
+      "path": "moments.end.lists.reply.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.reply.absent",
+      "path": "moments.end.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.role",
+      "path": "moments.end.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.tab",
+      "path": "moments.end.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.controller",
+      "path": "moments.end.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.axis",
+      "path": "moments.end.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.pixels",
+      "path": "moments.end.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.max",
+      "path": "moments.end.lists.intro.max",
+      "status": "unstable"
+    },
+    {
+      "name": "end.lists.intro.physics",
+      "path": "moments.end.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.viewport",
+      "path": "moments.end.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.offstage",
+      "path": "moments.end.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro.absent",
+      "path": "moments.end.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.role",
+      "path": "moments.end.lists.intro#2.role",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.tab",
+      "path": "moments.end.lists.intro#2.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.controller",
+      "path": "moments.end.lists.intro#2.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.axis",
+      "path": "moments.end.lists.intro#2.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.pixels",
+      "path": "moments.end.lists.intro#2.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.max",
+      "path": "moments.end.lists.intro#2.max",
+      "status": "unstable"
+    },
+    {
+      "name": "end.lists.intro#2.physics",
+      "path": "moments.end.lists.intro#2.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.viewport",
+      "path": "moments.end.lists.intro#2.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.offstage",
+      "path": "moments.end.lists.intro#2.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.intro#2.absent",
+      "path": "moments.end.lists.intro#2.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.role",
+      "path": "moments.end.lists.related.role",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.tab",
+      "path": "moments.end.lists.related.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.controller",
+      "path": "moments.end.lists.related.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.axis",
+      "path": "moments.end.lists.related.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.pixels",
+      "path": "moments.end.lists.related.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.max",
+      "path": "moments.end.lists.related.max",
+      "status": "unstable"
+    },
+    {
+      "name": "end.lists.related.physics",
+      "path": "moments.end.lists.related.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.viewport",
+      "path": "moments.end.lists.related.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.offstage",
+      "path": "moments.end.lists.related.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.lists.related.absent",
+      "path": "moments.end.lists.related.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "end.slots",
+      "path": "moments.end.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "end.sheet",
+      "path": "moments.end.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "end.player",
+      "path": "moments.end.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabCtr",
+      "path": "moments.end.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.intro",
+      "path": "moments.end.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.header",
+      "path": "moments.end.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.bar",
+      "path": "moments.end.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.playerBox",
+      "path": "moments.end.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.panels",
+      "path": "moments.end.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.controller.stage",
+      "path": "moments.end.extras.controller.stage",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.controller.playerStatus",
+      "path": "moments.end.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.player",
+      "path": "moments.end.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.tabArea",
+      "path": "moments.end.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.gone",
+      "path": "moments.end.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.lists.tabBar",
+      "path": "moments.end.kept.lists.tabBar",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.lists.tabView",
+      "path": "moments.end.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.lists.intro",
+      "path": "moments.end.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.lists.intro#2",
+      "path": "moments.end.kept.lists.intro#2",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.lists.reply",
+      "path": "moments.end.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.lists.related",
+      "path": "moments.end.kept.lists.related",
+      "status": "must-same"
+    },
+    {
+      "name": "events.ready",
+      "path": "events.ready",
+      "status": "must-same"
+    },
+    {
+      "name": "events.waitlist:intro",
+      "path": "events.waitlist:intro",
+      "status": "unstable"
+    },
+    {
+      "name": "events.seed:intro=300",
+      "path": "events.seed:intro=300",
+      "status": "unstable"
+    },
+    {
+      "name": "events.waitlist:reply",
+      "path": "events.waitlist:reply",
+      "status": "unstable"
+    },
+    {
+      "name": "events.seed:reply=600",
+      "path": "events.seed:reply=600",
+      "status": "unstable"
+    },
+    {
+      "name": "events.skipped",
+      "path": "events.skipped",
+      "status": "unstable"
+    }
+  ],
+  "uiErrors": {
+    "status": "unstable",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "calibrated": "2026-10-31 (second version, after the c3a reviews): two unmutated passes of one debug build (the working tree on HEAD fe92752b3 with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folder> -FieldTables test/mutants/wp_fields (calibration mode): 7 leaf/leaves varied (log, moments, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times, the expand tick's own value; on online pages the list extents, the waits for them and the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构)",
+  "evidence": null
+}

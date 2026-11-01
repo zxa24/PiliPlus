@@ -626,7 +626,7 @@ Check '[cl9] -Compare with field tables not committed at HEAD (and no -FieldTabl
 
 # ---- [cx6 cl9 cl10] -CheckTestSide on two folders laid out as the repository
 function New-TestSide([string]$dir) {
-    foreach ($f in 'lib/utils/self_test.dart', 'lib/utils/self_test_probe.dart', 'test/mutants/run.ps1', 'test/mutants/wp_compare_selftest.ps1', 'test/mutants/wp_fields/t.json', 'test/mutants/wp-a.patch') {
+    foreach ($f in 'lib/utils/self_test.dart', 'lib/utils/self_test_probe.dart', 'lib/utils/self_test_watch.dart', 'test/mutants/run.ps1', 'test/mutants/wp_compare_selftest.ps1', 'test/mutants/wp_fields/t.json', 'test/mutants/wp-a.patch') {
         $p = Join-Path $dir $f; New-Item -ItemType Directory -Force (Split-Path -Parent $p) | Out-Null
         Set-Content -LiteralPath $p -Value "content of $f" -Encoding utf8 -NoNewline
     }
@@ -647,6 +647,8 @@ $x = Invoke-TestSide 'control' { param($b)
 Check '[cx9] -CheckTestSide control: only a patch and its location changed -> exit 0' ($x.code -eq 0) "exit $($x.code)"
 $x = Invoke-TestSide 'selftest' { param($b) Set-Content -LiteralPath (Join-Path $b 'test/mutants/wp_compare_selftest.ps1') -Value 'changed' -Encoding utf8 -NoNewline }
 Check '[cx6 cl10] -CheckTestSide: wp_compare_selftest.ps1 changed -> exit 1' ($x.code -eq 1 -and $x.text -match 'changed: test/mutants/wp_compare_selftest\.ps1') "exit $($x.code)"
+$x = Invoke-TestSide 'watch' { param($b) Set-Content -LiteralPath (Join-Path $b 'lib/utils/self_test_watch.dart') -Value 'changed' -Encoding utf8 -NoNewline }
+Check '[c3a11] -CheckTestSide: the readings'' self_test_watch.dart changed -> exit 1' ($x.code -eq 1 -and $x.text -match 'changed: lib/utils/self_test_watch\.dart') "exit $($x.code)"
 $x = Invoke-TestSide 'table' { param($b) Set-Content -LiteralPath (Join-Path $b 'test/mutants/wp_fields/t.json') -Value 'changed' -Encoding utf8 -NoNewline }
 Check '-CheckTestSide: a field table changed -> exit 1' ($x.code -eq 1 -and $x.text -match 'changed: test/mutants/wp_fields/t\.json') "exit $($x.code)"
 $x = Invoke-TestSide 'case' { param($b)
@@ -766,6 +768,51 @@ $d4 = Drive @($rCaught)
 Check '[cx9] mutant loop: a clean catch -> caught, no rerun' ($d4.calls -eq 1 -and $d4.row.result -eq 'caught') "calls $($d4.calls), $($d4.row.result)"
 $d5 = Resolve-WpMutantResult @(@{ result = 'error'; by = ''; first = 'baseline did not pass'; note = '' }, $d4.catcher)
 Check '[cx9] two catchers, one errored, one caught -> caught' ($d5.result -eq 'caught') $d5.result
+}
+
+# [c3a12] a process that ends abnormally before writing its report is run
+# once more (the startup crash, exit 0xC0000005); a second crash leaves no
+# report (error, runner 补充①); a crash is in the row's note
+$c12 = @('[c3a12] a crash before the report, then a report -> one rerun, the report used, the crash recorded',
+    '[c3a12] two crashes -> two launches only, no report, both recorded', '[c3a12] exit 1 without a report (not a crash) -> not rerun',
+    '[c3a12] a crashed-then-rerun report in the mutant loop -> its row''s note says so')
+if (-not (Get-Command Get-WpCrashNote -ErrorAction SilentlyContinue)) {
+    foreach ($n in $c12) { Check $n $false 'no Get-WpCrashNote in this runner (no crash rerun)' }
+} else {
+$kc = New-Case 'x-crash'
+$tr = [ordered]@{ id = 'wpCrash'; check = 'wpDemo'; report = 'wpCrash.json'; type = 'recording'; batch = $null; network = $false; measured = 'measured'
+    run = [ordered]@{ args = @('--wp-open', 'offline:cid:1'); prefs = @(); planPrefs = $true; profile = 'fresh'; asr = $false; minutes = 1 }
+    fields = @((F 'branch')); uiErrors = [ordered]@{ status = 'must-same' } } | ConvertTo-Json -Depth 10 | ConvertFrom-Json -AsHashtable
+$planStub = @{ prefs = @() }
+$lq = @{ plan = [System.Collections.Generic.Queue[object]]::new(); calls = 0 }
+$script:wpCrashPause = 0; $script:wpCrashRetryPause = 0
+$script:wpLaunch = {
+    param([string]$exe, [string[]]$argv, [int]$minutes)
+    $lq.calls++
+    $step = $lq.plan.Dequeue()
+    if ($step -eq 'report') {
+        $out = $argv[[array]::IndexOf($argv, '--out') + 1].Trim('"')
+        Write-Json ([ordered]@{ checks = @((Chk)) }) $out
+        return @{ exit = 0; timedOut = $false }
+    }
+    return @{ exit = [int]$step; timedOut = $false }
+}
+function Launch([object[]]$steps, [string]$name) {
+    $lq.plan.Clear(); $lq.calls = 0; foreach ($x in $steps) { $lq.plan.Enqueue($x) }
+    $rep = Invoke-WpSelfTest 'C:/fake/LibrePili.exe' $tr $planStub (Join-Path $kc.dir $name) 'crash' $root
+    return @{ rep = $rep; calls = $lq.calls; there = (Test-Path -LiteralPath $rep); note = (Get-WpCrashNote $rep)
+        sidecar = $(if (Test-Path -LiteralPath "$rep.crash.json") { Read-WpJson "$rep.crash.json" } else { $null }) }
+}
+$e1 = Launch @(-1073741819, 'report') 'once'
+Check $c12[0] ($e1.calls -eq 2 -and $e1.there -and @($e1.sidecar['crashes']).Count -eq 1 -and $e1.note -match '^crashed once') "calls $($e1.calls), report $($e1.there), note: $($e1.note)"
+$e2 = Launch @(-1073741819, -1073741819, 'report') 'twice'
+Check $c12[1] ($e2.calls -eq 2 -and -not $e2.there -and @($e2.sidecar['crashes']).Count -eq 2 -and $e2.note -match 'crashed 2 times') "calls $($e2.calls), report $($e2.there), note: $($e2.note)"
+$e3 = Launch @(1, 'report') 'exit1'
+Check $c12[2] ($e3.calls -eq 1 -and -not $e3.there -and $null -eq $e3.sidecar) "calls $($e3.calls), sidecar $($null -ne $e3.sidecar)"
+# the same Invoke-WpSelfTest under the mutant loop's catcher: the crash note in the row
+$crashRun = { param([string]$runDir, [string]$runTag) $lq.plan.Clear(); $lq.calls = 0; $lq.plan.Enqueue(-1073741819); $lq.plan.Enqueue('report'); return Invoke-WpSelfTest 'C:/fake/LibrePili.exe' $tr $planStub $runDir $runTag $root }
+$cr = Invoke-WpCatcher $tr @('branch') $e1.rep $rootA $rootA '' $crashRun (Join-Path $kc.dir 'catch') 'wp-crash'
+Check $c12[3] ($cr['note'] -match 'crashed once') "$($cr.result), note: $($cr['note'])"
 }
 
 # ================================================================ summary

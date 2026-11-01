@@ -273,8 +273,9 @@
 # builds and writes nothing.
 #
 # -CheckTestSide <parent>,<child> (runner 补充④): the test side of S1 must
-# be byte-identical: self_test.dart, self_test_probe.dart, run.ps1,
-# wp_compare_selftest.ps1 and wp_fields/ must each be in both commits
+# be byte-identical: self_test.dart, self_test_probe.dart, the readings'
+# self_test_watch.dart, run.ps1, wp_compare_selftest.ps1 and wp_fields/
+# must each be in both commits
 # (`git ls-tree`: an ignored file never committed has no diff to show) with
 # the same blobs, every patch wp-mutants.json names must be there, and
 # wp-mutants.json must be equal, case-sensitively, once each entry's
@@ -1665,12 +1666,16 @@ function Invoke-WpCatcher($t, [string[]]$exp, [string]$baseFile, [string]$baseRo
     $rep = & $runCheck $dir $tag
     $r = Compare-WpMutant $t $exp $baseFile $rep $baseRoot $mutRoot $patchFile
     $note = ''
+    # a run that crashed before its report and was run again says so
+    $crash = @(Get-WpCrashNote $rep | Where-Object { $_ })
     if ($r.result -eq 'noise' -or ($r.trigger -and $r.result -eq 'caught')) {
         $why = if ($r.result -eq 'noise') { "noise: $($r.noise[0])" } else { 'a network retry or new uiErrors next to the catch' }
         $rep2 = & $runCheck (Join-Path $dir 'rerun') "$tag-rerun"
         $r = Compare-WpMutant $t $exp $baseFile $rep2 $baseRoot $mutRoot $patchFile
         $note = "rerun ($why): $(Split-Path -Parent $rep), then $(Split-Path -Parent $rep2)"
+        $crash += @(Get-WpCrashNote $rep2 | Where-Object { $_ } | ForEach-Object { "rerun: $_" })
     }
+    if ($crash.Count) { $note = (@($note) + $crash | Where-Object { $_ }) -join '; ' }
     $r['note'] = $note
     return $r
 }
@@ -1884,6 +1889,115 @@ function Test-WpInBatch($t) {
     return $(if ($Batch) { $covers } else { -not $covers })
 }
 
+function Remove-Profile([string]$profileName) {
+    foreach ($d in (Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"),
+        (Join-Path $env:TEMP "LibrePili\selftest-$profileName"),
+        (Join-Path $env:TEMP "LibrePili\$profileName")) {
+        if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# the command line of one check's run (field table "run"): the prefs of the
+# plan (unless planPrefs false) and the table's, by key, the table's last
+function Get-WpRunArgs($t, $plan, [string]$profileName, [string]$report, [string]$shots, [string]$tree, [string]$dir) {
+    $run = $t['run']
+    if ($null -eq $run) { throw "field table $($t['id']) has no run: it cannot be launched" }
+    $argv = [System.Collections.Generic.List[string]]::new()
+    foreach ($a in '--selftest', '--profile', $profileName, '--out', $report) { $argv.Add($a) }
+    $prefs = [ordered]@{}
+    if ($run['planPrefs'] -ne $false) { foreach ($p in @($plan.prefs)) { $prefs[("$p" -split ':', 2)[0]] = "$p" } }
+    foreach ($p in @($run['prefs'] | Where-Object { $_ })) { $prefs[("$p" -split ':', 2)[0]] = "$p" }
+    foreach ($p in $prefs.Values) { $argv.Add('--pref'); $argv.Add($p) }
+    $fixtures = Join-Path $tree 'test\fixtures'
+    foreach ($a in @($run['args'])) { $argv.Add("$a".Replace('${SHOTS}', $shots).Replace('${FIXTURES}', $fixtures).Replace('${OUT}', $dir)) }
+    return , $argv.ToArray()
+}
+
+# "snapshot:<dir>": the profile's data restored from it before the run
+# (Restore-WpProfile: the folders, place.json's media, ${PROFILE_APPDATA}
+# and ${PROFILE_TEMP} in every .json copied)
+function Restore-WpSnapshot($t, [string]$profileName) {
+    $spec = "$($t['run']['profile'])"
+    if (-not $spec.StartsWith('snapshot:')) { return }
+    try { Restore-WpProfile $spec.Substring(9) $profileName | Out-Null }
+    catch { throw "field table $($t['id']): $($_.Exception.Message)" }
+}
+
+# runs one check from a slot's exe; returns the report path. Same rules as
+# Invoke-SelfTest: a new profile per run, deleted afterwards. A process
+# that ends abnormally (an exit code other than the self test's own 0 / 1,
+# not a timeout of ours) before writing its report is run once more with
+# the same command line and a new profile (a startup crash, exit
+# 0xC0000005 before any Dart output, seen in ~5 % of launches, S0b part
+# 3a): both attempts go into <report>.crash.json, which the mutant rows
+# and runs.jsonl report; a second crash leaves no report, and the run is
+# `error` (runner 补充①). Baselines, mutants and -Alternate all run here.
+$script:wpLaunch = {
+    param([string]$exe, [string[]]$argv, [int]$minutes)
+    $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru
+    $timedOut = $false
+    if (-not $p.WaitForExit($minutes * 60000)) {
+        # ours: started just above
+        $timedOut = $true
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        $p.WaitForExit(30000) | Out-Null
+    }
+    return @{ exit = $p.ExitCode; timedOut = $timedOut }
+}
+$script:wpCrashPause = 2
+# before the rerun after a crash (the crash came back when relaunched
+# within seconds: twice, 2026-10-31; not shown to be the cause)
+$script:wpCrashRetryPause = 10
+function Invoke-WpSelfTest([string]$exe, $t, $plan, [string]$dir, [string]$tag, [string]$tree) {
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $report = Join-Path $dir $t['report']
+    $shots = Join-Path $dir "$($t['id'])_shots"
+    # an earlier run's report here would pass for this run's
+    foreach ($old in $report, "$report.progress", "$report.crash.json", $shots) {
+        if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force }
+    }
+    $crashes = [System.Collections.Generic.List[object]]::new()
+    foreach ($attempt in 1, 2) {
+        $profileName = "wp-$tag-$($t['id'])-$(Get-Random -Maximum 99999)"
+        $argv = Get-WpRunArgs $t $plan $profileName $report $shots $tree $dir
+        $argv = @($argv | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } })
+        Restore-WpSnapshot $t $profileName
+        if ($t['run']['asr'] -eq $true) {
+            # recognition models live per profile (appSupportDir/selftest-<name>/asr)
+            if (-not (Test-Path (Join-Path $AsrModels 'silero-vad'))) { throw "no ASR models in $AsrModels (-AsrModels)" }
+            $into = Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"
+            New-Item -ItemType Directory -Force $into | Out-Null
+            Copy-Item -Recurse $AsrModels (Join-Path $into 'asr')
+        }
+        $minutes = if ($t['run']['minutes']) { [int]$t['run']['minutes'] } else { 30 }
+        $t0 = Get-Date
+        $r = & $script:wpLaunch $exe $argv $minutes
+        Start-Sleep -Seconds $script:wpCrashPause
+        Remove-Profile $profileName
+        $crashed = -not $r.timedOut -and $r.exit -notin 0, 1 -and -not (Test-Path -LiteralPath $report)
+        if (-not $crashed) { break }
+        $crashes.Add([ordered]@{ attempt = $attempt; exit = $r.exit; seconds = [int]((Get-Date) - $t0).TotalSeconds; profile = $profileName })
+        Write-Host "  $($t['id']) ($tag): the process ended with exit $($r.exit) before writing its report (attempt $attempt)$(if ($attempt -eq 1) { '; run once more' })"
+        foreach ($old in "$report.progress", $shots) { if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force } }
+        if ($attempt -eq 1) { Start-Sleep -Seconds $script:wpCrashRetryPause }
+    }
+    if ($crashes.Count) {
+        ConvertTo-Json -Depth 4 -InputObject ([ordered]@{ check = $t['id']; crashes = $crashes.ToArray(); report = (Test-Path -LiteralPath $report) }) |
+            Set-Content -Encoding utf8 "$report.crash.json"
+    }
+    return $report
+}
+
+# what <report>.crash.json says of a run, as a row's note ('' = no crash)
+function Get-WpCrashNote([string]$report) {
+    $f = "$report.crash.json"
+    if (-not $report -or -not (Test-Path -LiteralPath $f)) { return '' }
+    $c = Read-WpJson $f
+    $exits = @($c['crashes'] | ForEach-Object { "exit $($_['exit'])" }) -join ', '
+    $n = @($c['crashes']).Count
+    return $(if ($c['report']) { "crashed once before its report ($exits), the rerun wrote it" } else { "crashed $n times before its report ($exits): no report" })
+}
+
 if ($LoadOnly) { return }
 
 # which plan: -Plan, else watch_page when every -Compare folder says so
@@ -1903,7 +2017,7 @@ $script:wp = $planName -eq 'watch_page'
 
 if ($CheckTestSide.Count -gt 0) {
     if ($CheckTestSide.Count -ne 2) { throw '-CheckTestSide <parent>,<child>' }
-    $frozen = 'lib/utils/self_test.dart', 'lib/utils/self_test_probe.dart', 'test/mutants/run.ps1', 'test/mutants/wp_compare_selftest.ps1', 'test/mutants/wp_fields'
+    $frozen = 'lib/utils/self_test.dart', 'lib/utils/self_test_probe.dart', 'lib/utils/self_test_watch.dart', 'test/mutants/run.ps1', 'test/mutants/wp_compare_selftest.ps1', 'test/mutants/wp_fields'
     # a side is a commit, or (the offline self-test) a folder laid out as
     # the repository; either way: path -> git blob id of every frozen file,
     # and every file under test/mutants
@@ -2328,14 +2442,6 @@ function Invoke-Build([string]$dir, [string]$log) {
     return ($code -eq 0) -and (Test-Path (Join-Path $dir 'build\windows\x64\runner\Debug\LibrePili.exe'))
 }
 
-function Remove-Profile([string]$profileName) {
-    foreach ($d in (Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"),
-        (Join-Path $env:TEMP "LibrePili\selftest-$profileName"),
-        (Join-Path $env:TEMP "LibrePili\$profileName")) {
-        if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
-    }
-}
-
 # runs one self test from the slot; returns the report path
 function Invoke-SelfTest([string]$exe, [string]$scenario, [string]$dir, [string]$tag) {
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -2696,65 +2802,6 @@ function Invoke-SelfTestLoop($list, [string]$dir) {
     }
 }
 # ------------------------------------------------------------------ watch_page: runs
-# the command line of one check's run (field table "run"): the prefs of the
-# plan (unless planPrefs false) and the table's, by key, the table's last
-function Get-WpRunArgs($t, $plan, [string]$profileName, [string]$report, [string]$shots, [string]$tree, [string]$dir) {
-    $run = $t['run']
-    if ($null -eq $run) { throw "field table $($t['id']) has no run: it cannot be launched" }
-    $argv = [System.Collections.Generic.List[string]]::new()
-    foreach ($a in '--selftest', '--profile', $profileName, '--out', $report) { $argv.Add($a) }
-    $prefs = [ordered]@{}
-    if ($run['planPrefs'] -ne $false) { foreach ($p in @($plan.prefs)) { $prefs[("$p" -split ':', 2)[0]] = "$p" } }
-    foreach ($p in @($run['prefs'] | Where-Object { $_ })) { $prefs[("$p" -split ':', 2)[0]] = "$p" }
-    foreach ($p in $prefs.Values) { $argv.Add('--pref'); $argv.Add($p) }
-    $fixtures = Join-Path $tree 'test\fixtures'
-    foreach ($a in @($run['args'])) { $argv.Add("$a".Replace('${SHOTS}', $shots).Replace('${FIXTURES}', $fixtures).Replace('${OUT}', $dir)) }
-    return , $argv.ToArray()
-}
-
-# "snapshot:<dir>": the profile's data restored from it before the run
-# (Restore-WpProfile: the folders, place.json's media, ${PROFILE_APPDATA}
-# and ${PROFILE_TEMP} in every .json copied)
-function Restore-WpSnapshot($t, [string]$profileName) {
-    $spec = "$($t['run']['profile'])"
-    if (-not $spec.StartsWith('snapshot:')) { return }
-    try { Restore-WpProfile $spec.Substring(9) $profileName | Out-Null }
-    catch { throw "field table $($t['id']): $($_.Exception.Message)" }
-}
-
-# runs one check from a slot's exe; returns the report path. Same rules as
-# Invoke-SelfTest: a new profile per run, deleted afterwards
-function Invoke-WpSelfTest([string]$exe, $t, $plan, [string]$dir, [string]$tag, [string]$tree) {
-    New-Item -ItemType Directory -Force $dir | Out-Null
-    $report = Join-Path $dir $t['report']
-    $shots = Join-Path $dir "$($t['id'])_shots"
-    # an earlier run's report here would pass for this run's
-    foreach ($old in $report, "$report.progress", $shots) {
-        if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force }
-    }
-    $profileName = "wp-$tag-$($t['id'])-$(Get-Random -Maximum 99999)"
-    $argv = Get-WpRunArgs $t $plan $profileName $report $shots $tree $dir
-    $argv = @($argv | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } })
-    Restore-WpSnapshot $t $profileName
-    if ($t['run']['asr'] -eq $true) {
-        # recognition models live per profile (appSupportDir/selftest-<name>/asr)
-        if (-not (Test-Path (Join-Path $AsrModels 'silero-vad'))) { throw "no ASR models in $AsrModels (-AsrModels)" }
-        $into = Join-Path $env:APPDATA "com.zxa24\LibrePili\selftest-$profileName"
-        New-Item -ItemType Directory -Force $into | Out-Null
-        Copy-Item -Recurse $AsrModels (Join-Path $into 'asr')
-    }
-    $minutes = if ($t['run']['minutes']) { [int]$t['run']['minutes'] } else { 30 }
-    $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru
-    if (-not $p.WaitForExit($minutes * 60000)) {
-        # ours: started just above
-        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-        $p.WaitForExit(30000) | Out-Null
-    }
-    Start-Sleep -Seconds 2
-    Remove-Profile $profileName
-    return $report
-}
-
 # an unmutated report a mutant can be judged against: measured, and for a
 # judging check pass true (a recording check's pass is measured)
 function Test-WpBaselinePass($t, [string]$file) {
@@ -2811,7 +2858,8 @@ function Invoke-WpSelfTestLoop($list, [string]$dir) {
                     $ok2 = Test-WpBaselinePass $t $f2
                     if ($ok2.ok) { $baseFiles[$t['id']] = $f2; $ok = $ok2 } else { $broken[$t['id']] = "the baseline did not pass twice: $($ok.why); $($ok2.why)" }
                 }
-                "baseline $($t['id'])`: $(if ($ok.ok) { 'ok' } else { $broken[$t['id']] })"
+                $cn = @((Get-WpCrashNote $f), $(if ($f2) { Get-WpCrashNote $f2 }) | Where-Object { $_ }) -join '; '
+                "baseline $($t['id'])`: $(if ($ok.ok) { 'ok' } else { $broken[$t['id']] })$(if ($cn) { " [$cn]" })"
             }
         }
         $man = Get-BaselineManifest (Get-RunMedia $list)
@@ -2984,14 +3032,16 @@ function Invoke-WpAlternate {
             $started[$pk] = $true
         }
         $rep = Invoke-WpSelfTest $o.side.exe $o.t $plan $pdir "$($o.side.tag)-p$($o.pass)" $o.side.wt
+        $cn = Get-WpCrashNote $rep
         foreach ($t in $o.g.tables) {
             $st = Get-WpPassState $t "pass$($o.pass)" $rep
             # written run by run: an interrupted batch keeps what it ran
             ConvertTo-Json -Compress -InputObject ([ordered]@{
                     n = $o.n; side = $o.side.tag; commit = $o.side.sha; pass = $o.pass; check = $t['id']; report = $rep
                     state = $st.state; why = $st.why; started = $t0.ToString('s'); seconds = [int]((Get-Date) - $t0).TotalSeconds
+                    crash = $(if ($cn) { $cn } else { $null })
                 }) | Add-Content -Encoding utf8 (Join-Path $o.side.out 'runs.jsonl')
-            '{0,4} pass{1,-3} {2,-6} {3,-28} {4}' -f $o.n, $o.pass, $o.side.tag, $t['id'], "$($st.state)$(if ($st.why) { " ($($st.why))" })"
+            '{0,4} pass{1,-3} {2,-6} {3,-28} {4}' -f $o.n, $o.pass, $o.side.tag, $t['id'], "$($st.state)$(if ($st.why) { " ($($st.why))" })$(if ($cn) { " [$cn]" })"
         }
     }
     if ($sides.Count -eq 2) { "next: run.ps1 -Plan watch_page -Compare $($sides[0].out),$($sides[1].out) -Out <dir>" }

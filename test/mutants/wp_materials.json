@@ -294,6 +294,17 @@
           "at": "2026-10-31T17:51:50-0400"
         }
       ]
+    },
+    {
+      "id": "yt-video",
+      "for": "design §6.4 两页都跑: the YouTube page of the first-half checks (Y-R1R2-sizes, Y-R3-inapp-*, Y-R4R6-420x800, the batch Y-R3-inapp-maximize and Y-R3-fsreply-*)",
+      "status": "confirmed",
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "videoId": "dQw4w9WgXcQ",
+      "login": "not needed",
+      "why": "a long-lived public video with comments and related videos; the one DEV_LOG's --open-yt runs used",
+      "evidence": [],
+      "openedInApp": "2026-10-31 slot 2, new logged-out profile, plan prefs: --wp-open yt:dQw4w9WgXcQ (Y-R1R2-sizes, Y-R4R6-420x800): stage ready, tabs [related, reply] wide and [intro, reply] narrow, the intro list 1310 px to scroll at 420x800, uiErrors none"
     }
   ],
   "notes": [

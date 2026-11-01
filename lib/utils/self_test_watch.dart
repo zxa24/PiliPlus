@@ -34,9 +34,18 @@ import 'dart:io' show Platform;
 import 'package:PiliPlus/common/widgets/fractionally_sized_box.dart';
 import 'package:PiliPlus/common/widgets/scaffold/bottom_sheet.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
+import 'package:PiliPlus/common/widgets/sliver/video_header.dart'
+    show VideoHeader;
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/common/publish/publish_route.dart';
+import 'package:PiliPlus/pages/episode_panel/view.dart' show EpisodePanel;
 import 'package:PiliPlus/pages/video/controller.dart';
+import 'package:PiliPlus/pages/video/introduction/pgc/view.dart'
+    show PgcIntroPage;
+import 'package:PiliPlus/pages/video/introduction/ugc/view.dart'
+    show UgcIntroPanel;
+import 'package:PiliPlus/pages/video/introduction/ugc/widgets/page.dart'
+    show PagesPanel;
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/pages/video/reply/local_reply_panel.dart';
 import 'package:PiliPlus/pages/video/reply/view.dart' show VideoReplyPanel;
@@ -46,15 +55,17 @@ import 'package:PiliPlus/pages/youtube/comments/yt_comment_pane.dart'
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/view.dart' show YtVideoPage;
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/view/view.dart' show PLVideoPlayer;
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/utils/self_test_probe.dart';
 import 'package:PiliPlus/utils/self_test_window.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart';
+import 'package:flutter/rendering.dart' show RenderSliver;
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart'
-    show Tab, TabBar, TabBarView, TabController;
+    show IconButton, Tab, TabBar, TabBarView, TabController;
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -122,20 +133,20 @@ abstract final class WpRead {
     return off;
   }
 
-  /// [e]'s box in the app's logical pixels.
+  /// [e]'s box in the app's logical pixels. A box that is there but not
+  /// laid out (an offstage tab the tab view did not lay out, a box without a
+  /// size) or whose geometry is not finite is `{"hidden": true}`: a value,
+  /// the same in every run, not a reading that failed (S0b part 3a review).
   static Object rect(Element? e) {
     if (e == null) return unread('noElement');
     final box = e.findRenderObject();
     if (box is! RenderBox || !box.attached || !box.hasSize) {
-      return unread('noBox');
+      return const {'hidden': true};
     }
     final origin = box.localToGlobal(Offset.zero);
-    return [
-      half(origin.dx),
-      half(origin.dy),
-      half(box.size.width),
-      half(box.size.height),
-    ];
+    final r = [origin.dx, origin.dy, box.size.width, box.size.height];
+    if (r.any((v) => !v.isFinite)) return const {'hidden': true};
+    return [for (final v in r) half(v)];
   }
 
   // ------------------------------------------------------------ the page
@@ -210,6 +221,7 @@ abstract final class WpRead {
       'slots',
       'sheet',
       'player',
+      'extras',
     ];
     if (page == null) {
       return {
@@ -250,6 +262,349 @@ abstract final class WpRead {
       'slots': _guard(() => _slots(page, scan)),
       'sheet': _guard(() => _sheet(page, scan)),
       'player': _guard(() => _player(page)),
+      'extras': _guard(() => _extras(page, scan)),
+    };
+  }
+
+  // ------------------------------------------------------------ for steps
+  //
+  // What the step-driven checks (self_test.dart `--wp-steps`) act on, found
+  // the same way the readings find it: by walking down the named page.
+
+  /// The page's scrollables by the role [read] reports for them (the same
+  /// walk and the same role), the first of each; a second one with the
+  /// same role is `<role>#2`, and so on.
+  static Map<String, ScrollableState> listStates(String tag) {
+    final page = find(tag).page;
+    if (page == null || !walks) return const {};
+    final scan = _Scan.of(page);
+    final named = _namedControllers(page, scan);
+    final out = <String, ScrollableState>{};
+    for (final l in scan.lists) {
+      final role = listKey(_list(page, scan, l, named)['role']! as String);
+      var key = role;
+      for (var n = 2; out.containsKey(key); n++) {
+        key = '$role#$n';
+      }
+      out[key] = l.state;
+    }
+    return out;
+  }
+
+  /// The player's State on the page: the first [PLVideoPlayer] outside a
+  /// sheet (the bilibili page's sits under the popScope `videoPlayerKey`
+  /// keeps across branches, R3; the YouTube page's in its player layer).
+  static State? playerState(String tag) {
+    final page = find(tag).page;
+    if (page == null || !walks) return null;
+    State? found;
+    void visit(Element e) {
+      // a sheet's subtree is skipped whole (what _Scan calls in a sheet)
+      if (found != null || e.widget is BottomSheet_) return;
+      if (e is StatefulElement && e.widget is PLVideoPlayer) {
+        found = e.state;
+        return;
+      }
+      e.visitChildren(visit);
+    }
+
+    page.subtree.visitChildren(visit);
+    return found;
+  }
+
+  /// The season panels the page builds outside sheets, in tree order
+  /// (`EpisodePanel:<type>`, `PagesPanel`): what the tab watch records at
+  /// each change (同步调用, seasonPanel before and after the collection).
+  static List<String> panels(String tag) {
+    final page = find(tag).page;
+    if (page == null || !walks) return const [];
+    final out = <String>[];
+    void visit(Element e) {
+      switch (e.widget) {
+        case BottomSheet_():
+          return;
+        case EpisodePanel(:final type):
+          out.add('EpisodePanel:${type.name}');
+        case PagesPanel():
+          out.add('PagesPanel');
+        default:
+      }
+      e.visitChildren(visit);
+    }
+
+    page.subtree.visitChildren(visit);
+    return out;
+  }
+
+  /// The tab area's own State: the bilibili page's `childKey` MiniScaffold
+  /// (one GlobalKey for every branch, R4 `childKey`), when it is this
+  /// page's. The YouTube page has none.
+  static State? tabAreaState(String tag) {
+    final page = find(tag).page;
+    if (page == null || page.kind != 'bili') return null;
+    if (!Get.isRegistered<VideoDetailController>(tag: tag)) return null;
+    final key = Get.find<VideoDetailController>(tag: tag).childKey;
+    final e = key.currentContext;
+    if (e is! Element || !page.contains(e)) return null;
+    return key.currentState;
+  }
+
+  /// The tab bars of the page outside sheets, in tree order, with each
+  /// tab's role and its box (for a tap).
+  static List<({TabBar bar, List<Object> roles, List<Element> tabs})> tabBars(
+    String tag,
+  ) {
+    final page = find(tag).page;
+    if (page == null || !walks) return const [];
+    final scan = _Scan.of(page);
+    return [
+      for (final b in scan.tabBars)
+        if (!scan.inSheet(b))
+          (
+            bar: b.widget as TabBar,
+            roles: [for (final t in _tabTexts(b)) tabRole(t)],
+            tabs: _tabElements(b),
+          ),
+    ];
+  }
+
+  static List<Element> _tabElements(Element bar) {
+    final out = <Element>[];
+    void visit(Element e) {
+      if (e.widget is Tab) {
+        out.add(e);
+        return;
+      }
+      e.visitChildren(visit);
+    }
+
+    bar.visitChildren(visit);
+    return out;
+  }
+
+  /// The collapsed bar's tappable label on the bilibili page's portrait
+  /// branch (`_buildOverlayToolBar`: 立即 / 继续 / 重新播放), when it is
+  /// built; and its 「更多设置」 button when that is what is on the right.
+  static ({Element? label, Element? settings}) collapsedBar(String tag) {
+    final page = find(tag).page;
+    if (page == null || page.kind != 'bili' || !walks) {
+      return (label: null, settings: null);
+    }
+    final bar = _collapsedBar(page);
+    return (label: bar?.label, settings: bar?.settings);
+  }
+
+  static const _barLabels = {
+    '立即播放': 'now',
+    '继续播放': 'resume',
+    '重新播放': 'replay',
+  };
+
+  static ({
+    Element label,
+    Element? opacity,
+    Element? home,
+    Element? settings,
+    Element? icon,
+  })?
+  _collapsedBar(WpPage page) {
+    Element? label;
+    void visit(Element e) {
+      if (label != null || e.widget is BottomSheet_) return;
+      if (e.widget case Text(:final data?) when _barLabels.containsKey(data)) {
+        label = e;
+        return;
+      }
+      e.visitChildren(visit);
+    }
+
+    page.subtree.visitChildren(visit);
+    final found = label;
+    if (found == null) return null;
+    Element? opacity;
+    found.visitAncestorElements((a) {
+      if (a.widget is! Opacity) return true;
+      opacity = a;
+      return false;
+    });
+    // the label's Row holds its icon
+    Element? icon;
+    found.visitAncestorElements((a) {
+      if (a.widget is! Row) return true;
+      void down(Element e) {
+        if (icon != null) return;
+        if (e.widget is Icon) {
+          icon = e;
+          return;
+        }
+        e.visitChildren(down);
+      }
+
+      a.visitChildren(down);
+      return false;
+    });
+    Element? home;
+    Element? settings;
+    if (opacity case final o?) {
+      void buttons(Element e) {
+        if (e.widget case IconButton(:final tooltip)) {
+          if (tooltip == '返回主页') home ??= e;
+          if (tooltip == '更多设置') settings ??= e;
+        }
+        e.visitChildren(buttons);
+      }
+
+      o.visitChildren(buttons);
+    }
+    return (
+      label: found,
+      opacity: opacity,
+      home: home,
+      settings: settings,
+      icon: icon,
+    );
+  }
+
+  /// Readings §6.2 asks for beyond the boxes and lists: the intro widget's
+  /// own layout inputs, the portrait branch's header and its collapsed bar
+  /// (R5), the player widget's constraints (T3), the season panels built
+  /// (同步调用) and the controller's scalars the R5 / R1 checks read.
+  static Map<String, Object?> _extras(WpPage page, _Scan scan) {
+    Object intro = 'none';
+    Object header = 'none';
+    Object playerBox = 'none';
+    final panels = <String>[];
+    void visit(Element e) {
+      // the walk's own sheet (scan.sheet) and any other sheet: skipped
+      // whole, not an ancestor walk per element
+      if (identical(e, scan.sheet) || e.widget is BottomSheet_) return;
+      switch (e.widget) {
+        case UgcIntroPanel(:final isHorizontal, :final isPortrait)
+            when intro == 'none':
+          intro = {
+            'kind': 'ugc',
+            'isHorizontal': isHorizontal,
+            'isPortrait': isPortrait,
+          };
+        case PgcIntroPage(:final cid, :final maxWidth, :final isLandscape)
+            when intro == 'none':
+          intro = {
+            'kind': 'pgc',
+            'cid': cid,
+            'maxWidth': half(maxWidth),
+            'isLandscape': isLandscape,
+          };
+        case VideoHeader(:final minExtent, :final maxExtent)
+            when header == 'none':
+          final sliver = e.findRenderObject();
+          header = {
+            'minExtent': half(minExtent),
+            'maxExtent': half(maxExtent),
+            'paintExtent': sliver is RenderSliver && sliver.geometry != null
+                ? half(sliver.geometry!.paintExtent)
+                : 'notLaidOut',
+          };
+        case PLVideoPlayer(:final maxWidth, :final maxHeight)
+            when playerBox == 'none':
+          playerBox = {
+            'maxWidth': half(maxWidth),
+            'maxHeight': half(maxHeight),
+          };
+        case EpisodePanel(:final type):
+          panels.add('EpisodePanel:${type.name}');
+        case PagesPanel():
+          panels.add('PagesPanel');
+        default:
+      }
+      e.visitChildren(visit);
+    }
+
+    page.subtree.visitChildren(visit);
+    return {
+      'intro': intro,
+      'header': header,
+      'bar': _bar(page),
+      'playerBox': playerBox,
+      'panels': panels,
+      'controller': controllerScalars(page),
+    };
+  }
+
+  /// The collapsed bar as §6.2 lists it: the label's role and icon, the
+  /// toolbar's opacity, whether 「返回主页」 is the player's `onCloseAll`
+  /// (by `==`: a torn-off method is a new object each time, wp12#tearoff)
+  /// and what the right-hand button is. `none` when it is not built
+  /// (scrollRatio 0, or not the portrait branch).
+  static Object _bar(WpPage page) {
+    if (page.kind != 'bili') return 'none';
+    final bar = _collapsedBar(page);
+    if (bar == null) return 'none';
+    final text = (bar.label.widget as Text).data;
+    final icon = (bar.icon?.widget as Icon?)?.icon;
+    final player = Get.isRegistered<VideoDetailController>(tag: page.tag)
+        ? Get.find<VideoDetailController>(tag: page.tag).plPlayerController
+        : null;
+    final home = (bar.home?.widget as IconButton?)?.onPressed;
+    return {
+      'label': _barLabels[text],
+      'icon': icon == null
+          ? 'none'
+          : '${icon.fontFamily}:${icon.codePoint.toRadixString(16)}',
+      'opacity': switch (bar.opacity?.widget) {
+        Opacity(:final opacity) => (opacity * 1000).roundToDouble() / 1000,
+        _ => unread('noOpacity'),
+      },
+      'homeIsCloseAll': home == null || player == null
+          ? unread('noHome')
+          : home == player.onCloseAll,
+      'right': bar.settings != null ? 'settings' : 'more',
+    };
+  }
+
+  /// The controller's values the step checks read beside the tree: the
+  /// bilibili page's layout and play state, the YouTube page's stage.
+  static Object controllerScalars(WpPage page) {
+    double r(double v) => (v * 1000).roundToDouble() / 1000;
+    if (page.kind == 'yt') {
+      if (!Get.isRegistered<YtVideoController>(tag: page.tag)) {
+        return unread('noController');
+      }
+      final ctr = Get.find<YtVideoController>(tag: page.tag);
+      return {
+        'stage': ctr.stage.value.name,
+        'playerStatus': ctr.plPlayerController.playerStatus.value.name,
+      };
+    }
+    if (!Get.isRegistered<VideoDetailController>(tag: page.tag)) {
+      return unread('noController');
+    }
+    final ctr = Get.find<VideoDetailController>(tag: page.tag);
+    Object late(double Function() read) {
+      try {
+        return half(read());
+      } catch (_) {
+        return 'notSet';
+      }
+    }
+
+    return {
+      'cid': ctr.cid.value,
+      'isVertical': ctr.isVertical.value,
+      'isPortrait': ctr.isPortrait,
+      'videoHeight': late(() => ctr.videoHeight),
+      'minVideoHeight': late(() => ctr.minVideoHeight),
+      'maxVideoHeight': late(() => ctr.maxVideoHeight),
+      'scrollRatio': r(ctr.scrollRatio.value),
+      'isExpanding': ctr.isExpanding,
+      'isCollapsing': ctr.isCollapsing,
+      'playedHere': ctr.playedTime != null,
+      'autoPlay': ctr.autoPlay,
+      'isQuerying': ctr.isQuerying,
+      'hasVideoUrl': ctr.videoUrl != null,
+      'videoState': ctr.videoState.value,
+      'ownsPlayer': ctr.ownsPlayer,
+      'playerStatus': ctr.plPlayerController.playerStatus.value.name,
+      'isFullScreen': ctr.plPlayerController.isFullScreen.value,
     };
   }
 
@@ -588,8 +943,33 @@ abstract final class WpRead {
     };
   }
 
-  static List<Object?> _lists(WpPage page, _Scan scan) {
-    // the controllers known by name, by identity
+  /// The page's scrollables keyed by role (the key is the role with `.`
+  /// written as `_`, run.ps1 reads no key with a dot; a second one with
+  /// the same role is `<role>#2`), not by their place in the tree: S1
+  /// restructures the tree, the roles stay (S0b part 3a review).
+  static Map<String, Object?> _lists(WpPage page, _Scan scan) {
+    final named = _namedControllers(page, scan);
+    final out = <String, Object?>{};
+    for (final l in scan.lists) {
+      final entry = _list(page, scan, l, named);
+      final role = (entry['role']! as String).replaceAll('.', '_');
+      var key = role;
+      for (var n = 2; out.containsKey(key); n++) {
+        key = '$role#$n';
+      }
+      out[key] = entry;
+    }
+    return out;
+  }
+
+  /// [listStates]' keys and [read]'s `lists` keys are the same.
+  static String listKey(String role) => role.replaceAll('.', '_');
+
+  /// The controllers known by name, by identity.
+  static Map<ScrollController, String> _namedControllers(
+    WpPage page,
+    _Scan scan,
+  ) {
     final named = <ScrollController, String>{};
     for (final e in scan.nested) {
       if (e case StatefulElement(
@@ -611,7 +991,7 @@ abstract final class WpRead {
             'replyScrollCtr';
       }
     }
-    return [for (final l in scan.lists) _list(page, scan, l, named)];
+    return named;
   }
 
   static Map<String, Object?> _list(
@@ -641,14 +1021,14 @@ abstract final class WpRead {
       _ when l.slot != null => 'slot.${l.slot}',
       _ => 'other',
     };
-    Object pixels = unread('noPosition'), max = unread('noPosition');
-    Object physics = unread('noPosition');
+    // a scrollable not laid out (an offstage tab) has no position yet: a
+    // value, not a failed reading
+    Object pixels = 'notLaidOut', max = 'notLaidOut';
+    Object physics = 'notLaidOut';
     try {
       final p = l.state.position;
-      pixels = p.hasPixels ? half(p.pixels) : unread('noPixels');
-      max = p.hasContentDimensions
-          ? half(p.maxScrollExtent)
-          : unread('noContentDimensions');
+      pixels = p.hasPixels ? half(p.pixels) : 'notLaidOut';
+      max = p.hasContentDimensions ? half(p.maxScrollExtent) : 'notLaidOut';
       physics = [
         for (ScrollPhysics? s = p.physics; s != null; s = s.parent)
           '${s.runtimeType}',
