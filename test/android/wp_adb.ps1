@@ -146,6 +146,7 @@ $script:restoreFailures = [System.Collections.Generic.List[string]]::new()
 $script:pendingWipe = [System.Collections.Generic.List[string]]::new()
 $script:freeformOn = $false
 $script:stayOnSet = $false
+$script:adbRetries = 0
 $script:wokeScreen = $false
 
 # ------------------------------------------------------------------ names, quoting
@@ -165,11 +166,22 @@ function Invoke-Adb([string[]]$a, [string]$dry = '') {
     $line = "adb -s $Serial $($a -join ' ')"
     $script:adbLog.Add($line)
     if ($DryRun) { Write-Host "  [dry] $line"; return $dry }
-    $out = & $Adb -s $Serial @a 2>&1
-    $code = $LASTEXITCODE
-    $text = (@($out) | ForEach-Object { "$_" }) -join "`n"
-    if ($code -ne 0) { throw "adb failed ($code): $line`n$text" }
-    return $text.TrimEnd()
+    # 6b round 2: twice in one session the client could not reach the local
+    # adb server (10060 on 127.0.0.1:5037, then "daemon still not running")
+    # and the next call a moment later worked. That call never left this PC
+    # (nothing reached the phone), so only that error is retried: at most 3
+    # tries, 2 s apart, each logged and counted (printed at the end)
+    for ($try = 1; ; $try++) {
+        $out = & $Adb -s $Serial @a 2>&1
+        $code = $LASTEXITCODE
+        $text = (@($out) | ForEach-Object { "$_" }) -join "`n"
+        if ($code -eq 0) { return $text.TrimEnd() }
+        if ($text -notmatch 'cannot connect to daemon' -or $try -ge 3) { throw "adb failed ($code): $line`n$text" }
+        $script:adbRetries++
+        $script:adbLog.Add("# retry $($try + 1) after: cannot connect to daemon")
+        Write-Warning "adb could not reach the local adb server (try $try of 3): $line"
+        Start-Sleep -Seconds 2
+    }
 }
 
 function Invoke-Shell([string]$cmd, [string]$dry = '') { Invoke-Adb @('shell', $cmd) $dry }
@@ -343,6 +355,7 @@ function Restore-AllSettings($saved) {
         try { $parts += "screen awake=$(Test-Awake)" } catch { }
     }
     Write-Host "phone settings after: $($parts -join ', ')"
+    if ($script:adbRetries) { Write-Host "adb calls retried after the local server could not be reached: $($script:adbRetries)" }
 }
 
 # ------------------------------------------------------------------ packages

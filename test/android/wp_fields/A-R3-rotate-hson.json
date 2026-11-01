@@ -904,6 +904,6 @@
     "expect": [],
     "what": "R3 转屏前后的布局尺寸 (portrait before, landscape in fullscreen)"
   },
-  "calibrated": "android, calibrated in 6b (2026-11-01, APK ca3538d2f, Pixel 4 XL, Android 16): 2 passes, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied except the ones marked unstable (audit-logs/wps-s0b/c6-report.md 「6b run」)",
+  "calibrated": "android, calibrated in 6b round 2 (2026-11-01, APK ee272aa36, versionCode 5688, Pixel 4 XL, Android 16): 2 passes of all 12 tables, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied; unstable as marked (audit-logs/wps-s0b/c6-report.md 「6b run」, 「6b round 2」)",
   "evidence": "control: enterBefore vs enterDone window.logical (design §6.3 R3 转屏前后的布局尺寸)"
 }

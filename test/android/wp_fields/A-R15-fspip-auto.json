@@ -334,8 +334,18 @@
       "status": "must-same"
     },
     {
-      "name": "fsPip.branch.geometry.player",
-      "path": "moments.fsPip.branch.geometry.player",
+      "name": "fsPip.branch.geometry.player.rect",
+      "path": "moments.fsPip.branch.geometry.player.rect",
+      "status": "unstable"
+    },
+    {
+      "name": "fsPip.branch.geometry.player.offstage",
+      "path": "moments.fsPip.branch.geometry.player.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPip.branch.geometry.player.via",
+      "path": "moments.fsPip.branch.geometry.player.via",
       "status": "must-same"
     },
     {
@@ -1080,7 +1090,7 @@
     ],
     "what": "R15 / R3 全屏中进画中画: 渲染的部件. The exit asks the orientation from before the entry (§6.2: portrait, the phone upright, 横屏适配 on: fullMode follows user_rotation 0)"
   },
-  "calibrated": "android, calibrated in 6b (2026-11-01, APK ca3538d2f, Pixel 4 XL, Android 16): 2 passes, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied except the ones marked unstable (audit-logs/wps-s0b/c6-report.md 「6b run」)",
+  "calibrated": "android, calibrated in 6b round 2 (2026-11-01, APK ee272aa36, versionCode 5688, Pixel 4 XL, Android 16): 2 passes of all 12 tables, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied; unstable as marked (audit-logs/wps-s0b/c6-report.md 「6b run」, 「6b round 2」)",
   "evidence": "control: enterDone vs fsPip branch.scalars",
-  "calibratedNote": "the picture-in-picture window size varied (unstable); the rest held"
+  "calibratedNote": "the picture-in-picture window size changes between sessions (four sizes seen): its logical / physical size and the PiP player box rect are unstable; the rest held"
 }

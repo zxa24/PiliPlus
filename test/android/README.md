@@ -118,6 +118,15 @@ through `adb shell cat` decoded it in the console's code page, gb2312 here,
 and a report with Chinese text no longer parsed.) A run that ends without a
 finished report still has its file pulled, as `<report>.unfinished`.
 
+An adb call that fails with `cannot connect to daemon` (the client could
+not reach the local adb server on 127.0.0.1:5037; nothing was sent to the
+phone) is retried, at most 3 tries 2 s apart, each one warned, logged in
+`adb.log` and counted at the end. Any other adb failure is not retried.
+(6b round 2: twice in one session the call timed out with 10060 and the
+next one a moment later worked; a 4-minute `adb devices` loop with both
+clients and a TIME_WAIT count during a run did not reproduce it, the
+cause is not known.)
+
 `-SelfTestArgs` values that start with `--` must be passed from
 `pwsh -Command` as an array (`-SelfTestArgs @('--open-bili','<url>')`):
 with `pwsh -File` PowerShell reads them as parameter names.
@@ -148,7 +157,7 @@ condition (`-CheckTables` refuses a table without it).
 | `A-R3-rotate-hson` | R3 / F0: upright, into native fullscreen (landscape) and out, 横屏适配 on | window size before / in fullscreen |
 | `A-R3-rotate-hsoff` | the same with 横屏适配 off (the exit always asks portrait) | the same |
 | `A-R3-held-landscape` | R3 横着拿着退出: turned landscape in fullscreen (host `user_rotation 1`), out; 3 s of frames after | window size held / turned back |
-| `A-R3-threecol-portraitfs` | R3 三栏 → 竖屏全屏: portrait video, phone landscape, fullscreen asks portrait; side column width before / after, uiErrors | window size before / in fullscreen |
+| `A-R3-threecol-portraitfs` | R3 三栏 → 竖屏全屏: portrait video, phone landscape, fullscreen asks portrait; the host holds the phone sideways again before the exit (below); side column width before / after, uiErrors | window size before / in fullscreen |
 | `A-F0-inapp` | F0's 「Android 应用内全屏（Shift+F）」 | window size before / in fullscreen |
 | `A-R5-statusbar` | R5: status-bar icons at scrollRatio 0 and ≥ 0.5 | the icon brightness |
 | `A-R8-back-hsoff` | R8: 横屏适配 off, back upright and sideways: canPop + didPop | canPop |
@@ -161,6 +170,24 @@ Not covered: R15's SDK < 31 `_onUserLeaveHint` path (the Pixel runs SDK 36,
 design wp3#33); the window mode `isWindowMode` (needs the freeform window
 of step 4; not a table yet).
 
+## Holding the phone sideways (user_rotation)
+
+The phone lies on the desk, so "turned landscape" is modelled by the
+host: accelerometer off, `user_rotation 1` (`host:rotate:1`), the app's
+FULL_USER requests follow it. **6b found where that stops modelling a held
+phone**: when the app forces an orientation while rotation is locked,
+Android stores that rotation as the new `user_rotation`. A read-only poll
+during `A-R3-threecol-portraitfs` (2026-11-01, `settings get system
+user_rotation` / `cmd window user-rotation` every ~0.35 s, the driver idle
+while the app ran) read 1 until the portrait fullscreen came and 0 after
+it; the exit (`fsexit@landscape`, FULL_USER) then followed 0 and the window
+stayed portrait, in both passes and the probe. A phone really held sideways
+keeps reporting landscape through its sensor. So that table re-asserts the
+hold: `host:rotate:1` again just before `fsexit@landscape` (user decision,
+6b round 2). Any new table that forces an orientation with rotation locked
+and expects the phone's own orientation back afterwards needs the same
+re-assertion.
+
 ## R8's sideways window
 
 With 横屏适配 off the app locks portrait at start and after every
@@ -170,7 +197,8 @@ APK ca3538d2f) settled freeform**: the upright window came out 371.5×714.5,
 the sideways one 514.5×285.5 (logical), and the back's handling was
 `didPop true` upright, `didPop false, Get.back` sideways. (`canPop` itself
 read `none` on that APK: the reading matched Flutter's `PopScope`, the page
-builds the app's own; fixed in self_test_watch.dart, needs the next APK.)
+builds the app's own. Fixed in ee272aa36: round 2 reads `canPop` true
+upright and false sideways, in both passes.)
 wmsize was not needed and has not been run.
 
 - `freeform` (tried first, as the design says): `enable_freeform_support`
@@ -189,7 +217,7 @@ wmsize was not needed and has not been run.
 ## F0 on the phone
 
 `python _tmp/s0b6/f0.py <side folder>` (6b's scratch; the numbers are in
-audit-logs/wps-s0b/c6-report.md 「6b run」) lists, per R3 run and per
+audit-logs/wps-s0b/c6-report.md 「6b run」 and 「6b round 2」) lists, per R3 run and per
 fullscreen enter / exit, the delay from the frame where `fsProcessing` has
 cleared to the frame with the final size, the step's own polled delay
 (`events.<moment>Rotation`: orientMs − flagMs) and the sizes in between.

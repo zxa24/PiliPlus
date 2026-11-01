@@ -384,9 +384,9 @@
     "expect": [],
     "what": "R8 横屏适配关时横 / 竖两种朝向下返回的处置 (canPop; didPop in events.back:*.pops)"
   },
-  "calibrated": "android, calibrated in 6b (2026-11-01, APK ca3538d2f, Pixel 4 XL, Android 16): 2 passes, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied except the ones marked unstable (audit-logs/wps-s0b/c6-report.md 「6b run」)",
+  "calibrated": "android, calibrated in 6b round 2 (2026-11-01, APK ee272aa36, versionCode 5688, Pixel 4 XL, Android 16): 2 passes of all 12 tables, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied; unstable as marked (audit-logs/wps-s0b/c6-report.md 「6b run」, 「6b round 2」)",
   "evidence": "control: upright vs sideways android.canPop",
   "landscapeMethod": "freeform",
   "landscapeMethodNote": "6b, 2026-11-01, Pixel 4 XL, APK ca3538d2f: freeform (am start --windowingMode 5, the task resized by cmd activity task resize) gives a portrait window 371.5x714.5 and a landscape one 514.5x285.5 (logical); with 横屏适配 off the back there is didPop false then Get.back, upright didPop true. wmsize was not needed",
-  "calibratedNote": "canPop read none on this APK (self_test_watch matched Flutter PopScope, the page builds the app one; fixed after ca3538d2f): calibrate again on the next APK"
+  "calibratedNote": "round 2 reads canPop (the app PopScope): true upright, false sideways in both passes"
 }

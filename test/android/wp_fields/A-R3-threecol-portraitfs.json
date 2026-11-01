@@ -1,6 +1,6 @@
 {
   "id": "A-R3-threecol-portraitfs",
-  "about": "design §6.4 R3 横屏三栏（竖屏视频）→ 竖着全屏: 横屏适配 on, enableVerticalExpand on, a portrait ugc, the phone turned landscape first (three columns); native fullscreen asks portrait (auto + a vertical video), the exit goes back to landscape. S0 records: uiErrors (a negative-width constraint would show there) and the side column's width before (start) and after (end), branch.geometry.columns. Control: the layout before / in fullscreen",
+  "about": "design §6.4 R3 横屏三栏（竖屏视频）→ 竖着全屏: 横屏适配 on, enableVerticalExpand on, a portrait ugc, the phone turned landscape first (three columns); native fullscreen asks portrait (auto + a vertical video), the exit goes back to landscape. S0 records: uiErrors (a negative-width constraint would show there) and the side column's width before (start) and after (end), branch.geometry.columns. Control: the layout before / in fullscreen. The phone is \"held sideways\" by locking user_rotation 1 (accelerometer off). 6b showed Android stores user_rotation 0 when the app forces the portrait fullscreen with rotation locked (polled: 1 until the enter, 0 after it, the driver idle), so the exit, which follows user_rotation, stayed portrait. A held phone's sensor would still report landscape: the host sets user_rotation 1 again just before fsexit@landscape (user decision, 6b round 2)",
   "platform": "android",
   "mutants": "none",
   "check": "wpSteps",
@@ -13,7 +13,7 @@
       "--wp-open",
       "bili:https://www.bilibili.com/video/BV16gxB6gEy4",
       "--wp-steps",
-      "host:rotate:1;waitfor:landscape@10000;require:landscape;pause;settle;read:start;fs:native@portrait;fsexit@landscape;read:end;host:rotate:0;waitfor:portrait@10000;require:portrait;settle;read:back"
+      "host:rotate:1;waitfor:landscape@10000;require:landscape;pause;settle;read:start;fs:native@portrait;host:rotate:1;fsexit@landscape;read:end;host:rotate:0;waitfor:portrait@10000;require:portrait;settle;read:back"
     ],
     "prefs": [
       "horizontalScreen:bool=true",
@@ -1014,8 +1014,13 @@
       "status": "unstable"
     },
     {
-      "name": "events.host:rotate:0#2",
-      "path": "events.host:rotate:0#2",
+      "name": "events.host:rotate:1#2",
+      "path": "events.host:rotate:1#2",
+      "status": "unstable"
+    },
+    {
+      "name": "events.host:rotate:0#3",
+      "path": "events.host:rotate:0#3",
       "status": "unstable"
     },
     {
@@ -1063,9 +1068,9 @@
       }
     ],
     "expect": [],
-    "what": "R3 转屏前后的布局尺寸 (landscape three columns, portrait fullscreen)"
+    "what": "R3 转屏前后的布局尺寸 (landscape three columns, portrait fullscreen); the exit lands landscape because the host re-asserts user_rotation 1 before fsexit (held sideways, the sensor modelled)"
   },
-  "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
+  "calibrated": "android, calibrated in 6b round 2 (2026-11-01, APK ee272aa36, versionCode 5688, Pixel 4 XL, Android 16): 2 passes of all 12 tables, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied; unstable as marked (audit-logs/wps-s0b/c6-report.md 「6b run」, 「6b round 2」)",
   "evidence": "control: enterBefore vs enterDone window.logical",
-  "calibratedNote": "NOT calibrated: neither pass measured (exitDone: the window never turned landscape in 5 s); the table is still the hand-written one"
+  "calibratedNote": "round 2: the exit re-asserts user_rotation 1 (host:rotate:1 before fsexit@landscape); both passes measured, the exit landed landscape"
 }
