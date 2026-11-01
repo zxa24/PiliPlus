@@ -37,6 +37,12 @@ class YtDownloadEntry extends DownloadEntry {
   /// The record's file in the entry folder.
   static const recordFile = 'entry.librepili.json';
 
+  /// A stream folder's name (`YtStreamTag`): `<videoItag>-<audioItag>`,
+  /// `.` and 12 hex digits of the audio track's digest, `.drc`.
+  static final streamTagPattern = RegExp(
+    r'^(\d+)-(\d+)(?:\.([0-9a-f]{12}))?(\.drc)?$',
+  );
+
   final String videoId;
   @override
   final String title;
@@ -136,7 +142,12 @@ class YtDownloadEntry extends DownloadEntry {
       cover: json['cover'] as String? ?? '',
       durationMs: asInt(json['duration_ms']),
       maxHeight: asInt(json['max_height']),
-      streamTag: json['stream_tag'] as String?,
+      // joined into a path that is deleted recursively: only a stream
+      // folder's name is kept (review 2bc)
+      streamTag: switch (json['stream_tag']) {
+        final String tag when streamTagPattern.hasMatch(tag) => tag,
+        _ => null,
+      },
       streamSource: json['stream_source'] as String?,
       quality: json['quality_label'] as String?,
       totalBytes: asInt(json['total_bytes']),

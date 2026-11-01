@@ -25,6 +25,7 @@ import 'package:PiliPlus/services/youtube/stream_relay.dart';
 import 'package:PiliPlus/services/youtube/yt_format_select.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
+import 'package:PiliPlus/utils/extension/file_ext.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -45,16 +46,18 @@ abstract final class YtStreamTag {
         '${audio.isDrc ? '.drc' : ''}';
   }
 
-  static final _name = RegExp(r'^(\d+)-(\d+)(?:\.([0-9a-f]{12}))?(\.drc)?$');
-
   /// The pin a folder name alone gives (its `stream.json` unreadable): the
-  /// audio track by its digest. Null: not a stream folder's name.
+  /// audio track by its digest. Null: not a stream folder's name (or an
+  /// itag no int holds).
   static YtFormatPin? pinOf(String dirName) {
-    final m = _name.firstMatch(dirName);
+    final m = YtDownloadEntry.streamTagPattern.firstMatch(dirName);
     if (m == null) return null;
+    final video = int.tryParse(m[1]!);
+    final audio = int.tryParse(m[2]!);
+    if (video == null || audio == null) return null;
     return YtFormatPin(
-      videoItag: int.parse(m[1]!),
-      audioItag: int.parse(m[2]!),
+      videoItag: video,
+      audioItag: audio,
       audioTrackDigest: m[3],
       drc: m[4] != null,
     );
@@ -63,10 +66,10 @@ abstract final class YtStreamTag {
   /// [video] and [audio] are the pair of the folder [dirName], by its name
   /// alone: the audio track compared by digest.
   static bool matches(String dirName, YtFormat video, YtFormat audio) {
-    final m = _name.firstMatch(dirName);
+    final m = YtDownloadEntry.streamTagPattern.firstMatch(dirName);
     if (m == null) return false;
-    return video.itag == int.parse(m[1]!) &&
-        audio.itag == int.parse(m[2]!) &&
+    return video.itag == int.tryParse(m[1]!) &&
+        audio.itag == int.tryParse(m[2]!) &&
         ytAudioTrackDigest(audio.audioTrackId) == m[3] &&
         audio.isDrc == (m[4] != null);
   }
@@ -108,7 +111,8 @@ enum YtCreateResult {
   done('已下载'),
   caseConflict('已有一个仅大小写不同的 YouTube 下载'),
   unreadable('已存在无法读取的下载'),
-  recordExists('该视频已有下载记录，请重新进入缓存页');
+  recordExists('该视频已有下载记录，请重新进入缓存页'),
+  failed('下载记录写入失败，请检查下载目录');
 
   const YtCreateResult(this.message);
   final String message;
@@ -145,18 +149,43 @@ final class YtDownloadPlatform implements DownloadPlatform {
   DownloadEntry parse(Map<String, dynamic> json) =>
       YtDownloadEntry.fromJson(json);
 
+  /// The record, or its `.tmp` alone: the list reads either (review 2bc:
+  /// the orphan check must not take a folder the list would show for one).
+  @override
+  bool hasRecord(DownloadEntry entry) {
+    final file = File(path.join(entry.entryDirPath, recordFile));
+    return file.existsSync() || File('${file.path}.tmp').existsSync();
+  }
+
   /// `entry.librepili.json` through `<file>.tmp` + rename, as bilibili's
   /// `entry.json` (a folder deleted meanwhile is not made again).
+  ///
+  /// The list may have read this record from its `.tmp` (a save cut before
+  /// its rename, or a record that does not read): writing the `.tmp` now
+  /// would truncate the only readable copy, so that copy becomes the record
+  /// first, and a save cut now still leaves it (review 2bc).
   @override
   Future<void> save(DownloadEntry entry) async {
     if (!Directory(entry.entryDirPath).existsSync()) return;
     final file = File(path.join(entry.entryDirPath, recordFile));
     final tmp = File('${file.path}.tmp');
+    if (tmp.existsSync() && !_readable(file)) {
+      await _replaceWith(tmp, file.path);
+    }
     await tmp.writeAsString(
       jsonEncode((entry as YtDownloadEntry).toJson()),
       flush: true,
     );
     await _replaceWith(tmp, file.path);
+  }
+
+  /// [file] is there and reads as a record (a JSON object).
+  static bool _readable(File file) {
+    try {
+      return jsonDecode(file.readAsStringSync()) is Map;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Renames [tmp] over [target], again a few times while Windows refuses
@@ -244,56 +273,104 @@ final class YtDownloadPlatform implements DownloadPlatform {
 
   // ------------------------------------------------------------ the cover
 
+  /// What a cover may take (review 2bc): its bytes, and its time — the
+  /// redirects, a failed answer's body and the body itself included.
+  @visibleForTesting
+  static int coverMaxBytes = 4 << 20;
+  @visibleForTesting
+  static Duration coverDeadline = const Duration(seconds: 60);
+
+  /// Tests only: in place of the image cache's lookup.
+  @visibleForTesting
+  static Future<File?> Function(String url)? coverCacheForTest;
+
   /// `cover.jpg` in the entry folder: from the image cache, else fetched
   /// over a bare [HttpClient] with every hop checked ([YtCheckedHops]) —
-  /// never through the app's Dio (no bilibili headers). Only `*.ytimg.com`.
-  /// A failure does not stop the video.
+  /// never through the app's Dio (no bilibili headers). `*.ytimg.com`
+  /// only, on every hop: a redirect elsewhere is refused before it is
+  /// opened. Written as `cover.jpg.part` and renamed, from the cache too,
+  /// so a `cover.jpg` is always whole; a `.part` left by a failure is
+  /// removed. A failure does not stop the video.
   @override
   Future<bool> cover(DownloadEntry entry) async {
     entry as YtDownloadEntry;
     final file = File(path.join(entry.entryDirPath, PathUtils.coverName));
+    if (file.existsSync()) return true;
+    final uri = Uri.tryParse(entry.cover);
+    if (uri == null || !isYtImageHost(uri)) return false;
+    final part = File('${file.path}.part');
     try {
-      if (file.existsSync()) return true;
-      final uri = Uri.tryParse(entry.cover);
-      if (uri == null || !isYtImageHost(uri)) return false;
-      try {
-        final cached = (await CacheManager.manager.getFileFromCache(
-          entry.cover,
-        ))?.file;
-        if (cached != null) {
-          await cached.copy(file.path);
-          return true;
-        }
-      } catch (_) {
-        // no image cache (a test, a cleared cache): fetched
-      }
-      final client = (httpClientForTest ?? HttpClient.new)()
-        ..idleTimeout = const Duration(seconds: 30);
-      try {
-        final (_, response) = await YtCheckedHops(client).send(
-          'GET',
-          uri,
-          timeout: const Duration(seconds: 30),
-        );
-        if (response.statusCode != HttpStatus.ok) {
-          await response.drain<void>().catchError((_) {});
-          return false;
-        }
-        final part = File('${file.path}.part');
-        final sink = part.openWrite();
-        try {
-          await response.timeout(const Duration(seconds: 30)).pipe(sink);
-        } catch (_) {
-          await part.delete().catchError((_) => part);
-          rethrow;
-        }
+      if (await _coverFromCache(entry.cover, part) ||
+          await _fetchCover(uri, part)) {
         await part.rename(file.path);
         return true;
-      } finally {
-        client.close(force: true);
       }
     } catch (_) {
+      // not saved: the video goes on without it
+    }
+    await part.tryDel();
+    return false;
+  }
+
+  /// The image cache's copy of [url] into [part]; false: none there (or no
+  /// image cache: a test, a cleared cache).
+  static Future<bool> _coverFromCache(String url, File part) async {
+    final File? cached;
+    try {
+      cached = await (coverCacheForTest ?? _imageCache)(url);
+    } catch (_) {
       return false;
+    }
+    if (cached == null) return false;
+    await cached.copy(part.path);
+    return true;
+  }
+
+  static Future<File?> _imageCache(String url) async =>
+      (await CacheManager.manager.getFileFromCache(url))?.file;
+
+  /// [uri] fetched into [part]: at most [coverMaxBytes], within
+  /// [coverDeadline] in all (the client is closed when it runs out, which
+  /// ends whatever is still being read); false: not a 200.
+  static Future<bool> _fetchCover(Uri uri, File part) async {
+    final client = (httpClientForTest ?? HttpClient.new)()
+      ..idleTimeout = const Duration(seconds: 30);
+    final deadline = Timer(coverDeadline, () => client.close(force: true));
+    try {
+      final (_, response) = await YtCheckedHops(client).send(
+        'GET',
+        uri,
+        timeout: const Duration(seconds: 30),
+        allow: isYtImageHost,
+        drainTimeout: const Duration(seconds: 10),
+      );
+      if (response.statusCode != HttpStatus.ok) {
+        await response
+            .drain<void>()
+            .timeout(const Duration(seconds: 10))
+            .catchError((_) {});
+        return false;
+      }
+      final sink = part.openWrite();
+      var bytes = 0;
+      try {
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 30),
+        )) {
+          bytes += chunk.length;
+          if (bytes > coverMaxBytes) {
+            throw const FileSystemException('cover over its byte cap');
+          }
+          sink.add(chunk);
+        }
+      } finally {
+        // closed before a failed .part is removed (Windows keeps an open one)
+        await sink.close();
+      }
+      return true;
+    } finally {
+      deadline.cancel();
+      client.close(force: true);
     }
   }
 
@@ -508,6 +585,11 @@ final class YtDownloadPlatform implements DownloadPlatform {
       return YtCreateResult.queued;
     }
     final root = downloadPath;
+    // a first tap still writing this record (or one of an id that differs
+    // only in case, the same folder on Windows): its .tmp is not read
+    if (service.isAdding(path.join(root, 'yt_${detail.videoId}', 'main'))) {
+      return YtCreateResult.queued;
+    }
     switch (checkExisting(root, detail.videoId)) {
       case YtRecordExists():
         return YtCreateResult.recordExists;
@@ -519,11 +601,14 @@ final class YtDownloadPlatform implements DownloadPlatform {
       case YtNoRecord():
         break;
     }
-    // false: added meanwhile (a second tap while the first was writing)
-    return await service.addDownload(
-          newEntry(detail, maxHeight, now ?? DateTime.now(), root),
-        )
-        ? YtCreateResult.added
-        : YtCreateResult.queued;
+    return switch (await service.addDownload(
+      newEntry(detail, maxHeight, now ?? DateTime.now(), root),
+    )) {
+      DownloadAddResult.added => YtCreateResult.added,
+      // added meanwhile (a second tap while the first was writing)
+      DownloadAddResult.present => YtCreateResult.queued,
+      // the record not written: its leftovers removed, nothing queued
+      DownloadAddResult.failed => YtCreateResult.failed,
+    };
   }
 }

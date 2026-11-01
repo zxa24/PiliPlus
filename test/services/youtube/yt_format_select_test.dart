@@ -650,6 +650,43 @@ void main() {
           137,
         );
       });
+
+      // review 2bc, plan §4.5: two sizes in one tier — the size by
+      // resolution then bitrate first (1920x1080 over 1920x800), SDR and
+      // codec order only within that size
+      YtFormat sized(int itag, int w, int h, {required bool hdr}) => YtFormat({
+        ...fakeFormat(
+          itag: itag,
+          mimeType: 'video/mp4; codecs="av01.0.08M.08"',
+          width: w,
+          height: h,
+          bitrate: w * h,
+        ),
+        'colorInfo': {
+          'transferCharacteristics': hdr
+              ? 'COLOR_TRANSFER_CHARACTERISTICS_SMPTEST2084'
+              : 'COLOR_TRANSFER_CHARACTERISTICS_BT709',
+        },
+      });
+
+      test('two sizes of one tier: the larger, though only it is HDR', () {
+        final pick = selectYtVideoFormat([
+          sized(399, 1920, 800, hdr: false),
+          sized(699, 1920, 1080, hdr: true),
+          audio(140),
+        ], YtFormatPreference.mp4Download(1080, exactHeight: 1080))!;
+        expect((pick.width, pick.height), (1920, 1080));
+      });
+
+      test('within that size: SDR before HDR, as mp4Download ranks', () {
+        final pick = selectYtVideoFormat([
+          sized(399, 1920, 800, hdr: false),
+          sized(699, 1920, 1080, hdr: true),
+          sized(400, 1920, 1080, hdr: false),
+          audio(140),
+        ], YtFormatPreference.mp4Download(1080, exactHeight: 1080))!;
+        expect(pick.itag, 400);
+      });
     });
 
     group('DRC', () {

@@ -167,6 +167,11 @@ abstract interface class DownloadPlatform {
   /// The record file in an entry folder.
   String get recordFile;
 
+  /// [entry]'s folder still holds its record, as the list would read it:
+  /// the start's orphan check (a download deleted while its cover was
+  /// written) removes only a folder without one.
+  bool hasRecord(DownloadEntry entry);
+
   /// The entry of a record; throws when it cannot be read (the service
   /// leaves it out and says so in `lastError`).
   DownloadEntry parse(Map<String, dynamic> json);

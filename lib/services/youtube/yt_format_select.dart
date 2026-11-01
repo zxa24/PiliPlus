@@ -235,9 +235,14 @@ YtFormat? selectYtVideoFormat(
         .where((f) => ytQualityTier(f.width ?? 0, f.height ?? 0) == tier)
         .toList(growable: false);
     if (atTier.isEmpty) return null;
-    final side = _shortSide((atTier.toList()..sort(rank)).last);
+    // plan §4.5: the size first, by resolution then bitrate (two sizes of
+    // one tier, e.g. 1920x800 and 1920x1080); then the codec and SDR order
+    // among the formats of that size (review 2bc)
+    final top = (atTier.toList()..sort(_byResolutionThenBitrate)).last;
     return _inCodecOrder(
-      atTier.where((f) => _shortSide(f) == side).toList(growable: false),
+      atTier
+          .where((f) => f.width == top.width && f.height == top.height)
+          .toList(growable: false),
       pref,
       rank,
     );

@@ -161,6 +161,19 @@ void main() {
     expect(find.text('已看完'), findsNothing);
   });
 
+  // review 2bc (P2-L2 changed): the position is the history's own, not the
+  // resume point — which is null under one second (and when finished)
+  testWidgets('a start under a second: its own position, not finished', (
+    tester,
+  ) async {
+    await watched(tester, 600);
+    final e = completed();
+    expect(h.service.platformOf(e).progressOf(e), (
+      positionMs: 600,
+      finished: false,
+    ));
+  });
+
   testWidgets('never watched: no progress badge', (tester) async {
     await pump(tester, completed());
     expect(find.text('已看完'), findsNothing);

@@ -17,6 +17,12 @@ final class _BiliPlatform implements DownloadPlatform {
   @override
   String get recordFile => DownloadService._entryFile;
 
+  /// `entry.json` only, as the orphan check always looked (a lone
+  /// `entry.json.tmp` does not count here: unchanged, review 2bc finding).
+  @override
+  bool hasRecord(DownloadEntry entry) =>
+      File(path.join(entry.entryDirPath, recordFile)).existsSync();
+
   @override
   DownloadEntry parse(Map<String, dynamic> json) {
     final entry = BiliDownloadEntryInfo.fromJson(json);

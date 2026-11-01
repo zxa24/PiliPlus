@@ -145,6 +145,9 @@ class FakePlatform implements DownloadPlatform {
   String get id => platformId;
   @override
   String get recordFile => 'fake.json';
+  @override
+  bool hasRecord(DownloadEntry entry) =>
+      File(path.join(entry.entryDirPath, recordFile)).existsSync();
 
   @override
   DownloadEntry parse(Map<String, dynamic> json) => throw UnimplementedError();

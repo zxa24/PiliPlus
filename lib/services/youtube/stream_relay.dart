@@ -96,15 +96,23 @@ class YtCheckedHops {
   /// hop checked. The response is the first that is not a redirect.
   /// [timeout] bounds each hop's wait for its headers, the request aborted
   /// when it runs out; [onRequest] is given each hop's request as it opens,
-  /// so a caller can abort one still waiting.
+  /// so a caller can abort one still waiting. [allow] refuses a hop (the
+  /// first one too) before it is opened; [drainTimeout] bounds the reading
+  /// of each redirect's body (without it, as long as it takes).
   Future<(HttpClientRequest, HttpClientResponse)> send(
     String method,
     Uri uri, {
     Map<String, String> headers = const {},
     Duration? timeout,
     void Function(HttpClientRequest request)? onRequest,
+    bool Function(Uri uri)? allow,
+    Duration? drainTimeout,
   }) async {
     for (var hop = 0; hop <= maxHops; hop++) {
+      // [allow]: the caller's own rule for every hop, before it is opened
+      if (allow != null && !allow(uri)) {
+        throw YtHopRefused(uri, 'not an allowed host');
+      }
       await check(uri);
       final request = await client.openUrl(method, uri);
       onRequest?.call(request);
@@ -127,7 +135,17 @@ class YtCheckedHops {
       if (response.statusCode ~/ 100 != 3 || location == null) {
         return (request, response);
       }
-      await response.drain<void>().catchError((_) {});
+      if (drainTimeout == null) {
+        await response.drain<void>().catchError((_) {});
+      } else {
+        // a redirect's body that does not end is let go
+        try {
+          await response.drain<void>().timeout(drainTimeout);
+        } on TimeoutException {
+          request.abort();
+          rethrow;
+        } catch (_) {}
+      }
       uri = uri.resolve(location);
     }
     throw HttpException('too many redirects', uri: uri);

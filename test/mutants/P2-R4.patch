@@ -1,7 +1,7 @@
 diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
 --- a/lib/services/download/download_platform_yt.dart
 +++ b/lib/services/download/download_platform_yt.dart
-@@ -42,7 +42,7 @@ abstract final class YtStreamTag {
+@@ -43,7 +43,7 @@ abstract final class YtStreamTag {
      final track = ytAudioTrackDigest(audio.audioTrackId);
      return '${video.itag}-${audio.itag}'
          '${track == null ? '' : '.$track'}'
@@ -9,4 +9,4 @@ diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/down
 +        '';
    }
  
-   static final _name = RegExp(r'^(\d+)-(\d+)(?:\.([0-9a-f]{12}))?(\.drc)?$');
+   /// The pin a folder name alone gives (its `stream.json` unreadable): the

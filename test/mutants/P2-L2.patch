@@ -1,7 +1,7 @@
 diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
 --- a/lib/services/download/download_platform_yt.dart
 +++ b/lib/services/download/download_platform_yt.dart
-@@ -323,7 +323,11 @@ final class YtDownloadPlatform implements DownloadPlatform {
+@@ -442,7 +442,11 @@ final class YtDownloadPlatform implements DownloadPlatform {
        LocalHistory.ytKey((entry as YtDownloadEntry).videoId),
      )?.parts[LocalHistory.ytPart];
      if (part == null) return null;
@@ -9,7 +9,7 @@ diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/down
 +    final key = LocalHistory.ytKey((entry as YtDownloadEntry).videoId);
 +    return (
 +      positionMs: LocalHistory.resumePoint(key, LocalHistory.ytPart) ?? 0,
-+      finished: false,
++      finished: part.finished,
 +    );
    }
  

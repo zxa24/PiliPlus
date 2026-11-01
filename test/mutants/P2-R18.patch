@@ -9,4 +9,4 @@ diff --git a/lib/services/youtube/yt_format_select.dart b/lib/services/youtube/y
 +        .where((f) => ytShortSide(f) == tier)
          .toList(growable: false);
      if (atTier.isEmpty) return null;
-     final side = _shortSide((atTier.toList()..sort(rank)).last);
+     // plan §4.5: the size first, by resolution then bitrate (two sizes of

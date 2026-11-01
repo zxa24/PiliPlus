@@ -54,6 +54,9 @@ void main() {
       progress: 60000,
       duration: 213000,
     );
+    // the transcripts beside the list are read over it in the background:
+    // not deleted from under that read (review 2bc)
+    await h.service.knownReadForTest;
     return h.service.downloadList.single as YtDownloadEntry;
   }
 

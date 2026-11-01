@@ -1,7 +1,7 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -532,7 +532,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -544,7 +544,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
      return has(_entryFile) ||
          has(_recordFile) ||
          has('$_recordFile.tmp') ||
@@ -9,4 +9,4 @@ diff --git a/lib/services/download/download_service.dart b/lib/services/download
 +        has('$_entryFile.tmp');
    }
  
-   Future<void> _readDownloadList() async {
+   /// Tests only: the last read of the transcripts beside the list (it runs

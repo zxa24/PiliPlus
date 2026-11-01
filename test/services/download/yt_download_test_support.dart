@@ -109,8 +109,11 @@ Future<String> readRecord(File file) async {
 // ---------------------------------------------------------- HttpClient
 
 /// A fake [HttpClient]: [answer] gives each request's status and body. It
-/// records the requests and whether it was closed. Only what the adapter
-/// uses is there (the rest throws).
+/// records the requests and whether it was closed. [redirects]: a URL
+/// answered with a 302 to another; [stream]: a body given as a stream (one
+/// that never ends, say) in place of [answer]'s, which ends with an error
+/// once the client is closed. Only what the adapter uses is there (the
+/// rest throws).
 class FakeYtHttp extends Fake implements HttpClient {
   FakeYtHttp([this.answer = _ok]);
 
@@ -118,8 +121,14 @@ class FakeYtHttp extends Fake implements HttpClient {
       (status: 200, body: utf8.encode('jpeg of $uri'));
 
   ({int status, List<int> body}) Function(String method, Uri uri) answer;
+  final redirects = <Uri, Uri>{};
+  Stream<List<int>> Function(Uri uri)? stream;
   final requests = <(String, Uri)>[];
   var closed = false;
+  final _closed = Completer<void>();
+
+  /// Completes when the client is closed.
+  Future<void> get whenClosed => _closed.future;
 
   @override
   Duration idleTimeout = const Duration(seconds: 15);
@@ -140,17 +149,49 @@ class FakeYtHttp extends Fake implements HttpClient {
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) async {
     requests.add((method, url));
-    return _Request(answer(method, url));
+    if (redirects[url] case final to?) {
+      return _Request(this, 302, null, {'location': '$to'});
+    }
+    final a = answer(method, url);
+    return _Request(this, a.status, stream?.call(url) ?? Stream.value(a.body));
   }
 
   @override
-  void close({bool force = false}) => closed = true;
+  void close({bool force = false}) {
+    closed = true;
+    if (!_closed.isCompleted) _closed.complete();
+  }
+
+  /// [body] until the client is closed, then an error (a closed socket).
+  Stream<List<int>> _untilClosed(Stream<List<int>>? body) {
+    final out = StreamController<List<int>>();
+    StreamSubscription<List<int>>? sub;
+    out.onListen = () {
+      sub = (body ?? const Stream.empty()).listen(
+        out.add,
+        onError: out.addError,
+        onDone: out.close,
+      );
+      whenClosed.then((_) {
+        if (out.isClosed) return;
+        sub?.cancel();
+        out
+          ..addError(const HttpException('connection closed'))
+          ..close();
+      });
+    };
+    out.onCancel = () => sub?.cancel();
+    return out.stream;
+  }
 }
 
 class _Request extends Fake implements HttpClientRequest {
-  _Request(this._answer);
+  _Request(this._client, this._status, this._body, [this._headers = const {}]);
 
-  final ({int status, List<int> body}) _answer;
+  final FakeYtHttp _client;
+  final int _status;
+  final Stream<List<int>>? _body;
+  final Map<String, String> _headers;
 
   @override
   bool followRedirects = true;
@@ -159,7 +200,11 @@ class _Request extends Fake implements HttpClientRequest {
   final HttpHeaders headers = _Headers();
 
   @override
-  Future<HttpClientResponse> close() async => _Response(_answer);
+  Future<HttpClientResponse> close() async {
+    final response = _Response(_status, _client._untilClosed(_body));
+    _headers.forEach(response.headers.set);
+    return response;
+  }
 
   @override
   void abort([Object? exception, StackTrace? stackTrace]) {}
@@ -177,12 +222,11 @@ class _Headers extends Fake implements HttpHeaders {
 }
 
 class _Response extends Stream<List<int>> implements HttpClientResponse {
-  _Response(this._answer);
-
-  final ({int status, List<int> body}) _answer;
+  _Response(this.statusCode, this._body);
 
   @override
-  int get statusCode => _answer.status;
+  final int statusCode;
+  final Stream<List<int>> _body;
 
   @override
   final HttpHeaders headers = _Headers();
@@ -193,7 +237,7 @@ class _Response extends Stream<List<int>> implements HttpClientResponse {
     Function? onError,
     void Function()? onDone,
     bool? cancelOnError,
-  }) => Stream.value(_answer.body).listen(
+  }) => _body.listen(
     onData,
     onError: onError,
     onDone: onDone,

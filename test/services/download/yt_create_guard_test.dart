@@ -206,4 +206,158 @@ void main() {
     await create;
     expect(result, YtCreateResult.done);
   });
+
+  // review 2bc: case-only ids, a tap while the first is writing, a failed
+  // save
+  test('ids that differ only in case, at once: one added, the other '
+      'queued (one folder on Windows and macOS)', () async {
+    await h.start(entries: const []);
+    final results = await Future.wait([
+      YtDownloadPlatform.create(h.service, ytDetail(), 720),
+      YtDownloadPlatform.create(h.service, ytDetail(id: 'dQw4w9WgXcq'), 720),
+    ]);
+    expect(results, [YtCreateResult.added, YtCreateResult.queued]);
+    expect(
+      h.service.waitDownloadQueue.where((e) => e.key.startsWith('yt:')),
+      hasLength(1),
+    );
+    final record = File(
+      path.join(h.root.path, 'yt_$ytId', 'main', YtDownloadEntry.recordFile),
+    );
+    expect(
+      (jsonDecode(await readRecord(record)) as Map)['video_id'],
+      ytId,
+    );
+  });
+
+  test('a second tap while the first has written its .tmp but not renamed '
+      'it: 已在下载队列中, the .tmp not read', () async {
+    await h.start(entries: const []);
+    final hold = Completer<void>();
+    final first = IOOverrides.runWithIOOverrides(
+      () => YtDownloadPlatform.create(h.service, ytDetail(), 720),
+      _RecordTmp(rename: hold.future),
+    );
+    final tmp = File(
+      path.join(
+        h.root.path,
+        'yt_$ytId',
+        'main',
+        '${YtDownloadEntry.recordFile}.tmp',
+      ),
+    );
+    await until(tmp.existsSync, reason: 'the first tap writing its .tmp');
+    for (final id in [ytId, 'dQw4w9WgXcq']) {
+      expect(
+        await YtDownloadPlatform.create(h.service, ytDetail(id: id), 720),
+        YtCreateResult.queued,
+        reason: id,
+      );
+    }
+    hold.complete();
+    expect(await first, YtCreateResult.added);
+  });
+
+  test('a save that fails: failed, what it wrote removed, nothing queued; '
+      'a later tap adds it', () async {
+    await h.start(entries: const []);
+    final result = await IOOverrides.runWithIOOverrides(
+      () => YtDownloadPlatform.create(h.service, ytDetail(), 720),
+      _RecordTmp(fail: true),
+    );
+    expect(result, YtCreateResult.failed);
+    expect(result.message, '下载记录写入失败，请检查下载目录');
+    expect(Directory(path.join(h.root.path, 'yt_$ytId')).existsSync(), isFalse);
+    expect(h.service.waitDownloadQueue, isEmpty);
+    expect(h.service.curDownload.value, isNull);
+    expect(
+      await YtDownloadPlatform.create(h.service, ytDetail(), 720),
+      YtCreateResult.added,
+    );
+  });
+
+  test('a save that fails in a folder of streams: the streams stay', () async {
+    late File video;
+    await h.start(
+      entries: const [],
+      before: (root) {
+        final streams = Directory(
+          path.join(ytFolder(root, ytId).path, '137-140'),
+        )..createSync();
+        video = File(path.join(streams.path, 'video.mp4'))
+          ..writeAsBytesSync([1, 2, 3]);
+      },
+    );
+    final result = await IOOverrides.runWithIOOverrides(
+      () => YtDownloadPlatform.create(h.service, ytDetail(), 1080),
+      _RecordTmp(fail: true),
+    );
+    expect(result, YtCreateResult.failed);
+    expect(video.readAsBytesSync(), [1, 2, 3]);
+    expect(
+      Directory(
+        path.join(h.root.path, 'yt_$ytId', 'main'),
+      ).listSync().map((e) => path.basename(e.path)),
+      ['137-140'],
+    );
+  });
+}
+
+/// The record's `.tmp`: its rename held until [rename] completes, or its
+/// write failing ([fail]).
+final class _RecordTmp extends IOOverrides {
+  _RecordTmp({this.rename, this.fail = false});
+
+  final Future<void>? rename;
+  final bool fail;
+
+  @override
+  File createFile(String file) {
+    final made = super.createFile(file);
+    return file.endsWith('${YtDownloadEntry.recordFile}.tmp')
+        ? _Tmp(made, this)
+        : made;
+  }
+}
+
+class _Tmp implements File {
+  _Tmp(this._file, this._how);
+
+  final File _file;
+  final _RecordTmp _how;
+
+  @override
+  String get path => _file.path;
+
+  @override
+  bool existsSync() => _file.existsSync();
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) {
+    if (_how.fail) throw const FileSystemException('disk full');
+    return _file.writeAsString(
+      contents,
+      mode: mode,
+      encoding: encoding,
+      flush: flush,
+    );
+  }
+
+  @override
+  Future<File> rename(String newPath) async {
+    await _how.rename;
+    return _file.rename(newPath);
+  }
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      _file.delete(recursive: recursive);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

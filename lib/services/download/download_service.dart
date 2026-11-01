@@ -61,6 +61,18 @@ part 'download_platform_bili.dart';
 
 // ref https://github.com/10miaomiao/bilimiao2/blob/master/bilimiao-download/src/main/java/cn/a10miaomiao/bilimiao/download/DownloadService.kt
 
+/// What [DownloadService.addDownload] came to.
+enum DownloadAddResult {
+  /// written and queued
+  added,
+
+  /// listed, queued or being added already: nothing written
+  present,
+
+  /// the record could not be written: nothing queued, its leftovers removed
+  failed,
+}
+
 class DownloadService extends GetxService with WidgetsBindingObserver {
   static const _entryFile = 'entry.json';
 
@@ -535,6 +547,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         (tmp && has('$_entryFile.tmp'));
   }
 
+  /// Tests only: the last read of the transcripts beside the list (it runs
+  /// in the background after the list is read, over [downloadList]).
+  @visibleForTesting
+  Future<void> knownReadForTest = Future<void>.value();
+
   Future<void> _readDownloadList() async {
     if (readListGateForTest case final gate?) await gate();
     downloadList.clear();
@@ -547,7 +564,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     }
     downloadList.sort((a, b) => b.timeUpdateStamp.compareTo(a.timeUpdateStamp));
     // how far the transcripts beside them got, then the ones still to do
-    unawaited(transcripts.readKnown().whenComplete(transcripts.kick));
+    unawaited(
+      (knownReadForTest = transcripts.readKnown()).whenComplete(
+        transcripts.kick,
+      ),
+    );
   }
 
   @pragma('vm:notify-debugger-on-exception')
@@ -772,41 +793,89 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     _createDownload(entry);
   }
 
-  /// Keys [addDownload] is adding (between its checks and the queue).
-  final _adding = <DownloadKey>{};
+  /// One key per entry folder as the file system sees it: Windows and
+  /// macOS do not tell `yt_dQw4w9WgXcQ` from `yt_dQw4w9WgXcq`, so neither
+  /// do the saves and [addDownload]'s reservations (review 2bc).
+  static String _folderKey(String entryDirPath) =>
+      path.normalize(entryDirPath).toLowerCase();
+
+  /// Entry folders [addDownload] is writing (between its checks and the
+  /// queue), by [_folderKey].
+  final _adding = <String>{};
+
+  /// [addDownload] is writing the record in [entryDirPath] (or one whose
+  /// name differs only in case): a second new download of it waits for
+  /// that, it does not read the half-written record.
+  bool isAdding(String entryDirPath) =>
+      _adding.contains(_folderKey(entryDirPath));
 
   /// A new download of a platform outside this library (stage-2 plan §2.5;
   /// the YouTube panel's): its folder made and its record saved, then
-  /// queued as [_createDownload] does. False: already listed, queued or
-  /// being added — nothing is written.
-  Future<bool> addDownload(DownloadEntry entry) async {
+  /// queued as [_createDownload] does.
+  ///
+  /// [DownloadAddResult.present]: listed, queued or being added already
+  /// (its key, or its folder in any letter case) — nothing is written.
+  /// [DownloadAddResult.failed]: the record could not be written; what
+  /// this call wrote is removed again (the record's `.tmp`, and the
+  /// folders it made when they are left empty) and nothing is queued.
+  Future<DownloadAddResult> addDownload(DownloadEntry entry) async {
     _releaseExtras();
     final key = entry.key;
-    if (_adding.contains(key) ||
+    final folder = _folderKey(entry.entryDirPath);
+    if (_adding.contains(folder) ||
         downloadList.any((e) => e.key == key) ||
         waitDownloadQueue.any((e) => e.key == key)) {
-      return false;
+      return DownloadAddResult.present;
     }
-    _adding.add(key);
+    _adding.add(folder);
+    final entryDir = Directory(entry.entryDirPath);
+    final pageDir = Directory(entry.pageDirPath);
+    final madeEntryDir = !entryDir.existsSync();
+    final madePageDir = !pageDir.existsSync();
     try {
-      await Directory(entry.entryDirPath).create(recursive: true);
+      await entryDir.create(recursive: true);
       await _saveEntry(entry);
+    } catch (e) {
+      EventLog.add('download', '${entry.logLabel}: not added: $e');
+      final record = path.join(
+        entry.entryDirPath,
+        platformOf(entry).recordFile,
+      );
+      await File('$record.tmp').tryDel();
+      await File(record).tryDel();
+      if (madeEntryDir &&
+          entryDir.existsSync() &&
+          entryDir.listSync().isEmpty) {
+        await entryDir.tryDel();
+      }
+      if (madePageDir && pageDir.existsSync() && pageDir.listSync().isEmpty) {
+        await pageDir.tryDel();
+      }
+      return DownloadAddResult.failed;
     } finally {
-      _adding.remove(key);
+      _adding.remove(folder);
     }
     entry.status = DownloadStatus.wait;
     waitDownloadQueue.add(entry);
     if (curDownload.value?.status.isDownloading != true) {
       startDownload(entry);
     }
-    return true;
+    return DownloadAddResult.added;
   }
 
   /// [entry]'s record saved as it is now (a page changed it: the 720p
-  /// button, stage-2 plan §4.2), then started again.
-  Future<void> restartWith(DownloadEntry entry) async {
-    await _saveEntry(entry);
+  /// button, stage-2 plan §4.2), then started again. False: the record
+  /// could not be written; not started (the record on disk is the one
+  /// before).
+  Future<bool> restartWith(DownloadEntry entry) async {
+    try {
+      await _saveEntry(entry);
+    } catch (e) {
+      EventLog.add('download', '${entry.logLabel}: not restarted: $e');
+      return false;
+    }
     await startDownload(entry);
+    return true;
   }
 
   Future<void> _createDownload(BiliDownloadEntryInfo entry) async {
@@ -1068,9 +1137,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         if (gen != _startGen) {
           // deleted meanwhile: what was written here (the cover's download
           // creates its folder) would be left behind as an orphan
-          if (!File(
-            path.join(entry.entryDirPath, platform.recordFile),
-          ).existsSync()) {
+          if (!platform.hasRecord(entry)) {
             await Directory(entry.entryDirPath).tryDel(recursive: true);
           }
           return;
@@ -1117,7 +1184,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// [valid] (a save through [DownloadHost.save]): asked again when this
   /// save's turn comes; false drops it then.
   Future<void> _saveEntry(DownloadEntry entry, {bool Function()? valid}) {
-    final dir = entry.entryDirPath;
+    // one chain per folder as the file system sees it (letter case)
+    final dir = _folderKey(entry.entryDirPath);
     final save = (_entrySaves[dir] ?? Future<void>.value()).then(
       (_) => valid == null || valid()
           ? platformOf(entry).save(entry)
@@ -1137,7 +1205,13 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// waits for them, or on Windows the folder stays (a file being written
   /// cannot be removed, and the delete's error is swallowed by `tryDel`).
   Future<void> _savesDone(DownloadEntry entry) =>
-      _entrySaves[entry.entryDirPath] ?? Future<void>.value();
+      _entrySaves[_folderKey(entry.entryDirPath)] ?? Future<void>.value();
+
+  /// Tests only: [_getDownloadEntryDir] (bilibili's folder, an old export
+  /// in its way moved aside).
+  @visibleForTesting
+  Future<Directory> entryDirForTest(BiliDownloadEntryInfo entry) =>
+      _getDownloadEntryDir(entry);
 
   /// Tests only: an entry saved the way the downloads save it.
   @visibleForTesting
