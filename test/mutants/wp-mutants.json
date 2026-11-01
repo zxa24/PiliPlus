@@ -288,10 +288,10 @@
       "change": "the page's GlobalKey videoReplyPanelKey off the online comment panel (B:2049-2053; today view.dart:2113)",
       "landing": "S0",
       "kind": "selftest",
-      "catcher": "the same (duringSameList; sameList / kept after the exit are record only)",
+      "catcher": "online --open-bili --fullscreen-reply at 1720x720 (duringSameList: the reply list kept into native fullscreen; at 420x800 it is false on today's code, audit-logs/wps-batch/ac-s0.md)",
       "catchers": [
         {
-          "check": "R3-bili-fsreply-420x800",
+          "check": "R3-bili-fsreply-1720x720",
           "expected": [
             "duringSameList"
           ]
@@ -373,7 +373,7 @@
       "change": "the portrait branch's tab-area MiniScaffold gets a GlobalKey of its own instead of childKey (B:674; today view.dart:689); the other branches unchanged",
       "landing": "S0",
       "kind": "selftest",
-      "catcher": "①420×800 <-> 1280×720 resize (tab area MiniScaffoldState identical); ②420×800: PGC 简介详情, the UP popup and AI 总结 open nowhere (childKey.currentState null); offline narrow --fullscreen-reply afterSameList (second catcher, native fullscreen)",
+      "catcher": "①420×800 <-> 1280×720 resize (tab area MiniScaffoldState identical); ②420×800: PGC 简介详情, the UP popup and AI 总结 open nowhere (childKey.currentState null); offline narrow --fullscreen-reply: the tab area's MiniScaffoldState kept into native fullscreen (enterDone.kept.tabArea; second catcher, native fullscreen; afterSameList is false on today's code, audit-logs/wps-batch/ac-s0.md)",
       "catchers": [
         {
           "check": "K1-pgcdetail-420x800",
@@ -390,7 +390,7 @@
         {
           "check": "R3-offline-fsreply-420x800",
           "expected": [
-            "afterSameList"
+            "enterDone.kept.tabArea"
           ]
         },
         {

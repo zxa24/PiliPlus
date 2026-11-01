@@ -557,10 +557,7 @@
     {
       "name": "duringSameList",
       "path": "moments.enterDone.kept.lists.reply",
-      "status": "must-same",
-      "expectedFor": [
-        "wp-R3f"
-      ]
+      "status": "must-same"
     },
     {
       "name": "sameList",
@@ -574,5 +571,5 @@
     "expectedFor": []
   },
   "calibrated": "2026-11-01 (batch F1, audit-logs/wps-batch/report.md): two unmutated passes of one debug build (HEAD 57cf441a5, built in _tmp\\mutants\\wpA; slot 1, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Alternate -Commit HEAD -Parent HEAD -Passes 2 -Batch, then -Compare <the pass folder> (calibration mode): 48 leaf/leaves varied (events, frames, log, moments, ms, tag), 5 of them under fields already unstable, none under a must-same field; uiErrorKeys 1, none varying. Statuses unchanged: the hand-written defaults (structure must-same, content unstable) stand",
-  "evidence": "wp-R3e wp-R3f"
+  "evidence": "wp-R3e"
 }

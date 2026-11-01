@@ -1,0 +1,112 @@
+{
+  "id": "Y-shell-probe",
+  "check": "ytShellProbe",
+  "report": "Y-shell-probe.json",
+  "type": "recording",
+  "batch": "fullscreen",
+  "network": true,
+  "about": "AC-S0 close (audit-logs/wps-batch/ac-s0.md, step 3): a check of §6.3's F1 row S0b had not built as a table. design §6.3 F1 row 「--yt-shell-probe」 (record, YouTube): what the YouTube page does where the bilibili page has a rule (Esc in fullscreen, D, the screen ratio, 返回主页 in fullscreen); today's check with the plan's prefs; enters native fullscreen twice",
+  "run": {
+    "args": [
+      "--yt-shell-probe",
+      "dQw4w9WgXcQ"
+    ],
+    "prefs": [],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 8
+  },
+  "measured": {
+    "legacy": [
+      "esc",
+      "home"
+    ]
+  },
+  "display": "@display",
+  "fields": [
+    {
+      "name": "standInBackWhileLoading",
+      "path": "standInBackWhileLoading",
+      "status": "must-same"
+    },
+    {
+      "name": "screenRatio",
+      "path": "screenRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "windowRatio",
+      "path": "windowRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "danmakuSetting.before",
+      "path": "danmakuSetting.before",
+      "status": "must-same"
+    },
+    {
+      "name": "danmakuSetting.after",
+      "path": "danmakuSetting.after",
+      "status": "must-same"
+    },
+    {
+      "name": "home.found",
+      "path": "home.found",
+      "status": "must-same"
+    },
+    {
+      "name": "home.windowBefore",
+      "path": "home.windowBefore",
+      "status": "must-same"
+    },
+    {
+      "name": "home.routeAfter",
+      "path": "home.routeAfter",
+      "status": "must-same"
+    },
+    {
+      "name": "home.playerFullScreenAfter",
+      "path": "home.playerFullScreenAfter",
+      "status": "must-same"
+    },
+    {
+      "name": "home.windowFullScreenAfter",
+      "path": "home.windowFullScreenAfter",
+      "status": "must-same"
+    },
+    {
+      "name": "esc.routeBefore",
+      "path": "esc.routeBefore",
+      "status": "must-same"
+    },
+    {
+      "name": "esc.windowBefore",
+      "path": "esc.windowBefore",
+      "status": "must-same"
+    },
+    {
+      "name": "esc.routeAfter",
+      "path": "esc.routeAfter",
+      "status": "must-same"
+    },
+    {
+      "name": "esc.playerFullScreenAfter",
+      "path": "esc.playerFullScreenAfter",
+      "status": "must-same"
+    },
+    {
+      "name": "esc.windowFullScreenAfter",
+      "path": "esc.windowFullScreenAfter",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "path": "uiErrors",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "evidence": null,
+  "calibrated": "2026-11-01 (AC-S0 close step 3, audit-logs/wps-batch/ac-s0.md): two unmutated passes of one debug build (HEAD e8039fb36, built in _tmp\\mutants\\wpA; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Alternate -Commit HEAD -Parent HEAD -Batch -Checks <the five step-3 tables> (Y-shell-probe's second pass in a separate folder after a memory stop); fields: the analog table's statuses by path, the rest from the calibration's suggestion, then -Compare <the pass folder> (calibration mode): 2 runs, 1 leaf/leaves varied (ms), 0 of them under fields already unstable, none under a must-same field; uiErrorKeys 0, none varying"
+}

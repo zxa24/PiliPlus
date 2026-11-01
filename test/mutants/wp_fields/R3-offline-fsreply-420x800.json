@@ -292,7 +292,10 @@
     {
       "name": "enterDone.kept.tabArea",
       "path": "moments.enterDone.kept.tabArea",
-      "status": "must-same"
+      "status": "must-same",
+      "expectedFor": [
+        "wp-K1"
+      ]
     },
     {
       "name": "enterDone.kept.gone",
@@ -557,10 +560,7 @@
     {
       "name": "afterSameList",
       "path": "moments.exitDone.kept.lists.reply",
-      "status": "must-same",
-      "expectedFor": [
-        "wp-K1"
-      ]
+      "status": "must-same"
     }
   ],
   "uiErrors": {

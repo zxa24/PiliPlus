@@ -1,0 +1,570 @@
+{
+  "id": "R3-pgc-fs-1720x720",
+  "about": "AC-S0 close (audit-logs/wps-batch/ac-s0.md, step 3): a check of §6.3's F1 row S0b had not built as a table. design §6.3 F1 row 「pgc 进出全屏的分支与下标（含 1720×720 分栏 16:9 → 横屏）」 (record): R3-pgc-fs-420x800 at 1720x720, the split 16:9 layout before and after, landscape in fullscreen",
+  "check": "wpSteps",
+  "report": "R3-pgc-fs-1720x720.json",
+  "type": "recording",
+  "batch": "fullscreen",
+  "network": true,
+  "run": {
+    "args": [
+      "--wp-open",
+      "bili:https://www.bilibili.com/bangumi/play/ep32374",
+      "--window-size",
+      "1720x720",
+      "--wp-steps",
+      "pause;taptab:reply;waitlist:reply;seed:reply=600;settle;read:start;fs:native;fsexit"
+    ],
+    "prefs": [],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 8
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "window.logical",
+      "path": "window.logical",
+      "status": "must-same"
+    },
+    {
+      "name": "start.window",
+      "path": "moments.start.window",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.scalars",
+      "path": "moments.start.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.label",
+      "path": "moments.start.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.columns",
+      "path": "moments.start.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.player",
+      "path": "moments.start.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.tabArea",
+      "path": "moments.start.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].roles",
+      "path": "moments.start.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].index",
+      "path": "moments.start.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].length",
+      "path": "moments.start.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabCtr",
+      "path": "moments.start.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.player",
+      "path": "moments.start.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.tabArea",
+      "path": "moments.start.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.gone",
+      "path": "moments.start.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.intro",
+      "path": "moments.start.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.controller.isFullScreen",
+      "path": "moments.start.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "start.player",
+      "path": "moments.start.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].texts",
+      "path": "moments.start.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "start.lists.reply.pixels",
+      "path": "moments.start.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.reply.absent",
+      "path": "moments.start.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "start.lists.reply.max",
+      "path": "moments.start.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "enterBefore.window",
+      "path": "moments.enterBefore.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.scalars",
+      "path": "moments.enterBefore.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.label",
+      "path": "moments.enterBefore.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.columns",
+      "path": "moments.enterBefore.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.player",
+      "path": "moments.enterBefore.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.tabArea",
+      "path": "moments.enterBefore.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].roles",
+      "path": "moments.enterBefore.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].index",
+      "path": "moments.enterBefore.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].length",
+      "path": "moments.enterBefore.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabCtr",
+      "path": "moments.enterBefore.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.player",
+      "path": "moments.enterBefore.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.tabArea",
+      "path": "moments.enterBefore.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.gone",
+      "path": "moments.enterBefore.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.intro",
+      "path": "moments.enterBefore.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isFullScreen",
+      "path": "moments.enterBefore.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.player",
+      "path": "moments.enterBefore.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].texts",
+      "path": "moments.enterBefore.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "enterBefore.lists.reply.pixels",
+      "path": "moments.enterBefore.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.reply.absent",
+      "path": "moments.enterBefore.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.reply.max",
+      "path": "moments.enterBefore.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "enterBefore.kept.lists.reply",
+      "path": "moments.enterBefore.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.window",
+      "path": "moments.enterDone.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.scalars",
+      "path": "moments.enterDone.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.label",
+      "path": "moments.enterDone.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.columns",
+      "path": "moments.enterDone.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.player",
+      "path": "moments.enterDone.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.tabArea",
+      "path": "moments.enterDone.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].roles",
+      "path": "moments.enterDone.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].index",
+      "path": "moments.enterDone.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].length",
+      "path": "moments.enterDone.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabCtr",
+      "path": "moments.enterDone.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.player",
+      "path": "moments.enterDone.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.tabArea",
+      "path": "moments.enterDone.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.gone",
+      "path": "moments.enterDone.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.intro",
+      "path": "moments.enterDone.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isFullScreen",
+      "path": "moments.enterDone.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.player",
+      "path": "moments.enterDone.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].texts",
+      "path": "moments.enterDone.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "enterDone.lists.reply.pixels",
+      "path": "moments.enterDone.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.reply.absent",
+      "path": "moments.enterDone.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.reply.max",
+      "path": "moments.enterDone.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "exitBefore.window",
+      "path": "moments.exitBefore.window",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.scalars",
+      "path": "moments.exitBefore.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.geometry.label",
+      "path": "moments.exitBefore.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.geometry.columns",
+      "path": "moments.exitBefore.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.geometry.player",
+      "path": "moments.exitBefore.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.geometry.tabArea",
+      "path": "moments.exitBefore.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabs[0].roles",
+      "path": "moments.exitBefore.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabs[0].index",
+      "path": "moments.exitBefore.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabs[0].length",
+      "path": "moments.exitBefore.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabCtr",
+      "path": "moments.exitBefore.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.kept.player",
+      "path": "moments.exitBefore.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.kept.tabArea",
+      "path": "moments.exitBefore.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.kept.gone",
+      "path": "moments.exitBefore.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.extras.intro",
+      "path": "moments.exitBefore.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.extras.controller.isFullScreen",
+      "path": "moments.exitBefore.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.player",
+      "path": "moments.exitBefore.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabs[0].texts",
+      "path": "moments.exitBefore.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "exitBefore.lists.reply.pixels",
+      "path": "moments.exitBefore.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.lists.reply.absent",
+      "path": "moments.exitBefore.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.lists.reply.max",
+      "path": "moments.exitBefore.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "exitBefore.kept.lists.reply",
+      "path": "moments.exitBefore.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.window",
+      "path": "moments.exitDone.window",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.scalars",
+      "path": "moments.exitDone.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.geometry.label",
+      "path": "moments.exitDone.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.geometry.columns",
+      "path": "moments.exitDone.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.geometry.player",
+      "path": "moments.exitDone.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.geometry.tabArea",
+      "path": "moments.exitDone.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabs[0].roles",
+      "path": "moments.exitDone.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabs[0].index",
+      "path": "moments.exitDone.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabs[0].length",
+      "path": "moments.exitDone.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabCtr",
+      "path": "moments.exitDone.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.kept.tabArea",
+      "path": "moments.exitDone.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.kept.gone",
+      "path": "moments.exitDone.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.extras.intro",
+      "path": "moments.exitDone.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.extras.controller.isFullScreen",
+      "path": "moments.exitDone.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.player",
+      "path": "moments.exitDone.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabs[0].texts",
+      "path": "moments.exitDone.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "exitDone.lists.reply.pixels",
+      "path": "moments.exitDone.lists.reply.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.lists.reply.absent",
+      "path": "moments.exitDone.lists.reply.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.lists.reply.max",
+      "path": "moments.exitDone.lists.reply.max",
+      "status": "unstable"
+    },
+    {
+      "name": "events.exitCleared",
+      "path": "events.exitCleared",
+      "status": "must-same"
+    },
+    {
+      "name": "events.seed:reply",
+      "path": "events.seed:reply",
+      "status": "unstable"
+    },
+    {
+      "name": "samePlayer",
+      "path": "moments.exitDone.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "duringSameList",
+      "path": "moments.enterDone.kept.lists.reply",
+      "status": "must-same"
+    },
+    {
+      "name": "sameList",
+      "path": "moments.exitDone.kept.lists.reply",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "calibrated": "2026-11-01 (AC-S0 close step 3, audit-logs/wps-batch/ac-s0.md): two unmutated passes of one debug build (HEAD e8039fb36, built in _tmp\\mutants\\wpA; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Alternate -Commit HEAD -Parent HEAD -Batch -Checks <the five step-3 tables> (Y-shell-probe's second pass in a separate folder after a memory stop); fields: the analog table's statuses by path, the rest from the calibration's suggestion, then -Compare <the pass folder> (calibration mode): 2 runs, 31 leaf/leaves varied (events, frames, log, moments, ms, tag), 0 of them under fields already unstable, none under a must-same field; uiErrorKeys 0, none varying",
+  "evidence": null
+}
