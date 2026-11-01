@@ -298,6 +298,6 @@
     "unstable": [],
     "expectedFor": []
   },
-  "calibrated": "batch: not run outside a pip batch (u#4). Its statuses are the hand-written defaults (structure must-same, content unstable); the batch (F1) runs it twice unmutated (run.ps1 -Plan watch_page -Alternate -Commit <S0b> -Parent <S0b> -Batch -Checks R15a-pip-hsoff) and -Compare's calibration mode marks what varies unstable",
+  "calibrated": "2026-11-01 (batch F1, audit-logs/wps-batch/report.md): two unmutated passes of one debug build (HEAD 57cf441a5, built in _tmp\\mutants\\wpA; slot 1, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Alternate -Commit HEAD -Parent HEAD -Passes 2 -Batch, then -Compare <the pass folder> (calibration mode): 2 leaf/leaves varied (log, ms), 0 of them under fields already unstable, none under a must-same field; uiErrorKeys 0, none varying. Statuses unchanged: the hand-written defaults (structure must-same, content unstable) stand",
   "evidence": "wp-R15a"
 }
