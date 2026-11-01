@@ -314,8 +314,13 @@
       "status": "must-same"
     },
     {
-      "name": "fsPip.window",
-      "path": "moments.fsPip.window",
+      "name": "fsPip.window.logical",
+      "path": "moments.fsPip.window.logical",
+      "status": "unstable"
+    },
+    {
+      "name": "fsPip.window.padding",
+      "path": "moments.fsPip.window.padding",
       "status": "must-same"
     },
     {
@@ -426,7 +431,7 @@
     {
       "name": "fsPip.android.physical",
       "path": "moments.fsPip.android.physical",
-      "status": "must-same"
+      "status": "unstable"
     },
     {
       "name": "fsPip.android.viewPadding",
@@ -1075,6 +1080,7 @@
     ],
     "what": "R15 / R3 全屏中进画中画: 渲染的部件. The exit asks the orientation from before the entry (§6.2: portrait, the phone upright, 横屏适配 on: fullMode follows user_rotation 0)"
   },
-  "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
-  "evidence": "control: enterDone vs fsPip branch.scalars"
+  "calibrated": "android, calibrated in 6b (2026-11-01, APK ca3538d2f, Pixel 4 XL, Android 16): 2 passes, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied except the ones marked unstable (audit-logs/wps-s0b/c6-report.md 「6b run」)",
+  "evidence": "control: enterDone vs fsPip branch.scalars",
+  "calibratedNote": "the picture-in-picture window size varied (unstable); the rest held"
 }

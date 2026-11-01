@@ -145,6 +145,8 @@ $script:deviceOk = $false
 $script:restoreFailures = [System.Collections.Generic.List[string]]::new()
 $script:pendingWipe = [System.Collections.Generic.List[string]]::new()
 $script:freeformOn = $false
+$script:stayOnSet = $false
+$script:wokeScreen = $false
 
 # ------------------------------------------------------------------ names, quoting
 function Assert-Name([string]$name, [string]$what) {
@@ -217,7 +219,45 @@ function Read-PhoneSettings {
         wmSizeOverride = Read-WmOverride
         enable_freeform_support = Read-Setting global enable_freeform_support 'null'
         force_resizable_activities = Read-Setting global force_resizable_activities 'null'
+        stay_on_while_plugged_in = Read-Setting global stay_on_while_plugged_in 'null'
+        awake = Test-Awake
     }
+}
+
+# the screen: on (mWakefulness=Awake) and no lock screen showing
+function Test-Awake {
+    $p = Invoke-Shell 'dumpsys power' 'mWakefulness=Awake'
+    return [bool]($p -match 'mWakefulness=Awake')
+}
+
+function Test-KeyguardShowing {
+    $w = Invoke-Shell 'dumpsys window' 'isKeyguardShowing=false'
+    return [bool]($w -match 'isKeyguardShowing=true')
+}
+
+# before every run: a dozing or locked phone does not resume the activity,
+# so Flutter draws no frames and a pushed page is never built (6b: every
+# watch-page run said "no new page"). The screen woken, the swipe lock
+# dismissed; a lock with a credential cannot be, and stops the session.
+function Wake-Phone {
+    $script:wokeScreen = $true
+    $null = Invoke-Change 'input keyevent KEYCODE_WAKEUP'
+    Start-Sleep -Milliseconds 600
+    $null = Invoke-Change 'wm dismiss-keyguard'
+    $deadline = (Get-Date).AddSeconds(8)
+    while ($true) {
+        $awake = Test-Awake
+        $locked = Test-KeyguardShowing
+        if ($DryRun -or ($awake -and -not $locked)) { return }
+        if ((Get-Date) -gt $deadline) { Stop-Wp "the phone could not be woken and unlocked (awake=$awake, lock screen showing=$locked): unlock it by hand, or it has a PIN / pattern the script must not enter (README)" }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+function Set-StayOn {
+    if ($script:stayOnSet) { return }
+    $script:stayOnSet = $true
+    Set-Setting global stay_on_while_plugged_in '7'
 }
 
 function Set-Setting([string]$ns, [string]$key, [string]$v) {
@@ -284,6 +324,23 @@ function Restore-AllSettings($saved) {
                 $parts += "$k=$g"
             } catch { $script:restoreFailures.Add("$k read: $_") }
         }
+    }
+    if ($script:stayOnSet) {
+        $parts += Restore-One 'stay_on_while_plugged_in' { Set-Setting global stay_on_while_plugged_in $saved.stay_on_while_plugged_in } { Read-Setting global stay_on_while_plugged_in 'null' } $saved.stay_on_while_plugged_in
+    } else {
+        try { $parts += "stay_on_while_plugged_in=$(Read-Setting global stay_on_while_plugged_in 'null')" } catch { }
+    }
+    # the screen as it was: off again when the session found it off
+    if ($script:wokeScreen -and -not $saved.awake) {
+        try {
+            $null = Invoke-Change 'input keyevent KEYCODE_SLEEP'
+            Start-Sleep -Milliseconds 800
+            $a = Test-Awake
+            if ($a -and -not $DryRun) { $script:restoreFailures.Add('the screen is still on (it was off before the session)') }
+            $parts += "screen awake=$a"
+        } catch { $script:restoreFailures.Add("screen off: $_") }
+    } else {
+        try { $parts += "screen awake=$(Test-Awake)" } catch { }
     }
     Write-Host "phone settings after: $($parts -join ', ')"
 }
@@ -482,6 +539,8 @@ function Invoke-PhoneRun([string]$profileName, [string[]]$testArgs, [string]$loc
         $null = Invoke-Change "am force-stop --user 0 $Pkg"
         $null = Invoke-Change "rm -f $files"
         Set-Ack '0'
+        Set-StayOn
+        Wake-Phone
         Start-AppRun $argv $windowing
         if ($DryRun) {
             Write-Host "  [dry] (wait up to $minutes min for $remote, answering $remote.host; delete $localFile, pull it; rm the three files)"
@@ -505,8 +564,11 @@ function Invoke-PhoneRun([string]$profileName, [string[]]$testArgs, [string]$loc
                 Write-Host "    host:$($h['action']) done ($token)"
                 continue
             }
-            $rep = Read-PhoneJson $remote
-            if ($null -ne $rep -and $rep.Contains('finishedAt')) { $report = $rep; break }
+            # finished = the phone's copy names finishedAt (the app writes the
+            # whole report at once); it is read after the pull, as bytes:
+            # adb's console text is decoded in the console's code page
+            $fin = (Invoke-Shell "grep -c finishedAt $(Q $remote) 2>/dev/null || true" '').Trim()
+            if ($fin -match '^[1-9]') { $report = 'finished'; break }
             $alive = (Invoke-Shell "pidof $Pkg || true" '').Trim()
             if (-not $alive) { $deadFor++ } else { $deadFor = 0 }
             if ($deadFor -ge 8) { break }
@@ -519,6 +581,10 @@ function Invoke-PhoneRun([string]$profileName, [string[]]$testArgs, [string]$loc
         $pulled = $true
         if ($null -ne $report) {
             try { $null = Invoke-Adb @('pull', $remote, $localFile) } catch { $pulled = $false; $rec.pullError = "$_" }
+        } else {
+            # what there is, beside: an unfinished report says how far it got
+            if (Test-Path -LiteralPath "$localFile.unfinished") { Remove-Item -LiteralPath "$localFile.unfinished" -Force }
+            try { $null = Invoke-Adb @('pull', $remote, "$localFile.unfinished") } catch { }
         }
         try { $null = Invoke-Adb @('pull', "$remote.progress", "$localFile.progress") } catch { }
         $null = Invoke-Change "rm -f $files"
@@ -528,7 +594,7 @@ function Invoke-PhoneRun([string]$profileName, [string[]]$testArgs, [string]$loc
             return $rec
         }
         if (-not $pulled -or -not (Test-Path -LiteralPath $localFile)) { $rec.result = 'error: the report could not be pulled (无结果)'; return $rec }
-        try { $local = Get-Content -LiteralPath $localFile -Raw | ConvertFrom-Json -AsHashtable } catch { $local = $null }
+        try { $local = Get-Content -LiteralPath $localFile -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable -DateKind String } catch { $local = $null; $rec.parseError = "$_" }
         if ($null -eq $local -or -not $local.Contains('finishedAt')) { $rec.result = 'error: the pulled report is not a finished report (无结果)'; return $rec }
         $names = @($local['checks'] | ForEach-Object { "$($_['name'])" })
         $missing = @($expect | Where-Object { $names -notcontains $_ })
@@ -804,7 +870,12 @@ if ($Alternate -or $Checks.Count) {
     if (-not $Checks.Count -or $Checks -contains 'all') { $Checks = @($set.tables.Keys) }
     foreach ($id in $Checks) { if (-not $set.tables.Contains($id)) { throw "no Android table $id" } }
     $needs = @($Checks | Where-Object { $set.tables[$_]['landscapeMethod'] })
-    if ($needs.Count -and -not $LandscapeMethod) { throw "$($needs -join ', ') make the window landscape-shaped: pass -LandscapeMethod freeform|wmsize (README: R8, the choice is 6b's)" }
+    # the method the tables name (6b settled freeform), unless -LandscapeMethod says otherwise
+    if ($needs.Count -and -not $LandscapeMethod) {
+        $named = @($needs | ForEach-Object { "$($set.tables[$_]['landscapeMethod'])" } | Select-Object -Unique)
+        if ($named.Count -eq 1 -and $named[0] -in 'freeform', 'wmsize') { $LandscapeMethod = $named[0]; Write-Host "landscape method: $LandscapeMethod (from the tables)" }
+        else { throw "$($needs -join ', ') make the window landscape-shaped: pass -LandscapeMethod freeform|wmsize (README: R8)" }
+    }
     if ($Alternate) {
         if (-not ($ParentApk -and $NewApk -and $Parent -and $Commit)) { throw '-Alternate needs -ParentApk, -Parent, -NewApk and -Commit' }
         $pSha = Get-Sha $Parent '-Parent'; $nSha = Get-Sha $Commit '-Commit'

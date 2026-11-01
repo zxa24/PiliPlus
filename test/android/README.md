@@ -80,12 +80,11 @@ driver's `versionCode` after the install.
    (installs 5687 → 5688, an update; the run's own profile is wiped after
    it, which also shows the wipe works), then
    `pwsh -NoProfile -File test/android/wp_adb.ps1 -Wipe wp6aval`.
-4. R8's sideways window (design §6.3 「横屏的对照」; see below): run
-   `-Checks A-R8-back-hsoff -Commit <S0b> -Passes 1 -LandscapeMethod freeform`.
-   It works when `moments.sideways.android.orientation` is `landscape`,
+4. R8's sideways window (design §6.3 「横屏的对照」; see below): settled in
+   6b as **freeform** (the table says `"landscapeMethod": "freeform"` and the
+   driver takes it from there). It works when
+   `moments.sideways.android.orientation` is `landscape`,
    `moments.sideways.android.canPop` is `false` and the upright one `true`.
-   If not, the same with `-LandscapeMethod wmsize`. Write the one that
-   works into the table's `landscapeMethod` and the design's §6.3 line.
 5. Calibration: `-Checks all -Commit <S0b> -Passes 2 -LandscapeMethod <chosen>`,
    then `pwsh -NoProfile -File test/mutants/run.ps1 -Plan watch_page -Compare <Out>\<sha9> -FieldTables test\android\wp_fields -Out <Out>\calibration`;
    mark what varies `unstable` in the tables. `controls.json` beside the
@@ -102,6 +101,26 @@ Every run is a cold start (`am force-stop --user 0`, then `am start --user 0`
 with the arguments; a running engine takes no new ones). The gate
 (`debug.librepili.selftest`) is armed for cleanup before it is opened, and
 shut and read back at the session's end, whatever happened.
+
+The screen must be on and unlocked: a dozing phone does not resume the
+activity, Flutter draws no frame and a pushed page is never built (6b: every
+watch-page run said "no new page" with the screen off). So for the session
+`stay_on_while_plugged_in` is 7 (recorded and put back like the others), and
+before every run the screen is woken (`KEYCODE_WAKEUP`) and the swipe lock
+dismissed (`wm dismiss-keyguard`); the run starts only when the phone reads
+Awake with no lock screen. A lock with a PIN or pattern stops the session
+(the script never enters one). A screen that was off before the session is
+put to sleep again at its end.
+
+A report is finished when the phone's copy names `finishedAt` (`grep` on the
+phone); it is then pulled as bytes and read as UTF-8. (6b: reading it
+through `adb shell cat` decoded it in the console's code page, gb2312 here,
+and a report with Chinese text no longer parsed.) A run that ends without a
+finished report still has its file pulled, as `<report>.unfinished`.
+
+`-SelfTestArgs` values that start with `--` must be passed from
+`pwsh -Command` as an array (`-SelfTestArgs @('--open-bili','<url>')`):
+with `pwsh -File` PowerShell reads them as parameter names.
 
 After every run `user_rotation` and `wm size` are put back to the
 session's values and read back (a run's host steps change them; the next
@@ -146,8 +165,13 @@ of step 4; not a table yet).
 
 With 横屏适配 off the app locks portrait at start and after every
 fullscreen exit, so on this phone "横屏适配关、横着" exists only in a window
-that is not the whole screen. Two ways are written; neither has been run
-(part 6a had no APK with these steps):
+that is not the whole screen. Two ways are written. **6b (2026-11-01,
+APK ca3538d2f) settled freeform**: the upright window came out 371.5×714.5,
+the sideways one 514.5×285.5 (logical), and the back's handling was
+`didPop true` upright, `didPop false, Get.back` sideways. (`canPop` itself
+read `none` on that APK: the reading matched Flutter's `PopScope`, the page
+builds the app's own; fixed in self_test_watch.dart, needs the next APK.)
+wmsize was not needed and has not been run.
 
 - `freeform` (tried first, as the design says): `enable_freeform_support`
   and `force_resizable_activities` set to 1 around that run only (recorded,
@@ -161,6 +185,14 @@ that is not the whole screen. Two ways are written; neither has been run
 - `wmsize`: `wm size 3040x1440` (a landscape-shaped display at rotation 0)
   and back. The design's 「假设」: the app's portrait request may turn the
   display back, in which case this way does not give a landscape window.
+
+## F0 on the phone
+
+`python _tmp/s0b6/f0.py <side folder>` (6b's scratch; the numbers are in
+audit-logs/wps-s0b/c6-report.md 「6b run」) lists, per R3 run and per
+fullscreen enter / exit, the delay from the frame where `fsProcessing` has
+cleared to the frame with the final size, the step's own polled delay
+(`events.<moment>Rotation`: orientMs − flagMs) and the sizes in between.
 
 ## What the phone keeps
 

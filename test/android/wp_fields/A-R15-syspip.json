@@ -178,8 +178,13 @@
       "status": "must-same"
     },
     {
-      "name": "pip.window",
-      "path": "moments.pip.window",
+      "name": "pip.window.logical",
+      "path": "moments.pip.window.logical",
+      "status": "unstable"
+    },
+    {
+      "name": "pip.window.padding",
+      "path": "moments.pip.window.padding",
       "status": "must-same"
     },
     {
@@ -290,7 +295,7 @@
     {
       "name": "pip.android.physical",
       "path": "moments.pip.android.physical",
-      "status": "must-same"
+      "status": "unstable"
     },
     {
       "name": "pip.android.viewPadding",
@@ -504,6 +509,7 @@
     ],
     "what": "R15 进 / 不进画中画时渲染的部件: the PiP side must be the pip branch (a landscape-shaped window alone cannot pass)"
   },
-  "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
-  "evidence": "control: start vs pip branch.scalars"
+  "calibrated": "android, calibrated in 6b (2026-11-01, APK ca3538d2f, Pixel 4 XL, Android 16): 2 passes, run.ps1 -Plan watch_page -Compare <passes> -FieldTables test/android/wp_fields; no compared field varied except the ones marked unstable (audit-logs/wps-s0b/c6-report.md 「6b run」)",
+  "evidence": "control: start vs pip branch.scalars",
+  "calibratedNote": "the picture-in-picture window size varied (unstable); the rest held"
 }

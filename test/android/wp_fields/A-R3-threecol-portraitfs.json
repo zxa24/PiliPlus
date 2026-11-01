@@ -1066,5 +1066,6 @@
     "what": "R3 转屏前后的布局尺寸 (landscape three columns, portrait fullscreen)"
   },
   "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
-  "evidence": "control: enterBefore vs enterDone window.logical"
+  "evidence": "control: enterBefore vs enterDone window.logical",
+  "calibratedNote": "NOT calibrated: neither pass measured (exitDone: the window never turned landscape in 5 s); the table is still the hand-written one"
 }

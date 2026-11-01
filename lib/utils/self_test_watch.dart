@@ -32,6 +32,7 @@ import 'dart:async' show Completer;
 import 'dart:io' show Platform;
 import 'dart:ui' show ViewPadding;
 
+import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart' as app_pop;
 import 'package:PiliPlus/common/widgets/fractionally_sized_box.dart';
 import 'package:PiliPlus/common/widgets/scaffold/bottom_sheet.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
@@ -312,7 +313,7 @@ abstract final class WpRead {
       'statusBar': _guard(() => _statusBar(page)),
       'canPop': _guard(
         () => switch (scan.biliPlayer?.widget) {
-          PopScope(:final canPop) => canPop,
+          app_pop.PopScope(:final canPop) => canPop,
           _ => 'none',
         },
       ),
@@ -1689,8 +1690,10 @@ final class _Scan {
         case BottomSheet_():
           scan.sheet ??= e;
         // plPlayer's pop scope: the one in the player layer, or (no slot
-        // Stack: picture in picture) the page's first
-        case PopScope()
+        // Stack: picture in picture) the page's first. The page builds the
+        // app's own PopScope (common/widgets/flutter/pop_scope.dart), not
+        // Flutter's (6b: matching Flutter's found none, on any platform)
+        case app_pop.PopScope()
             when !yt &&
                 scan.biliPlayer == null &&
                 (scan.slotStack == null || next.slot == 'player'):
