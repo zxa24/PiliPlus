@@ -28,6 +28,19 @@ import 'package:PiliPlus/pages/scan/view.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show Content, Emote, ReplyInfo;
 import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
+import 'package:PiliPlus/models_new/video/video_ai_conclusion/model_result.dart'
+    show AiConclusionResult;
+import 'package:PiliPlus/models_new/video/video_detail/episode.dart' as ugc;
+import 'package:PiliPlus/pages/common/common_intro_controller.dart'
+    show CommonIntroController;
+import 'package:PiliPlus/pages/video/introduction/pgc/view.dart'
+    show PgcIntroPage;
+import 'package:PiliPlus/pages/video/introduction/ugc/controller.dart'
+    show UgcIntroController;
+import 'package:PiliPlus/pages/video/introduction/ugc/view.dart'
+    show UgcIntroPanel;
+import 'package:PiliPlus/pages/common/publish/publish_route.dart'
+    show PublishRoute;
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/services/translate/comment_translator.dart';
 import 'package:PiliPlus/common/widgets/comments/comment_translation.dart';
@@ -86,6 +99,8 @@ import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart'
     show exitDesktopFullScreen;
+import 'package:PiliPlus/plugin/pl_player/models/data_status.dart'
+    show DataStatus;
 import 'package:PiliPlus/plugin/pl_player/view/view.dart' show PLVideoPlayer;
 import 'package:PiliPlus/plugin/pl_player/widgets/spaced_subtitle_view.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
@@ -149,6 +164,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart'
     show
         GestureBinding,
+        HitTestResult,
         PointerAddedEvent,
         PointerDeviceKind,
         PointerDownEvent,
@@ -502,6 +518,8 @@ abstract final class SelfTest {
     'openBili',
     'wpRead',
     'wpSteps',
+    // R9's judging check (design §6.4 R9: --covered-query, part 3b)
+    'coveredQuery',
   };
 
   static void _watchForUiErrors() {
@@ -1633,8 +1651,9 @@ abstract final class SelfTest {
         ),
       );
     }
-    // `--covered-query A B [--query-delay S]`: A's play URL held S s (12),
-    // B pushed over A meanwhile
+    // `--covered-query A B [--query-delay S] [--paused-before C]`: A's
+    // play URL held S s (12), B pushed over A meanwhile; with
+    // --paused-before, A is opened from C, played and paused first (R9d)
     if (_arg(args, '--covered-query') case final first?) {
       final i = args.indexOf('--covered-query');
       final second = i + 2 < args.length ? args[i + 2] : '';
@@ -1648,6 +1667,7 @@ abstract final class SelfTest {
                 first,
                 second,
                 delay: int.tryParse(_arg(args, '--query-delay') ?? '') ?? 12,
+                pausedBefore: _arg(args, '--paused-before'),
               ),
         );
       } finally {
@@ -2355,6 +2375,46 @@ abstract final class SelfTest {
   ///   (events.opensDelta: the player's opens since the mark, R5f / R5g)
   /// - `nextep` the pgc page's next episode as the episode panel picks it,
   ///   until the page's cid changes (同步调用 T1)
+  ///
+  /// The second half's (R7-R15, part 3b; readings in the reading's `more`):
+  /// - `push:SPEC` a page over the current one (a SPEC as above, or
+  ///   `blank`: no watch page, so the one under it is covered and keeps its
+  ///   player); a watch page becomes the current page, named `top`;
+  ///   `pop` the route pushed last popped as a back button does;
+  ///   `on:main|top` which page the steps after act on and read
+  /// - `delay:BV=S|off` that video's play URL held S s (the query-delay
+  ///   hook, per video: only the page on top held, R9 / R10)
+  /// - `releasegate` the current page's subtitle gate let down (R9c);
+  ///   `skipgate` its 先播放视频 (the page's own skipSubtitleGate)
+  /// - `playcb:L` the app's play callback called as the lock screen does:
+  ///   which page answered (events[playcb:L], R9); `callbacks:L` the play
+  ///   callback's log lines since the last push (whether the page under was
+  ///   called while the pushed one opened); `hooks:L` which page's the
+  ///   player's hooks are (R9 钩子: the public four by method, onReopen and
+  ///   onSourceExpired by the values each page had when it was added);
+  ///   `state:L` the page there or not, its controller, the routes,
+  ///   fullscreen / pip / lock, with no walk
+  /// - `key:K` (space, d, enter, escape, l) pressed as a keyboard does;
+  ///   `back:L` the navigator's maybePop (the popScope decides; T2, R8);
+  ///   both waited out by events (the page gone, or fsProcessing false and
+  ///   the window quiet), read before and after in fullscreen or picture in
+  ///   picture (`before:<step>`, `after:<step>`, `{gone: true}` for a page
+  ///   that went), and recorded with the back handling's log lines and
+  ///   `state` (_WpRun._navigate)
+  /// - `lock`, `unlock` the controls; `tapcover` the autoplay-off cover
+  ///   tapped (handlePlay); `hit:back` a hit test at the top bar's 返回
+  ///   (which slot layer gets it, P1)
+  /// - `popup:KIND` a bottom sheet opened as its button does (episodes,
+  ///   viewpoints, medialist, post, notes, member, pgcdetail, ai, settings,
+  ///   reply: see _WpRun._popup); `closesheet` the open one closed as a
+  ///   back does
+  /// - `probes:L` the Invidious source's range probes so far (their
+  ///   statuses, the hosts left out); `--yt-source invidious|direct` picks
+  ///   the YouTube page's source from the first open
+  /// - `pip`, `pipexit` desktop picture in picture (covers a screen: batch)
+  /// - conditions for waitfor / require, beside the ones above: owns,
+  ///   notowns, dserror, standin, playerup (the stand-in gone), gate,
+  ///   season, viewpoints, medialist, ytready, ytfailed
   static Future<Map<String, dynamic>> _wpSteps(List<String> args) async {
     final spec = _arg(args, '--wp-open') ?? '';
     final steps = [
@@ -2362,13 +2422,29 @@ abstract final class SelfTest {
         if (s.trim().isNotEmpty) s.trim(),
     ];
     final run = _WpRun(spec, steps);
+    // `--yt-source invidious|direct` as the other YouTube checks take it
+    // (set later in the run for them): the YouTube page's source from the
+    // first open (§6.4 YouTube 不同: the Invidious probe)
+    switch (_arg(args, '--yt-source')) {
+      case 'invidious':
+        YtVideoController.debugSourceMode = YtSourceMode.fallbackOnly;
+        run.events['ytSource'] = 'invidious';
+      case 'direct':
+        YtVideoController.debugSourceMode = YtSourceMode.directOnly;
+        run.events['ytSource'] = 'direct';
+      case null:
+        break;
+      case final other:
+        return run.result(
+          error: '--yt-source takes invidious or direct, not "$other"',
+        );
+    }
     if (_arg(args, '--wp-query-delay') case final s?) {
       final seconds = int.tryParse(s);
       if (seconds == null) {
         return run.result(error: '--wp-query-delay takes seconds, not "$s"');
       }
-      VideoDetailController.debugQueryDelay = (_, _) =>
-          Duration(seconds: seconds);
+      run.delay('*', seconds);
       run.events['queryDelay'] = seconds;
     }
     try {
@@ -2377,6 +2453,7 @@ abstract final class SelfTest {
       run
         ..tag = tag
         ..kind = WpRead.find(tag).page!.kind
+        ..addPage('main', tag)
         ..note('opened $tag (${WpRead.find(tag).page!.kind})');
       // `--wp-tabwatch`: the tab watch from the moment the page validates,
       // before it is ready (R4a: the collection can come in the first
@@ -2403,7 +2480,11 @@ abstract final class SelfTest {
 
   /// [spec]'s page opened (see [_wpSteps]); its tag once it validates, or
   /// null with [_WpRun.error] set.
-  static Future<String?> _wpOpenPage(String spec, _WpRun run) async {
+  static Future<String?> _wpOpenPage(
+    String spec,
+    _WpRun run, {
+    String fixedTag = 'selftest_wp',
+  }) async {
     final before = WpRead.tags().toSet();
     final colon = spec.indexOf(':');
     final kind = colon < 0 ? spec : spec.substring(0, colon);
@@ -2413,7 +2494,7 @@ abstract final class SelfTest {
       case 'offline':
         final entry = await _wpDownload(rest.isEmpty ? null : rest, run);
         if (entry == null) return null;
-        tag = 'selftest_wp';
+        tag = fixedTag;
         unawaited(
           PageUtils.toVideoPage(
             aid: entry.avid,
@@ -2460,7 +2541,7 @@ abstract final class SelfTest {
           run.error = '--wp-open bvid:<BV>:<cid>:vert0|vert1, not "$spec"';
           return null;
         }
-        tag = 'selftest_wp';
+        tag = fixedTag;
         unawaited(
           PageUtils.toVideoPage(
             bvid: parts[0],
@@ -2469,13 +2550,45 @@ abstract final class SelfTest {
             extraArguments: {'heroTag': tag},
           ),
         );
+      case 'archive':
+        // archive:<BV>:<cid>:<aid>:<mid>: the page opened with the
+        // arguments that make it ask the UP's list (mediaList, R7c 播放列表):
+        // sourceType archive, mediaId the UP's mid, oid the aid,
+        // isContinuePlaying. The UP page's 播放全部 (member_video
+        // controller.dart) passes more: the video's title and dimension,
+        // its own favTitle and sort, and oid as a String; none of them
+        // decides whether mediaList comes back
+        final parts = rest.split(':');
+        final ids = [for (final p in parts.skip(1)) int.tryParse(p)];
+        if (parts.length != 4 || ids.contains(null)) {
+          run.error = '--wp-open archive:<BV>:<cid>:<aid>:<mid>, not "$spec"';
+          return null;
+        }
+        tag = fixedTag;
+        unawaited(
+          PageUtils.toVideoPage(
+            bvid: parts[0],
+            cid: ids[0]!,
+            extraArguments: {
+              'sourceType': SourceType.archive,
+              'mediaId': ids[2],
+              'oid': ids[1],
+              'favTitle': 'selftest: 播放全部',
+              'desc': false,
+              'isContinuePlaying': true,
+              'heroTag': tag,
+            },
+          ),
+        );
       case 'yt':
-        // the page keeps the bare id as its tag when it is the first
-        tag = rest;
+        // the page keeps the bare id as its tag when it is the first; a
+        // second page of the same video gets a hero tag, found as the page
+        // mounted after `before`
+        tag = before.contains(rest) ? null : rest;
         unawaited(Get.toNamed('/ytVideo', parameters: {'id': rest}));
       default:
         run.error =
-            '--wp-open takes offline:, downloads:, bili:, bvid: or '
+            '--wp-open takes offline:, downloads:, bili:, bvid:, archive: or '
             'yt:, not "$spec"';
         return null;
     }
@@ -8930,9 +9043,12 @@ abstract final class SelfTest {
     String first,
     String second, {
     int delay = 12,
+    String? pausedBefore,
   }) async {
     final firstBvid = RegExp(r'BV[0-9A-Za-z]{10}').stringMatch(first);
-    if (firstBvid == null) return {'pass': false, 'reason': 'A is no BV id'};
+    if (firstBvid == null) {
+      return {'pass': false, 'measured': false, 'reason': 'A is no BV id'};
+    }
     String url(String s) =>
         s.startsWith('http') ? s : 'https://www.bilibili.com/video/$s';
     VideoDetailController.debugQueryDelay = (bvid, _) =>
@@ -8953,10 +9069,46 @@ abstract final class SelfTest {
       return null;
     }
 
+    // design §6.4 R9 (R9d, wp9#4): C opened, played and paused, and A
+    // opened from it: when B is pushed over A, the status A keeps is C's
+    // pause, not the shared player's first `playing`
+    Map<String, Object?>? before;
+    if (pausedBefore != null) {
+      final cBvid = RegExp(r'BV[0-9A-Za-z]{10}').stringMatch(pausedBefore);
+      unawaited(PiliScheme.routePushFromUrl(url(pausedBefore)));
+      final c = await top(
+        (page) =>
+            page.bvid == cBvid &&
+            page.ownsPlayer &&
+            page.plPlayerController.playerStatus.value.isPlaying &&
+            !page.plPlayerController.firstFrameWait.value,
+      );
+      if (c == null) {
+        return {'pass': false, 'measured': false, 'reason': 'C never played'};
+      }
+      await c.plPlayerController.pause();
+      await Future.delayed(const Duration(seconds: 1));
+      before = {
+        'cTag': c.heroTag,
+        'cPaused': c.plPlayerController.playerStatus.value == .paused,
+      };
+      if (before['cPaused'] != true) {
+        return {
+          'pass': false,
+          'measured': false,
+          'reason': 'C did not pause',
+          'pausedBefore': before,
+        };
+      }
+    }
     unawaited(PiliScheme.routePushFromUrl(url(first)));
     final a = await top((page) => page.bvid == firstBvid && page.isQuerying);
     if (a == null) {
-      return {'pass': false, 'reason': 'A never asked for its URL'};
+      return {
+        'pass': false,
+        'measured': false,
+        'reason': 'A never asked for its URL',
+      };
     }
     final player = a.plPlayerController;
     final aQueryingAtPush = a.isQuerying;
@@ -8969,7 +9121,9 @@ abstract final class SelfTest {
           player.playerStatus.value.isPlaying &&
           !player.firstFrameWait.value,
     );
-    if (b == null) return {'pass': false, 'reason': 'B never played'};
+    if (b == null) {
+      return {'pass': false, 'measured': false, 'reason': 'B never played'};
+    }
     final aAnsweredBeforeB = aAnswer == null || a.queryDone == null;
     final opensBefore = player.openCount;
     await aAnswer?.timeout(Duration(seconds: delay + 20), onTimeout: () {});
@@ -8982,6 +9136,11 @@ abstract final class SelfTest {
       'playing': player.playerStatus.value.isPlaying,
       'aVideoUrl': a.videoUrl != null,
     };
+    // §6.2's readings of both pages, each by its own tag (design §5
+    // 「每个访问器读一个指名的页面」): A covered, B on top
+    final aTag = a.heroTag;
+    final bTag = b.heroTag;
+    final readCovered = {'A': WpRead.read(aTag), 'B': WpRead.read(bTag)};
 
     Get.back();
     var back = false;
@@ -8994,7 +9153,16 @@ abstract final class SelfTest {
     }
     await Future.delayed(const Duration(seconds: 2));
     final at = player.videoPlayerController?.state.position.inMilliseconds;
+    final readReturn = await WpRead.settled(() => WpRead.read(aTag));
     return {
+      // the steps that measure were reached: A asking when B came over it,
+      // B playing, and the return waited out (whatever it came to)
+      'measured': true,
+      'readings': {
+        'covered': readCovered,
+        'afterReturn': readReturn ?? WpRead.unread('neverSettled'),
+      },
+      'pausedBefore': before ?? 'none',
       'pass':
           aQueryingAtPush &&
           !aAnsweredBeforeB &&
@@ -12846,15 +13014,67 @@ final class _WpRun {
   /// there): recorded, the run goes on (events.skipped).
   final _skipped = <Object?>[];
 
-  /// The identities the first reading saw: what `kept` compares with.
-  Map<String, Object?>? _base;
+  /// The identities each page's first reading saw: what `kept` compares
+  /// with (by tag: a run can drive two pages, R9 / R10).
+  final _bases = <String, Map<String, Object?>>{};
 
-  /// Every list key a reading has seen, with its last record: a list gone
-  /// later is still written, with every key `absent`, never dropped.
-  final _seenLists = <String, Map<String, Object?>>{};
+  /// Every list key a reading of a page has seen, with its last record: a
+  /// list gone later is still written, with every key `absent`, never
+  /// dropped (by tag).
+  final _seenListsOf = <String, Map<String, Map<String, Object?>>>{};
 
-  /// Every list key `kept` has seen.
-  final _keptKeys = <String>{};
+  /// Every list key `kept` has seen (by tag).
+  final _keptKeysOf = <String, Set<String>>{};
+
+  /// The pages the run drives, by name (`main`, the one opened first;
+  /// `top`, `top2`… pushed over it), and the names pushed, oldest first
+  /// (`blank` for a page that is no watch page).
+  final _pages =
+      <String, ({String tag, String kind, PlPlayerController player})>{};
+  final _pushed = <String>[];
+
+  /// [tag]'s page as [name], with its player taken now: a back or Esc can
+  /// take the page away, and GetX deletes its controller with the route
+  /// (RouterReportManager on the route's dispose); what is read after that
+  /// goes through this reference, never a lookup of the controller.
+  void addPage(String name, String tag) {
+    final kind = WpRead.find(tag).page!.kind;
+    _pages[name] = (
+      tag: tag,
+      kind: kind,
+      player: kind == 'yt'
+          ? Get.find<YtVideoController>(tag: tag).plPlayerController
+          : Get.find<VideoDetailController>(tag: tag).plPlayerController,
+    );
+    // the hooks a page sets on itself that cannot be named from here
+    // (private methods): what the player has as the page is added, which
+    // its onInit has just set, kept to compare with later (R9 钩子)
+    final player = _pages[name]!.player;
+    _ownHooks[name] = (
+      reopen: player.onReopen,
+      sourceExpired: player.onSourceExpired,
+    );
+  }
+
+  final _ownHooks = <String, ({Object? reopen, Object? sourceExpired})>{};
+
+  /// The query-delay hook's answer by BV id (`*` for every one), seconds
+  /// (S0a's `debugQueryDelay`; R9, R10: only the page on top held).
+  final _delays = <String, int>{};
+
+  void delay(String bvid, int? seconds) {
+    if (seconds == null) {
+      _delays.remove(bvid);
+    } else {
+      _delays[bvid] = seconds;
+    }
+    VideoDetailController.debugQueryDelay = _delays.isEmpty
+        ? null
+        : (bvid, _) => switch (_delays[bvid] ?? _delays['*']) {
+            final s? => Duration(seconds: s),
+            null => null,
+          };
+  }
 
   void note(String what) => _log.add('${_clock.elapsedMilliseconds} $what');
 
@@ -12866,15 +13086,38 @@ final class _WpRun {
     note('skipped $step: $why');
   }
 
+  /// The current page's controller. A step that needs it on a page that has
+  /// gone stops the run (only `state`, `back` and `key` record the page
+  /// gone as a value; the tables put nothing else after a back that a
+  /// mutant can turn into a pop).
   VideoDetailController get bili {
     if (kind != 'bili') stop('a bilibili page step on a $kind page');
+    if (!Get.isRegistered<VideoDetailController>(tag: tag)) {
+      stop('the page $tag is gone (its controller was deleted)');
+    }
     return Get.find<VideoDetailController>(tag: tag);
   }
 
-  YtVideoController get yt => Get.find<YtVideoController>(tag: tag);
+  YtVideoController get yt {
+    if (!Get.isRegistered<YtVideoController>(tag: tag)) {
+      stop('the page $tag is gone (its controller was deleted)');
+    }
+    return Get.find<YtVideoController>(tag: tag);
+  }
 
-  PlPlayerController get player =>
-      kind == 'yt' ? yt.plPlayerController : bili.plPlayerController;
+  /// The current page's player, as taken when the page was added: it is
+  /// the one shared player, there after the page has gone.
+  PlPlayerController get player {
+    final p = _pages.values.firstWhereOrNull((p) => p.tag == tag)?.player;
+    if (p != null) return p;
+    return kind == 'yt' ? yt.plPlayerController : bili.plPlayerController;
+  }
+
+  /// Whether the current page's controller is still registered (the page
+  /// not disposed).
+  bool get _pageThere => kind == 'yt'
+      ? Get.isRegistered<YtVideoController>(tag: tag)
+      : Get.isRegistered<VideoDetailController>(tag: tag);
 
   // ------------------------------------------------------------ result
 
@@ -12891,8 +13134,13 @@ final class _WpRun {
       'error': ?(why ?? (measured ? null : 'a reading did not validate')),
       'stack': ?stack,
       'open': spec,
-      'tag': tag ?? WpRead.unread('noPage'),
-      'kind': kind ?? WpRead.unread('noPage'),
+      'tag': _pages['main']?.tag ?? tag ?? WpRead.unread('noPage'),
+      'kind': _pages['main']?.kind ?? kind ?? WpRead.unread('noPage'),
+      if (_pages.length > 1)
+        'pages': {
+          for (final MapEntry(:key, :value) in _pages.entries)
+            key: {'tag': value.tag, 'kind': value.kind},
+        },
       'steps': steps,
       'moments': moments,
       'events': events,
@@ -12927,7 +13175,8 @@ final class _WpRun {
   /// now is `none`, never a dropped key.
   Map<String, Object?> _kept() {
     final now = _identities();
-    final base = _base ??= now;
+    final base = _bases.putIfAbsent(tag!, () => now);
+    final keptKeys = _keptKeysOf.putIfAbsent(tag!, () => <String>{});
     Object one(Object? then, Object? now) => now == null
         ? 'none'
         : then == null
@@ -12935,14 +13184,14 @@ final class _WpRun {
         : identical(then, now);
     final thenLists = base['lists']! as Map<String, ScrollableState>;
     final nowLists = now['lists']! as Map<String, ScrollableState>;
-    _keptKeys
+    keptKeys
       ..addAll(thenLists.keys)
       ..addAll(nowLists.keys);
     return {
       'player': one(base['player'], now['player']),
       'tabArea': one(base['tabArea'], now['tabArea']),
       'lists': {
-        for (final key in _keptKeys) key: one(thenLists[key], nowLists[key]),
+        for (final key in keptKeys) key: one(thenLists[key], nowLists[key]),
       },
       'gone': [
         for (final key in thenLists.keys)
@@ -12958,15 +13207,16 @@ final class _WpRun {
       return lists ?? WpRead.unread('noLists');
     }
     final out = <String, Object?>{};
+    final seen = _seenListsOf.putIfAbsent(tag!, () => {});
     for (final MapEntry(:key, :value) in lists.entries) {
       if (value is Map<String, Object?>) {
-        _seenLists[key] = value;
+        seen[key] = value;
         out[key] = {...value, 'absent': false};
       } else {
         out[key] = value;
       }
     }
-    for (final MapEntry(:key, :value) in _seenLists.entries) {
+    for (final MapEntry(:key, :value) in seen.entries) {
       out.putIfAbsent(
         key,
         () => {for (final k in value.keys) k: 'absent', 'absent': true},
@@ -13049,6 +13299,31 @@ final class _WpRun {
     'notvertical' => !bili.isVertical.value,
     'fullscreen' => player.isFullScreen.value,
     'windowed' => !player.isFullScreen.value,
+    // the current page's ownership of the shared player, and the player's
+    // own status (R10 「失败的是下面那一页」, R9)
+    'owns' => bili.ownsPlayer,
+    'notowns' => !bili.ownsPlayer,
+    'dserror' => player.dataStatus.value == DataStatus.error,
+    'standin' => !bili.videoState.value,
+    // the stand-in gone: the page's view up on a player that has its video
+    // controller (a reopen's first frame), R9 back
+    'playerup' => bili.videoState.value && player.videoController != null,
+    // the subtitle gate up (R9c)
+    'gate' => kind == 'yt' ? yt.asrPending.value : bili.asrPending.value,
+    // the YouTube page has its streams (with --yt-source invidious: from an
+    // Invidious instance; none answering is the material missing)
+    'ytready' => yt.stage.value == YtPageStage.ready,
+    'ytfailed' => yt.stage.value == YtPageStage.failed,
+    // the collection in (the intro's controller, the page's own), the view
+    // points in (R7)
+    'season' =>
+      Get.isRegistered<UgcIntroController>(tag: tag) &&
+          Get.find<UgcIntroController>(
+                tag: tag,
+              ).videoDetail.value.ugcSeason !=
+              null,
+    'viewpoints' => bili.viewPointList.isNotEmpty,
+    'medialist' => bili.mediaList.isNotEmpty,
     // R5f's premises (§6.6): a play URL, or a file (the offline page has
     // no URL: handlePlay and the bar skip that check for it, B:812-826)
     'r5f' =>
@@ -13322,6 +13597,10 @@ final class _WpRun {
       case 'opens':
         if (arg == 'mark') {
           _opensMark = player.openCount;
+          // the count itself too: a fresh profile's player has opened only
+          // what this run opened (the YouTube page with autoplay off opens
+          // before its first step)
+          events['opensAtMark'] = player.openCount;
         } else {
           final mark = _opensMark ?? stop('opens:delta before opens:mark');
           events['opensDelta'] = player.openCount - mark;
@@ -13339,8 +13618,627 @@ final class _WpRun {
           }
           await Future.delayed(const Duration(milliseconds: 50));
         }
+      // ---------------------------------------------- second half (3b)
+      case 'push':
+        await _push(arg);
+      case 'pop':
+        await _pop();
+      case 'on':
+        final p =
+            _pages[arg] ?? stop('on:$arg: no page named so (${_pages.keys})');
+        tag = p.tag;
+        kind = p.kind;
+      case 'delay':
+        // delay:BV=S holds that video's play URL S s; delay:BV=off
+        final eq = arg.indexOf('=');
+        if (eq < 0) stop('delay takes BV=S or BV=off, not "$arg"');
+        final value = arg.substring(eq + 1);
+        final seconds = value == 'off' ? null : int.tryParse(value);
+        if (value != 'off' && seconds == null) stop('delay: "$value"');
+        delay(arg.substring(0, eq), seconds);
+      case 'releasegate':
+        bili.debugReleaseGate();
+        await Future.delayed(const Duration(milliseconds: 300));
+      case 'skipgate':
+        // 先播放视频 on the gate, as the viewer chooses it (R9c: the page on
+        // top takes the player without waiting for its subtitles)
+        if (kind == 'yt') {
+          yt.skipSubtitleGate();
+        } else {
+          bili.skipSubtitleGate();
+        }
+        await Future.delayed(const Duration(milliseconds: 300));
+      case 'callbacks':
+        // the play callback's lines since the last push (R9: whether the
+        // page under was called while the one pushed opened, wp2#4)
+        events['callbacks:$arg'] = _callbackLines(
+          _lastPushAt ?? stop('callbacks:$arg before any push'),
+        );
+      case 'probes':
+        // the Invidious source's range probes (`probe <host> -> <status>`,
+        // invidious_source.dart), the host left out (§6.4 YouTube 不同)
+        final lines = _logSince(_runStart, '[invidious] probe ');
+        events['probes:$arg'] = {
+          'count': lines.length,
+          'statuses': [
+            for (final l in lines)
+              int.tryParse(l.split('-> ').last.trim()) ?? l,
+          ],
+        };
+      case 'playcb':
+        await _playCallback(arg);
+      case 'hooks':
+        events['hooks:$arg'] = _hooks();
+      case 'state':
+        events['state:$arg'] = _state();
+      case 'lock' || 'unlock':
+        player.onLockControl(verb == 'lock');
+        await Future.delayed(const Duration(milliseconds: 300));
+      case 'key':
+        await _key(arg);
+      case 'back':
+        // a back as the system sends it: the navigator's maybePop, so the
+        // popScope's canPop decides (T2, R8)
+        events['back:$arg'] = await _navigate(
+          'back:$arg',
+          () async => Get.key.currentState?.maybePop(),
+        );
+      case 'tapcover':
+        final cover = WpRead.firstUnder(
+          WpRead.slotLayersOf(tag!)['cover'],
+          (w) => w is GestureDetector,
+        );
+        if (cover == null || !await SelfTest._wpTapElement(cover)) {
+          skip(step, 'no cover layer');
+          events['tapcover'] = WpRead.unread('not built');
+          return;
+        }
+        events['tapcover'] = 'tapped';
+      case 'hit':
+        events['hit:$arg'] = _hitTest(arg);
+      case 'popup':
+        await _popup(arg);
+      case 'closesheet':
+        await _closeSheet();
+      case 'pip' || 'pipexit':
+        // desktop picture in picture: covers a screen, batch only
+        if (verb == 'pip') {
+          await player.enterDesktopPip();
+        } else {
+          await player.exitDesktopPip();
+        }
+        if (await WpRead.settled(() => true) == null) {
+          stop('$verb: the window never settled');
+        }
+        events[verb] = {'pip': player.isDesktopPip};
       default:
         stop('no step "$step"');
+    }
+  }
+
+  // ------------------------------------------------------------ pages
+
+  /// `push:SPEC` (a spec as `--wp-open` takes, or `blank`: a plain page that
+  /// is no watch page, so the one under it is covered and nothing takes
+  /// its player): pushed over the current page; a watch page becomes the
+  /// current page, named `top` (`top2`…). Waits for it to validate.
+  Future<void> _push(String spec) async {
+    _lastPushAt = DateTime.now();
+    if (spec == 'blank') {
+      unawaited(
+        Get.to<void>(
+          () => const _WpBlankPage(),
+          routeName: '/selftestBlank',
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (await WpRead.settled(() => true) == null) {
+        stop('push:blank: the window never settled');
+      }
+      _pushed.add('blank');
+      events['push:blank'] = Get.currentRoute;
+      return;
+    }
+    var name = 'top';
+    for (var n = 2; _pages.containsKey(name); n++) {
+      name = 'top$n';
+    }
+    final t = await SelfTest._wpOpenPage(
+      spec,
+      this,
+      fixedTag: 'selftest_wp_$name',
+    );
+    if (t == null) stop('push:$spec: ${error ?? 'no page'}');
+    addPage(name, t);
+    _pushed.add(name);
+    tag = t;
+    kind = _pages[name]!.kind;
+    note('pushed $t as $name');
+  }
+
+  DateTime? _lastPushAt;
+  final _runStart = DateTime.now();
+
+  /// The play callback's log lines since [since]: called / not set, and
+  /// which page answered.
+  Map<String, Object?> _callbackLines(DateTime since) {
+    final called = _logSince(since, '[selftest] play callback ');
+    return {
+      'called': called.where((l) => l == 'called').length,
+      'notSet': called.where((l) => l == 'not set').length,
+      'answeredBy': [
+        for (final line in called)
+          if (RegExp(r'^answered: bilibili page (\S+),').firstMatch(line)
+              case final m?)
+            _nameOf(m[1]!),
+      ],
+    };
+  }
+
+  /// `pop`: the route pushed last popped as a back button does (Get.back);
+  /// the page under it is the current page again.
+  Future<void> _pop() async {
+    if (_pushed.isEmpty) stop('pop: nothing was pushed');
+    final name = _pushed.removeLast();
+    Get.back<void>();
+    await Future.delayed(const Duration(milliseconds: 1000));
+    if (await WpRead.settled(() => true) == null) {
+      stop('pop: the window never settled');
+    }
+    final under = _pushed.lastWhereOrNull((n) => n != 'blank') ?? 'main';
+    tag = _pages[under]!.tag;
+    kind = _pages[under]!.kind;
+    note('popped $name, on $under');
+  }
+
+  /// The name of the page with [tag], `other` for a page the run did not
+  /// open.
+  String _nameOf(String tag) =>
+      _pages.entries.firstWhereOrNull((e) => e.value.tag == tag)?.key ??
+      'other';
+
+  /// The event log's lines with [marker] added since [since], less a
+  /// millisecond: a line written in the same clock tick as [since] (a key
+  /// handled synchronously) has the same time, and isAfter is false.
+  static List<String> _logSince(DateTime since, String marker) => [
+    for (final (_, line) in EventLog.entries(
+      since: since.subtract(const Duration(milliseconds: 1)),
+    ))
+      if (line.contains(marker))
+        line.substring(line.indexOf(marker) + marker.length),
+  ];
+
+  /// `playcb:L`: the app's one play callback called as the lock screen,
+  /// a headset or an audio-focus return does (PlPlayerController
+  /// .playIfExists): whether one was set, and which page answered (S0a's
+  /// observation point, R9 「是哪一页在响应」).
+  Future<void> _playCallback(String label) async {
+    final since = DateTime.now();
+    await PlPlayerController.playIfExists();
+    await Future.delayed(const Duration(milliseconds: 800));
+    final called = _logSince(since, '[selftest] play callback ');
+    final answered = [
+      for (final line in called)
+        if (RegExp(r'^answered: bilibili page (\S+),').firstMatch(line)
+            case final m?)
+          _nameOf(m[1]!),
+    ];
+    events['playcb:$label'] = {
+      'callback': called.contains('called')
+          ? 'called'
+          : called.contains('not set')
+          ? 'notSet'
+          : 'none',
+      'answeredBy': answered.isEmpty ? 'none' : answered,
+      'playing': player.playerStatus.isPlaying,
+    };
+  }
+
+  /// The player's public hooks and which of the run's bilibili pages set
+  /// them (the methods compared by `==`, a tear-off of one controller's
+  /// method equal to another of the same: R9 钩子, wp3#17); the private ones
+  /// (onReopen, onSourceExpired) cannot be named from here. `none`: unset;
+  /// `other`: neither page's (the YouTube page's, say).
+  Map<String, Object?> _hooks() {
+    final p = player;
+    final pages = {
+      for (final MapEntry(:key, :value) in _pages.entries)
+        if (value.kind == 'bili' &&
+            Get.isRegistered<VideoDetailController>(tag: value.tag))
+          key: Get.find<VideoDetailController>(tag: value.tag),
+    };
+    String owner(Object? hook, Object? Function(VideoDetailController) of) {
+      if (hook == null) return 'none';
+      for (final MapEntry(:key, :value) in pages.entries) {
+        if (hook == of(value)) return key;
+      }
+      return 'other';
+    }
+
+    // the private two by the values each page had when it was added
+    String saved(Object? hook, Object? Function(String name) of) {
+      if (hook == null) return 'none';
+      for (final name in _ownHooks.keys) {
+        if (of(name) case final own? when hook == own) return name;
+      }
+      return 'other';
+    }
+
+    return {
+      'cdnFailover': owner(p.onCdnFailover, (c) => c.switchToNextCdn),
+      'streamCut': owner(p.onStreamCut, (c) => c.replaceCutStreams),
+      'streamSlow': owner(p.onStreamSlow, (c) => c.replaceSlowStreams),
+      'streamRoomy': owner(p.onStreamRoomy, (c) => c.raiseQuality),
+      'reopen': saved(p.onReopen, (n) => _ownHooks[n]!.reopen),
+      'sourceExpired': saved(
+        p.onSourceExpired,
+        (n) => _ownHooks[n]!.sourceExpired,
+      ),
+      'ownsPlayer': {
+        for (final MapEntry(:key, :value) in pages.entries)
+          key: value.ownsPlayer,
+      },
+    };
+  }
+
+  /// `state:L` with no walk: whether the current page is still there (and
+  /// on top), the routes, the player's fullscreen / picture in picture /
+  /// lock. A back or Esc that left the page shows here, as a value (the run
+  /// goes on; a `read` of a page that is gone stops it).
+  Map<String, Object?> _state() {
+    final found = WpRead.find(tag!);
+    final stack = Ctl.routes.stack;
+    final p = player;
+    return {
+      'alive': found.page != null,
+      'controller': _pageThere,
+      'top':
+          found.page != null && identical(stack.lastOrNull, found.page!.route),
+      'routes': [for (final r in stack) r.settings.name ?? '${r.runtimeType}'],
+      'isFullScreen': p.isFullScreen.value,
+      'fsProcessing': p.fsProcessing,
+      'pip': p.isDesktopPip,
+      'controlsLock': p.controlsLock.value,
+    };
+  }
+
+  /// `key:K` (space, d, enter, escape, l): pressed as a keyboard does
+  /// (SelfTest._press, to the focused node: the page's PlayerFocus has
+  /// autofocus); Esc goes to the app's back (main.dart _onBack). Waited out
+  /// and recorded as [_navigate] does.
+  Future<void> _key(String k) async {
+    final (logical, physical) = switch (k) {
+      'space' => (LogicalKeyboardKey.space, PhysicalKeyboardKey.space),
+      'd' => (LogicalKeyboardKey.keyD, PhysicalKeyboardKey.keyD),
+      'enter' => (LogicalKeyboardKey.enter, PhysicalKeyboardKey.enter),
+      'escape' => (LogicalKeyboardKey.escape, PhysicalKeyboardKey.escape),
+      'l' => (LogicalKeyboardKey.keyL, PhysicalKeyboardKey.keyL),
+      _ => stop('key takes space, d, enter, escape or l, not "$k"'),
+    };
+    events['key:$k'] = await _navigate(
+      'key:$k',
+      () => SelfTest._press(logical, physical),
+    );
+  }
+
+  /// A back or a key ([act]) that can leave fullscreen or picture in
+  /// picture, or take the page away, waited out by events, not by a sleep:
+  /// the page's route out of the stack (and its controller deleted, up to
+  /// 5 s), or the player out of its switch (fsProcessing false), then the
+  /// window quiet for 1 s and a frame (§6.2 「完成」). In fullscreen or
+  /// picture in picture the page is read before (`before:<step>`) and after
+  /// (`after:<step>`): the exit-before / exit-done readings of a back that
+  /// leaves fullscreen. A page that has gone is recorded so
+  /// (`after:<step>` = `{gone: true}`, and `alive: false` in the step's
+  /// event), never a stop: what a regression makes of a back is a value.
+  Future<Map<String, Object?>> _navigate(
+    String step,
+    Future<void> Function() act,
+  ) async {
+    final p = player;
+    final route = WpRead.find(tag!).page?.route;
+    final around = p.isFullScreen.value || p.isDesktopPip;
+    if (around) await read('before:$step');
+    final since = DateTime.now();
+    final routes = Ctl.routes.stack.length;
+    await act();
+    final clock = Stopwatch()..start();
+    var gone = false;
+    while (clock.elapsed < const Duration(seconds: 10)) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      gone = route == null || !Ctl.routes.stack.contains(route);
+      if (gone || !p.fsProcessing) break;
+    }
+    if (gone) {
+      final out = Stopwatch()..start();
+      while (_pageThere && out.elapsed < const Duration(seconds: 5)) {
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+    }
+    if (await WpRead.settled(() => true) == null) {
+      stop('$step: the window never settled');
+    }
+    if (around) {
+      final found = WpRead.find(tag!);
+      if (found.page != null) {
+        await read('after:$step');
+      } else {
+        moments['after:$step'] = {
+          'measured': true,
+          'gone': true,
+          'page': {'tag': tag, 'why': found.why},
+        };
+      }
+    }
+    return {
+      'pops': _logSince(since, '[selftest] pop: '),
+      'routesAdded': Ctl.routes.stack.length - routes,
+      ..._state(),
+    };
+  }
+
+  /// `hit:back`: a hit test where the autoplay-off top bar's 返回 is (its
+  /// centre): which slot layer the topmost hit belongs to (§3.2 插槽叠放
+  /// 顺序, P1: under the cover layer a tap there would play instead).
+  Object _hitTest(String what) {
+    if (what != 'back') stop('hit takes back, not "$what"');
+    final layers = WpRead.slotLayersOf(tag!);
+    final back = WpRead.firstUnder(
+      layers['manualPlayer'],
+      (w) => w is IconButton && w.tooltip == '返回',
+    );
+    final box = back?.findRenderObject();
+    if (back == null || box is! RenderBox || !box.hasSize || !box.attached) {
+      skip('hit:$what', 'no top bar');
+      return WpRead.unread('not built');
+    }
+    final at = box.localToGlobal(box.size.center(Offset.zero));
+    final roots = <RenderObject, String>{
+      for (final MapEntry(:key, :value) in layers.entries)
+        ?value.findRenderObject(): key,
+    };
+    final result = HitTestResult();
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView!;
+    WidgetsBinding.instance.hitTestInView(result, at, view.viewId);
+    for (final entry in result.path) {
+      final target = entry.target;
+      if (target is! RenderObject) continue;
+      for (RenderObject? r = target; r != null; r = r.parent) {
+        if (roots[r] case final role?) {
+          var onButton = false;
+          for (RenderObject? b = target; b != null; b = b.parent) {
+            if (identical(b, box)) onButton = true;
+          }
+          return {'layer': role, 'onButton': onButton};
+        }
+      }
+    }
+    return {'layer': 'none', 'onButton': false};
+  }
+
+  /// `popup:KIND`: one of the page's bottom sheets (R7) opened the way its
+  /// button opens it: the callback the page hands the widget that has the
+  /// button (found in the page's tree, built or offstage), or the
+  /// controller's own opener with the page's context. Then 1.2 s and a
+  /// settle; the next `read` has where it opened (`sheet`). KIND: episodes
+  /// (the player's 选集, with the arguments its button computes:
+  /// play-all, collection, multi-part or pgc), viewpoints (the player's 看点),
+  /// medialist (播放列表), post (PostPanel), notes (笔记), member (the UP's
+  /// popup), pgcdetail (the pgc intro's 详情), ai (AI 总结: the intro's
+  /// callback, with a summary the test puts in the intro's controller, as
+  /// `nullurl` writes the page's: unlogged the page never fetches one),
+  /// settings (更多设置, the header's button, both pages), reply (the first
+  /// comment's 评论详情: a saved or online bilibili comment, or the YouTube
+  /// page's thread, by its row's own handler).
+  Future<void> _popup(String what) async {
+    final page = WpRead.find(tag!).page ?? stop('popup: the page is gone');
+    Element? widget(bool Function(Widget w) test) =>
+        WpRead.firstUnder(page.subtree, test);
+    Object opened = 'opened';
+    void none(String why) {
+      skip('popup:$what', why);
+      opened = WpRead.unread(why);
+    }
+
+    switch (what) {
+      case 'episodes':
+        // as the player's own 选集 button computes it (pl_player
+        // view.dart, buildBottomControl / BottomControlType.episode):
+        // there in a window, in fullscreen and in picture in picture alike
+        final ctr = bili;
+        final CommonIntroController? intro = ctr.isUgc
+            ? (Get.isRegistered<UgcIntroController>(tag: tag)
+                  ? Get.find<UgcIntroController>(tag: tag)
+                  : null)
+            : (Get.isRegistered<PgcIntroController>(tag: tag)
+                  ? Get.find<PgcIntroController>(tag: tag)
+                  : null);
+        final button = widget((w) => w is PLVideoPlayer)?.widget;
+        if (intro == null ||
+            button is! PLVideoPlayer ||
+            button.showEpisodes == null) {
+          none('no player or intro');
+        } else if (ctr.isFileSource) {
+          // the button does nothing offline (its TODO)
+          none('file source');
+        } else {
+          final showEpisodes = button.showEpisodes!;
+          final videoDetail = intro.videoDetail.value;
+          final isSeason = videoDetail.ugcSeason != null;
+          final isPart =
+              videoDetail.pages != null && videoDetail.pages!.length > 1;
+          final isPgc = !ctr.isUgc;
+          if (ctr.isPlayAll && !isPart) {
+            showEpisodes();
+          } else {
+            int? index;
+            final currentCid = player.cid!;
+            final bvid = player.bvid;
+            List<ugc.BaseEpisodeItem> episodes = [];
+            if (isSeason) {
+              final sections = videoDetail.ugcSeason!.sections!;
+              for (var i = 0; i < sections.length; i++) {
+                final list = sections[i].episodes!;
+                for (final item in list) {
+                  if (item.cid == currentCid) {
+                    index = i;
+                    episodes = list;
+                    break;
+                  }
+                }
+              }
+            } else if (isPart) {
+              episodes = videoDetail.pages!;
+            } else if (isPgc) {
+              episodes = (intro as PgcIntroController).pgcItem.episodes!;
+            }
+            if (!isSeason && !isPart && !isPgc) {
+              none('no collection, parts or episodes');
+            } else {
+              showEpisodes(
+                index,
+                isSeason ? videoDetail.ugcSeason! : null,
+                isSeason ? null : episodes,
+                bvid,
+                IdUtils.bv2av(bvid),
+                isSeason && isPart ? ctr.seasonCid ?? currentCid : currentCid,
+              );
+            }
+          }
+        }
+      case 'ai':
+        final intro = Get.isRegistered<UgcIntroController>(tag: tag)
+            ? Get.find<UgcIntroController>(tag: tag)
+            : null;
+        if (widget((w) => w is UgcIntroPanel)?.widget
+            case UgcIntroPanel(:final showAiBottomSheet) when intro != null) {
+          intro.aiConclusionResult ??= AiConclusionResult(
+            summary: 'self-test summary',
+            outline: const [],
+          );
+          showAiBottomSheet();
+        } else {
+          none('no UgcIntroPanel');
+        }
+      case 'settings':
+        // the header's 更多设置: built while the controls show
+        var button = widget(
+          (w) => w is IconButton && w.tooltip == '更多设置',
+        );
+        if (button == null) {
+          player.showControls.value = true;
+          await Future.delayed(const Duration(milliseconds: 600));
+          button = widget((w) => w is IconButton && w.tooltip == '更多设置');
+        }
+        if ((button?.widget as IconButton?)?.onPressed case final press?) {
+          press();
+        } else {
+          none('no 更多设置');
+        }
+      case 'viewpoints':
+        if (widget((w) => w is PLVideoPlayer)?.widget
+            case PLVideoPlayer(
+              :final showViewPoints?,
+            )
+            when bili.viewPointList.isNotEmpty) {
+          showViewPoints();
+        } else {
+          none('no view points');
+        }
+      case 'medialist':
+        if (bili.mediaList.isEmpty) {
+          none('mediaList empty');
+        } else {
+          bili.showMediaListPanel(page.element);
+        }
+      case 'post':
+        bili.onBlock(page.element);
+      case 'notes':
+        bili.showNoteList(page.element);
+      case 'member':
+        final mid = Get.isRegistered<UgcIntroController>(tag: tag)
+            ? Get.find<UgcIntroController>(tag: tag)
+                  .videoDetail
+                  .value
+                  .owner
+                  ?.mid
+            : null;
+        if (widget((w) => w is UgcIntroPanel)?.widget
+            case UgcIntroPanel(
+              :final onShowMemberPage,
+            )
+            when mid != null) {
+          onShowMemberPage(mid);
+        } else {
+          none('no UgcIntroPanel or owner');
+        }
+      case 'pgcdetail':
+        if (widget((w) => w is PgcIntroPage)?.widget
+            case PgcIntroPage(
+              :final showIntroDetail,
+            )
+            when Get.isRegistered<PgcIntroController>(tag: tag)) {
+          final intro = Get.find<PgcIntroController>(tag: tag);
+          showIntroDetail(intro.pgcItem, intro.videoTags.value);
+        } else {
+          none('no PgcIntroPage');
+        }
+      case 'reply' when kind == 'yt':
+        // the first thread row's own tap (yt_comment_pane.dart _thread: the
+        // InkWell that opens the thread, the one with the long-press menu)
+        final pane = widget((w) => w is YtCommentPane);
+        if (WpRead.firstUnder(
+              pane,
+              (w) => w is InkWell && w.onLongPress != null && w.onTap != null,
+            )?.widget
+            case InkWell(:final onTap?)) {
+          onTap();
+        } else {
+          none('no comment thread');
+        }
+      case 'reply':
+        // the first comment with a reply opener, as a tap on its 共 N 条回复
+        if (widget(
+              (w) => w is ReplyItemGrpc && w.replyReply != null,
+            )?.widget
+            case ReplyItemGrpc(:final replyReply?, :final replyItem)) {
+          replyReply(replyItem, null);
+        } else {
+          none('no comment');
+        }
+      default:
+        stop(
+          'popup takes episodes, viewpoints, medialist, post, notes, '
+          'member, pgcdetail, ai, settings or reply, not "$what"',
+        );
+    }
+    events['popup:$what'] = opened;
+    if (opened is! String) return;
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (await WpRead.settled(() => true) == null) {
+      stop('popup:$what: the window never settled');
+    }
+  }
+
+  /// `closesheet`: the sheet the page has open closed as a back does: a
+  /// global one (the PublishRoute above the page) popped, the page's own
+  /// (a local history entry of its route) removed by the navigator's pop.
+  Future<void> _closeSheet() async {
+    final page = WpRead.find(tag!).page ?? stop('closesheet: the page is gone');
+    final stack = Ctl.routes.stack;
+    final top = stack.lastOrNull;
+    if (top is PublishRoute ||
+        (identical(top, page.route) && page.route.willHandlePopInternally)) {
+      Get.key.currentState?.pop();
+      events['closesheet'] = top is PublishRoute ? 'global' : 'page';
+    } else {
+      skip('closesheet', 'no sheet open');
+      events['closesheet'] = 'none';
+      return;
+    }
+    await Future.delayed(const Duration(milliseconds: 900));
+    if (await WpRead.settled(() => true) == null) {
+      stop('closesheet: the window never settled');
     }
   }
 
@@ -13571,8 +14469,8 @@ final class _WpRun {
     Object? tabs;
     Object? index;
     Object? offstage;
-    if (kind == 'bili') {
-      final ctr = bili;
+    if (kind == 'bili' && Get.isRegistered<VideoDetailController>(tag: tag)) {
+      final ctr = Get.find<VideoDetailController>(tag: tag);
       final t = WpRead.tabsOf(ctr);
       tabs = t.length;
       index = t.index;
@@ -13595,4 +14493,15 @@ final class _WpRun {
       offstage,
     ]);
   }
+}
+
+/// `push:blank` (self_test.dart `--wp-steps`): a plain page over the watch
+/// page, no watch page itself, so the page under it is covered and nothing
+/// takes its player (design §6.4 R9 「推一个不夺播放器的页面」, R9a).
+class _WpBlankPage extends StatelessWidget {
+  const _WpBlankPage();
+
+  @override
+  Widget build(BuildContext context) =>
+      const ColoredBox(color: Color(0xFF000000), child: SizedBox.expand());
 }

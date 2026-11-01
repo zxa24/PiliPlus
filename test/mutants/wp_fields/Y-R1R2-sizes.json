@@ -257,7 +257,7 @@
     {
       "name": "1280x720.lists.tabBar.max",
       "path": "moments.1280x720.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "1280x720.lists.tabBar.physics",
@@ -307,7 +307,7 @@
     {
       "name": "1280x720.lists.tabView.max",
       "path": "moments.1280x720.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "1280x720.lists.tabView.physics",
@@ -597,7 +597,7 @@
     {
       "name": "880x720.lists.tabBar.max",
       "path": "moments.880x720.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "880x720.lists.tabBar.physics",
@@ -647,7 +647,7 @@
     {
       "name": "880x720.lists.tabView.max",
       "path": "moments.880x720.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "880x720.lists.tabView.physics",
@@ -1137,7 +1137,7 @@
     {
       "name": "1100x720.lists.tabBar.max",
       "path": "moments.1100x720.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "1100x720.lists.tabBar.physics",
@@ -1187,7 +1187,7 @@
     {
       "name": "1100x720.lists.tabView.max",
       "path": "moments.1100x720.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "1100x720.lists.tabView.physics",
@@ -1577,7 +1577,7 @@
     {
       "name": "1720x720.lists.tabBar.max",
       "path": "moments.1720x720.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "1720x720.lists.tabBar.physics",
@@ -1627,7 +1627,7 @@
     {
       "name": "1720x720.lists.tabView.max",
       "path": "moments.1720x720.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "1720x720.lists.tabView.physics",
@@ -1917,7 +1917,7 @@
     {
       "name": "850x720.lists.tabBar.max",
       "path": "moments.850x720.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "850x720.lists.tabBar.physics",
@@ -1967,7 +1967,7 @@
     {
       "name": "850x720.lists.tabView.max",
       "path": "moments.850x720.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "850x720.lists.tabView.physics",
@@ -2357,7 +2357,7 @@
     {
       "name": "900x800.lists.tabBar.max",
       "path": "moments.900x800.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "900x800.lists.tabBar.physics",
@@ -2407,7 +2407,7 @@
     {
       "name": "900x800.lists.tabView.max",
       "path": "moments.900x800.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "900x800.lists.tabView.physics",
@@ -2797,7 +2797,7 @@
     {
       "name": "700x800.lists.tabBar.max",
       "path": "moments.700x800.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "700x800.lists.tabBar.physics",
@@ -2847,7 +2847,7 @@
     {
       "name": "700x800.lists.tabView.max",
       "path": "moments.700x800.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "700x800.lists.tabView.physics",
@@ -3237,7 +3237,7 @@
     {
       "name": "580x800.lists.tabBar.max",
       "path": "moments.580x800.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "580x800.lists.tabBar.physics",
@@ -3287,7 +3287,7 @@
     {
       "name": "580x800.lists.tabView.max",
       "path": "moments.580x800.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "580x800.lists.tabView.physics",
@@ -3677,7 +3677,7 @@
     {
       "name": "540x800.lists.tabBar.max",
       "path": "moments.540x800.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "540x800.lists.tabBar.physics",
@@ -3727,7 +3727,7 @@
     {
       "name": "540x800.lists.tabView.max",
       "path": "moments.540x800.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "540x800.lists.tabView.physics",
@@ -4117,7 +4117,7 @@
     {
       "name": "420x800.lists.tabBar.max",
       "path": "moments.420x800.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "420x800.lists.tabBar.physics",
@@ -4167,7 +4167,7 @@
     {
       "name": "420x800.lists.tabView.max",
       "path": "moments.420x800.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "420x800.lists.tabView.physics",
@@ -4446,10 +4446,10 @@
     }
   ],
   "uiErrors": {
-    "status": "unstable",
+    "status": "must-same",
     "unstable": [],
     "expectedFor": []
   },
-  "calibrated": "2026-10-31 (second version, after the c3a reviews): two unmutated passes of one debug build (the working tree on HEAD fe92752b3 with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folder> -FieldTables test/mutants/wp_fields (calibration mode): 2 leaf/leaves varied (log, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times, the expand tick's own value; on online pages the list extents, the waits for them and the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构)",
+  "calibrated": "2026-10-31 (second version, after the c3a reviews): two unmutated passes of one debug build (the working tree on HEAD fe92752b3 with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folder> -FieldTables test/mutants/wp_fields (calibration mode): 2 leaf/leaves varied (log, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times, the expand tick's own value; on online pages the list extents, the waits for them and the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构) Third version (2026-11-01, the c3b reviews): uiErrors must-same with only the keys this calibration saw varying unstable; on online tables the structural lists' extents (tab view, nested outer scroll, slot lists, tab bar) must-same, only content lists' unstable. Recalibrated: two unmutated passes of one debug build (kernel 02f5618beee9, slot 2), run.ps1 -Plan watch_page -Compare (calibration mode).",
   "evidence": null
 }

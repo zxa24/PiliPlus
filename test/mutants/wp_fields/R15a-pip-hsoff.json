@@ -1,0 +1,300 @@
+{
+  "id": "R15a-pip-hsoff",
+  "about": "design §6.4 R15 (R15a): 横屏适配 off, desktop picture in picture: the page builds the player alone (the first decision point pip: pip.branch.scalars; R15a takes the portrait branch first)",
+  "check": "wpSteps",
+  "report": "R15a-pip-hsoff.json",
+  "type": "recording",
+  "batch": "pip",
+  "network": false,
+  "run": {
+    "args": [
+      "--wp-open",
+      "offline:cid:281001",
+      "--window-size",
+      "1280x720",
+      "--wp-steps",
+      "pause;seek:1000;settle;read:start;pip;read:pip;pipexit;read:end"
+    ],
+    "prefs": [
+      "horizontalScreen:bool=false"
+    ],
+    "planPrefs": true,
+    "profile": "snapshot:test/fixtures/watch_page/landscape",
+    "asr": false,
+    "minutes": 6
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "window.logical",
+      "path": "window.logical",
+      "status": "must-same"
+    },
+    {
+      "name": "start.window",
+      "path": "moments.start.window",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.scalars",
+      "path": "moments.start.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.label",
+      "path": "moments.start.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "start.branch.geometry.player",
+      "path": "moments.start.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].roles",
+      "path": "moments.start.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].index",
+      "path": "moments.start.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabCtr",
+      "path": "moments.start.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.player",
+      "path": "moments.start.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.kept.tabArea",
+      "path": "moments.start.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "start.slots",
+      "path": "moments.start.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "start.sheet",
+      "path": "moments.start.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "start.player",
+      "path": "moments.start.player",
+      "status": "must-same"
+    },
+    {
+      "name": "start.more.slots",
+      "path": "moments.start.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "start.more.theme",
+      "path": "moments.start.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "start.more.playerFocus",
+      "path": "moments.start.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "start.extras.controller.isFullScreen",
+      "path": "moments.start.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "start.tabs[0].texts",
+      "path": "moments.start.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "pip.window",
+      "path": "moments.pip.window",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.branch.scalars",
+      "path": "moments.pip.branch.scalars",
+      "status": "must-same",
+      "expectedFor": [
+        "wp-R15a"
+      ]
+    },
+    {
+      "name": "pip.branch.geometry.label",
+      "path": "moments.pip.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.branch.geometry.player",
+      "path": "moments.pip.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.tabs",
+      "path": "moments.pip.tabs",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.tabCtr",
+      "path": "moments.pip.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.kept.player",
+      "path": "moments.pip.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.kept.tabArea",
+      "path": "moments.pip.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.slots",
+      "path": "moments.pip.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.sheet",
+      "path": "moments.pip.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.player",
+      "path": "moments.pip.player",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.more.slots",
+      "path": "moments.pip.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.more.theme",
+      "path": "moments.pip.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.more.playerFocus",
+      "path": "moments.pip.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "pip.extras.controller.isFullScreen",
+      "path": "moments.pip.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "end.window",
+      "path": "moments.end.window",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.scalars",
+      "path": "moments.end.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.label",
+      "path": "moments.end.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.player",
+      "path": "moments.end.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].roles",
+      "path": "moments.end.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].index",
+      "path": "moments.end.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabCtr",
+      "path": "moments.end.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.player",
+      "path": "moments.end.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.tabArea",
+      "path": "moments.end.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "end.slots",
+      "path": "moments.end.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "end.sheet",
+      "path": "moments.end.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "end.player",
+      "path": "moments.end.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.more.slots",
+      "path": "moments.end.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "end.more.theme",
+      "path": "moments.end.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "end.more.playerFocus",
+      "path": "moments.end.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.controller.isFullScreen",
+      "path": "moments.end.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].texts",
+      "path": "moments.end.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "events.pip",
+      "path": "events.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.pipexit",
+      "path": "events.pipexit",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "calibrated": "batch: not run outside a pip batch (u#4). Its statuses are the hand-written defaults (structure must-same, content unstable); the batch (F1) runs it twice unmutated (run.ps1 -Plan watch_page -Alternate -Commit <S0b> -Parent <S0b> -Batch -Checks R15a-pip-hsoff) and -Compare's calibration mode marks what varies unstable",
+  "evidence": "wp-R15a"
+}

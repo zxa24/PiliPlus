@@ -1,0 +1,103 @@
+{
+  "id": "R8a-pip-esc",
+  "about": "design §6.4 R8 (wp4#21, wp6#10, R8a): desktop picture in picture (横屏适配 on), Esc, waited out by events: picture in picture left, the page there (the readings before:key:escape / after:key:escape; R8a: canPop ignores isDesktopPip, the page pops: state.alive false and after:key:escape = {gone: true}, still measured)",
+  "check": "wpSteps",
+  "report": "R8a-pip-esc.json",
+  "type": "recording",
+  "batch": "pip",
+  "network": false,
+  "run": {
+    "args": [
+      "--wp-open",
+      "offline:cid:281001",
+      "--window-size",
+      "1280x720",
+      "--wp-steps",
+      "pause;seek:1000;settle;pip;key:escape;state:afterEsc"
+    ],
+    "prefs": [],
+    "planPrefs": true,
+    "profile": "snapshot:test/fixtures/watch_page/landscape",
+    "asr": false,
+    "minutes": 6
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "window.logical",
+      "path": "window.logical",
+      "status": "must-same"
+    },
+    {
+      "name": "events.key:escape.pops",
+      "path": "events.key:escape.pops",
+      "status": "must-same"
+    },
+    {
+      "name": "events.key:escape.alive",
+      "path": "events.key:escape.alive",
+      "status": "must-same"
+    },
+    {
+      "name": "events.key:escape.top",
+      "path": "events.key:escape.top",
+      "status": "must-same"
+    },
+    {
+      "name": "events.key:escape.isFullScreen",
+      "path": "events.key:escape.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "events.key:escape.pip",
+      "path": "events.key:escape.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.key:escape.controlsLock",
+      "path": "events.key:escape.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:afterEsc.alive",
+      "path": "events.state:afterEsc.alive",
+      "status": "must-same",
+      "expectedFor": [
+        "wp-R8a"
+      ]
+    },
+    {
+      "name": "events.state:afterEsc.top",
+      "path": "events.state:afterEsc.top",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:afterEsc.isFullScreen",
+      "path": "events.state:afterEsc.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:afterEsc.pip",
+      "path": "events.state:afterEsc.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:afterEsc.controlsLock",
+      "path": "events.state:afterEsc.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "events.pip",
+      "path": "events.pip",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "calibrated": "batch: not run outside a pip batch (u#4). Its statuses are the hand-written defaults (structure must-same, content unstable); the batch (F1) runs it twice unmutated (run.ps1 -Plan watch_page -Alternate -Commit <S0b> -Parent <S0b> -Batch -Checks R8a-pip-esc) and -Compare's calibration mode marks what varies unstable",
+  "evidence": "wp-R8a"
+}

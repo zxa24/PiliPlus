@@ -1,0 +1,1958 @@
+{
+  "id": "T2-back-inapp-1280x720",
+  "about": "design §6.4 R8 (wp5#8, T2): in-app fullscreen at 1280x720, a back as the system sends it (the navigator's maybePop, the popScope's canPop decides), waited out by events (the page gone, or fsProcessing false and the window quiet 1 s): the readings before it and after it (moments before:back:inFs / after:back:inFs, §6.2's exit-before / exit-done), the page still there and fullscreen left (events.back:inFs; T2: canPop evaluated outside the Obx stays true, the page pops: alive false, after:back:inFs = {gone: true}, and the run is still measured)",
+  "check": "wpSteps",
+  "report": "T2-back-inapp-1280x720.json",
+  "type": "recording",
+  "batch": null,
+  "network": false,
+  "run": {
+    "args": [
+      "--wp-open",
+      "offline:cid:281001",
+      "--window-size",
+      "1280x720",
+      "--wp-steps",
+      "pause;seek:1000;settle;fs:inapp;back:inFs;state:end"
+    ],
+    "prefs": [],
+    "planPrefs": true,
+    "profile": "snapshot:test/fixtures/watch_page/landscape",
+    "asr": false,
+    "minutes": 6
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "window.logical",
+      "path": "window.logical",
+      "status": "must-same"
+    },
+    {
+      "name": "kind",
+      "path": "kind",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.window",
+      "path": "moments.enterBefore.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.page.top",
+      "path": "moments.enterBefore.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.page.above",
+      "path": "moments.enterBefore.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.page.route",
+      "path": "moments.enterBefore.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.scalars",
+      "path": "moments.enterBefore.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.label",
+      "path": "moments.enterBefore.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.nested",
+      "path": "moments.enterBefore.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.columns",
+      "path": "moments.enterBefore.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.player",
+      "path": "moments.enterBefore.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.intro",
+      "path": "moments.enterBefore.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.tabArea",
+      "path": "moments.enterBefore.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.tabBars",
+      "path": "moments.enterBefore.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].in",
+      "path": "moments.enterBefore.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].roles",
+      "path": "moments.enterBefore.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].texts",
+      "path": "moments.enterBefore.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "enterBefore.tabs[0].index",
+      "path": "moments.enterBefore.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].length",
+      "path": "moments.enterBefore.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].rect",
+      "path": "moments.enterBefore.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].offstage",
+      "path": "moments.enterBefore.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.role",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.role",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.tab",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.controller",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.axis",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.pixels",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.max",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.max",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.physics",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.viewport",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.offstage",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.slot_skipOrPartList.absent",
+      "path": "moments.enterBefore.lists.slot_skipOrPartList.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.role",
+      "path": "moments.enterBefore.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.tab",
+      "path": "moments.enterBefore.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.controller",
+      "path": "moments.enterBefore.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.axis",
+      "path": "moments.enterBefore.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.pixels",
+      "path": "moments.enterBefore.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.max",
+      "path": "moments.enterBefore.lists.tabView.max",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.physics",
+      "path": "moments.enterBefore.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.viewport",
+      "path": "moments.enterBefore.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.offstage",
+      "path": "moments.enterBefore.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.tabView.absent",
+      "path": "moments.enterBefore.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.role",
+      "path": "moments.enterBefore.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.tab",
+      "path": "moments.enterBefore.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.controller",
+      "path": "moments.enterBefore.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.axis",
+      "path": "moments.enterBefore.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.pixels",
+      "path": "moments.enterBefore.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.max",
+      "path": "moments.enterBefore.lists.intro.max",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.physics",
+      "path": "moments.enterBefore.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.viewport",
+      "path": "moments.enterBefore.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.offstage",
+      "path": "moments.enterBefore.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.lists.intro.absent",
+      "path": "moments.enterBefore.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.slots",
+      "path": "moments.enterBefore.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.sheet",
+      "path": "moments.enterBefore.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.player",
+      "path": "moments.enterBefore.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabCtr",
+      "path": "moments.enterBefore.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.intro",
+      "path": "moments.enterBefore.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.header",
+      "path": "moments.enterBefore.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.bar",
+      "path": "moments.enterBefore.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.playerBox",
+      "path": "moments.enterBefore.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.panels",
+      "path": "moments.enterBefore.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.cid",
+      "path": "moments.enterBefore.extras.controller.cid",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isVertical",
+      "path": "moments.enterBefore.extras.controller.isVertical",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isPortrait",
+      "path": "moments.enterBefore.extras.controller.isPortrait",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.videoHeight",
+      "path": "moments.enterBefore.extras.controller.videoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.minVideoHeight",
+      "path": "moments.enterBefore.extras.controller.minVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.maxVideoHeight",
+      "path": "moments.enterBefore.extras.controller.maxVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.scrollRatio",
+      "path": "moments.enterBefore.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isExpanding",
+      "path": "moments.enterBefore.extras.controller.isExpanding",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isCollapsing",
+      "path": "moments.enterBefore.extras.controller.isCollapsing",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.playedHere",
+      "path": "moments.enterBefore.extras.controller.playedHere",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.autoPlay",
+      "path": "moments.enterBefore.extras.controller.autoPlay",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isQuerying",
+      "path": "moments.enterBefore.extras.controller.isQuerying",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.hasVideoUrl",
+      "path": "moments.enterBefore.extras.controller.hasVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.videoState",
+      "path": "moments.enterBefore.extras.controller.videoState",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.ownsPlayer",
+      "path": "moments.enterBefore.extras.controller.ownsPlayer",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.playerStatus",
+      "path": "moments.enterBefore.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isFullScreen",
+      "path": "moments.enterBefore.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.player",
+      "path": "moments.enterBefore.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.tabArea",
+      "path": "moments.enterBefore.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.gone",
+      "path": "moments.enterBefore.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.lists.slot_skipOrPartList",
+      "path": "moments.enterBefore.kept.lists.slot_skipOrPartList",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.lists.tabView",
+      "path": "moments.enterBefore.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.lists.intro",
+      "path": "moments.enterBefore.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.window",
+      "path": "moments.enterDone.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.page.top",
+      "path": "moments.enterDone.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.page.above",
+      "path": "moments.enterDone.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.page.route",
+      "path": "moments.enterDone.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.scalars",
+      "path": "moments.enterDone.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.label",
+      "path": "moments.enterDone.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.nested",
+      "path": "moments.enterDone.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.columns",
+      "path": "moments.enterDone.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.player",
+      "path": "moments.enterDone.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.intro",
+      "path": "moments.enterDone.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.tabArea",
+      "path": "moments.enterDone.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.tabBars",
+      "path": "moments.enterDone.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].in",
+      "path": "moments.enterDone.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].roles",
+      "path": "moments.enterDone.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].texts",
+      "path": "moments.enterDone.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "enterDone.tabs[0].index",
+      "path": "moments.enterDone.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].length",
+      "path": "moments.enterDone.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].rect",
+      "path": "moments.enterDone.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].offstage",
+      "path": "moments.enterDone.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.role",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.role",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.tab",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.controller",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.axis",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.pixels",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.max",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.max",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.physics",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.viewport",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.offstage",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.slot_skipOrPartList.absent",
+      "path": "moments.enterDone.lists.slot_skipOrPartList.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.role",
+      "path": "moments.enterDone.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.tab",
+      "path": "moments.enterDone.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.controller",
+      "path": "moments.enterDone.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.axis",
+      "path": "moments.enterDone.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.pixels",
+      "path": "moments.enterDone.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.max",
+      "path": "moments.enterDone.lists.tabView.max",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.physics",
+      "path": "moments.enterDone.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.viewport",
+      "path": "moments.enterDone.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.offstage",
+      "path": "moments.enterDone.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.tabView.absent",
+      "path": "moments.enterDone.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.role",
+      "path": "moments.enterDone.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.tab",
+      "path": "moments.enterDone.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.controller",
+      "path": "moments.enterDone.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.axis",
+      "path": "moments.enterDone.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.pixels",
+      "path": "moments.enterDone.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.max",
+      "path": "moments.enterDone.lists.intro.max",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.physics",
+      "path": "moments.enterDone.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.viewport",
+      "path": "moments.enterDone.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.offstage",
+      "path": "moments.enterDone.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.lists.intro.absent",
+      "path": "moments.enterDone.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.slots",
+      "path": "moments.enterDone.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.sheet",
+      "path": "moments.enterDone.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.player",
+      "path": "moments.enterDone.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabCtr",
+      "path": "moments.enterDone.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.intro",
+      "path": "moments.enterDone.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.header",
+      "path": "moments.enterDone.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.bar",
+      "path": "moments.enterDone.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.playerBox",
+      "path": "moments.enterDone.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.panels",
+      "path": "moments.enterDone.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.cid",
+      "path": "moments.enterDone.extras.controller.cid",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isVertical",
+      "path": "moments.enterDone.extras.controller.isVertical",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isPortrait",
+      "path": "moments.enterDone.extras.controller.isPortrait",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.videoHeight",
+      "path": "moments.enterDone.extras.controller.videoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.minVideoHeight",
+      "path": "moments.enterDone.extras.controller.minVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.maxVideoHeight",
+      "path": "moments.enterDone.extras.controller.maxVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.scrollRatio",
+      "path": "moments.enterDone.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isExpanding",
+      "path": "moments.enterDone.extras.controller.isExpanding",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isCollapsing",
+      "path": "moments.enterDone.extras.controller.isCollapsing",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.playedHere",
+      "path": "moments.enterDone.extras.controller.playedHere",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.autoPlay",
+      "path": "moments.enterDone.extras.controller.autoPlay",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isQuerying",
+      "path": "moments.enterDone.extras.controller.isQuerying",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.hasVideoUrl",
+      "path": "moments.enterDone.extras.controller.hasVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.videoState",
+      "path": "moments.enterDone.extras.controller.videoState",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.ownsPlayer",
+      "path": "moments.enterDone.extras.controller.ownsPlayer",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.playerStatus",
+      "path": "moments.enterDone.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isFullScreen",
+      "path": "moments.enterDone.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.player",
+      "path": "moments.enterDone.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.tabArea",
+      "path": "moments.enterDone.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.gone",
+      "path": "moments.enterDone.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.lists.slot_skipOrPartList",
+      "path": "moments.enterDone.kept.lists.slot_skipOrPartList",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.lists.tabView",
+      "path": "moments.enterDone.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.lists.intro",
+      "path": "moments.enterDone.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.window",
+      "path": "moments.before:back:inFs.window",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.page.top",
+      "path": "moments.before:back:inFs.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.page.above",
+      "path": "moments.before:back:inFs.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.page.route",
+      "path": "moments.before:back:inFs.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.scalars",
+      "path": "moments.before:back:inFs.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.geometry.label",
+      "path": "moments.before:back:inFs.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.geometry.nested",
+      "path": "moments.before:back:inFs.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.geometry.columns",
+      "path": "moments.before:back:inFs.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.geometry.player",
+      "path": "moments.before:back:inFs.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.geometry.intro",
+      "path": "moments.before:back:inFs.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.geometry.tabArea",
+      "path": "moments.before:back:inFs.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.branch.geometry.tabBars",
+      "path": "moments.before:back:inFs.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.tabs[0].in",
+      "path": "moments.before:back:inFs.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.tabs[0].roles",
+      "path": "moments.before:back:inFs.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.tabs[0].texts",
+      "path": "moments.before:back:inFs.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "before:back:inFs.tabs[0].index",
+      "path": "moments.before:back:inFs.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.tabs[0].length",
+      "path": "moments.before:back:inFs.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.tabs[0].rect",
+      "path": "moments.before:back:inFs.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.tabs[0].offstage",
+      "path": "moments.before:back:inFs.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.role",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.role",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.tab",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.controller",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.axis",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.pixels",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.max",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.max",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.physics",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.viewport",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.offstage",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.slot_skipOrPartList.absent",
+      "path": "moments.before:back:inFs.lists.slot_skipOrPartList.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.role",
+      "path": "moments.before:back:inFs.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.tab",
+      "path": "moments.before:back:inFs.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.controller",
+      "path": "moments.before:back:inFs.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.axis",
+      "path": "moments.before:back:inFs.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.pixels",
+      "path": "moments.before:back:inFs.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.max",
+      "path": "moments.before:back:inFs.lists.tabView.max",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.physics",
+      "path": "moments.before:back:inFs.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.viewport",
+      "path": "moments.before:back:inFs.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.offstage",
+      "path": "moments.before:back:inFs.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.tabView.absent",
+      "path": "moments.before:back:inFs.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.role",
+      "path": "moments.before:back:inFs.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.tab",
+      "path": "moments.before:back:inFs.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.controller",
+      "path": "moments.before:back:inFs.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.axis",
+      "path": "moments.before:back:inFs.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.pixels",
+      "path": "moments.before:back:inFs.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.max",
+      "path": "moments.before:back:inFs.lists.intro.max",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.physics",
+      "path": "moments.before:back:inFs.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.viewport",
+      "path": "moments.before:back:inFs.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.offstage",
+      "path": "moments.before:back:inFs.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.lists.intro.absent",
+      "path": "moments.before:back:inFs.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.slots",
+      "path": "moments.before:back:inFs.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.sheet",
+      "path": "moments.before:back:inFs.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.player",
+      "path": "moments.before:back:inFs.player",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.tabCtr",
+      "path": "moments.before:back:inFs.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.intro",
+      "path": "moments.before:back:inFs.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.header",
+      "path": "moments.before:back:inFs.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.bar",
+      "path": "moments.before:back:inFs.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.playerBox",
+      "path": "moments.before:back:inFs.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.panels",
+      "path": "moments.before:back:inFs.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.cid",
+      "path": "moments.before:back:inFs.extras.controller.cid",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.isVertical",
+      "path": "moments.before:back:inFs.extras.controller.isVertical",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.isPortrait",
+      "path": "moments.before:back:inFs.extras.controller.isPortrait",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.videoHeight",
+      "path": "moments.before:back:inFs.extras.controller.videoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.minVideoHeight",
+      "path": "moments.before:back:inFs.extras.controller.minVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.maxVideoHeight",
+      "path": "moments.before:back:inFs.extras.controller.maxVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.scrollRatio",
+      "path": "moments.before:back:inFs.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.isExpanding",
+      "path": "moments.before:back:inFs.extras.controller.isExpanding",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.isCollapsing",
+      "path": "moments.before:back:inFs.extras.controller.isCollapsing",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.playedHere",
+      "path": "moments.before:back:inFs.extras.controller.playedHere",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.autoPlay",
+      "path": "moments.before:back:inFs.extras.controller.autoPlay",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.isQuerying",
+      "path": "moments.before:back:inFs.extras.controller.isQuerying",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.hasVideoUrl",
+      "path": "moments.before:back:inFs.extras.controller.hasVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.videoState",
+      "path": "moments.before:back:inFs.extras.controller.videoState",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.ownsPlayer",
+      "path": "moments.before:back:inFs.extras.controller.ownsPlayer",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.playerStatus",
+      "path": "moments.before:back:inFs.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.extras.controller.isFullScreen",
+      "path": "moments.before:back:inFs.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.kept.player",
+      "path": "moments.before:back:inFs.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.kept.tabArea",
+      "path": "moments.before:back:inFs.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.kept.gone",
+      "path": "moments.before:back:inFs.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.kept.lists.slot_skipOrPartList",
+      "path": "moments.before:back:inFs.kept.lists.slot_skipOrPartList",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.kept.lists.tabView",
+      "path": "moments.before:back:inFs.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.kept.lists.intro",
+      "path": "moments.before:back:inFs.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.window",
+      "path": "moments.after:back:inFs.window",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.page.top",
+      "path": "moments.after:back:inFs.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.page.above",
+      "path": "moments.after:back:inFs.page.above",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.page.route",
+      "path": "moments.after:back:inFs.page.route",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.scalars",
+      "path": "moments.after:back:inFs.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.geometry.label",
+      "path": "moments.after:back:inFs.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.geometry.nested",
+      "path": "moments.after:back:inFs.branch.geometry.nested",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.geometry.columns",
+      "path": "moments.after:back:inFs.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.geometry.player",
+      "path": "moments.after:back:inFs.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.geometry.intro",
+      "path": "moments.after:back:inFs.branch.geometry.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.geometry.tabArea",
+      "path": "moments.after:back:inFs.branch.geometry.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.branch.geometry.tabBars",
+      "path": "moments.after:back:inFs.branch.geometry.tabBars",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.tabs[0].in",
+      "path": "moments.after:back:inFs.tabs[0].in",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.tabs[0].roles",
+      "path": "moments.after:back:inFs.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.tabs[0].texts",
+      "path": "moments.after:back:inFs.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "after:back:inFs.tabs[0].index",
+      "path": "moments.after:back:inFs.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.tabs[0].length",
+      "path": "moments.after:back:inFs.tabs[0].length",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.tabs[0].rect",
+      "path": "moments.after:back:inFs.tabs[0].rect",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.tabs[0].offstage",
+      "path": "moments.after:back:inFs.tabs[0].offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.role",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.role",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.tab",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.controller",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.axis",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.pixels",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.max",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.max",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.physics",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.viewport",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.offstage",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.slot_skipOrPartList.absent",
+      "path": "moments.after:back:inFs.lists.slot_skipOrPartList.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.role",
+      "path": "moments.after:back:inFs.lists.tabView.role",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.tab",
+      "path": "moments.after:back:inFs.lists.tabView.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.controller",
+      "path": "moments.after:back:inFs.lists.tabView.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.axis",
+      "path": "moments.after:back:inFs.lists.tabView.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.pixels",
+      "path": "moments.after:back:inFs.lists.tabView.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.max",
+      "path": "moments.after:back:inFs.lists.tabView.max",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.physics",
+      "path": "moments.after:back:inFs.lists.tabView.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.viewport",
+      "path": "moments.after:back:inFs.lists.tabView.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.offstage",
+      "path": "moments.after:back:inFs.lists.tabView.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.tabView.absent",
+      "path": "moments.after:back:inFs.lists.tabView.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.role",
+      "path": "moments.after:back:inFs.lists.intro.role",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.tab",
+      "path": "moments.after:back:inFs.lists.intro.tab",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.controller",
+      "path": "moments.after:back:inFs.lists.intro.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.axis",
+      "path": "moments.after:back:inFs.lists.intro.axis",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.pixels",
+      "path": "moments.after:back:inFs.lists.intro.pixels",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.max",
+      "path": "moments.after:back:inFs.lists.intro.max",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.physics",
+      "path": "moments.after:back:inFs.lists.intro.physics",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.viewport",
+      "path": "moments.after:back:inFs.lists.intro.viewport",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.offstage",
+      "path": "moments.after:back:inFs.lists.intro.offstage",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.lists.intro.absent",
+      "path": "moments.after:back:inFs.lists.intro.absent",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.slots",
+      "path": "moments.after:back:inFs.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.sheet",
+      "path": "moments.after:back:inFs.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.player",
+      "path": "moments.after:back:inFs.player",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.tabCtr",
+      "path": "moments.after:back:inFs.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.intro",
+      "path": "moments.after:back:inFs.extras.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.header",
+      "path": "moments.after:back:inFs.extras.header",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.bar",
+      "path": "moments.after:back:inFs.extras.bar",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.playerBox",
+      "path": "moments.after:back:inFs.extras.playerBox",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.panels",
+      "path": "moments.after:back:inFs.extras.panels",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.cid",
+      "path": "moments.after:back:inFs.extras.controller.cid",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.isVertical",
+      "path": "moments.after:back:inFs.extras.controller.isVertical",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.isPortrait",
+      "path": "moments.after:back:inFs.extras.controller.isPortrait",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.videoHeight",
+      "path": "moments.after:back:inFs.extras.controller.videoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.minVideoHeight",
+      "path": "moments.after:back:inFs.extras.controller.minVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.maxVideoHeight",
+      "path": "moments.after:back:inFs.extras.controller.maxVideoHeight",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.scrollRatio",
+      "path": "moments.after:back:inFs.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.isExpanding",
+      "path": "moments.after:back:inFs.extras.controller.isExpanding",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.isCollapsing",
+      "path": "moments.after:back:inFs.extras.controller.isCollapsing",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.playedHere",
+      "path": "moments.after:back:inFs.extras.controller.playedHere",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.autoPlay",
+      "path": "moments.after:back:inFs.extras.controller.autoPlay",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.isQuerying",
+      "path": "moments.after:back:inFs.extras.controller.isQuerying",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.hasVideoUrl",
+      "path": "moments.after:back:inFs.extras.controller.hasVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.videoState",
+      "path": "moments.after:back:inFs.extras.controller.videoState",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.ownsPlayer",
+      "path": "moments.after:back:inFs.extras.controller.ownsPlayer",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.playerStatus",
+      "path": "moments.after:back:inFs.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.extras.controller.isFullScreen",
+      "path": "moments.after:back:inFs.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.kept.player",
+      "path": "moments.after:back:inFs.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.kept.tabArea",
+      "path": "moments.after:back:inFs.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.kept.gone",
+      "path": "moments.after:back:inFs.kept.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.kept.lists.slot_skipOrPartList",
+      "path": "moments.after:back:inFs.kept.lists.slot_skipOrPartList",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.kept.lists.tabView",
+      "path": "moments.after:back:inFs.kept.lists.tabView",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.kept.lists.intro",
+      "path": "moments.after:back:inFs.kept.lists.intro",
+      "status": "must-same"
+    },
+    {
+      "name": "events.entry",
+      "path": "events.entry",
+      "status": "must-same"
+    },
+    {
+      "name": "events.ready",
+      "path": "events.ready",
+      "status": "must-same"
+    },
+    {
+      "name": "events.enterDoneMs",
+      "path": "events.enterDoneMs",
+      "status": "unstable"
+    },
+    {
+      "name": "events.back:inFs.pops",
+      "path": "events.back:inFs.pops",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.routesAdded",
+      "path": "events.back:inFs.routesAdded",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.alive",
+      "path": "events.back:inFs.alive",
+      "status": "must-same",
+      "expectedFor": [
+        "wp-T2"
+      ]
+    },
+    {
+      "name": "events.back:inFs.controller",
+      "path": "events.back:inFs.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.top",
+      "path": "events.back:inFs.top",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.routes",
+      "path": "events.back:inFs.routes",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.isFullScreen",
+      "path": "events.back:inFs.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.fsProcessing",
+      "path": "events.back:inFs.fsProcessing",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.pip",
+      "path": "events.back:inFs.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:inFs.controlsLock",
+      "path": "events.back:inFs.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.alive",
+      "path": "events.state:end.alive",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.controller",
+      "path": "events.state:end.controller",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.top",
+      "path": "events.state:end.top",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.routes",
+      "path": "events.state:end.routes",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.isFullScreen",
+      "path": "events.state:end.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.fsProcessing",
+      "path": "events.state:end.fsProcessing",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.pip",
+      "path": "events.state:end.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end.controlsLock",
+      "path": "events.state:end.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "events.skipped",
+      "path": "events.skipped",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.slots",
+      "path": "moments.enterBefore.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.theme",
+      "path": "moments.enterBefore.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.playerFocus",
+      "path": "moments.enterBefore.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.screenRatio",
+      "path": "moments.enterBefore.more.screenRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.danmaku",
+      "path": "moments.enterBefore.more.danmaku",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.controlsLock",
+      "path": "moments.enterBefore.more.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.dataStatus",
+      "path": "moments.enterBefore.more.dataStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.pictureAtPush",
+      "path": "moments.enterBefore.more.pictureAtPush",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.yt",
+      "path": "moments.enterBefore.more.yt",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.slots",
+      "path": "moments.enterDone.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.theme",
+      "path": "moments.enterDone.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.playerFocus",
+      "path": "moments.enterDone.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.screenRatio",
+      "path": "moments.enterDone.more.screenRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.danmaku",
+      "path": "moments.enterDone.more.danmaku",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.controlsLock",
+      "path": "moments.enterDone.more.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.dataStatus",
+      "path": "moments.enterDone.more.dataStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.pictureAtPush",
+      "path": "moments.enterDone.more.pictureAtPush",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.yt",
+      "path": "moments.enterDone.more.yt",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.slots",
+      "path": "moments.before:back:inFs.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.theme",
+      "path": "moments.before:back:inFs.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.playerFocus",
+      "path": "moments.before:back:inFs.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.screenRatio",
+      "path": "moments.before:back:inFs.more.screenRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.danmaku",
+      "path": "moments.before:back:inFs.more.danmaku",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.controlsLock",
+      "path": "moments.before:back:inFs.more.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.dataStatus",
+      "path": "moments.before:back:inFs.more.dataStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.pictureAtPush",
+      "path": "moments.before:back:inFs.more.pictureAtPush",
+      "status": "must-same"
+    },
+    {
+      "name": "before:back:inFs.more.yt",
+      "path": "moments.before:back:inFs.more.yt",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.slots",
+      "path": "moments.after:back:inFs.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.theme",
+      "path": "moments.after:back:inFs.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.playerFocus",
+      "path": "moments.after:back:inFs.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.screenRatio",
+      "path": "moments.after:back:inFs.more.screenRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.danmaku",
+      "path": "moments.after:back:inFs.more.danmaku",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.controlsLock",
+      "path": "moments.after:back:inFs.more.controlsLock",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.dataStatus",
+      "path": "moments.after:back:inFs.more.dataStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.pictureAtPush",
+      "path": "moments.after:back:inFs.more.pictureAtPush",
+      "status": "must-same"
+    },
+    {
+      "name": "after:back:inFs.more.yt",
+      "path": "moments.after:back:inFs.more.yt",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "calibrated": "2026-11-01 (S0b part 3b, after the c3b reviews): two unmutated passes of one debug build (kernel 02f5618beee9, the working tree on HEAD 0b5172b1c with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folders> (calibration mode): 17 leaf/leaves varied (events, frames, log, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times; on online pages the list extents, the waits for them, the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构)",
+  "evidence": "wp-T2"
+}

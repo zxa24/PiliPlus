@@ -1,0 +1,239 @@
+{
+  "id": "R9d-covered-query",
+  "about": "design §6.4 R9 (u#7, wp9#4, R9d): the existing judging check --covered-query A B (A = ugc-landscape, its play URL held 12 s; B = ugc-landscape-season pushed over A meanwhile, which opens and takes the player), with the new prefix --paused-before C (C = ugc-viewpoints opened first, played and paused, then A opened from it: the status A keeps at B's push is C's pause). pass (judging): A asking at the push, B owning the player while A is covered (A's URL came, no stream opened on it), and back on A: A opens and plays (afterReturn.playing; R9d leaves A's open to the autoplay branch, which opens it paused). The readings of both pages by their tags (readings.covered.A / .B, readings.afterReturn), autoplay from the plan's prefs (the check refuses autoplay off)",
+  "check": "coveredQuery",
+  "report": "R9d-covered-query.json",
+  "type": "judging",
+  "batch": null,
+  "network": true,
+  "run": {
+    "args": [
+      "--covered-query",
+      "BV1wbxr6REXk",
+      "BV1Ntxr6xE7Y",
+      "--query-delay",
+      "12",
+      "--paused-before",
+      "BV1rCxe6wEN9"
+    ],
+    "prefs": [],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 10
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "pass",
+      "path": "pass",
+      "status": "must-same"
+    },
+    {
+      "name": "aQueryingAtPush",
+      "path": "aQueryingAtPush",
+      "status": "must-same"
+    },
+    {
+      "name": "aAnsweredBeforeB",
+      "path": "aAnsweredBeforeB",
+      "status": "must-same"
+    },
+    {
+      "name": "whileCovered.bOwns",
+      "path": "whileCovered.bOwns",
+      "status": "must-same"
+    },
+    {
+      "name": "whileCovered.aOwns",
+      "path": "whileCovered.aOwns",
+      "status": "must-same"
+    },
+    {
+      "name": "whileCovered.opens",
+      "path": "whileCovered.opens",
+      "status": "unstable"
+    },
+    {
+      "name": "whileCovered.playing",
+      "path": "whileCovered.playing",
+      "status": "must-same"
+    },
+    {
+      "name": "whileCovered.aVideoUrl",
+      "path": "whileCovered.aVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.aOwns",
+      "path": "afterReturn.aOwns",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.playing",
+      "path": "afterReturn.playing",
+      "status": "must-same",
+      "expectedFor": [
+        "wp-R9d"
+      ]
+    },
+    {
+      "name": "afterReturn.firstFrameWait",
+      "path": "afterReturn.firstFrameWait",
+      "status": "unstable"
+    },
+    {
+      "name": "afterReturn.positionMs",
+      "path": "afterReturn.positionMs",
+      "status": "unstable"
+    },
+    {
+      "name": "pausedBefore.cPaused",
+      "path": "pausedBefore.cPaused",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.controller.ownsPlayer",
+      "path": "readings.covered.A.extras.controller.ownsPlayer",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.controller.playerStatus",
+      "path": "readings.covered.A.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.controller.videoState",
+      "path": "readings.covered.A.extras.controller.videoState",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.controller.isQuerying",
+      "path": "readings.covered.A.extras.controller.isQuerying",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.controller.hasVideoUrl",
+      "path": "readings.covered.A.extras.controller.hasVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.controller.autoPlay",
+      "path": "readings.covered.A.extras.controller.autoPlay",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.slots",
+      "path": "readings.covered.A.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.page.top",
+      "path": "readings.covered.A.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.A.branch.label",
+      "path": "readings.covered.A.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.controller.ownsPlayer",
+      "path": "readings.covered.B.extras.controller.ownsPlayer",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.controller.playerStatus",
+      "path": "readings.covered.B.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.controller.videoState",
+      "path": "readings.covered.B.extras.controller.videoState",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.controller.isQuerying",
+      "path": "readings.covered.B.extras.controller.isQuerying",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.controller.hasVideoUrl",
+      "path": "readings.covered.B.extras.controller.hasVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.controller.autoPlay",
+      "path": "readings.covered.B.extras.controller.autoPlay",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.slots",
+      "path": "readings.covered.B.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.page.top",
+      "path": "readings.covered.B.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "covered.B.branch.label",
+      "path": "readings.covered.B.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.controller.ownsPlayer",
+      "path": "readings.afterReturn.extras.controller.ownsPlayer",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.controller.playerStatus",
+      "path": "readings.afterReturn.extras.controller.playerStatus",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.controller.videoState",
+      "path": "readings.afterReturn.extras.controller.videoState",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.controller.isQuerying",
+      "path": "readings.afterReturn.extras.controller.isQuerying",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.controller.hasVideoUrl",
+      "path": "readings.afterReturn.extras.controller.hasVideoUrl",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.controller.autoPlay",
+      "path": "readings.afterReturn.extras.controller.autoPlay",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.slots",
+      "path": "readings.afterReturn.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.page.top",
+      "path": "readings.afterReturn.page.top",
+      "status": "must-same"
+    },
+    {
+      "name": "afterReturn.branch.label",
+      "path": "readings.afterReturn.branch.geometry.label",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "calibrated": "2026-11-01 (S0b part 3b, after the c3b reviews): two unmutated passes of one debug build (kernel 02f5618beee9, the working tree on HEAD 0b5172b1c with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folders> (calibration mode): 9 leaf/leaves varied (afterReturn, ms, pausedBefore, readings); the fields over them are unstable, and from the start: the tab texts (counts), settle times; on online pages the list extents, the waits for them, the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构)",
+  "evidence": "wp-R9d"
+}

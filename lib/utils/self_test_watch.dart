@@ -34,6 +34,7 @@ import 'dart:io' show Platform;
 import 'package:PiliPlus/common/widgets/fractionally_sized_box.dart';
 import 'package:PiliPlus/common/widgets/scaffold/bottom_sheet.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
+import 'package:PiliPlus/common/widgets/svg/play_icon.dart';
 import 'package:PiliPlus/common/widgets/sliver/video_header.dart'
     show VideoHeader;
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
@@ -50,6 +51,10 @@ import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/pages/video/reply/local_reply_panel.dart';
 import 'package:PiliPlus/pages/video/reply/view.dart' show VideoReplyPanel;
 import 'package:PiliPlus/pages/video/view.dart' show VideoDetailPageV;
+import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
+import 'package:PiliPlus/pages/video/widgets/player_stand_in.dart';
+import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart'
+    show SubtitleGate;
 import 'package:PiliPlus/pages/youtube/comments/yt_comment_pane.dart'
     show YtCommentPane;
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
@@ -59,13 +64,22 @@ import 'package:PiliPlus/plugin/pl_player/view/view.dart' show PLVideoPlayer;
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
 import 'package:PiliPlus/utils/self_test_probe.dart';
 import 'package:PiliPlus/utils/self_test_window.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart';
 import 'package:flutter/rendering.dart' show RenderSliver;
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart'
-    show IconButton, Tab, TabBar, TabBarView, TabController;
+    show
+        IconButton,
+        PopupMenuButton,
+        Tab,
+        TabBar,
+        TabBarView,
+        TabController,
+        Theme;
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -222,6 +236,7 @@ abstract final class WpRead {
       'sheet',
       'player',
       'extras',
+      'more',
     ];
     if (page == null) {
       return {
@@ -263,6 +278,7 @@ abstract final class WpRead {
       'sheet': _guard(() => _sheet(page, scan)),
       'player': _guard(() => _player(page)),
       'extras': _guard(() => _extras(page, scan)),
+      'more': _guard(() => _more(page, scan)),
     };
   }
 
@@ -528,6 +544,262 @@ abstract final class WpRead {
       'panels': panels,
       'controller': controllerScalars(page),
     };
+  }
+
+  /// The second half's readings (design §6.4 R7-R15, S0b part 3b), in a
+  /// part of their own so that no reading of the first half's tables
+  /// changes: the player slot's layers as R10 names them (the stand-in, the
+  /// cover layer of autoplay off and its spinner, the manual top bar; the
+  /// YouTube page's player slot), the page's own theme (R11), whether the
+  /// page is under a [PlayerFocus] (R13), the player's screenRatio (R14),
+  /// the danmaku switch the D key flips (R13, both pages), the controls
+  /// lock and the player's data status (R8, R10), and the YouTube page's
+  /// own state (§6.4 YouTube 不同). `none` where the page has no such thing.
+  /// Each entry is guarded on its own: a throw in one is that one's
+  /// `$unread`, not the others'.
+  static Map<String, Object?> _more(WpPage page, _Scan scan) {
+    final PlPlayerController? player = switch (page.kind) {
+      'bili' when Get.isRegistered<VideoDetailController>(tag: page.tag) =>
+        Get.find<VideoDetailController>(tag: page.tag).plPlayerController,
+      'yt' when Get.isRegistered<YtVideoController>(tag: page.tag) =>
+        Get.find<YtVideoController>(tag: page.tag).plPlayerController,
+      _ => null,
+    };
+    double r3(double v) => (v * 1000).roundToDouble() / 1000;
+    Object withPlayer(Object Function(PlPlayerController p) read) =>
+        player == null ? unread('noController') : _guard(() => read(player));
+    return {
+      'slots': _guard(
+        () => page.kind == 'yt'
+            ? _ytSlot(page, scan)
+            : _slotParts(page, scan, player),
+      ),
+      'theme': _guard(() => _themes(page)),
+      'playerFocus': _guard(
+        () => firstUnder(page.element, (w) => w is PlayerFocus) != null,
+      ),
+      'screenRatio': withPlayer((p) => r3(p.screenRatio)),
+      // the setting the D key writes; the player's own switch is a late
+      // field the page makes when it first needs it, not read here
+      'danmaku': _guard(
+        () => {
+          'setting':
+              GStorage.setting.get(SettingBoxKey.enableShowDanmaku) ?? 'unset',
+        },
+      ),
+      'controlsLock': withPlayer((p) => p.controlsLock.value),
+      'dataStatus': withPlayer((p) => p.dataStatus.value.name),
+      'pictureAtPush': _guard(
+        () =>
+            page.kind == 'bili' &&
+                Get.isRegistered<VideoDetailController>(tag: page.tag)
+            ? Get.find<VideoDetailController>(
+                    tag: page.tag,
+                  ).pictureAtPush.value !=
+                  null
+            : 'none',
+      ),
+      'yt': _guard(() => _ytState(page)),
+    };
+  }
+
+  /// The page's own Theme (the State's first widget, B: `darkVideoPage ?
+  /// Theme(data: theme, child: child) : child`), the app's above it, and a
+  /// global sheet's (the page wraps the panel in its dark one with
+  /// darkVideoPage, B:2196-2198): the first under the PublishRoute directly
+  /// above this page's route.
+  static Map<String, Object?> _themes(WpPage page) {
+    Object pageTheme = 'inherited';
+    page.element.visitChildren((c) {
+      if (c.widget case Theme(:final data)) pageTheme = data.brightness.name;
+    });
+    final appTheme = page.element.findAncestorWidgetOfExactType<Theme>();
+    Object sheetTheme = 'none';
+    final stack = Ctl.routes.stack;
+    final at = stack.indexOf(page.route);
+    if (at >= 0 && at + 1 < stack.length) {
+      if (stack[at + 1] case final PublishRoute above) {
+        sheetTheme = 'inherited';
+        if (above.subtreeContext case final Element root) {
+          if (firstUnder(root, (w) => w is Theme)?.widget case Theme(
+            :final data,
+          )) {
+            sheetTheme = data.brightness.name;
+          }
+        }
+      }
+    }
+    return {
+      'page': pageTheme,
+      'app': appTheme?.data.brightness.name ?? 'none',
+      'globalSheet': sheetTheme,
+    };
+  }
+
+  /// The YouTube page's player slot (Y view.dart `_player`): the player,
+  /// the subtitle gate, the loading stand-in or the failure (the page's
+  /// stage), and whether the stand-in has its way back.
+  static Object _ytSlot(WpPage page, _Scan scan) {
+    final slot = scan.ytPlayer;
+    if (slot == null) return 'none';
+    if (!Get.isRegistered<YtVideoController>(tag: page.tag)) {
+      return unread('noController');
+    }
+    final ctr = Get.find<YtVideoController>(tag: page.tag);
+    final shows = firstUnder(slot, (w) => w is PLVideoPlayer) != null
+        ? 'player'
+        : firstUnder(slot, (w) => w is SubtitleGate) != null
+        ? 'gate'
+        : ctr.stage.value == YtPageStage.failed
+        ? 'failed'
+        : firstUnder(slot, (w) => w is PlayerLoadingMark) != null
+        ? 'loading'
+        : 'empty';
+    return {
+      'player': shows,
+      'back':
+          firstUnder(slot, (w) => w is IconButton && w.tooltip == '返回') != null,
+    };
+  }
+
+  /// The YouTube page's own state beside the tree (§6.4 YouTube 不同): its
+  /// stage, whether the related videos were asked for and came (they are
+  /// asked for with showRelatedVideo off too, only not shown), whether a
+  /// transcription could start now (the source it would read) and the
+  /// gate. `none` on the bilibili page.
+  static Object _ytState(WpPage page) {
+    if (page.kind != 'yt') return 'none';
+    if (!Get.isRegistered<YtVideoController>(tag: page.tag)) {
+      return unread('noController');
+    }
+    final ctr = Get.find<YtVideoController>(tag: page.tag);
+    return {
+      'stage': ctr.stage.value.name,
+      'relatedDone': !ctr.relatedPending,
+      'relatedCame': ctr.related.isNotEmpty,
+      'canTranscribe': ctr.canTranscribe,
+      'asrPending': ctr.asrPending.value,
+    };
+  }
+
+  /// The bilibili page's slot layers as R10 reads them: what the player
+  /// layer shows (`player`, the stand-in, or nothing: `empty`), the
+  /// stand-in's parts, the cover layer of autoplay off with its spinner,
+  /// and the manual top bar's buttons and the play icon's box. `none` on a
+  /// page without the slot Stack (the YouTube page, picture in picture).
+  static Object _slotParts(
+    WpPage page,
+    _Scan scan,
+    PlPlayerController? player,
+  ) {
+    final stack = scan.slotStack;
+    if (page.kind != 'bili' || stack == null) return 'none';
+    final layers = slotLayers(stack);
+    final playerLayer = layers['player'];
+    Object playerSlot = 'none';
+    Object standIn = 'none';
+    if (playerLayer != null) {
+      final cover = firstUnder(playerLayer, (w) => w is PlayerCover);
+      if (firstUnder(playerLayer, (w) => w is PLVideoPlayer) != null) {
+        playerSlot = 'player';
+      } else if (cover != null) {
+        playerSlot = 'standIn';
+        final failed = firstUnder(playerLayer, (w) => w is PlayerLoadFailed);
+        final loading = firstUnder(playerLayer, (w) => w is PlayerLoadingMark);
+        standIn = {
+          'cover': (cover.widget as PlayerCover).picture != null
+              ? 'picture'
+              : 'cover',
+          'mark': failed != null
+              ? 'failed'
+              : loading != null
+              ? 'loading'
+              : 'none',
+          'back':
+              firstUnder(
+                playerLayer,
+                (w) => w is IconButton && w.tooltip == '返回',
+              ) !=
+              null,
+        };
+      } else {
+        playerSlot = 'empty';
+      }
+    }
+    final coverLayer = layers['cover'];
+    final tapCover = firstUnder(coverLayer, (w) => w is GestureDetector);
+    final manualLayer = layers['manualPlayer'];
+    final back = firstUnder(
+      manualLayer,
+      (w) => w is IconButton && w.tooltip == '返回',
+    );
+    Object manual = 'none';
+    if (back != null) {
+      final home = firstUnder(
+        manualLayer,
+        (w) => w is IconButton && w.tooltip == '返回主页',
+      );
+      final icon = firstUnder(manualLayer, (w) => w is PlayIcon);
+      final onHome = (home?.widget as IconButton?)?.onPressed;
+      manual = {
+        'back': true,
+        'homeIsCloseAll': onHome == null || player == null
+            ? unread('noHome')
+            : onHome == player.onCloseAll,
+        'more': firstUnder(manualLayer, (w) => w is PopupMenuButton) != null,
+        'playIcon': icon == null ? 'none' : rect(icon),
+      };
+    }
+    return {
+      'player': playerSlot,
+      'standIn': standIn,
+      'cover': tapCover == null
+          ? 'none'
+          : {
+              'spinner':
+                  firstUnder(coverLayer, (w) => w is PlayerLoadingMark) != null,
+            },
+      'manual': manual,
+    };
+  }
+
+  /// The slot Stack's layers by role (the S0a marker keys).
+  static Map<String, Element> slotLayers(Element stack) {
+    final out = <String, Element>{};
+    stack.visitChildren((c) {
+      if (c.widget.key case ValueKey<String>(:final value)
+          when value.startsWith(_slotPrefix)) {
+        out[value.substring(_slotPrefix.length)] = c;
+      }
+    });
+    return out;
+  }
+
+  /// The named page's slot layers (for the steps: the cover to tap, the
+  /// back button to hit-test), or empty.
+  static Map<String, Element> slotLayersOf(String tag) {
+    final page = find(tag).page;
+    if (page == null || page.kind != 'bili' || !walks) return const {};
+    final stack = _Scan.of(page).slotStack;
+    return stack == null ? const {} : slotLayers(stack);
+  }
+
+  /// The first element under [root] (sheets skipped) whose widget passes
+  /// [test]; for the steps.
+  static Element? firstUnder(Element? root, bool Function(Widget w) test) {
+    if (root == null) return null;
+    Element? found;
+    void visit(Element e) {
+      if (found != null || e.widget is BottomSheet_) return;
+      if (test(e.widget)) {
+        found = e;
+        return;
+      }
+      e.visitChildren(visit);
+    }
+
+    visit(root);
+    return found;
   }
 
   /// The collapsed bar as §6.2 lists it: the label's role and icon, the

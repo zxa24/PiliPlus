@@ -216,7 +216,8 @@
           "shows": "5 view_points, types [2]: ['开篇', '特朗普还能赢吗？', '欧洲还赶得上趟吗？', '中土大论战，吵出来的新机会', '结语']",
           "at": "2026-10-31T17:50:29-0400"
         }
-      ]
+      ],
+      "openedInApp": "2026-10-31 slot 2, new logged-out profile, plan prefs: R7b-vp-1280x720: viewPointList non-empty, ViewPointsPage opened in the page and, in in-app fullscreen, globally"
     },
     {
       "id": "ugc-ai-summary",
@@ -235,8 +236,8 @@
     {
       "id": "open-medialist",
       "for": "design §5 在线素材: an open with a non-empty mediaList (R7c 播放列表, BC:801-803)",
-      "status": "unconfirmed",
-      "how": "as the UP page's 播放全部 opens it (lib/pages/member_video/controller.dart:185-203): PageUtils.toVideoPage(bvid, cid) with extraArguments sourceType: SourceType.archive, mediaId: <mid>, oid: <aid>, favTitle, isContinuePlaying: true; the page then asks /x/v2/medialist/resource/list type=1 biz_id=<mid> (VideoDetailController.getMediaList -> UserHttp.getMediaList). No self-test option opens it this way yet",
+      "status": "confirmed",
+      "how": "as the UP page's 播放全部 opens it (lib/pages/member_video/controller.dart:185-203): PageUtils.toVideoPage(bvid, cid) with extraArguments sourceType: SourceType.archive, mediaId: <mid>, oid: <aid>, favTitle, isContinuePlaying: true; the page then asks /x/v2/medialist/resource/list type=1 biz_id=<mid> (VideoDetailController.getMediaList -> UserHttp.getMediaList). --wp-open archive:<BV>:<cid>:<aid>:<mid> (S0b part 3b) opens the page with the arguments that make it ask that list (sourceType archive, mediaId the mid, oid the aid as an int, isContinuePlaying, a favTitle of its own); unlike the UP page it passes no title, dimension, desc or sort, which do not decide whether mediaList comes back",
       "candidate": {
         "mid": 266765166,
         "bvid": "BV1Ntxr6xE7Y",
@@ -244,7 +245,7 @@
         "cid": 43207623180,
         "mediaType": 1
       },
-      "reason": "a cookieless request answers HTTP 412; the app sends an anonymous web cookie (LoginUtils.setAnonymousWebCookie, lib/http/init.dart:41-46), which this check did not (no cookies). Not a login matter: confirm on the R7c check's first run that mediaList is non-empty, else choose again",
+      "reason": "the cookieless check answered HTTP 412; the app (with its anonymous web cookie) got the list: confirmed on the R7c check's first run",
       "evidence": [
         {
           "endpoint": "/x/v2/medialist/resource/list?mobi_app=web&type=1&biz_id=266765166&oid=117533457781213&otype=2&ps=20&with_current=true",
@@ -252,12 +253,13 @@
           "shows": "HTTP Error 412: Precondition Failed",
           "at": "2026-10-31T17:52:21-0400"
         }
-      ]
+      ],
+      "openedInApp": "2026-10-31 slot 2, new logged-out profile, plan prefs: --wp-open archive:BV1Ntxr6xE7Y:43207623180:117533457781213:266765166 (R7c-medialist-1280x720): waitfor:medialist true (mediaList non-empty with the app's anonymous web cookie), MediaListPanel opened in the page and, in in-app fullscreen, globally"
     },
     {
       "id": "up-popup",
       "for": "design §5 在线素材: an UP page entry (R7 UP 弹层; K1's second catcher calls onShowMemberPage, B:2228-2239, with --pref horizontalMemberPage:bool=true)",
-      "status": "unconfirmed",
+      "status": "confirmed",
       "url": "https://www.bilibili.com/video/BV1Ntxr6xE7Y",
       "mid": 266765166,
       "name": "漫士沉思录",
@@ -276,7 +278,8 @@
           "shows": "follower 1525532",
           "at": "2026-10-31T17:52:41-0400"
         }
-      ]
+      ],
+      "openedInApp": "2026-10-31 slot 2, new logged-out profile: R7-season-1280x720 and R7h-hsoff-420x800 called onShowMemberPage for the owner (mid 266765166): HorizontalMemberPage opened in the page (its header content was not checked)"
     },
     {
       "id": "ugc-orient-mp",
@@ -297,7 +300,7 @@
     },
     {
       "id": "yt-video",
-      "for": "design §6.4 两页都跑: the YouTube page of the first-half checks (Y-R1R2-sizes, Y-R3-inapp-*, Y-R4R6-420x800, the batch Y-R3-inapp-maximize and Y-R3-fsreply-*)",
+      "for": "design §6.4 两页都跑: the YouTube page of the first-half checks (Y-R1R2-sizes, Y-R3-inapp-*, Y-R4R6-420x800, the batch Y-R3-inapp-maximize and Y-R3-fsreply-*); the second half: Y-R7-sheets, Y-preinit-autoplayoff, Y-history (a second page of the same video over a first one played to 20 s), Y-invidious-probe (--yt-source invidious: an Invidious instance must answer, else the run is not measured), Y-norelated, Y-R8R13R14, Y-R11R13a, Y-R10-autoplayoff, Y-R9-bili-over-yt",
       "status": "confirmed",
       "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       "videoId": "dQw4w9WgXcQ",
@@ -305,6 +308,16 @@
       "why": "a long-lived public video with comments and related videos; the one DEV_LOG's --open-yt runs used",
       "evidence": [],
       "openedInApp": "2026-10-31 slot 2, new logged-out profile, plan prefs: --wp-open yt:dQw4w9WgXcQ (Y-R1R2-sizes, Y-R4R6-420x800): stage ready, tabs [related, reply] wide and [intro, reply] narrow, the intro list 1310 px to scroll at 420x800, uiErrors none"
+    },
+    {
+      "id": "yt-unavailable",
+      "for": "design §6.4 R10 自动播放关 × 失败 on the YouTube page (Y-failcover-1280x720): a video id whose load fails, the failure reached without an app hook",
+      "status": "confirmed",
+      "videoId": "aaaaaaaaaaa",
+      "login": "not needed",
+      "why": "not a video: YouTube answers it as unavailable, the page goes to its failed stage",
+      "evidence": [],
+      "openedInApp": "2026-11-01 slot 2, new logged-out profile, plan prefs, autoplay off: --wp-open yt:aaaaaaaaaaa: stage failed within 40 s, the player slot the failure with its way back"
     }
   ],
   "notes": [

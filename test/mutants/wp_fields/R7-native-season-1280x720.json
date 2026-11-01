@@ -1,0 +1,842 @@
+{
+  "id": "R7-native-season-1280x720",
+  "about": "design §6.4 R7 (wp4#2, record): the sheets in native fullscreen: 选集, PostPanel, 笔记 (global), the UP's popup and AI 总结 (the page's childKey)",
+  "check": "wpSteps",
+  "report": "R7-native-season-1280x720.json",
+  "type": "recording",
+  "batch": "fullscreen",
+  "network": true,
+  "run": {
+    "args": [
+      "--wp-open",
+      "bili:https://www.bilibili.com/video/BV1Ntxr6xE7Y",
+      "--window-size",
+      "1280x720",
+      "--wp-steps",
+      "pause;waitfor:season@30000;settle;fs:native;popup:episodes;read:fsEpisodes;closesheet;popup:post;read:fsPost;closesheet;popup:notes;read:fsNotes;closesheet;popup:member;read:fsMember;closesheet;popup:ai;read:fsAi;closesheet;fsexit"
+    ],
+    "prefs": [
+      "horizontalMemberPage:bool=true"
+    ],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 10
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "window.logical",
+      "path": "window.logical",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.window",
+      "path": "moments.enterBefore.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.scalars",
+      "path": "moments.enterBefore.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.label",
+      "path": "moments.enterBefore.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.player",
+      "path": "moments.enterBefore.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].roles",
+      "path": "moments.enterBefore.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].index",
+      "path": "moments.enterBefore.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabCtr",
+      "path": "moments.enterBefore.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.player",
+      "path": "moments.enterBefore.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.tabArea",
+      "path": "moments.enterBefore.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.slots",
+      "path": "moments.enterBefore.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.sheet",
+      "path": "moments.enterBefore.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.player",
+      "path": "moments.enterBefore.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.slots",
+      "path": "moments.enterBefore.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.theme",
+      "path": "moments.enterBefore.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.playerFocus",
+      "path": "moments.enterBefore.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isFullScreen",
+      "path": "moments.enterBefore.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].texts",
+      "path": "moments.enterBefore.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "enterDone.window",
+      "path": "moments.enterDone.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.scalars",
+      "path": "moments.enterDone.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.label",
+      "path": "moments.enterDone.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.player",
+      "path": "moments.enterDone.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].roles",
+      "path": "moments.enterDone.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].index",
+      "path": "moments.enterDone.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabCtr",
+      "path": "moments.enterDone.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.player",
+      "path": "moments.enterDone.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.tabArea",
+      "path": "moments.enterDone.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.slots",
+      "path": "moments.enterDone.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.sheet",
+      "path": "moments.enterDone.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.player",
+      "path": "moments.enterDone.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.slots",
+      "path": "moments.enterDone.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.theme",
+      "path": "moments.enterDone.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.playerFocus",
+      "path": "moments.enterDone.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isFullScreen",
+      "path": "moments.enterDone.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].texts",
+      "path": "moments.enterDone.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "fsEpisodes.window",
+      "path": "moments.fsEpisodes.window",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.branch.scalars",
+      "path": "moments.fsEpisodes.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.branch.geometry.label",
+      "path": "moments.fsEpisodes.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.branch.geometry.player",
+      "path": "moments.fsEpisodes.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.tabs[0].roles",
+      "path": "moments.fsEpisodes.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.tabs[0].index",
+      "path": "moments.fsEpisodes.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.tabCtr",
+      "path": "moments.fsEpisodes.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.kept.player",
+      "path": "moments.fsEpisodes.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.kept.tabArea",
+      "path": "moments.fsEpisodes.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.slots",
+      "path": "moments.fsEpisodes.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.sheet",
+      "path": "moments.fsEpisodes.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.player",
+      "path": "moments.fsEpisodes.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.more.slots",
+      "path": "moments.fsEpisodes.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.more.theme",
+      "path": "moments.fsEpisodes.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.more.playerFocus",
+      "path": "moments.fsEpisodes.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.extras.controller.isFullScreen",
+      "path": "moments.fsEpisodes.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "fsEpisodes.tabs[0].texts",
+      "path": "moments.fsEpisodes.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "fsPost.window",
+      "path": "moments.fsPost.window",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.branch.scalars",
+      "path": "moments.fsPost.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.branch.geometry.label",
+      "path": "moments.fsPost.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.branch.geometry.player",
+      "path": "moments.fsPost.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.tabs[0].roles",
+      "path": "moments.fsPost.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.tabs[0].index",
+      "path": "moments.fsPost.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.tabCtr",
+      "path": "moments.fsPost.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.kept.player",
+      "path": "moments.fsPost.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.kept.tabArea",
+      "path": "moments.fsPost.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.slots",
+      "path": "moments.fsPost.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.sheet",
+      "path": "moments.fsPost.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.player",
+      "path": "moments.fsPost.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.more.slots",
+      "path": "moments.fsPost.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.more.theme",
+      "path": "moments.fsPost.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.more.playerFocus",
+      "path": "moments.fsPost.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.extras.controller.isFullScreen",
+      "path": "moments.fsPost.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "fsPost.tabs[0].texts",
+      "path": "moments.fsPost.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "fsNotes.window",
+      "path": "moments.fsNotes.window",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.branch.scalars",
+      "path": "moments.fsNotes.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.branch.geometry.label",
+      "path": "moments.fsNotes.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.branch.geometry.player",
+      "path": "moments.fsNotes.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.tabs[0].roles",
+      "path": "moments.fsNotes.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.tabs[0].index",
+      "path": "moments.fsNotes.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.tabCtr",
+      "path": "moments.fsNotes.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.kept.player",
+      "path": "moments.fsNotes.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.kept.tabArea",
+      "path": "moments.fsNotes.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.slots",
+      "path": "moments.fsNotes.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.sheet",
+      "path": "moments.fsNotes.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.player",
+      "path": "moments.fsNotes.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.more.slots",
+      "path": "moments.fsNotes.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.more.theme",
+      "path": "moments.fsNotes.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.more.playerFocus",
+      "path": "moments.fsNotes.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.extras.controller.isFullScreen",
+      "path": "moments.fsNotes.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "fsNotes.tabs[0].texts",
+      "path": "moments.fsNotes.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "fsMember.window",
+      "path": "moments.fsMember.window",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.branch.scalars",
+      "path": "moments.fsMember.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.branch.geometry.label",
+      "path": "moments.fsMember.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.branch.geometry.player",
+      "path": "moments.fsMember.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.tabs[0].roles",
+      "path": "moments.fsMember.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.tabs[0].index",
+      "path": "moments.fsMember.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.tabCtr",
+      "path": "moments.fsMember.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.kept.player",
+      "path": "moments.fsMember.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.kept.tabArea",
+      "path": "moments.fsMember.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.slots",
+      "path": "moments.fsMember.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.sheet",
+      "path": "moments.fsMember.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.player",
+      "path": "moments.fsMember.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.more.slots",
+      "path": "moments.fsMember.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.more.theme",
+      "path": "moments.fsMember.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.more.playerFocus",
+      "path": "moments.fsMember.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.extras.controller.isFullScreen",
+      "path": "moments.fsMember.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "fsMember.tabs[0].texts",
+      "path": "moments.fsMember.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "fsAi.window",
+      "path": "moments.fsAi.window",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.branch.scalars",
+      "path": "moments.fsAi.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.branch.geometry.label",
+      "path": "moments.fsAi.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.branch.geometry.player",
+      "path": "moments.fsAi.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.tabs[0].roles",
+      "path": "moments.fsAi.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.tabs[0].index",
+      "path": "moments.fsAi.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.tabCtr",
+      "path": "moments.fsAi.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.kept.player",
+      "path": "moments.fsAi.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.kept.tabArea",
+      "path": "moments.fsAi.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.slots",
+      "path": "moments.fsAi.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.sheet",
+      "path": "moments.fsAi.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.player",
+      "path": "moments.fsAi.player",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.more.slots",
+      "path": "moments.fsAi.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.more.theme",
+      "path": "moments.fsAi.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.more.playerFocus",
+      "path": "moments.fsAi.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.extras.controller.isFullScreen",
+      "path": "moments.fsAi.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "fsAi.tabs[0].texts",
+      "path": "moments.fsAi.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "exitBefore.window",
+      "path": "moments.exitBefore.window",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.scalars",
+      "path": "moments.exitBefore.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.geometry.label",
+      "path": "moments.exitBefore.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.branch.geometry.player",
+      "path": "moments.exitBefore.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabs[0].roles",
+      "path": "moments.exitBefore.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabs[0].index",
+      "path": "moments.exitBefore.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabCtr",
+      "path": "moments.exitBefore.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.kept.player",
+      "path": "moments.exitBefore.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.kept.tabArea",
+      "path": "moments.exitBefore.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.slots",
+      "path": "moments.exitBefore.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.sheet",
+      "path": "moments.exitBefore.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.player",
+      "path": "moments.exitBefore.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.more.slots",
+      "path": "moments.exitBefore.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.more.theme",
+      "path": "moments.exitBefore.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.more.playerFocus",
+      "path": "moments.exitBefore.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.extras.controller.isFullScreen",
+      "path": "moments.exitBefore.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "exitBefore.tabs[0].texts",
+      "path": "moments.exitBefore.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "exitDone.window",
+      "path": "moments.exitDone.window",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.scalars",
+      "path": "moments.exitDone.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.geometry.label",
+      "path": "moments.exitDone.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.branch.geometry.player",
+      "path": "moments.exitDone.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabs[0].roles",
+      "path": "moments.exitDone.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabs[0].index",
+      "path": "moments.exitDone.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabCtr",
+      "path": "moments.exitDone.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.kept.player",
+      "path": "moments.exitDone.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.kept.tabArea",
+      "path": "moments.exitDone.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.slots",
+      "path": "moments.exitDone.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.sheet",
+      "path": "moments.exitDone.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.player",
+      "path": "moments.exitDone.player",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.more.slots",
+      "path": "moments.exitDone.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.more.theme",
+      "path": "moments.exitDone.more.theme",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.more.playerFocus",
+      "path": "moments.exitDone.more.playerFocus",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.extras.controller.isFullScreen",
+      "path": "moments.exitDone.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "exitDone.tabs[0].texts",
+      "path": "moments.exitDone.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "events.closesheet",
+      "path": "events.closesheet",
+      "status": "must-same"
+    },
+    {
+      "name": "events.popup:episodes",
+      "path": "events.popup:episodes",
+      "status": "must-same"
+    },
+    {
+      "name": "events.popup:post",
+      "path": "events.popup:post",
+      "status": "must-same"
+    },
+    {
+      "name": "events.popup:notes",
+      "path": "events.popup:notes",
+      "status": "must-same"
+    },
+    {
+      "name": "events.popup:member",
+      "path": "events.popup:member",
+      "status": "must-same"
+    },
+    {
+      "name": "events.popup:ai",
+      "path": "events.popup:ai",
+      "status": "must-same"
+    },
+    {
+      "name": "events.exitCleared",
+      "path": "events.exitCleared",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "calibrated": "batch: not run outside a fullscreen batch (u#4). Its statuses are the hand-written defaults (structure must-same, content unstable); the batch (F1) runs it twice unmutated (run.ps1 -Plan watch_page -Alternate -Commit <S0b> -Parent <S0b> -Batch -Checks R7-native-season-1280x720) and -Compare's calibration mode marks what varies unstable",
+  "evidence": null
+}

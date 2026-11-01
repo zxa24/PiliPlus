@@ -157,7 +157,7 @@
     {
       "name": "enterBefore.lists.tabBar.max",
       "path": "moments.enterBefore.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "enterBefore.lists.tabBar.physics",
@@ -207,7 +207,7 @@
     {
       "name": "enterBefore.lists.tabView.max",
       "path": "moments.enterBefore.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "enterBefore.lists.tabView.physics",
@@ -542,7 +542,7 @@
     {
       "name": "enterDone.lists.tabBar.max",
       "path": "moments.enterDone.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "enterDone.lists.tabBar.physics",
@@ -592,7 +592,7 @@
     {
       "name": "enterDone.lists.tabView.max",
       "path": "moments.enterDone.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "enterDone.lists.tabView.physics",
@@ -927,7 +927,7 @@
     {
       "name": "exitBefore.lists.tabBar.max",
       "path": "moments.exitBefore.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "exitBefore.lists.tabBar.physics",
@@ -977,7 +977,7 @@
     {
       "name": "exitBefore.lists.tabView.max",
       "path": "moments.exitBefore.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "exitBefore.lists.tabView.physics",
@@ -1312,7 +1312,7 @@
     {
       "name": "exitDone.lists.tabBar.max",
       "path": "moments.exitDone.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "exitDone.lists.tabBar.physics",
@@ -1362,7 +1362,7 @@
     {
       "name": "exitDone.lists.tabView.max",
       "path": "moments.exitDone.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "exitDone.lists.tabView.physics",
@@ -1601,10 +1601,10 @@
     }
   ],
   "uiErrors": {
-    "status": "unstable",
+    "status": "must-same",
     "unstable": [],
     "expectedFor": []
   },
-  "calibrated": "2026-10-31 (second version, after the c3a reviews): two unmutated passes of one debug build (the working tree on HEAD fe92752b3 with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folder> -FieldTables test/mutants/wp_fields (calibration mode): 26 leaf/leaves varied (events, frames, log, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times, the expand tick's own value; on online pages the list extents, the waits for them and the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构)",
+  "calibrated": "2026-10-31 (second version, after the c3a reviews): two unmutated passes of one debug build (the working tree on HEAD fe92752b3 with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folder> -FieldTables test/mutants/wp_fields (calibration mode): 26 leaf/leaves varied (events, frames, log, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times, the expand tick's own value; on online pages the list extents, the waits for them and the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构) Third version (2026-11-01, the c3b reviews): uiErrors must-same with only the keys this calibration saw varying unstable; on online tables the structural lists' extents (tab view, nested outer scroll, slot lists, tab bar) must-same, only content lists' unstable. Recalibrated: two unmutated passes of one debug build (kernel 02f5618beee9, slot 2), run.ps1 -Plan watch_page -Compare (calibration mode).",
   "evidence": null
 }

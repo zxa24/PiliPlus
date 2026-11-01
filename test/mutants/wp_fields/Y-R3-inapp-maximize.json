@@ -461,10 +461,10 @@
     }
   ],
   "uiErrors": {
-    "status": "unstable",
+    "status": "must-same",
     "unstable": [],
     "expectedFor": []
   },
-  "calibrated": "batch: not run outside a fullscreen batch (u#4). Its statuses are the hand-written defaults (structure must-same, content unstable); the first batch (F1) runs it twice unmutated (run.ps1 -Plan watch_page -Alternate -Commit <S0b> -Parent <S0b> -Batch -Checks Y-R3-inapp-maximize) and -Compare's calibration mode marks what varies unstable",
+  "calibrated": "batch: not run outside a fullscreen batch (u#4). Its statuses are the hand-written defaults (structure must-same, content unstable); the first batch (F1) runs it twice unmutated (run.ps1 -Plan watch_page -Alternate -Commit <S0b> -Parent <S0b> -Batch -Checks Y-R3-inapp-maximize) and -Compare's calibration mode marks what varies unstable Third version (2026-11-01, the c3b reviews): uiErrors must-same with only the keys this calibration saw varying unstable; on online tables the structural lists' extents (tab view, nested outer scroll, slot lists, tab bar) must-same, only content lists' unstable. The batch's calibration lists the varying uiErrorKeys.",
   "evidence": null
 }

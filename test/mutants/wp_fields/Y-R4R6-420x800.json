@@ -157,7 +157,7 @@
     {
       "name": "start.lists.tabBar.max",
       "path": "moments.start.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "start.lists.tabBar.physics",
@@ -207,7 +207,7 @@
     {
       "name": "start.lists.tabView.max",
       "path": "moments.start.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "start.lists.tabView.physics",
@@ -542,7 +542,7 @@
     {
       "name": "reply.lists.tabBar.max",
       "path": "moments.reply.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "reply.lists.tabBar.physics",
@@ -592,7 +592,7 @@
     {
       "name": "reply.lists.tabView.max",
       "path": "moments.reply.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "reply.lists.tabView.physics",
@@ -982,7 +982,7 @@
     {
       "name": "replyAgain.lists.tabBar.max",
       "path": "moments.replyAgain.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "replyAgain.lists.tabBar.physics",
@@ -1032,7 +1032,7 @@
     {
       "name": "replyAgain.lists.tabView.max",
       "path": "moments.replyAgain.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "replyAgain.lists.tabView.physics",
@@ -1422,7 +1422,7 @@
     {
       "name": "back.lists.tabBar.max",
       "path": "moments.back.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "back.lists.tabBar.physics",
@@ -1472,7 +1472,7 @@
     {
       "name": "back.lists.tabView.max",
       "path": "moments.back.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "back.lists.tabView.physics",
@@ -1862,7 +1862,7 @@
     {
       "name": "replyBack.lists.tabBar.max",
       "path": "moments.replyBack.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "replyBack.lists.tabBar.physics",
@@ -1912,7 +1912,7 @@
     {
       "name": "replyBack.lists.tabView.max",
       "path": "moments.replyBack.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "replyBack.lists.tabView.physics",
@@ -2402,7 +2402,7 @@
     {
       "name": "wide.lists.tabBar.max",
       "path": "moments.wide.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "wide.lists.tabBar.physics",
@@ -2452,7 +2452,7 @@
     {
       "name": "wide.lists.tabView.max",
       "path": "moments.wide.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "wide.lists.tabView.physics",
@@ -2797,7 +2797,7 @@
     {
       "name": "end.lists.tabBar.max",
       "path": "moments.end.lists.tabBar.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "end.lists.tabBar.physics",
@@ -2847,7 +2847,7 @@
     {
       "name": "end.lists.tabView.max",
       "path": "moments.end.lists.tabView.max",
-      "status": "unstable"
+      "status": "must-same"
     },
     {
       "name": "end.lists.tabView.physics",
@@ -3201,10 +3201,10 @@
     }
   ],
   "uiErrors": {
-    "status": "unstable",
+    "status": "must-same",
     "unstable": [],
     "expectedFor": []
   },
-  "calibrated": "2026-10-31 (second version, after the c3a reviews): two unmutated passes of one debug build (the working tree on HEAD fe92752b3 with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folder> -FieldTables test/mutants/wp_fields (calibration mode): 7 leaf/leaves varied (log, moments, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times, the expand tick's own value; on online pages the list extents, the waits for them and the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构)",
+  "calibrated": "2026-10-31 (second version, after the c3a reviews): two unmutated passes of one debug build (the working tree on HEAD fe92752b3 with this part; slot 2, display 3840x2160 @120 dpi), run.ps1 -Plan watch_page -Compare <the pass folder> -FieldTables test/mutants/wp_fields (calibration mode): 7 leaf/leaves varied (log, moments, ms); the fields over them are unstable, and from the start: the tab texts (counts), settle times, the expand tick's own value; on online pages the list extents, the waits for them and the seeded offsets they cap, and uiErrors (§5 不稳定字段, §6.4 在线页比结构) Third version (2026-11-01, the c3b reviews): uiErrors must-same with only the keys this calibration saw varying unstable; on online tables the structural lists' extents (tab view, nested outer scroll, slot lists, tab bar) must-same, only content lists' unstable. Recalibrated: two unmutated passes of one debug build (kernel 02f5618beee9, slot 2), run.ps1 -Plan watch_page -Compare (calibration mode).",
   "evidence": null
 }
