@@ -410,6 +410,13 @@ void main() {
       damaged.addAll([keyOf(p1), keyOf(p2)]);
       const first = '音视频文件已损坏，将重新下载';
       const again = '音视频文件再次损坏，已删除，可稍后重新开始该下载';
+      // P1 giving up starts P2 at once, and P2's first damage (a toast, a
+      // log line) can land before the poll below sees P1's last line — a
+      // busy machine lost that race (2026-11-01). P2's merge waits here
+      // until P1's state has been read: the order is the queue's, not the
+      // clock's.
+      final p2Merge = Completer<void>();
+      h.mergeGate = (e) => keyOf(e) == keyOf(p2) ? p2Merge.future : null;
 
       h.service.startDownload(p1);
       await until(() => count('no more retries') == 1, quiet: true);
@@ -425,6 +432,7 @@ void main() {
       expect(p1.status, DownloadStatus.failMerge);
 
       // the queue goes on: P2's first damage is its own first
+      p2Merge.complete();
       await until(() => count('no more retries') == 2, quiet: true);
       expect(h.toasts, [first, again, first, again]);
       expect(h.transportsOf(p2), hasLength(2));
