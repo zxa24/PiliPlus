@@ -1,0 +1,16 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -370,7 +370,11 @@ final class YtDownloadPlatform implements DownloadPlatform {
+ 
+   /// The watch history is the user's, not the download's: nothing.
+   @override
+-  Future<void> onDeleted(List<DownloadEntry> entries) async {}
++  Future<void> onDeleted(List<DownloadEntry> entries) async {
++    for (final e in entries) {
++      await LocalHistory.remove(LocalHistory.ytKey((e as YtDownloadEntry).videoId));
++    }
++  }
+ 
+   /// Stage 2: the exported file, as a local file (§10-7 Q1 b); a merge that
+   /// failed left no file to play. Stage 3's offline page takes over.

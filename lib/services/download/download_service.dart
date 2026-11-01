@@ -31,6 +31,7 @@ import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_keepalive.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/services/download/download_platform.dart';
+import 'package:PiliPlus/services/download/download_platform_yt.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -62,6 +63,9 @@ part 'download_platform_bili.dart';
 
 class DownloadService extends GetxService with WidgetsBindingObserver {
   static const _entryFile = 'entry.json';
+
+  /// The record of the platforms outside this library (design §2.2).
+  static const _recordFile = 'entry.librepili.json';
   static const _indexFile = 'index.json';
   static const _maxDanmakuConcurrency = 4;
 
@@ -102,8 +106,13 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   @visibleForTesting
   DownloadHost get hostForTest => _host;
 
+  late final _yt = YtDownloadPlatform(_host);
+
   /// The platforms, by [DownloadPlatform.id].
-  late final Map<String, DownloadPlatform> _platforms = {_bili.id: _bili};
+  late final Map<String, DownloadPlatform> _platforms = {
+    _bili.id: _bili,
+    _yt.id: _yt,
+  };
 
   /// Tests only: a platform of the test's own (a fake one, to drive the
   /// service's steps and [DownloadHost] without a real platform).
@@ -510,7 +519,24 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     }();
   }
 
+  /// Tests only: awaited before the list is read (holds
+  /// [waitForInitialization]).
+  @visibleForTesting
+  static Future<void> Function()? readListGateForTest;
+
+  /// An entry folder: it holds a record (stage-2 plan §3.2). [tmp]: a
+  /// bilibili `entry.json.tmp` alone counts too — the list reads one, the
+  /// guards that keep downloads apart from exports do not (as before).
+  static bool isEntryDir(Directory dir, {required bool tmp}) {
+    bool has(String name) => File(path.join(dir.path, name)).existsSync();
+    return has(_entryFile) ||
+        has(_recordFile) ||
+        has('$_recordFile.tmp') ||
+        (tmp && has('$_entryFile.tmp'));
+  }
+
   Future<void> _readDownloadList() async {
+    if (readListGateForTest case final gate?) await gate();
     downloadList.clear();
     waitDownloadQueue.clear();
     final downloadDir = Directory(await _getDownloadPath());
@@ -538,44 +564,60 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     // not hide the downloads in the folders after it
     try {
       await for (final entryDir in pageDir.list()) {
-        if (entryDir is Directory) {
-          final entryFile = File(path.join(entryDir.path, _entryFile));
+        if (entryDir is Directory && isEntryDir(entryDir, tmp: true)) {
+          // bilibili's entry.json first (as before); else the record of a
+          // platform outside this library, which names its platform
+          final bili =
+              File(path.join(entryDir.path, _entryFile)).existsSync() ||
+              File(path.join(entryDir.path, '$_entryFile.tmp')).existsSync();
+          final recordName = bili ? _entryFile : _recordFile;
+          final entryFile = File(path.join(entryDir.path, recordName));
           final tmpFile = File('${entryFile.path}.tmp');
-          if (entryFile.existsSync() || tmpFile.existsSync()) {
+          try {
+            // a write interrupted before the rename leaves the previous
+            // (complete) record in place; only a file torn by an older
+            // build needs the .tmp copy
+            String entryJson;
             try {
-              // a write interrupted before the rename leaves the previous
-              // (complete) entry.json in place; only a file torn by an older
-              // build needs the .tmp copy
-              String entryJson;
-              try {
-                entryJson = await entryFile.readAsString();
-                jsonDecode(entryJson);
-              } catch (_) {
-                entryJson = await tmpFile.readAsString();
-              }
-              final platform = _bili;
-              final entry = platform.parse(jsonDecode(entryJson))
-                ..pageDirPath = pageDir.path
-                ..entryDirPath = entryDir.path;
-              if (entry.isCompleted) {
-                result.add(entry);
-                // the app closed while they were being saved
-                if (entry.extrasPending) _resumeExtras(entry);
-              } else {
-                final (:video, :audio, mediaGuess: _, expectAudio: _) = platform
-                    .initialBytes(entry);
-                entry.progress
-                  ..planExtras(platform.extrasPlan())
-                  ..video(video.$1, video.$2);
-                if (audio != null) entry.progress.audio(audio.$1, audio.$2);
-                waitDownloadQueue.add(entry..status = DownloadStatus.wait);
-              }
-            } catch (e) {
-              // a record this build cannot read: left out of the list, its
-              // files stay on disk
-              lastError = 'entry.json (${entryDir.path}): $e';
-              debugPrint('skipped download entry: $lastError');
+              entryJson = await entryFile.readAsString();
+              jsonDecode(entryJson);
+            } catch (_) {
+              entryJson = await tmpFile.readAsString();
             }
+            final json = jsonDecode(entryJson) as Map<String, dynamic>;
+            final DownloadPlatform platform;
+            if (bili) {
+              platform = _bili;
+            } else if (platformNamed('${json['platform']}') case final named?) {
+              platform = named;
+            } else {
+              // a platform of a later build: left out, its files stay
+              lastError =
+                  'unknown platform ${json['platform']} (${entryDir.path})';
+              debugPrint('skipped download entry: $lastError');
+              continue;
+            }
+            final entry = platform.parse(json)
+              ..pageDirPath = pageDir.path
+              ..entryDirPath = entryDir.path;
+            if (entry.isCompleted) {
+              result.add(entry);
+              // the app closed while they were being saved
+              if (entry.extrasPending) _resumeExtras(entry);
+            } else {
+              final (:video, :audio, mediaGuess: _, expectAudio: _) = platform
+                  .initialBytes(entry);
+              entry.progress
+                ..planExtras(platform.extrasPlan())
+                ..video(video.$1, video.$2);
+              if (audio != null) entry.progress.audio(audio.$1, audio.$2);
+              waitDownloadQueue.add(entry..status = DownloadStatus.wait);
+            }
+          } catch (e) {
+            // a record this build cannot read: left out of the list, its
+            // files stay on disk
+            lastError = '$recordName (${entryDir.path}): $e';
+            debugPrint('skipped download entry: $lastError');
           }
         }
       }
@@ -730,6 +772,43 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     _createDownload(entry);
   }
 
+  /// Keys [addDownload] is adding (between its checks and the queue).
+  final _adding = <DownloadKey>{};
+
+  /// A new download of a platform outside this library (stage-2 plan §2.5;
+  /// the YouTube panel's): its folder made and its record saved, then
+  /// queued as [_createDownload] does. False: already listed, queued or
+  /// being added — nothing is written.
+  Future<bool> addDownload(DownloadEntry entry) async {
+    _releaseExtras();
+    final key = entry.key;
+    if (_adding.contains(key) ||
+        downloadList.any((e) => e.key == key) ||
+        waitDownloadQueue.any((e) => e.key == key)) {
+      return false;
+    }
+    _adding.add(key);
+    try {
+      await Directory(entry.entryDirPath).create(recursive: true);
+      await _saveEntry(entry);
+    } finally {
+      _adding.remove(key);
+    }
+    entry.status = DownloadStatus.wait;
+    waitDownloadQueue.add(entry);
+    if (curDownload.value?.status.isDownloading != true) {
+      startDownload(entry);
+    }
+    return true;
+  }
+
+  /// [entry]'s record saved as it is now (a page changed it: the 720p
+  /// button, stage-2 plan §4.2), then started again.
+  Future<void> restartWith(DownloadEntry entry) async {
+    await _saveEntry(entry);
+    await startDownload(entry);
+  }
+
   Future<void> _createDownload(BiliDownloadEntryInfo entry) async {
     final entryDir = await _getDownloadEntryDir(entry);
     final entryJsonFile = File(path.join(entryDir.path, _entryFile));
@@ -765,9 +844,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         // already holds downloads (made before this guard): leave it, the
         // deletion guard keeps the export's files
         !page.listSync().any(
-          (e) =>
-              e is Directory &&
-              File(path.join(e.path, _entryFile)).existsSync(),
+          (e) => e is Directory && isEntryDir(e, tmp: false),
         )) {
       var aside = exportFolderName(dirName);
       for (var i = 2; Directory(path.join(root, aside)).existsSync(); i++) {
@@ -1064,8 +1141,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
 
   /// Tests only: an entry saved the way the downloads save it.
   @visibleForTesting
-  Future<void> saveEntryForTest(BiliDownloadEntryInfo entry) =>
-      _saveEntry(entry);
+  Future<void> saveEntryForTest(DownloadEntry entry) => _saveEntry(entry);
 
   void _onReceive(int progress, int total) {
     if (curDownload.value case final entry?) {
@@ -1536,7 +1612,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
             ? folder.listSync()
             : const <FileSystemEntity>[];
         bool isDownload(FileSystemEntity e) =>
-            e is Directory && File(path.join(e.path, _entryFile)).existsSync();
+            e is Directory && isEntryDir(e, tmp: false);
         if (contents.any(isDownload)) {
           // also a page folder holding downloads (made before exports
           // avoided internal names): remove only the export's own files
@@ -1591,9 +1667,13 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// Export folders a merge is currently writing into.
   static final _mergeFolders = <String>{};
 
-  /// Names of the internal page folders in the download root: `<avid>` and
-  /// `s_<seasonId>` (case-insensitive: Windows folder names are).
-  static final _internalPageName = RegExp(r'^(s_)?\d+$', caseSensitive: false);
+  /// Names of the internal page folders in the download root: `<avid>`,
+  /// `s_<seasonId>` and `yt_<videoId>` (case-insensitive: Windows folder
+  /// names are).
+  static final _internalPageName = RegExp(
+    r'^((s_)?\d+|yt_[A-Za-z0-9_-]{11})$',
+    caseSensitive: false,
+  );
 
   /// On desktop exports share the download root with the internal page
   /// folders, so an export named like one (a title such as "114514") would
@@ -1789,8 +1869,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       if (pageDir.existsSync() && _isForeignFolder(pageDir)) {
         // also an export folder: remove only the downloads inside it
         for (final e in pageDir.listSync()) {
-          if (e is Directory &&
-              File(path.join(e.path, _entryFile)).existsSync()) {
+          if (e is Directory && isEntryDir(e, tmp: false)) {
             await e.tryDel(recursive: true);
           }
         }

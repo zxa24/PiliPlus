@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -531,7 +531,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+     bool has(String name) => File(path.join(dir.path, name)).existsSync();
+     return has(_entryFile) ||
+         has(_recordFile) ||
+-        has('$_recordFile.tmp') ||
++        (!tmp && has('$_recordFile.tmp')) ||
+         (tmp && has('$_entryFile.tmp'));
+   }
+ 

@@ -2081,6 +2081,7 @@ $script:dlStage1 = [ordered]@{
 }
 $script:dlStage2 = [ordered]@{
     '2a' = @('P2-S1', 'P2-S2', 'P2-S4', 'P2-S7', 'P2-F12', 'P2-H6', 'P2-H7', 'P2-H8', 'P2-E1', 'P2-E2', 'P2-E3')
+    '2b' = @('P2-F1', 'P2-D1', 'P2-D2', 'P2-D3', 'P2-D4', 'P2-D5', 'P2-D6', 'P2-D7', 'P2-D8', 'P2-L1', 'P2-L2', 'P2-L3', 'P2-L8', 'P2-L9', 'P2-L13', 'P2-L14')
 }
 
 # ids unique, phases known: throws on the first that is not

@@ -17,6 +17,7 @@ import 'dart:typed_data';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/bili_download_media_file_info.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
+import 'package:PiliPlus/services/download/download_platform_yt.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/event_log.dart';
@@ -307,6 +308,9 @@ class DownloadHarness {
     List<String> entries = const [fixtureP1, fixtureP2, fixtureS],
     Map<String, Object?> Function(String entry, Map<String, dynamic> json)?
     patch,
+    // more of the test's own in the root before the list is read (e.g. a
+    // YouTube record)
+    FutureOr<void> Function(Directory root)? before,
   }) async {
     _fixtures = fixtures;
     dir = await Directory.systemTemp.createTemp('librepili-dl-');
@@ -323,6 +327,7 @@ class DownloadHarness {
         file.writeAsStringSync(jsonEncode(patch(entry, json)));
       }
     }
+    await before?.call(root);
     downloadPath = root.path;
     SubtitleCache.debugInstance = SubtitleCache(
       Directory(path.join(dir.path, 'subtitle_cache')),
@@ -362,7 +367,7 @@ class DownloadHarness {
       ...service.downloadList,
     ]) {
       try {
-        await service.saveEntryForTest(entry as BiliDownloadEntryInfo);
+        await service.saveEntryForTest(entry as DownloadEntry);
       } catch (_) {}
     }
     service.waitDownloadQueue.clear();
@@ -375,6 +380,11 @@ class DownloadHarness {
     DownloadService.toastForTest = null;
     DownloadService.retryWaitsForTest = null;
     DownloadService.selfTestBeforeMerge = null;
+    DownloadService.readListGateForTest = null;
+    YtDownloadPlatform.openLocalForTest = null;
+    YtDownloadPlatform.httpClientForTest = null;
+    YtDownloadPlatform.toastForTest = null;
+    YtDownloadPlatform.extrasEnabledForTest = false;
     FakeTransport.created = null;
     SubtitleCache.debugInstance = null;
     SubtitleCache.onSaved = null;

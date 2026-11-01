@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -377,6 +377,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+   @override
+   Future<void> openOffline(DownloadEntry entry) async {
+     final merged = entry.mergedPath;
++    await (openLocalForTest ?? LocalPlayer.open)(merged ?? '');
+     if (merged == null) {
+       (toastForTest ?? SmartDialog.showToast)(
+         '该视频合并失败，无法播放',

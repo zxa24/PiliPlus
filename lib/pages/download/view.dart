@@ -17,6 +17,7 @@ import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/detail/view.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
 import 'package:PiliPlus/pages/download/search/view.dart';
+import 'package:PiliPlus/pages/download/update_action.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/grid.dart';
@@ -62,32 +63,36 @@ class _DownloadPageState extends State<DownloadPage> with GridMixin {
           appBar: MultiSelectAppBarWidget(
             ctr: _controller,
             actions: [
-              TextButton(
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: () async {
-                  final future = [
-                    for (final page in _controller.allChecked)
-                      // bilibili's own
-                      for (final e
-                          in page.entries.whereType<BiliDownloadEntryInfo>())
-                        _downloadService.downloadDanmaku(
-                          entry: e,
-                          isUpdate: true,
-                        ),
-                  ];
-                  _controller.handleSelect();
-                  final res = await Future.wait(future);
-                  if (res.every((e) => e)) {
-                    SmartDialog.showToast('更新成功');
-                  } else {
-                    SmartDialog.showToast('更新失败');
-                  }
-                },
-                child: Text(
-                  '更新',
-                  style: TextStyle(color: theme.colorScheme.onSurface),
+              DanmakuUpdateAction(
+                ctr: _controller,
+                checked: () => _controller.allChecked.expand((e) => e.entries),
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: () async {
+                    final future = [
+                      for (final page in _controller.allChecked)
+                        // bilibili's own
+                        for (final e
+                            in page.entries.whereType<BiliDownloadEntryInfo>())
+                          _downloadService.downloadDanmaku(
+                            entry: e,
+                            isUpdate: true,
+                          ),
+                    ];
+                    _controller.handleSelect();
+                    final res = await Future.wait(future);
+                    if (res.every((e) => e)) {
+                      SmartDialog.showToast('更新成功');
+                    } else {
+                      SmartDialog.showToast('更新失败');
+                    }
+                  },
+                  child: Text(
+                    '更新',
+                    style: TextStyle(color: theme.colorScheme.onSurface),
+                  ),
                 ),
               ),
             ],

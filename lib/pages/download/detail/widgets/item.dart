@@ -205,6 +205,14 @@ class DetailItem extends StatelessWidget {
                       top: 6.0,
                       type: PBadgeType.gray,
                     ),
+                  // LibrePili: which platform, when not bilibili
+                  if (platform.platformBadge(entry) case final badge?)
+                    PBadge(
+                      text: badge,
+                      left: 6.0,
+                      top: 6.0,
+                      type: PBadgeType.primary,
+                    ),
                   if (progress != null)
                     ListenableBuilder(
                       listenable: progress!,

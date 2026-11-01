@@ -1,0 +1,19 @@
+diff --git a/lib/models_new/download/download_entry.dart b/lib/models_new/download/download_entry.dart
+--- a/lib/models_new/download/download_entry.dart
++++ b/lib/models_new/download/download_entry.dart
+@@ -92,6 +92,7 @@ enum DownloadStatus {
+   audioDownloading('正在下载音频'),
+   getDanmaku('获取弹幕'),
+   getPlayUrl('获取播放地址'),
++  failNoFormat('没有可合成为 mp4 的格式'),
+   merging('合并音视频'),
+   //
+   completed('下载完成'),
+@@ -109,7 +110,6 @@ enum DownloadStatus {
+   retryWait('下载失败，稍后自动重试'),
+   // LibrePili: nothing that can be merged into an mp4, or a live stream
+   // (not retried; stage-2 plan §3.5)
+-  failNoFormat('没有可合成为 mp4 的格式'),
+   // LibrePili: the quality tier the download was made for is not offered
+   // now (stage-2 plan §4.1; retried, then a button to switch)
+   failQuality('所选画质当前不可用'),
