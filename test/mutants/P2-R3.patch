@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -39,7 +39,7 @@ import 'package:path/path.dart' as path;
+ abstract final class YtStreamTag {
+   /// The folder name of [video] and [audio].
+   static String of(YtFormat video, YtFormat audio) {
+-    final track = ytAudioTrackDigest(audio.audioTrackId);
++    final track = audio.audioTrackId?.replaceAll(RegExp('[^A-Za-z0-9]'), '_');
+     return '${video.itag}-${audio.itag}'
+         '${track == null ? '' : '.$track'}'
+         '${audio.isDrc ? '.drc' : ''}';

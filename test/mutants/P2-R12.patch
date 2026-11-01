@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -67,7 +67,7 @@ abstract final class YtStreamTag {
+     if (m == null) return false;
+     return video.itag == int.parse(m[1]!) &&
+         audio.itag == int.parse(m[2]!) &&
+-        ytAudioTrackDigest(audio.audioTrackId) == m[3] &&
++        audio.audioTrackId == m[3] &&
+         audio.isDrc == (m[4] != null);
+   }
+ }

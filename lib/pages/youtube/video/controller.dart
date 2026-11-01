@@ -105,8 +105,11 @@ class YtVideoController extends GetxController
   /// Invidious instances when YouTube refuses this network.
   late final YtSourceRouter play;
 
-  /// `--yt-source invidious|direct`: one source only.
-  static YtSourceMode debugSourceMode = YtSourceMode.auto;
+  /// `--yt-source invidious|direct`: one source only (kept in
+  /// [YtSourceStore.debugMode], which the downloads read too).
+  static YtSourceMode get debugSourceMode => YtSourceStore.debugMode;
+  static set debugSourceMode(YtSourceMode mode) =>
+      YtSourceStore.debugMode = mode;
 
   /// Who served the video's detail: its captions are fetched from the same.
   YouTubeVideoSource? _detailSource;

@@ -22,6 +22,7 @@ import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/youtube/stream_relay.dart';
+import 'package:PiliPlus/services/youtube/yt_format_select.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -29,6 +30,47 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as path;
+
+/// The name of a YouTube download's stream folder, its streams' identity
+/// (stage-2 plan §3.3, design §2.2 p4#6): `<videoItag>-<audioItag>`, then
+/// `.` and [ytAudioTrackDigest] of the audio track when it has one, then
+/// `.drc` for DRC audio. The digest keeps track ids apart that a cleaned
+/// up name would not (`en:4`, `en_4`); a DRC and a plain 140 are two.
+abstract final class YtStreamTag {
+  /// The folder name of [video] and [audio].
+  static String of(YtFormat video, YtFormat audio) {
+    final track = ytAudioTrackDigest(audio.audioTrackId);
+    return '${video.itag}-${audio.itag}'
+        '${track == null ? '' : '.$track'}'
+        '${audio.isDrc ? '.drc' : ''}';
+  }
+
+  static final _name = RegExp(r'^(\d+)-(\d+)(?:\.([0-9a-f]{12}))?(\.drc)?$');
+
+  /// The pin a folder name alone gives (its `stream.json` unreadable): the
+  /// audio track by its digest. Null: not a stream folder's name.
+  static YtFormatPin? pinOf(String dirName) {
+    final m = _name.firstMatch(dirName);
+    if (m == null) return null;
+    return YtFormatPin(
+      videoItag: int.parse(m[1]!),
+      audioItag: int.parse(m[2]!),
+      audioTrackDigest: m[3],
+      drc: m[4] != null,
+    );
+  }
+
+  /// [video] and [audio] are the pair of the folder [dirName], by its name
+  /// alone: the audio track compared by digest.
+  static bool matches(String dirName, YtFormat video, YtFormat audio) {
+    final m = _name.firstMatch(dirName);
+    if (m == null) return false;
+    return video.itag == int.parse(m[1]!) &&
+        audio.itag == int.parse(m[2]!) &&
+        ytAudioTrackDigest(audio.audioTrackId) == m[3] &&
+        audio.isDrc == (m[4] != null);
+  }
+}
 
 /// What is on disk for a video before a new download of it is made
 /// ([YtDownloadPlatform.checkExisting], plan §3.2 「新建」).

@@ -772,7 +772,7 @@
   {
     "id": "P2-D4",
     "patch": "P2-D4.patch",
-    "location": "lib/services/download/download_platform_yt.dart:415",
+    "location": "lib/services/download/download_platform_yt.dart:457",
     "change": "checkExisting: a record it cannot read counts as none (a new one made over it)",
     "phase": "2-only",
     "kind": "unit",
@@ -782,7 +782,7 @@
   {
     "id": "P2-D5",
     "patch": "P2-D5.patch",
-    "location": "lib/services/download/download_platform_yt.dart:417",
+    "location": "lib/services/download/download_platform_yt.dart:459",
     "change": "checkExisting compares the video ids ignoring case",
     "phase": "2-only",
     "kind": "unit",
@@ -792,7 +792,7 @@
   {
     "id": "P2-D6",
     "patch": "P2-D6.patch",
-    "location": "lib/services/download/download_platform_yt.dart:460",
+    "location": "lib/services/download/download_platform_yt.dart:502",
     "change": "create does not wait for the list to be read",
     "phase": "2-only",
     "kind": "unit",
@@ -812,7 +812,7 @@
   {
     "id": "P2-D8",
     "patch": "P2-D8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:429",
+    "location": "lib/services/download/download_platform_yt.dart:471",
     "change": "newEntry writes the time stamps in ms (not seconds)",
     "phase": "2-only",
     "kind": "unit",
@@ -822,7 +822,7 @@
   {
     "id": "P2-L1",
     "patch": "P2-L1.patch",
-    "location": "lib/services/download/download_platform_yt.dart:316",
+    "location": "lib/services/download/download_platform_yt.dart:358",
     "change": "localCover gives the remote thumbnail when there is no cover.jpg",
     "phase": "2-only",
     "kind": "unit",
@@ -832,7 +832,7 @@
   {
     "id": "P2-L2",
     "patch": "P2-L2.patch",
-    "location": "lib/services/download/download_platform_yt.dart:326",
+    "location": "lib/services/download/download_platform_yt.dart:368",
     "change": "progressOf from LocalHistory.resumePoint (never finished)",
     "phase": "2-only",
     "kind": "unit",
@@ -842,7 +842,7 @@
   {
     "id": "P2-L3",
     "patch": "P2-L3.patch",
-    "location": "lib/services/download/download_platform_yt.dart:373",
+    "location": "lib/services/download/download_platform_yt.dart:415",
     "change": "onDeleted removes the video's LocalHistory entry",
     "phase": "2-only",
     "kind": "unit",
@@ -862,7 +862,7 @@
   {
     "id": "P2-L9",
     "patch": "P2-L9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:17,217",
+    "location": "lib/services/download/download_platform_yt.dart:17,260",
     "change": "the cover through Request.dio (the app's Dio)",
     "phase": "2-only",
     "kind": "unit",
@@ -872,7 +872,7 @@
   {
     "id": "P2-L13",
     "patch": "P2-L13.patch",
-    "location": "lib/services/download/download_platform_yt.dart:380",
+    "location": "lib/services/download/download_platform_yt.dart:422",
     "change": "openOffline calls LocalPlayer.open even when merged_path is null",
     "phase": "2-only",
     "kind": "unit",
@@ -882,11 +882,111 @@
   {
     "id": "P2-L14",
     "patch": "P2-L14.patch",
-    "location": "lib/services/download/download_platform_yt.dart:386",
+    "location": "lib/services/download/download_platform_yt.dart:428",
     "change": "openOffline opens the online page instead of LocalPlayer.open(merged_path)",
     "phase": "2-only",
     "kind": "unit",
     "test": "test/pages/download/detail_item_yt_test.dart",
     "catcher": "detail_item_yt_test.dart: a tap: its exported file, as a local file"
+  },
+  {
+    "id": "P2-R1",
+    "patch": "P2-R1.patch",
+    "location": "lib/services/youtube/yt_format_select.dart:217",
+    "change": "no excludeMuxed: a muxed format (itag 18) can be the video of a download",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/yt_format_select_test.dart",
+    "catcher": "yt_format_select_test.dart: itag 18 is not the video stream of a download"
+  },
+  {
+    "id": "P2-R2",
+    "patch": "P2-R2.patch",
+    "location": "lib/services/youtube/yt_format_select.dart:368",
+    "change": "a pin's audio looked for among every track, not the default track's pool",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/yt_format_select_test.dart",
+    "catcher": "yt_format_select_test.dart: pinned to the dub: none — a pin is looked for in the default track's pool only"
+  },
+  {
+    "id": "P2-R3",
+    "patch": "P2-R3.patch",
+    "location": "lib/services/download/download_platform_yt.dart:42",
+    "change": "YtStreamTag: the audio track as its id cleaned up (non-alphanumerics to _), not its digest",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_stream_tag_test.dart",
+    "catcher": "yt_stream_tag_test.dart: en:4 and en_4: two folders"
+  },
+  {
+    "id": "P2-R4",
+    "patch": "P2-R4.patch",
+    "location": "lib/services/download/download_platform_yt.dart:45",
+    "change": "YtStreamTag: no .drc for DRC audio",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_stream_tag_test.dart",
+    "catcher": "yt_stream_tag_test.dart: DRC: a folder of its own, ending .drc"
+  },
+  {
+    "id": "P2-R5",
+    "patch": "P2-R5.patch",
+    "location": "lib/services/youtube/yt_format_select.dart:233",
+    "change": "exactHeight not judged (the nearest under the cap instead)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/yt_format_select_test.dart",
+    "catcher": "yt_format_select_test.dart: a tier that is there: that one, not the cap"
+  },
+  {
+    "id": "P2-R10",
+    "patch": "P2-R10.patch",
+    "location": "lib/services/youtube/direct_source.dart:158",
+    "change": "the direct source answers no-playable-pair for a pin or tier not offered (no no-pinned-pair)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/direct_source_test.dart",
+    "catcher": "direct_source_test.dart: the tier chosen is not offered: no-pinned-pair"
+  },
+  {
+    "id": "P2-R12",
+    "patch": "P2-R12.patch",
+    "location": "lib/services/download/download_platform_yt.dart:70",
+    "change": "YtStreamTag.matches compares the raw track id with the digest of the folder name",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_stream_tag_test.dart",
+    "catcher": "yt_stream_tag_test.dart: matches: the pair of a folder by its name alone"
+  },
+  {
+    "id": "P2-R17",
+    "patch": "P2-R17.patch",
+    "location": "lib/services/youtube/yt_format_select.dart:383",
+    "change": "no preferNonDrc: the higher-bitrate DRC audio over the plain one",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/yt_format_select_test.dart",
+    "catcher": "yt_format_select_test.dart: plain before DRC, though DRC has the higher bitrate"
+  },
+  {
+    "id": "P2-R18",
+    "patch": "P2-R18.patch",
+    "location": "lib/services/youtube/yt_format_select.dart:235",
+    "change": "exactHeight compared with ytShortSide, not ytQualityTier",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/yt_format_select_test.dart",
+    "catcher": "yt_format_select_test.dart: a wide film by tier, not by short side"
+  },
+  {
+    "id": "P2-Q1",
+    "patch": "P2-Q1.patch",
+    "location": "lib/services/youtube/yt_quality_tier.dart:25-29",
+    "change": "ytQualityTier returns the short side (no long side x 9 / 16, no ladder)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/yt_quality_tier_test.dart",
+    "catcher": "yt_quality_tier_test.dart: the §4.5 table"
   }
 ]

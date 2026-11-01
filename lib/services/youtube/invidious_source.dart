@@ -694,6 +694,17 @@ class YtInvidiousSource implements YouTubeVideoSource {
     final resolved = r.value!;
     final picked = selectYtFormats(resolved.formats, preference);
     if (picked == null) {
+      // LibrePili (stage-2 plan §3.3): as the direct source's
+      if (preference.strict &&
+          selectYtFormats(resolved.formats, preference.loose) != null) {
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.contentUnavailable,
+            'no-pinned-pair',
+            'not offered: ${preference.pin ?? 'tier ${preference.exactHeight}'}',
+          ),
+        );
+      }
       return YtResult.failed(
         YtVerdict(
           YtCause.contentUnavailable,

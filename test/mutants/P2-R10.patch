@@ -1,0 +1,12 @@
+diff --git a/lib/services/youtube/direct_source.dart b/lib/services/youtube/direct_source.dart
+--- a/lib/services/youtube/direct_source.dart
++++ b/lib/services/youtube/direct_source.dart
+@@ -155,7 +155,7 @@ class YtDirectSource implements YouTubeVideoSource {
+       // LibrePili (stage-2 plan §3.3): a download's pinned pair or tier is
+       // not here, while the same preference without them finds one — the
+       // download asks the other source (its own router), not this one again
+-      if (preference.strict &&
++      if (preference.strict && identical(preference, 0) &&
+           selectYtFormats(detail.formats, preference.loose) != null) {
+         return YtResult.failed(
+           YtVerdict(

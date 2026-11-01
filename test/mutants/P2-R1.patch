@@ -1,0 +1,11 @@
+diff --git a/lib/services/youtube/yt_format_select.dart b/lib/services/youtube/yt_format_select.dart
+--- a/lib/services/youtube/yt_format_select.dart
++++ b/lib/services/youtube/yt_format_select.dart
+@@ -214,7 +214,6 @@ YtFormat? selectYtVideoFormat(
+         (f) =>
+             f.isVideo &&
+             f.isPlayable &&
+-            !(pref.excludeMuxed && f.isMuxed) &&
+             (!pref.listedCodecsOnly ||
+                 pref.videoCodecs.contains(f.codecFamily)),
+       )

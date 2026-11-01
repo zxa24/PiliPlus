@@ -1,0 +1,12 @@
+diff --git a/lib/services/youtube/yt_format_select.dart b/lib/services/youtube/yt_format_select.dart
+--- a/lib/services/youtube/yt_format_select.dart
++++ b/lib/services/youtube/yt_format_select.dart
+@@ -380,7 +380,7 @@ YtFormat? selectYtAudioFormat(
+   final chosen = picked ?? (pool.toList()..sort(byBitrate)).last;
+ 
+   // DRC only when there is no plain one of the same itag and track
+-  if (pref.preferNonDrc && chosen.isDrc) {
++  if (pref.preferNonDrc && chosen.isDrc && identical(pref, 0)) {
+     final plain =
+         pool
+             .where(

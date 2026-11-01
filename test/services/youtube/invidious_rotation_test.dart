@@ -471,6 +471,42 @@ void main() {
     });
   });
 
+  // LibrePili (stage-2 plan §3.3; AC13): a download's pinned pair not on
+  // this instance while a pair plays: no-pinned-pair, for its own router to
+  // ask the direct source; without a pin, the pick as before
+  group("a download's pin", () {
+    test('a pinned pair the instance does not have: no-pinned-pair', () async {
+      final net = _Net()..serveVideo('a.example', watch, dash, captionList);
+      final source = net.source(['https://a.example']);
+      final r = await source.streams(
+        'dQw4w9WgXcQ',
+        preference: YtFormatPreference.mp4Download(
+          1080,
+          pin: const YtFormatPin(videoItag: 999, audioItag: 140),
+        ),
+      );
+      expect(r.ok, isFalse);
+      expect(r.verdict.cause, YtCause.contentUnavailable);
+      expect(r.verdict.signal, 'no-pinned-pair');
+    });
+
+    test('a tier it does not have: no-pinned-pair; no MP4 at all: as '
+        'before', () async {
+      final net = _Net()..serveVideo('a.example', watch, dash, captionList);
+      final source = net.source(['https://a.example']);
+      final tier = await source.streams(
+        'dQw4w9WgXcQ',
+        preference: YtFormatPreference.mp4Download(1080, exactHeight: 2160),
+      );
+      expect(tier.verdict.signal, 'no-pinned-pair');
+      final plain = await source.streams(
+        'dQw4w9WgXcQ',
+        preference: YtFormatPreference.mp4Download(1080),
+      );
+      expect(plain.ok, isTrue);
+    });
+  });
+
   group('across launches', () {
     /// A CAPTCHA instance, then one behind Anubis whose pass sets
     /// [cookie]; how many times the gate was passed is [passes].

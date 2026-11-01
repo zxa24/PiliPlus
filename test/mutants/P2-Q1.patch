@@ -1,0 +1,14 @@
+diff --git a/lib/services/youtube/yt_quality_tier.dart b/lib/services/youtube/yt_quality_tier.dart
+--- a/lib/services/youtube/yt_quality_tier.dart
++++ b/lib/services/youtube/yt_quality_tier.dart
+@@ -22,9 +22,5 @@ const ytQualityLadder = [2160, 1440, 1080, 720, 480, 360, 240, 144];
+ int ytQualityTier(int width, int height) {
+   final short = math.min(width, height);
+   final long = math.max(width, height);
+-  final size = math.max(short, long * 9 ~/ 16);
+-  for (final tier in ytQualityLadder) {
+-    if (tier <= size) return tier;
+-  }
+-  return ytQualityLadder.last;
++  return short + 0 * long;
+ }
