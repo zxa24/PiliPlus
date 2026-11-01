@@ -105,6 +105,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// The platforms, by [DownloadPlatform.id].
   late final Map<String, DownloadPlatform> _platforms = {_bili.id: _bili};
 
+  /// Tests only: a platform of the test's own (a fake one, to drive the
+  /// service's steps and [DownloadHost] without a real platform).
+  @visibleForTesting
+  void addPlatformForTest(DownloadPlatform platform) =>
+      _platforms[platform.id] = platform;
+
   /// The platform named [id]; null: none this build knows.
   DownloadPlatform? platformNamed(String id) => _platforms[id];
 
@@ -1030,10 +1036,15 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// entry when its turn comes (so the last one writes the newest state,
   /// nothing is lost), and the returned future completes once this call's
   /// state is on disk.
-  Future<void> _saveEntry(DownloadEntry entry) {
+  ///
+  /// [valid] (a save through [DownloadHost.save]): asked again when this
+  /// save's turn comes; false drops it then.
+  Future<void> _saveEntry(DownloadEntry entry, {bool Function()? valid}) {
     final dir = entry.entryDirPath;
     final save = (_entrySaves[dir] ?? Future<void>.value()).then(
-      (_) => platformOf(entry).save(entry),
+      (_) => valid == null || valid()
+          ? platformOf(entry).save(entry)
+          : Future<void>.value(),
     );
     // a failed save must not stall the ones behind it
     final chained = _entrySaves[dir] = save.catchError((Object e) {
@@ -1273,6 +1284,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       if (extras) _queueExtras(entry, output);
     }
   }
+
+  /// Tests only: [_resumeExtras], as a read of the list does for an entry
+  /// it finds complete with its extras pending.
+  @visibleForTesting
+  void resumeExtrasForTest(DownloadEntry entry) => _resumeExtras(entry);
 
   /// Saves the extras of [entry] that an earlier run did not finish.
   void _resumeExtras(DownloadEntry entry) {
@@ -1832,8 +1848,24 @@ final class _Host implements DownloadHost {
   @override
   bool isCurrent(int gen) => gen == _service._startGen;
 
+  /// [gen]'s start is the one under way, [entry] the current download (the
+  /// same object), and its folder there.
+  bool _ofCurrent(int gen, DownloadEntry entry) =>
+      gen == _service._startGen &&
+      identical(_service.curDownload.value, entry) &&
+      Directory(entry.entryDirPath).existsSync();
+
   @override
-  Future<void> save(DownloadEntry entry) => _service._saveEntry(entry);
+  Future<void> save(int gen, DownloadEntry entry) {
+    bool valid() => _ofCurrent(gen, entry);
+    if (!valid()) return Future<void>.value();
+    return _service._saveEntry(entry, valid: valid);
+  }
+
+  /// A transfer is live while it moves bytes.
+  static bool _live(DownloadStatus status) =>
+      status == DownloadStatus.downloading ||
+      status == DownloadStatus.audioDownloading;
 
   @override
   DownloadTransfer? attach(
@@ -1842,12 +1874,24 @@ final class _Host implements DownloadHost {
     DownloadTransfer Function(DownloadTransferReport report) build,
   ) {
     final s = _service;
-    if (gen != s._startGen || s.curDownload.value?.key != entry.key) {
+    if (gen != s._startGen || !identical(s.curDownload.value, entry)) {
+      return null;
+    }
+    // a second transfer while the first still runs would leave the first
+    // writing the same stream files with no one listening: refused
+    if (s._downloadManager case final held? when _live(held.status)) {
+      EventLog.add(
+        'download',
+        '${entry.logLabel}: a second transfer refused, one is running',
+      );
+      assert(false, 'DownloadHost.attach: a transfer is already running');
       return null;
     }
     late final DownloadTransfer transfer;
-    // a callback of a transfer paused, deleted or replaced: dropped
-    bool current() => identical(s._downloadManager, transfer);
+    // done already (its own report is its last), or paused, deleted or
+    // replaced: a callback after it is dropped
+    var finished = false;
+    bool current() => !finished && identical(s._downloadManager, transfer);
     var video = (0, 0);
     var audio = (0, 0);
     void bytes() {
@@ -1856,7 +1900,7 @@ final class _Host implements DownloadHost {
       // the size is saved when it changes, the bytes only in memory (as
       // [_onReceive] does)
       if (total > 0 && entry.totalBytes != total) {
-        s._saveEntry(entry..totalBytes = total);
+        save(gen, entry..totalBytes = total);
       }
       entry
         ..downloadedBytes = video.$1 + audio.$1
@@ -1884,6 +1928,7 @@ final class _Host implements DownloadHost {
       },
       done: ([error]) {
         if (!current()) return;
+        finished = true;
         if (error != null) {
           s._onDone(error);
           return;

@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1891,7 +1891,7 @@ final class _Host implements DownloadHost {
+     // done already (its own report is its last), or paused, deleted or
+     // replaced: a callback after it is dropped
+     var finished = false;
+-    bool current() => !finished && identical(s._downloadManager, transfer);
++    bool current() => identical(s._downloadManager, transfer);
+     var video = (0, 0);
+     var audio = (0, 0);
+     void bytes() {

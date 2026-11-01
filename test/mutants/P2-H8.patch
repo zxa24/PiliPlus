@@ -1,0 +1,18 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1879,14 +1879,6 @@ final class _Host implements DownloadHost {
+     }
+     // a second transfer while the first still runs would leave the first
+     // writing the same stream files with no one listening: refused
+-    if (s._downloadManager case final held? when _live(held.status)) {
+-      EventLog.add(
+-        'download',
+-        '${entry.logLabel}: a second transfer refused, one is running',
+-      );
+-      assert(false, 'DownloadHost.attach: a transfer is already running');
+-      return null;
+-    }
+     late final DownloadTransfer transfer;
+     // done already (its own report is its last), or paused, deleted or
+     // replaced: a callback after it is dropped

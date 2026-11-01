@@ -72,11 +72,19 @@ abstract interface class DownloadHost {
   /// Whether [gen] is still the start under way.
   bool isCurrent(int gen);
 
-  /// While [gen] is current and [entry] is still the current download:
-  /// calls [build] with the service's callbacks, puts the transfer it makes
-  /// into the video slot at once (the audio slot emptied) and returns it.
-  /// Otherwise [build] is not called and null is returned. Every callback
-  /// first checks that the slot still holds this transfer; [build] must not
+  /// While [gen] is current and [entry] is still the current download (the
+  /// same object): calls [build] with the service's callbacks, puts the
+  /// transfer it makes into the video slot at once (the audio slot emptied)
+  /// and returns it. Otherwise [build] is not called and null is returned.
+  ///
+  /// One live transfer per start: while the slot holds a transfer that
+  /// still moves bytes (`downloading` / `audioDownloading`), another attach
+  /// is refused — an assertion in a debug build, null and an event-log line
+  /// otherwise — and the running one is left as it is.
+  ///
+  /// Every callback first checks that the slot still holds this transfer
+  /// and that its `done` has not come yet: a callback after `done`, or of a
+  /// transfer paused, deleted or replaced, is dropped. [build] must not
   /// call any of them itself.
   DownloadTransfer? attach(
     int gen,
@@ -84,8 +92,13 @@ abstract interface class DownloadHost {
     DownloadTransfer Function(DownloadTransferReport report) build,
   );
 
-  /// Saves [entry]'s record after the saves of it already under way.
-  Future<void> save(DownloadEntry entry);
+  /// Saves [entry]'s record after the saves of it already under way — for
+  /// [gen]'s start only: while [gen] is current, [entry] is the current
+  /// download (the same object) and its folder is there. A stale save is
+  /// dropped, checked now and again when its turn in the queue comes (a
+  /// late save of a deleted download must not write over the record of
+  /// one added again in the same folder).
+  Future<void> save(int gen, DownloadEntry entry);
 }
 
 /// What [DownloadPlatform.resolve] found for one start (stage-2 plan §2.3).
@@ -193,6 +206,11 @@ abstract interface class DownloadPlatform {
 
   /// Starts the transfers; [plan] is null when [streamsComplete]. [gen] is
   /// the start's generation.
+  ///
+  /// It returns once they are started, never awaiting a transfer's task:
+  /// the service holds its start lock until it returns, and a pause, a
+  /// delete or the next start (and the merge after the transfer) wait on
+  /// that lock.
   Future<void> transport(DownloadEntry entry, DownloadPlan? plan, int gen);
 
   /// A failed start before the transfers counts as the network's whatever

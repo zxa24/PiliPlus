@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1237,7 +1237,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+       ..mergedParts = parts.length > 1 ? parts.sublist(1) : null
+       ..isCompleted = true
+       // comments / subtitles etc. are saved after the video (see below)
+-      ..extrasPending = output != null;
++      ..extrasPending = output != null && platform.extrasEnabled;
+     await _saveEntry(entry);
+     if (output != null) {
+       for (final input in inputs) {

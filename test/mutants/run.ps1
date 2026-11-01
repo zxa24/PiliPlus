@@ -10,6 +10,8 @@
 #        [-Flutter <flutter.bat>] [-Work <dir>] [-SelfTestAll] [-SelfTestTree <dir>]
 #        [-NoUnit] [-AsrModels <dir>]
 #   pwsh -NoProfile -File test/mutants/run.ps1 -Compare <baseDir>,<otherDir>
+#   pwsh -NoProfile -File test/mutants/run.ps1 -Phase 2 -Union <dir>,<dir>
+#        (the result folders of one commit's runs cover -Phase 2's ids)
 #
 # Unit / widget mutants (those with a `test`): they share ONE worktree,
 # _tmp/mutants/unit/ on -Commit (packages resolved once). First each test
@@ -89,9 +91,13 @@
 #   download    mutants.json (a bare array), scenarios download / queue99 /
 #               transcribe / listshots, -Phase 0|1a|1b|2. The default plan.
 #               -Phase 2 (stage 2 of the download platforms, its plan §6.3)
-#               runs every mutant: both, 1a-only, 1b-only and 2-only; with
-#               no -Only it first checks how many of each it has picked
-#               ($phase2Counts below) and stops when they differ.
+#               runs every mutant: both, 1a-only, 1b-only and 2-only. Every
+#               download run first checks mutants.json (ids unique, phases
+#               known); -Phase 2 with no -Only checks that it picked exactly
+#               stage 1's 61 frozen ids and the ids each stage-2 commit
+#               lists ($dlStage1 / $dlStage2), and -Union checks that the
+#               result folders of a run stopped and resumed with -Only cover
+#               the same ids together.
 #   watch_page  wp-mutants.json, design feature-logs/watch-page-shell/
 #               design.md §5 S0b 「runner 通用化」: -Plan watch_page.
 #
@@ -351,7 +357,9 @@ param(
     [string]$PlanFile = '',
     [string]$OriginMap = '',
     [string[]]$CheckTestSide = @(),
-    [switch]$LoadOnly
+    [switch]$LoadOnly,
+    # download plan, -Phase 2: result folders to check together (no run)
+    [string[]]$Union = @()
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3.0
@@ -2050,6 +2058,111 @@ function Get-WpCrashNote([string]$report) {
     return $(if ($c['report']) { "crashed once before its report ($exits), the rerun wrote it" } else { "crashed $n times before its report ($exits): no report" })
 }
 
+# ------------------------------------------------------- download plan: its ids
+# The download plan's mutants as they must be (stage-2 plan §6.3, the review
+# of 2a): stage 1's 61 with their phases, frozen as they were at 57cf441a5,
+# and the stage-2 ids each of its commits adds (all '2-only'), commit by
+# commit. -Phase 2 runs exactly these; a commit that adds mutants adds its
+# row here. Every download run first checks mutants.json itself: ids unique,
+# every phase one of $dlPhases.
+$script:dlPhases = @('both', '1a-only', '1b-only', '2-only')
+$script:dlStage1 = [ordered]@{
+    'M1' = 'both'; 'M2' = 'both'; 'M3' = 'both'; 'M4' = 'both'; 'M5' = 'both'; 'M6' = 'both'
+    'M7' = 'both'; 'M8' = 'both'; 'M9' = 'both'; 'M10' = 'both'; 'M11' = 'both'; 'M12' = 'both'
+    'M13' = 'both'; 'M14' = 'both'; 'M14b' = 'both'; 'M15' = 'both'; 'M16' = 'both'; 'M17' = 'both'
+    'M18' = 'both'; 'M19' = 'both'; 'M20' = 'both'; 'M21' = 'both'; 'M22' = 'both'; 'M23' = 'both'
+    'M24' = 'both'; 'M25' = 'both'; 'M26' = 'both'; 'M27' = 'both'; 'M28' = 'both'; 'M29' = 'both'
+    'M30' = 'both'; 'M31' = 'both'; 'M32' = 'both'; 'M33' = 'both'; 'M34' = 'both'; 'M35' = 'both'
+    'M36' = 'both'; 'M37' = 'both'; 'M38' = 'both'; 'M39' = 'both'; 'M40' = 'both'; 'M41' = 'both'
+    'M42' = 'both'; 'M43' = 'both'; 'M44' = 'both'; 'M45' = 'both'; 'M46' = 'both'; 'M47' = 'both'
+    'M48' = 'both'; 'M49' = 'both'; 'M50' = 'both'; 'M51' = 'both'; 'M52' = 'both'; 'M53' = 'both'
+    'M54' = 'both'; 'M55' = 'both'; 'M56' = '1b-only'; 'M57a' = '1a-only'; 'M57b' = '1a-only'; 'M58' = 'both'
+    'M59' = 'both'
+}
+$script:dlStage2 = [ordered]@{
+    '2a' = @('P2-S1', 'P2-S2', 'P2-S4', 'P2-S7', 'P2-F12', 'P2-H6', 'P2-H7', 'P2-H8', 'P2-E1', 'P2-E2', 'P2-E3')
+}
+
+# ids unique, phases known: throws on the first that is not
+function Test-DownloadManifest($all) {
+    $seen = @{}
+    foreach ($m in @($all)) {
+        $id = "$($m['id'])"
+        if (-not $id) { throw 'mutants.json: an entry with no id' }
+        if ($seen.ContainsKey($id)) { throw "mutants.json: id $id is there twice" }
+        $seen[$id] = $true
+        if ($script:dlPhases -notcontains "$($m['phase'])") { throw "mutants.json: $id has phase '$($m['phase'])', not one of $($script:dlPhases -join ', ')" }
+    }
+}
+
+# the ids -Phase 2 must run, in order
+function Get-DownloadPhase2Ids {
+    $ids = [System.Collections.Generic.List[string]]::new()
+    foreach ($id in $script:dlStage1.Keys) { $ids.Add($id) }
+    foreach ($c in $script:dlStage2.Keys) { foreach ($id in $script:dlStage2[$c]) { $ids.Add($id) } }
+    return , $ids
+}
+
+# mutants.json against the frozen stage-1 ids and the stage-2 rows, and
+# [picked] (what -Phase 2 selected) against both: throws listing what differs
+function Test-DownloadPhase2($all, $picked) {
+    $byId = @{}
+    foreach ($m in @($all)) { $byId["$($m['id'])"] = $m }
+    $problems = [System.Collections.Generic.List[string]]::new()
+    foreach ($id in $script:dlStage1.Keys) {
+        if (-not $byId.ContainsKey($id)) { $problems.Add("stage-1 $id is not in mutants.json") }
+        elseif ("$($byId[$id]['phase'])" -ne $script:dlStage1[$id]) { $problems.Add("stage-1 $id has phase $($byId[$id]['phase']), not $($script:dlStage1[$id])") }
+    }
+    foreach ($c in $script:dlStage2.Keys) {
+        foreach ($id in $script:dlStage2[$c]) {
+            if (-not $byId.ContainsKey($id)) { $problems.Add("$c's $id is not in mutants.json") }
+            elseif ("$($byId[$id]['phase'])" -ne '2-only') { $problems.Add("$c's $id has phase $($byId[$id]['phase']), not 2-only") }
+        }
+    }
+    $expected = Get-DownloadPhase2Ids
+    $ids = @($picked | ForEach-Object { "$($_['id'])" })
+    foreach ($id in $expected) { if ($ids -notcontains $id) { $problems.Add("-Phase 2 did not pick $id") } }
+    foreach ($id in $ids) { if ($expected -notcontains $id) { $problems.Add("-Phase 2 picked $id, which no commit lists") } }
+    if ($problems.Count) { throw "-Phase 2: $($problems -join '; ')" }
+}
+
+# -Union: the result folders of one commit's runs (a full run stopped and
+# resumed with -Only) together cover exactly -Phase 2's ids. Returns a
+# summary; throws when the folders are of different commits or phases, or
+# their ids are not exactly the expected ones
+function Test-DownloadUnion([string[]]$dirs) {
+    $expected = Get-DownloadPhase2Ids
+    $rows = [ordered]@{}
+    $commits = @{}
+    foreach ($d in $dirs) {
+        $f = Join-Path $d 'results.json'
+        if (-not (Test-Path -LiteralPath $f)) { throw "-Union: no results.json in $d" }
+        $r = Get-Content -Raw -LiteralPath $f | ConvertFrom-Json -AsHashtable
+        $commits["$($r['header']['commit'])"] = $true
+        if ("$($r['header']['phase'])" -ne '2') { throw "-Union: $d is a -Phase $($r['header']['phase']) run" }
+        foreach ($x in @($r['results'])) {
+            $id = "$($x['id'])"
+            if (-not $rows.Contains($id)) { $rows[$id] = [System.Collections.Generic.List[object]]::new() }
+            $rows[$id].Add([ordered]@{ dir = $d; result = "$($x['result'])" })
+        }
+    }
+    if ($commits.Count -ne 1) { throw "-Union: the folders are of $($commits.Count) commits ($(@($commits.Keys) -join ', '))" }
+    $missing = @($expected | Where-Object { -not $rows.Contains($_) })
+    $extra = @($rows.Keys | Where-Object { $expected -notcontains $_ })
+    $twice = @($rows.Keys | Where-Object { $rows[$_].Count -gt 1 })
+    # a mutant run in two folders: its last row (the later folder) counts
+    $final = [ordered]@{}
+    foreach ($id in $rows.Keys) { $final[$id] = $rows[$id][$rows[$id].Count - 1].result }
+    $summary = [ordered]@{
+        commit = @($commits.Keys)[0]; expected = $expected.Count; covered = $rows.Count
+        caught = @($final.Values | Where-Object { $_ -eq 'caught' }).Count
+        notCaught = @($final.Keys | Where-Object { $final[$_] -ne 'caught' })
+        missing = $missing; extra = $extra; twice = $twice
+    }
+    if ($missing.Count -or $extra.Count) { throw "-Union: missing $($missing -join ', '); not expected $($extra -join ', ')" }
+    return $summary
+}
+
 if ($LoadOnly) { return }
 
 # which plan: -Plan, else watch_page when every -Compare folder says so
@@ -2173,7 +2286,8 @@ if (-not $Out) {
     $Out = if ($Alternate) { Join-Path $root "_tmp\wp-runs\$(Get-Date -Format yyyyMMdd-HHmmss)" }
     else { Join-Path $root "_tmp\mutants-results\$(Get-Date -Format yyyyMMdd-HHmmss)" }
 }
-if (-not $dry) {
+# -Union reads result folders only: nothing is made
+if (-not $dry -and -not $Union.Count) {
     New-Item -ItemType Directory -Force $Out | Out-Null
     $Out = (Resolve-Path $Out).Path
 }
@@ -2181,11 +2295,12 @@ if (-not $dry) {
 # deep: MSVC cannot open plugin headers past 260 characters (a build in
 # .claude\worktrees\<agent>\_tmp\mutants\selftest reaches 263)
 $work = if ($Work) { $Work } else { Join-Path $root '_tmp\mutants' }
-if (-not $dry) { New-Item -ItemType Directory -Force $work | Out-Null }
+if (-not $dry -and -not $Union.Count) { New-Item -ItemType Directory -Force $work | Out-Null }
 
 if (-not $script:wp) {
     if ($Phase -notin '0', '1a', '1b', '2') { throw "-Phase $Phase is a watch_page phase; the download plan has 0, 1a, 1b and 2" }
     $all = Get-Content -Raw (Join-Path $here 'mutants.json') | ConvertFrom-Json -AsHashtable
+    Test-DownloadManifest $all
     $phases = @{ '0' = @('both'); '1a' = @('both', '1a-only'); '1b' = @('1b-only'); '2' = @('both', '1a-only', '1b-only', '2-only') }[$Phase]
     $todo = @($all | Where-Object {
             ($Only.Count -eq 0 -or $Only -contains $_['id']) -and (
@@ -2193,19 +2308,20 @@ if (-not $script:wp) {
                 # 1b: also the self-test items it touches (--download-transcribe)
                 ($Phase -eq '1b' -and $_.Contains('scenario') -and $_['scenario'] -eq 'transcribe'))
         })
-    if ($Phase -eq '2' -and $Only.Count -eq 0) {
+    if ($Phase -eq '2') {
         # stage 2 runs all of them (its plan §6.3, review X7: the first -Phase
-        # 2 left out 1a-only and 1b-only). How many of each it picks: the 61
-        # of stage 1, and the stage-2 mutants each of its commits adds (2a:
-        # 5; 2f: 94, 155 in all) — a commit that adds some raises 2-only
-        $phase2Counts = [ordered]@{ 'both' = 58; '1a-only' = 2; '1b-only' = 1; '2-only' = 5 }
-        foreach ($p in $phase2Counts.Keys) {
-            $n = @($todo | Where-Object { $_['phase'] -eq $p }).Count
-            if ($n -ne $phase2Counts[$p]) { throw "-Phase 2 picked $n mutants of phase $p, not $($phase2Counts[$p]) (mutants.json or `$phase2Counts is wrong)" }
+        # 2 left out 1a-only and 1b-only): exactly the frozen stage-1 ids and
+        # the ids its commits list
+        $everything = @($all | Where-Object { $phases -contains $_['phase'] })
+        if ($Only.Count -eq 0) { Test-DownloadPhase2 $all $todo } else { Test-DownloadPhase2 $all $everything }
+        if ($Union.Count) {
+            $u = Test-DownloadUnion $Union
+            "-Union: $($u.covered) of $($u.expected) mutants covered, $($u.caught) caught, at $($u.commit)" +
+            $(if ($u.notCaught.Count) { "; not caught: $($u.notCaught -join ', ')" }) +
+            $(if ($u.twice.Count) { "; run twice (the later folder counts): $($u.twice -join ', ')" })
+            return
         }
-        $total = ($phase2Counts.Values | Measure-Object -Sum).Sum
-        if ($todo.Count -ne $total) { throw "-Phase 2 picked $($todo.Count) mutants, not $total" }
-    }
+    } elseif ($Union.Count) { throw '-Union is for -Phase 2' }
 } else {
     $wpPlan = Read-WpPlan
     if (-not $PSBoundParameters.ContainsKey('Phase')) { $Phase = $wpPlan.defaultPhase }

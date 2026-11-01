@@ -417,11 +417,6 @@ extension _BiliDownload on DownloadService {
           source: entry.source,
           pageData: entry.pageData,
         );
-    if (oldTypeTag != null &&
-        oldTypeTag.isNotEmpty &&
-        oldTypeTag != entry.typeTag) {
-      debugPrint('download stream changed: $oldTypeTag -> ${entry.typeTag}');
-    }
     return _BiliPlan(mediaFileInfo, oldTypeTag, entry.streamTypeTag);
   }
 
@@ -430,6 +425,13 @@ extension _BiliDownload on DownloadService {
   void _transportBili(BiliDownloadEntryInfo entry, _BiliPlan plan) {
     final mediaFileInfo = plan.media;
     final oldTypeTag = plan.oldTypeTag;
+    // said for a start still current only (it was said right after the
+    // play URL's generation check; this runs after the last one)
+    if (oldTypeTag != null &&
+        oldTypeTag.isNotEmpty &&
+        oldTypeTag != entry.typeTag) {
+      debugPrint('download stream changed: $oldTypeTag -> ${entry.typeTag}');
+    }
     final videoDir = Directory(DownloadService._streamDirPath(entry));
     switch (mediaFileInfo) {
       case Type1 mediaFileInfo:
