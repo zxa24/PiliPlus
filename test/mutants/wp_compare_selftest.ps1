@@ -815,6 +815,81 @@ $cr = Invoke-WpCatcher $tr @('branch') $e1.rep $rootA $rootA '' $crashRun (Join-
 Check $c12[3] ($cr['note'] -match 'crashed once') "$($cr.result), note: $($cr['note'])"
 }
 
+# ================================================================ the mutant plan (S0b part 5, audit-logs/wps-s0b/c5-review-*.md)
+# A test plan (-PlanFile) and its own tables (-FieldTables): the cross-check
+# of wp-mutants.json against the tables, both ways; the pending entries of
+# later steps; the mutant mode's -DryRun. Nothing is built or launched.
+# (no variable named $plan here: the dot-sourced runner's [ValidateSet] -Plan is in scope)
+function New-Plan([string]$dir, [object[]]$mutants) {
+    $file = Join-Path $dir 'plan.json'
+    Write-Json ([ordered]@{
+            plan = 'watch_page'; phases = [ordered]@{ S0 = @('S0'); S1 = @('S0'); S1b = @('S1b'); S1c = @('S1c'); S2 = @('S2') }
+            defaultPhase = 'S0'; prefs = @(); media = @(); mutants = @($mutants)
+        }) $file
+    # the S0 mutant's patch, beside the plan (only its presence is checked)
+    Set-Content -LiteralPath (Join-Path $dir 'wp-A.patch') -Value 'diff --git a/lib/x.dart b/lib/x.dart'
+    return $file
+}
+function Mut([string]$id = 'wp-A', [string[]]$expected = @('branch')) {
+    [ordered]@{ id = $id; patch = "$id.patch"; location = 'lib/x.dart:1'; change = 'test'; landing = 'S0'; kind = 'selftest'; catcher = 'test'
+        catchers = @([ordered]@{ check = 'wpT'; expected = @($expected) }) }
+}
+function Pend([string]$id = 'wp-P', [string]$landing = 'S1b', [hashtable]$extra = @{}) {
+    $e = [ordered]@{ id = $id; change = 'test'; landing = $landing; kind = 'selftest'; catcher = 'test'; pending = 'written in its step' }
+    foreach ($k in $extra.Keys) { $e[$k] = $extra[$k] }
+    return $e
+}
+# one table, wpT: "branch" names wp-A (+ $more ids), "other" names none
+function New-PlanTables([string]$dir, [string[]]$more = @()) {
+    $fb = F 'branch'; $fb['expectedFor'] = @(@('wp-A') + $more)
+    New-Table $dir 'wpT' @($fb, (F 'other'))
+}
+# run.ps1 in the mutant mode on that plan; -> @{ code; text; out; work }
+function Invoke-Plan([string]$dir, [string]$planPath, [string]$tables, [string[]]$more = @('-DryRun')) {
+    $o = Join-Path $dir ("out-" + (Get-Random)); $w = Join-Path $dir ("work-" + (Get-Random))
+    $text = & pwsh -NoProfile -File $runner -Plan watch_page -PlanFile $planPath -FieldTables $tables -Out $o -Work $w @more 2>&1 | Out-String
+    return @{ code = $LASTEXITCODE; text = (Flat $text); out = $o; work = $w }
+}
+
+$k = New-Case 'p-good'
+New-PlanTables $k.tables
+$pf = New-Plan $k.dir @((Mut), (Pend))
+$wt0 = @(git -C $root worktree list --porcelain).Count
+$r = Invoke-Plan $k.dir $pf $k.tables
+$wt1 = @(git -C $root worktree list --porcelain).Count
+Check '[c5] mutant-mode -DryRun: lists the S0 mutant and its catcher, writes nothing (no -Out, no -Work, no worktree)' (
+    $r.code -eq 0 -and $r.text -match 'dry run: nothing is built, launched or written' -and $r.text -match 'wp-A S0 lib/x\.dart:1 wpT \[branch\]' -and
+    $r.text -match 'baselines: 1 unmutated runs for 1 tables' -and -not (Test-Path $r.out) -and -not (Test-Path $r.work) -and $wt0 -eq $wt1) "exit $($r.code); out $(Test-Path $r.out), work $(Test-Path $r.work), worktrees $wt0 -> $wt1"
+
+$r = Invoke-Plan $k.dir $pf $k.tables @('-Phase', 'S1b', '-Flutter', 'C:/fake/flutter.bat')
+$md = Join-Path $r.out 'results.md'
+$mdText = if (Test-Path $md) { Flat (Get-Content -Raw $md) } else { '' }
+Check '[c5] -Phase S1b: the pending entry is listed "not written" and the run exits 1' (
+    $r.code -eq 1 -and $r.text -match 'wp-P not written' -and $mdText -match 'wp-P .*\*\*not written\*\*' -and $mdText -notmatch 'wp-A' -and
+    $r.text -match 'done in \d+ min: 0 caught, 1 not \(wp-P not written\)' -and $r.text -notmatch 'Exception|cannot be found') "exit $($r.code); $(($r.text -split 'done in')[1] | Select-Object -First 1)"
+
+$k = New-Case 'p-lacks'
+New-PlanTables $k.tables @('wp-Z')
+$r = Invoke-Plan $k.dir (New-Plan $k.dir @((Mut))) $k.tables
+Check '[c5] cross-check: a table names an id the plan lacks -> refused' ($r.code -ne 0 -and $r.text -match 'wpT\.branch names wp-Z in expectedFor, but that mutant does not expect it') "exit $($r.code)"
+
+$k = New-Case 'p-field'
+New-PlanTables $k.tables
+$r = Invoke-Plan $k.dir (New-Plan $k.dir @((Mut 'wp-A' @('branch', 'other')))) $k.tables
+Check '[c5] cross-check: an entry expects a field that does not name it -> refused' ($r.code -ne 0 -and $r.text -match 'wp-A: wpT\.other does not name it in expectedFor') "exit $($r.code)"
+
+$k = New-Case 'p-landing'
+New-PlanTables $k.tables
+$r = Invoke-Plan $k.dir (New-Plan $k.dir @((Mut), (Pend 'wp-P' 'S1B'))) $k.tables
+$r0 = Invoke-Plan $k.dir (New-Plan $k.dir @((Mut), (Pend 'wp-Q' 'S0'))) $k.tables
+Check '[c5] pending: a landing no phase runs ("S1B") or S0 -> refused' (
+    $r.code -ne 0 -and $r.text -match "wp-P: pending landing 'S1B' is not one a phase runs" -and $r0.code -ne 0 -and $r0.text -match 'wp-Q: an S0 mutant cannot be pending') "exit $($r.code) / $($r0.code)"
+
+$k = New-Case 'p-patch'
+New-PlanTables $k.tables
+$r = Invoke-Plan $k.dir (New-Plan $k.dir @((Mut), (Pend 'wp-P' 'S1b' @{ patch = 'wp-P.patch'; location = 'lib/x.dart:2' }))) $k.tables
+Check '[c5] pending: an entry with a patch or a location -> refused' ($r.code -ne 0 -and $r.text -match 'wp-P: a pending entry has no patch yet' -and $r.text -match 'wp-P: a pending entry has no location yet') "exit $($r.code)"
+
 # ================================================================ summary
 $bad = @($results | Where-Object { -not $_.ok })
 ''

@@ -1,0 +1,12 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..37e931a75 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -837,7 +837,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                   if (kDebugMode) {
+                     debugPrint('handlePlay: videoUrl/audioUrl not initialized');
+                   }
+-                  videoDetailController.queryVideoUrl();
+                   return;
+                 }
+               }

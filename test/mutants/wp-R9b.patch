@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..b818796c9 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -503,8 +503,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+       videoDetailController.plPlayerController.pause();
+     }
+ 
+-    PlPlayerController.setPlayCallBack(playCallBack);
+-
+     introController.startTimer();
+ 
+     if (mounted &&

@@ -1,0 +1,21 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..a9c5430af 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1431,12 +1431,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   Widget build(BuildContext context) {
+     SelfTestProbe.recorder?.built('build', heroTag, Size(maxWidth, maxHeight));
+     Widget child;
+-    if (videoDetailController.plPlayerController.isPipMode) {
+-      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);
+-      child = plPlayer(width: maxWidth, height: maxHeight, isPipMode: true);
+-    } else if (!videoDetailController.horizontalScreen) {
++    if (!videoDetailController.horizontalScreen) {
+       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.portrait);
+       child = childWhenDisabled;
++    } else if (videoDetailController.plPlayerController.isPipMode) {
++      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);
++      child = plPlayer(width: maxWidth, height: maxHeight, isPipMode: true);
+     } else if (maxWidth / maxHeight >= kScreenRatio) {
+       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.landscape);
+       child = childWhenDisabledLandscape;

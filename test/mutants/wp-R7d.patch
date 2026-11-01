@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
+index 989e78b1f..542026cad 100644
+--- a/lib/pages/video/controller.dart
++++ b/lib/pages/video/controller.dart
+@@ -2447,7 +2447,7 @@ class VideoDetailController extends GetxController
+         ),
+       );
+     }
+-    if (plPlayerController.isFullScreen.value || showVideoSheet) {
++    if (showVideoSheet) {
+       final child = PostPanel(
+         enableSlide: false,
+         videoDetailController: this,

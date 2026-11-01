@@ -1,0 +1,12 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..d8c5c28a1 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -567,7 +567,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+       width: maxWidth * videoDetailController.uiScale,
+       height: maxHeight * videoDetailController.uiScale,
+     );
+-    videoDetailController.plPlayerController.screenRatio = maxHeight / maxWidth;
+ 
+     final shortestSide = size.shortestSide;
+     final minVideoHeight = shortestSide / Style.aspectRatio16x9;

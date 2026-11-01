@@ -1,0 +1,18 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..771924ef5 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -841,12 +841,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                   return;
+                 }
+               }
+-              if (plPlayerController == null ||
+-                  videoDetailController.playedTime == null) {
+-                handlePlay();
+-              } else {
+-                plPlayerController!.onDoubleTapCenter();
+-              }
++              handlePlay();
+             },
+             behavior: .opaque,
+             child: _buildOverlayToolBar(scrollRatio),

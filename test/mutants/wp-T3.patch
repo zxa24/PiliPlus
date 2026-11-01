@@ -1,0 +1,29 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..40b23c912 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -594,6 +594,15 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     return Obx(
+       () {
+         final isFullScreen = this.isFullScreen;
++        final playerAtBuild = videoPlayer(
++          width: maxWidth,
++          height: isFullScreen || !isPortrait
++              ? maxHeight - (isWindowMode && !isPortrait ? 0 : padding.top)
++              : videoDetailController.isExpanding ||
++                    videoDetailController.isCollapsing
++              ? videoDetailController.animHeight
++              : videoDetailController.videoHeight,
++        );
+         return SimpleScaffold(
+           appBar: removeAppBar(isFullScreen)
+               ? null
+@@ -677,7 +686,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                       SizedBox(
+                         width: maxWidth,
+                         height: height,
+-                        child: videoPlayer(width: maxWidth, height: height),
++                        child: playerAtBuild,
+                       ),
+                       _buildHeaderOverlay(),
+                     ],

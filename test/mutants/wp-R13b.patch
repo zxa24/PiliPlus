@@ -1,0 +1,19 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..f574f8632 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1460,13 +1460,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+         plPlayerController: videoDetailController.plPlayerController,
+         introController: introController,
+         onSendDanmaku: videoDetailController.showShootDanmakuSheet,
+-        canPlay: () {
+-          if (videoDetailController.autoPlay) {
+-            return true;
+-          }
+-          handlePlay();
+-          return false;
+-        },
++        canPlay: () => true,
+         onSkipSegment: videoDetailController.onSkipSegment,
+         child: child,
+       );

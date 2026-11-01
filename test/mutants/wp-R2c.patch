@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..f84a697cc 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1131,7 +1131,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+ 
+   Widget _childWhenDisabledAlmostSquareInner(bool isFullScreen) {
+     final shouldShowSeasonPanel = _shouldShowSeasonPanel;
+-    final double height = maxHeight / 2.5;
++    final double height = maxHeight / 2.4;
+     final videoHeight = isFullScreen
+         ? maxHeight - (isWindowMode && !isPortrait ? 0 : padding.top)
+         : height;

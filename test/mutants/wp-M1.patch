@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
+index 989e78b1f..000b72143 100644
+--- a/lib/pages/video/controller.dart
++++ b/lib/pages/video/controller.dart
+@@ -334,7 +334,7 @@ class VideoDetailController extends GetxController
+   void _calcAnimHeight() {
+     if (isExpanding) {
+       animHeight = clampDouble(
+-        videoHeight * animationController.value,
++        videoHeight * animationController.value * animationController.value,
+         kToolbarHeight,
+         videoHeight,
+       );

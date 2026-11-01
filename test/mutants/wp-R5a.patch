@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..7baf3315d 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -641,7 +641,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                   : videoDetailController.isCollapsing ||
+                         (plPlayerController?.playerStatus.isPlaying ?? false)
+                   ? videoDetailController.minVideoHeight
+-                  : kToolbarHeight;
++                  : videoDetailController.minVideoHeight;
+               if (videoDetailController.isExpanding &&
+                   videoDetailController.animationController.value == 1) {
+                 videoDetailController.isExpanding = false;

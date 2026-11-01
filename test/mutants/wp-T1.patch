@@ -1,0 +1,29 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..e9f097cf9 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -141,6 +141,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   }
+ 
+   final videoReplyPanelKey = GlobalKey();
++  int _cidAtBuild = 0;
+   final videoRelatedKey = GlobalKey();
+   final videoIntroKey = GlobalKey();
+ 
+@@ -1430,6 +1431,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   @override
+   Widget build(BuildContext context) {
+     SelfTestProbe.recorder?.built('build', heroTag, Size(maxWidth, maxHeight));
++    _cidAtBuild = videoDetailController.cid.value;
+     Widget child;
+     if (videoDetailController.plPlayerController.isPipMode) {
+       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);
+@@ -1939,7 +1941,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+           PgcIntroPage(
+             key: videoIntroKey,
+             heroTag: heroTag,
+-            cid: videoDetailController.cid.value,
++            cid: _cidAtBuild,
+             showEpisodes: showEpisodes,
+             showIntroDetail: showIntroDetail,
+             maxWidth: width ?? maxWidth,

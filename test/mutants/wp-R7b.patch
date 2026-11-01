@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..b761772fe 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -2265,7 +2265,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   }
+ 
+   void showViewPoints() {
+-    if (isFullScreen || videoDetailController.showVideoSheet) {
++    if (videoDetailController.showVideoSheet) {
+       final child = ViewPointsPage(
+         enableSlide: false,
+         videoDetailController: videoDetailController,

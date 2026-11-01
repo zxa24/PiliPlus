@@ -1,0 +1,12 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..b1c706b43 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1314,7 +1314,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     required double height,
+     bool isPipMode = false,
+   }) => popScope(
+-    key: videoDetailController.videoPlayerKey,
+     canPop:
+         !isFullScreen &&
+         !videoDetailController.plPlayerController.isDesktopPip &&

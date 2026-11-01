@@ -1,0 +1,21 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..b2a8a8bd6 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -141,6 +141,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   }
+ 
+   final videoReplyPanelKey = GlobalKey();
++  final _portraitTabAreaKey = GlobalKey();
+   final videoRelatedKey = GlobalKey();
+   final videoIntroKey = GlobalKey();
+ 
+@@ -686,7 +687,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+               ];
+             },
+             body: MiniScaffold(
+-              key: videoDetailController.childKey,
++              key: _portraitTabAreaKey,
+               body: Column(
+                 children: [
+                   buildTabBar(onTap: videoDetailController.animToTop),

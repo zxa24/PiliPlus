@@ -1,6 +1,6 @@
 {
   "plan": "watch_page",
-  "about": "watch_page mutants (design feature-logs/watch-page-shell/design.md §6.6). Read by run.ps1 -Plan watch_page; schema in run.ps1's header and below. The entries are written in a later part of S0b; the two below are EXAMPLES (example: true), skipped by the runner.",
+  "about": "watch_page mutants (design feature-logs/watch-page-shell/design.md §6.6). Read by run.ps1 -Plan watch_page; schema in run.ps1's header and below. The S0 entries (66, S0b part 5) each have a patch and catchers; the later steps' (S1b 8, S1c 7, S2 9) are \"pending\" until their step writes them.",
   "schema": {
     "phases": "-Phase -> the landing steps (\"landing\") whose mutants run in it",
     "defaultPhase": "-Phase when none is given",
@@ -15,7 +15,8 @@
       "catcher": "the design's 「抓它的检查」, as text",
       "kind": "selftest",
       "catchers": "[{check: <field table id>, expected: [<field names of that table>, or \"uiErrorKeys\"]}]: caught when an expected field differs from the unmutated baseline; the fields must name the mutant in expectedFor",
-      "uncovered": "optional: why no check can reach it (未覆盖): listed, not run"
+      "uncovered": "optional: why no check can reach it (未覆盖): listed, not run",
+      "pending": "a later step's mutant (landing S1b / S1c / S2): no patch, location or catchers yet; left out of other phases' runs, listed \"not written\" in its own (run.ps1 header)"
     }
   },
   "phases": {
@@ -55,27 +56,1356 @@
   "media": [],
   "mutants": [
     {
-      "example": true,
+      "id": "wp-R1a",
+      "patch": "wp-R1a.patch",
+      "location": "lib/pages/video/view.dart:1437",
+      "change": "the 「横屏适配」-on landscape test moved before the 「横屏适配关」 test in build() (B:1413-1414 at c900b3cd4; today view.dart:1437-1442)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.4 R1/R2 「横屏适配关」 1280×720 (branch)",
+      "catchers": [
+        {
+          "check": "R1-hsoff-1280x720",
+          "expected": [
+            "end.branch.geometry.label"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R1b",
+      "patch": "wp-R1b.patch",
+      "location": "lib/pages/video/view.dart:1440",
+      "change": "kScreenRatio 1.2 -> 1.1 in the shell's branch choice only (build(), view.dart:1440; videoIntro's isHorizontal keeps kScreenRatio)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "850×720 (branch)",
+      "catchers": [
+        {
+          "check": "R1-850x720",
+          "expected": [
+            "end.branch.geometry.label"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R1c",
+      "patch": "wp-R1c.patch",
+      "location": "lib/pages/video/view.dart:931",
+      "change": "isVertical read in build(), outside every Obx, and passed into the three-column choice (B:915-916; today view.dart:931); the inner Obx stays (dropping only it is equivalent, wp4#4)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.4 R1 「isVertical 变化」 1280×720 (the branch after the play URL)",
+      "catchers": [
+        {
+          "check": "R1-isvert-1280x720",
+          "expected": [
+            "end.branch.geometry.label"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R1d",
+      "patch": "wp-R1d.patch",
+      "location": "lib/pages/video/view.dart:1117",
+      "change": "the same in the near-square choice (B:1096-1098; today view.dart:1117)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.4 R1 「isVertical 变化」 900×800 (the branch after the play URL)",
+      "catchers": [
+        {
+          "check": "R1-isvert-900x800",
+          "expected": [
+            "end.branch.geometry.label"
+          ]
+        }
+      ]
+    },
+    {
       "id": "wp-R2a",
       "patch": "wp-R2a.patch",
-      "location": "lib/pages/video/view.dart:979",
-      "change": "EXAMPLE ONLY: the right column's clamp 280 -> 300 (B:979-991)",
+      "location": "lib/pages/video/view.dart:1001",
+      "change": "the right column's clamp 280 -> 300 (B:979-991; today view.dart:1001)",
       "landing": "S0",
       "kind": "selftest",
       "catcher": "880×720 (the player rect)",
       "catchers": [
-        { "check": "R2-880x720", "expected": ["playerRect"] }
+        {
+          "check": "R2-880x720",
+          "expected": [
+            "end.branch.geometry.player"
+          ]
+        }
       ]
     },
     {
-      "example": true,
-      "id": "wp-R5e",
-      "location": "lib/pages/video/view.dart:820",
-      "change": "EXAMPLE ONLY: with no play URL, tapping the collapsed bar does not call queryVideoUrl (B:820-826)",
+      "id": "wp-R2b",
+      "patch": "wp-R2b.patch",
+      "location": "lib/pages/video/view.dart:1009",
+      "change": "the 「w′/(16/9) > 高 -> split」 fallback removed (B:990-991; today view.dart:1009-1011)",
       "landing": "S0",
       "kind": "selftest",
-      "catcher": "R5 tapping the bar with no URL",
-      "uncovered": "EXAMPLE of an uncovered entry: the test cannot clear videoUrl outside a query"
+      "catcher": "1720×720 (branch, player rect)",
+      "catchers": [
+        {
+          "check": "R2-1720x720",
+          "expected": [
+            "end.branch.geometry.label",
+            "end.branch.geometry.player"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R2c",
+      "patch": "wp-R2c.patch",
+      "location": "lib/pages/video/view.dart:1134",
+      "change": "near-square player height 高/2.5 -> 高/2.4 (B:1112; today view.dart:1134)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "900×800 (the player rect)",
+      "catchers": [
+        {
+          "check": "R1-900x800",
+          "expected": [
+            "end.branch.geometry.player"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R2d",
+      "patch": "wp-R2d.patch",
+      "location": "lib/pages/video/view.dart:636",
+      "change": "portrait branch: pinned height = videoHeight while isFullScreen (B:620-622; today view.dart:636)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "in-app fullscreen 420×800: the outer scroll view's maxScrollExtent (0 -> about 564)",
+      "catchers": [
+        {
+          "check": "R3-inapp-420x800",
+          "expected": [
+            "enterDone.lists.nestedOuter.max"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R3a",
+      "patch": "wp-R3a.patch",
+      "location": "lib/pages/video/view.dart:1031",
+      "change": "landscape: both Offstage(isFullScreen) off (B:1011, 1026; today view.dart:1031, 1046; offline has only the tab area's)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "in-app fullscreen 1280×720 (the tab area offstage in fullscreen; new uiErrorKeys)",
+      "catchers": [
+        {
+          "check": "R3-inapp-1280x720",
+          "expected": [
+            "enterDone.branch.geometry.tabArea",
+            "uiErrorKeys"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R3b",
+      "patch": "wp-R3b.patch",
+      "location": "lib/pages/video/view.dart:896",
+      "change": "split: Offstage(isFullScreen) off (B:880; today view.dart:896)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "in-app fullscreen 1720×720 (as R3a)",
+      "catchers": [
+        {
+          "check": "R3-inapp-1720x720",
+          "expected": [
+            "enterDone.branch.geometry.tabArea",
+            "uiErrorKeys"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R3c",
+      "patch": "wp-R3c.patch",
+      "location": "lib/pages/video/view.dart:942",
+      "change": "three-column: both Offstage(isFullScreen) off (B:925, 944; today view.dart:942, 961)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "in-app fullscreen 1280×720, portrait material (as R3a)",
+      "catchers": [
+        {
+          "check": "R3-inapp-vert-1280x720",
+          "expected": [
+            "enterDone.branch.geometry.tabArea",
+            "uiErrorKeys"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R3d",
+      "patch": "wp-R3d.patch",
+      "location": "lib/pages/video/view.dart:1151",
+      "change": "near-square: Offstage(isFullScreen) off (B:1128; today view.dart:1151)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "in-app fullscreen 900×800 (as R3a)",
+      "catchers": [
+        {
+          "check": "R3-inapp-900x800",
+          "expected": [
+            "enterDone.branch.geometry.tabArea",
+            "uiErrorKeys"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R3e",
+      "patch": "wp-R3e.patch",
+      "location": "lib/pages/video/view.dart:1317",
+      "change": "videoPlayerKey off the player popScope (B:1294-1295; today view.dart:1317)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "online --open-bili --fullscreen-reply 420×800 (samePlayer)",
+      "catchers": [
+        {
+          "check": "R3-bili-fsreply-420x800",
+          "expected": [
+            "samePlayer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R3f",
+      "patch": "wp-R3f.patch",
+      "location": "lib/pages/video/view.dart:2113",
+      "change": "the page's GlobalKey videoReplyPanelKey off the online comment panel (B:2049-2053; today view.dart:2113)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "the same (duringSameList; sameList / kept after the exit are record only)",
+      "catchers": [
+        {
+          "check": "R3-bili-fsreply-420x800",
+          "expected": [
+            "duringSameList"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R4a",
+      "patch": "wp-R4a.patch",
+      "location": "lib/pages/video/view.dart:1496",
+      "change": "buildTabBar: a new tab count resets the index to 0 instead of clamping it (B:1455-1463; today view.dart:1496-1498)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.4 R4 「截断与重置的区分」 1280×720, landscape ugc with a collection (the index after the collection)",
+      "catchers": [
+        {
+          "check": "R4a-season-1280x720",
+          "expected": [
+            "events.tabSeq"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R4b",
+      "patch": "wp-R4b.patch",
+      "location": "lib/pages/video/controller.dart:738",
+      "change": "defaultShowComment ignored: the TabController starts at 0 (BC:734-738; today controller.dart:738)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "defaultShowComment initial index (index)",
+      "catchers": [
+        {
+          "check": "R4b-dsc-420x800",
+          "expected": [
+            "start.tabCtr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R4c",
+      "patch": "wp-R4c.patch",
+      "location": "lib/pages/video/view.dart:2000",
+      "change": "videoIntro's KeepAliveWrapper removed (B:1937; today view.dart:2000)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "switching tabs and back (the intro list State identical)",
+      "catchers": [
+        {
+          "check": "R4c-tabs-online",
+          "expected": [
+            "end.kept.lists.intro"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R4d",
+      "patch": "wp-R4d.patch",
+      "location": "lib/pages/video/view.dart:1906",
+      "change": "the intro CustomScrollView's PageStorageKey removed (B:1843; today view.dart:1906)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "changing branch and back (the intro scroll pixels)",
+      "catchers": [
+        {
+          "check": "R4d-branch-online",
+          "expected": [
+            "mid.lists.intro.pixels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-K1",
+      "patch": "wp-K1.patch",
+      "location": "lib/pages/video/view.dart:689",
+      "change": "the portrait branch's tab-area MiniScaffold gets a GlobalKey of its own instead of childKey (B:674; today view.dart:689); the other branches unchanged",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "①420×800 <-> 1280×720 resize (tab area MiniScaffoldState identical); ②420×800: PGC 简介详情, the UP popup and AI 总结 open nowhere (childKey.currentState null); offline narrow --fullscreen-reply afterSameList (second catcher, native fullscreen)",
+      "catchers": [
+        {
+          "check": "K1-pgcdetail-420x800",
+          "expected": [
+            "detail.sheet"
+          ]
+        },
+        {
+          "check": "K1-resize-offline",
+          "expected": [
+            "mid.kept.tabArea"
+          ]
+        },
+        {
+          "check": "R3-offline-fsreply-420x800",
+          "expected": [
+            "afterSameList"
+          ]
+        },
+        {
+          "check": "R7h-hsoff-420x800",
+          "expected": [
+            "member.sheet",
+            "ai.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5a",
+      "patch": "wp-R5a.patch",
+      "location": "lib/pages/video/view.dart:644",
+      "change": "pinned height: minVideoHeight also when paused (kToolbarHeight branch; B:620-645; today view.dart:644)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 the header height when paused",
+      "catchers": [
+        {
+          "check": "R5-paused-420x800",
+          "expected": [
+            "paused.extras.header"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5b",
+      "patch": "wp-R5b.patch",
+      "location": "lib/pages/video/view.dart:254",
+      "change": "playerListener: no expand animation on play (B:240-259; today view.dart:253-266)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 one play (whether the expand animation started)",
+      "catchers": [
+        {
+          "check": "R5-expand-420x800",
+          "expected": [
+            "events.expandStarted"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5c",
+      "patch": "wp-R5c.patch",
+      "location": "lib/pages/video/view.dart:786",
+      "change": "collapsed bar: the right button by playedTime == null reversed (B:771-788; today view.dart:786)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 / R10 collapsed toolbar (the right button)",
+      "catchers": [
+        {
+          "check": "R5-paused-420x800",
+          "expected": [
+            "paused.extras.bar"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5d",
+      "patch": "wp-R5d.patch",
+      "location": "lib/pages/video/view.dart:831",
+      "change": "tapping the collapsed bar while the play URL is queried returns without handlePlay (B:812-818; today view.dart:831-833)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 / R10 with autoplay off: tapping the bar while querying (delay hook; playing after the URL)",
+      "catchers": [
+        {
+          "check": "R5d-autoplayoff-online",
+          "expected": [
+            "end.extras.controller.playerStatus"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5e",
+      "patch": "wp-R5e.patch",
+      "location": "lib/pages/video/view.dart:840",
+      "change": "with no play URL, tapping the bar does not call queryVideoUrl (B:820-826; today view.dart:840)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 tapping the bar with no URL (a query started; the test nulls videoUrl when not querying)",
+      "catchers": [
+        {
+          "check": "R5e-nullurl-online",
+          "expected": [
+            "events.snap:afterTap.isQuerying"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5f",
+      "patch": "wp-R5f.patch",
+      "location": "lib/pages/video/view.dart:844",
+      "change": "the bar goes to onDoubleTapCenter also when playedTime == null (B:829-833; today view.dart:844-845)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 tapping the bar after a pause with playedTime nulled (openCount: +1 -> unchanged)",
+      "catchers": [
+        {
+          "check": "R5f-tapbar-420x800",
+          "expected": [
+            "events.opensDelta"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5g",
+      "patch": "wp-R5g.patch",
+      "location": "lib/pages/video/view.dart:844",
+      "change": "the bar always calls handlePlay, also after this page played (B:829-833; today view.dart:844-849)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 play -> pause -> collapse -> tap the bar, preInitPlayer off (openCount: unchanged -> +1)",
+      "catchers": [
+        {
+          "check": "R5g-tapbar-420x800",
+          "expected": [
+            "events.opensDelta"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R5h",
+      "patch": "wp-R5h.patch",
+      "location": "lib/pages/video/view.dart:721",
+      "change": "the bar's 继续 and 重新 branches swapped (icon and label; B:705-710; today view.dart:720-726)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 played, paused, collapsed (the label's role: 继续 -> 重新)",
+      "catchers": [
+        {
+          "check": "R5-paused-420x800",
+          "expected": [
+            "paused.extras.bar"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R6a",
+      "patch": "wp-R6a.patch",
+      "location": "lib/pages/video/view.dart:1531",
+      "change": "near-square (no indicator): a header that is not the current one no longer scrolls to the top (B:1467; today view.dart:1531)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R6 near-square (scroll pixels)",
+      "catchers": [
+        {
+          "check": "R6-list10-900x800",
+          "expected": [
+            "end.lists.intro.pixels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R6b",
+      "patch": "wp-R6b.patch",
+      "location": "lib/pages/video/view.dart:1533",
+      "change": "the indexIsChanging test negated (B:1495-1499; today view.dart:1533)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R6 landscape (scroll pixels)",
+      "catchers": [
+        {
+          "check": "R6-list10-1280x720",
+          "expected": [
+            "end.lists.intro.pixels"
+          ]
+        },
+        {
+          "check": "R6-online-reply-1280x720",
+          "expected": [
+            "replyTop.lists.reply.pixels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R6c",
+      "patch": "wp-R6c.patch",
+      "location": "lib/pages/video/view.dart:1522",
+      "change": "offline: the comment tab no longer scrolls the intro to the top, it takes the comment branch (B:1485-1489; today view.dart:1522-1528). The offline comment list has no controller the page reaches (its _videoReplyController is online only), so that branch is skipped offline",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R6 offline 900×800 near-square (the intro scroll pixels)",
+      "catchers": [
+        {
+          "check": "R6-list10-900x800",
+          "expected": [
+            "end.lists.intro.pixels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7a",
+      "patch": "wp-R7a.patch",
+      "location": "lib/pages/video/view.dart:2192",
+      "change": "showEpisodes: in fullscreen also on childKey (isFullScreen dropped from the test; its local removed; B:2129-2142; today view.dart:2149, 2192)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R7 in-app fullscreen 1280×720, opened again (host, covered rect)",
+      "catchers": [
+        {
+          "check": "R7-season-1280x720",
+          "expected": [
+            "fsEpisodes.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7b",
+      "patch": "wp-R7b.patch",
+      "location": "lib/pages/video/view.dart:2268",
+      "change": "showViewPoints: the same (B:2204-2225; today view.dart:2268)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "the same (material with view points)",
+      "catchers": [
+        {
+          "check": "R7b-vp-1280x720",
+          "expected": [
+            "fsVp.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7c",
+      "patch": "wp-R7c.patch",
+      "location": "lib/pages/video/controller.dart:849",
+      "change": "showMediaListPanel: the same (BC:848-859; today controller.dart:849)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "the same (opened with a non-empty mediaList)",
+      "catchers": [
+        {
+          "check": "R7c-medialist-1280x720",
+          "expected": [
+            "fsList.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7d",
+      "patch": "wp-R7d.patch",
+      "location": "lib/pages/video/controller.dart:2450",
+      "change": "PostPanel: the same (BC:2414-2434; today controller.dart:2450)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "the same",
+      "catchers": [
+        {
+          "check": "R7-season-1280x720",
+          "expected": [
+            "fsPost.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7e",
+      "patch": "wp-R7e.patch",
+      "location": "lib/pages/video/controller.dart:4293",
+      "change": "notes: the same (BC:4249-4273; today controller.dart:4293)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "the same",
+      "catchers": [
+        {
+          "check": "R7-season-1280x720",
+          "expected": [
+            "fsNotes.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7f",
+      "patch": "wp-R7f.patch",
+      "location": "lib/pages/video/view.dart:2120",
+      "change": "AI 总结 opened as a global sheet (PageUtils.showVideoBottomSheet) instead of on childKey (B:2056-2063; today view.dart:2119-2125)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R7 windowed (host; the AI-summary material: the test seeds aiConclusionResult)",
+      "catchers": [
+        {
+          "check": "R7-season-1280x720",
+          "expected": [
+            "ai.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7g",
+      "patch": "wp-R7g.patch",
+      "location": "lib/pages/video/view.dart:1050",
+      "change": "landscape branch: the childKey MiniScaffold no longer wraps the tab bar, only the tab view (today view.dart:1050-1093; the branch R7g's check opens 评论详情 in)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R7 the rect 评论详情 covers",
+      "catchers": [
+        {
+          "check": "R7g-reply-offline-1280x720",
+          "expected": [
+            "reply.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7h",
+      "patch": "wp-R7h.patch",
+      "location": "lib/pages/video/controller.dart:872",
+      "change": "showVideoSheet ignores isPortrait (BC:870-871; today controller.dart:872)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R7 「horizontalScreen 关、420×800 时开选集 / 看点」 (host)",
+      "catchers": [
+        {
+          "check": "R7h-hsoff-420x800",
+          "expected": [
+            "episodes.sheet"
+          ]
+        },
+        {
+          "check": "R7h-vp-hsoff-420x800",
+          "expected": [
+            "vp.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R7i",
+      "patch": "wp-R7i.patch",
+      "location": "lib/pages/video/controller.dart:872",
+      "change": "showVideoSheet ignores isDesktopPip (BC:870-871; today controller.dart:872)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R7 desktop PiP: opening a sheet (host; 横屏适配 on)",
+      "catchers": [
+        {
+          "check": "R7i-pip-season",
+          "expected": [
+            "pipEpisodes.sheet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R8a",
+      "patch": "wp-R8a.patch",
+      "location": "lib/pages/video/view.dart:1320",
+      "change": "popScope canPop ignores isDesktopPip (B:1297-1299; today view.dart:1320)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "Esc in desktop PiP (whether the page goes back; 横屏适配 on)",
+      "catchers": [
+        {
+          "check": "R8a-pip-esc",
+          "expected": [
+            "events.state:afterEsc.alive"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R9a",
+      "patch": "wp-R9a.patch",
+      "location": "lib/pages/video/view.dart:439",
+      "change": "didPushNext: _playTap++ removed (B:427; today view.dart:439)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R9 tap play while querying, push a page, come back before the URL (delay hook; opened after the return?)",
+      "catchers": [
+        {
+          "check": "R9a-R10c-online",
+          "expected": [
+            "events.opensDelta"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R9b",
+      "patch": "wp-R9b.patch",
+      "location": "lib/pages/video/view.dart:506",
+      "change": "didPopNext: the play callback is not registered again (B:494; today view.dart:506)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R9 global callback: push a bilibili page, back, playIfExists() (the page that answers)",
+      "catchers": [
+        {
+          "check": "R9-cover-offline",
+          "expected": [
+            "events.playcb:back.answeredBy"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R9c",
+      "patch": "wp-R9c.patch",
+      "location": "lib/pages/video/view.dart:551",
+      "change": "didPopNext: setCovered(false) moved before resumeOwnPlayer (and openAtReturn, which today comes first) (B:519-537; today view.dart:534-551)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R9c gate released while covered, the page on top takes the player, back (playing once the reopen settles)",
+      "catchers": [
+        {
+          "check": "R9c-gate-online",
+          "expected": [
+            "end.extras.controller.playerStatus"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R9d",
+      "patch": "wp-R9d.patch",
+      "location": "lib/pages/video/view.dart:534",
+      "change": "didPopNext: openAtReturn() not called (c69e319c8 view.dart:522; today view.dart:534-536)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "--covered-query --paused-before C (afterReturn.playing)",
+      "catchers": [
+        {
+          "check": "R9d-covered-query",
+          "expected": [
+            "afterReturn.playing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R10a",
+      "patch": "wp-R10a.patch",
+      "location": "lib/pages/video/view.dart:1333",
+      "change": "the stand-in no longer tests !videoState (B:1308-1316; today view.dart:1333). videoState is still read (isTrue || isFalse), so the Obx still rebuilds when the player comes up; dropping the read too left the stand-in up for good, also while this page played (sample run, S0b part 5)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R10 after the player is taken (the stand-in)",
+      "catchers": [
+        {
+          "check": "R9-cover-offline",
+          "expected": [
+            "covered.more.slots"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R10b",
+      "patch": "wp-R10b.patch",
+      "location": "lib/pages/video/view.dart:1394",
+      "change": "the failure mark ignores ownsPlayer (B:1368-1374; today view.dart:1394)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R10 「失败的是下面那一页」 (the failure mark on this page)",
+      "catchers": [
+        {
+          "check": "R10b-lower-fails",
+          "expected": [
+            "top.more.slots"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R10c",
+      "patch": "wp-R10c.patch",
+      "location": "lib/pages/video/view.dart:1704",
+      "change": "the spinner on the cover while a tap waits for the play URL removed (B:1654-1660; today view.dart:1704-1710)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R10 tapping play while querying (delay hook; the spinner on the cover)",
+      "catchers": [
+        {
+          "check": "R9a-R10c-online",
+          "expected": [
+            "afterTap.more.slots"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R11a",
+      "patch": "wp-R11a.patch",
+      "location": "lib/pages/video/view.dart:583",
+      "change": "darkVideoPage no longer gives the page the dark theme (B:568-570; today view.dart:583-585; its now unused theme_utils import removed)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R11 theme brightness",
+      "catchers": [
+        {
+          "check": "R11R13a-offline-1280x720",
+          "expected": [
+            "end.more.theme"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R13a",
+      "patch": "wp-R13a.patch",
+      "location": "lib/pages/video/view.dart:1458",
+      "change": "PlayerFocus also with keyboardControl off (B:1422; today view.dart:1458)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R13 (whether PlayerFocus is there)",
+      "catchers": [
+        {
+          "check": "R11R13a-offline-1280x720",
+          "expected": [
+            "end.more.playerFocus"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R13b",
+      "patch": "wp-R13b.patch",
+      "location": "lib/pages/video/view.dart:1463",
+      "change": "canPlay returns true at once, without handlePlay (B:1427-1433; today view.dart:1463-1469)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R13 space with autoplay off (whether it opens)",
+      "catchers": [
+        {
+          "check": "R10-manual-offline-1280x720",
+          "expected": [
+            "events.opensDelta"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-P1",
+      "patch": "wp-P1.patch",
+      "location": "lib/pages/video/view.dart:1680",
+      "change": "the autoplay-off cover layer (the opaque GestureDetector) moved above manualPlayerWidget (返回 / 返回主页 / 更多) in the slot Stack (B:1630-1667; today view.dart:1680-1722)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "①the slot layer order by role; ②autoplay off: a hit test at 返回 (the back button or the cover)",
+      "catchers": [
+        {
+          "check": "R10-manual-offline-1280x720",
+          "expected": [
+            "start.slots",
+            "events.hit:back.layer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R14a",
+      "patch": "wp-R14a.patch",
+      "location": "lib/pages/video/view.dart:570",
+      "change": "screenRatio not written (B:555; today view.dart:570)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R14 resize (screenRatio)",
+      "catchers": [
+        {
+          "check": "R13R14-offline-1280x720",
+          "expected": [
+            "ratio900.more.screenRatio"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-R15a",
+      "patch": "wp-R15a.patch",
+      "location": "lib/pages/video/view.dart:1434",
+      "change": "the PiP test moved after the 「横屏适配关」 test (B:1411-1412; today view.dart:1434-1439)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "desktop PiP renders only the player (横屏适配 off; the widgets rendered)",
+      "catchers": [
+        {
+          "check": "R15a-pip-hsoff",
+          "expected": [
+            "pip.branch.scalars",
+            "pip.branch.geometry.label"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-CS1",
+      "patch": "wp-CS1.patch",
+      "location": "lib/pages/video/view.dart:698",
+      "change": "§3.2 call site 1, portrait tab view: videoIntro needCtr false -> true (B:683; today view.dart:698)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.2 controller and physics fields",
+      "catchers": [
+        {
+          "check": "R1-420x800",
+          "expected": [
+            "end.lists.intro.controller"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-CS2",
+      "patch": "wp-CS2.patch",
+      "location": "lib/pages/video/view.dart:913",
+      "change": "call site 2, split: videoIntro needCtr true -> false (B:895-898; today view.dart:910-913)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.2 controller and physics fields",
+      "catchers": [
+        {
+          "check": "R2-1720x720",
+          "expected": [
+            "end.lists.intro.controller"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-CS3",
+      "patch": "wp-CS3.patch",
+      "location": "lib/pages/video/view.dart:949",
+      "change": "call site 3, three-column side column: videoIntro needCtr true -> false (B:930-933; today view.dart:946-949)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.2 controller and physics fields",
+      "catchers": [
+        {
+          "check": "R1-vert-1280x720",
+          "expected": [
+            "end.lists.intro.controller"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-CS4",
+      "patch": "wp-CS4.patch",
+      "location": "lib/pages/video/view.dart:1039",
+      "change": "call site 4, landscape intro column: videoIntro needCtr false -> true (B:1016-1021; today view.dart:1035-1040)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.2 controller and physics fields",
+      "catchers": [
+        {
+          "check": "R2-online-1280x720",
+          "expected": [
+            "mid.lists.intro.controller"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-CS5",
+      "patch": "wp-CS5.patch",
+      "location": "lib/pages/video/view.dart:1071",
+      "change": "call site 5, landscape first tab (相关视频): effectiveIntroScrollCtr no longer attached (B:1046-1060; today view.dart:1071-1072)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.2 controller and physics fields",
+      "catchers": [
+        {
+          "check": "R2-online-1280x720",
+          "expected": [
+            "mid.lists.intro#2.controller"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-CS6",
+      "patch": "wp-CS6.patch",
+      "location": "lib/pages/video/view.dart:1174",
+      "change": "call site 6, near-square intro: videoIntro needCtr true -> false (B:1144-1151; today view.dart:1166-1174)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.2 controller and physics fields",
+      "catchers": [
+        {
+          "check": "R1-900x800",
+          "expected": [
+            "end.lists.intro.controller"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-T1",
+      "patch": "wp-T1.patch",
+      "location": "lib/pages/video/view.dart:1942",
+      "change": "intro()'s cid.value read in build(), outside every Obx, and passed in (PgcIntroPage.cid; today view.dart:1942)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.4 「同步调用」 pgc next episode (PgcIntroPage.cid = cid.value?)",
+      "catchers": [
+        {
+          "check": "T1-pgc-1280x720",
+          "expected": [
+            "end.extras.intro"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-T2",
+      "patch": "wp-T2.patch",
+      "location": "lib/pages/video/view.dart:1318",
+      "change": "popScope canPop evaluated in build(), outside every Obx, and passed in (B:1296-1300; today view.dart:1318-1321)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R8 in-app fullscreen 1280×720: back (the page still there?)",
+      "catchers": [
+        {
+          "check": "T2-back-inapp-1280x720",
+          "expected": [
+            "events.back:inFs.alive"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-T3",
+      "patch": "wp-T3.patch",
+      "location": "lib/pages/video/view.dart:597",
+      "change": "portrait branch: videoPlayer(...) built in the branch Obx's builder at that height and passed into headerSliverBuilder (B:579-668; today view.dart:593-686)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "§6.4 「同步调用」 animation frame (player maxHeight = header height?)",
+      "catchers": [
+        {
+          "check": "R5-expand-420x800",
+          "expected": [
+            "events.expand.playerMatchesHeader"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-M1",
+      "patch": "wp-M1.patch",
+      "location": "lib/pages/video/controller.dart:337",
+      "change": "_calcAnimHeight while expanding: videoHeight * value -> videoHeight * value * value (BC:335-339; today controller.dart:337)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 one play: the first frame with value >= 0.5, |header / videoHeight - value| < 0.05?",
+      "catchers": [
+        {
+          "check": "R5-expand-420x800",
+          "expected": [
+            "events.expand.headerFollowsValue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-M2",
+      "patch": "wp-M2.patch",
+      "location": "lib/pages/video/view.dart:692",
+      "change": "portrait: tapping the current tab does not call animToTop (B:677; today view.dart:692, onTap: () {})",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R6 portrait collapsed layout (the inner list's scroll pixels)",
+      "catchers": [
+        {
+          "check": "R4-list10-420x800",
+          "expected": [
+            "end.lists.intro.pixels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-M3",
+      "patch": "wp-M3.patch",
+      "location": "lib/pages/video/controller.dart:323",
+      "change": "refreshPage does nothing (BC:322-324; today controller.dart:323-325)",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R5 the header when paused (after playing first)",
+      "catchers": [
+        {
+          "check": "R5-paused-420x800",
+          "expected": [
+            "paused.extras.header"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-M5",
+      "patch": "wp-M5.patch",
+      "location": "lib/pages/video/introduction/local/controller.dart:122",
+      "change": "LocalIntroController: the localJumpTo through scrollKey removed, only introScrollCtr (local/controller.dart:122-129; today the same), and the extended_nested_scroll_view import it frees",
+      "landing": "S0",
+      "kind": "selftest",
+      "catcher": "R4 「离线列表跳到正在播的那一项」 portrait (the list offset, 308)",
+      "catchers": [
+        {
+          "check": "R4-list10-420x800",
+          "expected": [
+            "start.lists.intro.pixels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wp-H1",
+      "change": "freezing starts when isFullScreen turns true, not at fsProcessing",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "per-frame sampling (entering)",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」) (covers the screen: a batch scene)"
+    },
+    {
+      "id": "wp-H2",
+      "change": "released at the first 「≠ fsSize」 after the exit",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "per-frame sampling (exiting, intermediate sizes); v9: equivalent on the desktop by the probes, the review before S1b re-picks its catcher or exempts it",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」) (covers the screen: a batch scene)"
+    },
+    {
+      "id": "wp-H3",
+      "change": "fsSize never recorded",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "per-frame sampling; v9: as H2",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」) (covers the screen: a batch scene)"
+    },
+    {
+      "id": "wp-H4",
+      "change": "no fallback Timer",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "「窗口先缩、标志后变」; v9: as H2",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」) (covers the screen: a batch scene)"
+    },
+    {
+      "id": "wp-H5",
+      "change": "the branch choice moved out of the scope rebuilt with isFullScreen",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "per-frame sampling",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」) (covers the screen: a batch scene)"
+    },
+    {
+      "id": "wp-H7",
+      "change": "tabsFor reads the live isPortrait",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "a collection video: changing the window orientation in fullscreen",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」) (covers the screen: a batch scene)"
+    },
+    {
+      "id": "wp-R3g",
+      "change": "landscape Offstage(isFullScreen) read from an RxBool copy set in addPostFrameCallback: one frame of the tab area visible after entering",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "in-app fullscreen 1280×720 per-frame record (one frame with the tab area visible)",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」)"
+    },
+    {
+      "id": "wp-R3h",
+      "change": "the patch of R3g, run as a fullscreen scene",
+      "landing": "S1b",
+      "kind": "selftest",
+      "catcher": "online pgc 1280×720 in and out of native fullscreen, per-frame record (S1b lists this cell in F4)",
+      "pending": "S1b: the full-screen sticky state machine it changes exists from S1b (design §6.6 「落地」) (covers the screen: a batch scene)"
+    },
+    {
+      "id": "wp-E1",
+      "change": "_setVideoHeight in the shell: path 1 of AC-S1c",
+      "landing": "S1c",
+      "kind": "selftest",
+      "catcher": "AC-S1c E1",
+      "pending": "S1c: _setVideoHeight / expandFor move into the shell in S1c"
+    },
+    {
+      "id": "wp-E2",
+      "change": "_setVideoHeight in the shell: path 2 of AC-S1c",
+      "landing": "S1c",
+      "kind": "selftest",
+      "catcher": "AC-S1c E2",
+      "pending": "S1c: _setVideoHeight / expandFor move into the shell in S1c"
+    },
+    {
+      "id": "wp-E3",
+      "change": "_setVideoHeight in the shell: path 3 of AC-S1c",
+      "landing": "S1c",
+      "kind": "selftest",
+      "catcher": "AC-S1c E3",
+      "pending": "S1c: _setVideoHeight / expandFor move into the shell in S1c"
+    },
+    {
+      "id": "wp-E4",
+      "change": "_setVideoHeight in the shell: path 4 of AC-S1c",
+      "landing": "S1c",
+      "kind": "selftest",
+      "catcher": "AC-S1c E4",
+      "pending": "S1c: _setVideoHeight / expandFor move into the shell in S1c"
+    },
+    {
+      "id": "wp-E5",
+      "change": "_setVideoHeight in the shell: path 5 of AC-S1c",
+      "landing": "S1c",
+      "kind": "selftest",
+      "catcher": "AC-S1c E5",
+      "pending": "S1c: _setVideoHeight / expandFor move into the shell in S1c"
+    },
+    {
+      "id": "wp-E6",
+      "change": "_setVideoHeight in the shell: path 6 of AC-S1c",
+      "landing": "S1c",
+      "kind": "selftest",
+      "catcher": "AC-S1c E6 (the one of 「全屏中换分 P」 covers the screen)",
+      "pending": "S1c: _setVideoHeight / expandFor move into the shell in S1c"
+    },
+    {
+      "id": "wp-E7",
+      "change": "expandFor's caller writes the RxBool first",
+      "landing": "S1c",
+      "kind": "selftest",
+      "catcher": "AC-S1c E2",
+      "pending": "S1c: _setVideoHeight / expandFor move into the shell in S1c"
+    },
+    {
+      "id": "wp-Y1",
+      "change": "setDataSource without autoplay: false",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "AC-S2 preInitPlayer on, a bilibili page below",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y2",
+      "change": "held: the stream opens with autoplay off",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "AC-S2 before tapping play",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y3",
+      "change": "back on the page without a reopen, the hooks are not claimed",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "R9 hooks",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y4",
+      "change": "the generation check after the await removed",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "R9 pushing a page while the request is in flight",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y5",
+      "change": "failureOverCover false for YouTube",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "R10 autoplay off × failure",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y6",
+      "change": "playedHere from the local history",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "R5 / R10 collapsed toolbar",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y7",
+      "change": "held: the quality change uses resumePosition",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "AC-S2 held, changing quality",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y8",
+      "change": "expandFor called in _open",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "AC-S2 no expand again after a quality change",
+      "pending": "S2: the YouTube page joins the shell in S2"
+    },
+    {
+      "id": "wp-Y9",
+      "change": "_openWhenUncovered also enters fullscreen automatically",
+      "landing": "S2",
+      "kind": "selftest",
+      "catcher": "covered while loading, back (autoEnterFullScreen on)",
+      "pending": "S2: the YouTube page joins the shell in S2 (covers the screen: a batch scene)"
     }
   ]
 }

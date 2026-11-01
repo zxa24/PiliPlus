@@ -1,0 +1,12 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..fd1e3aab6 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1171,6 +1171,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                               return maxWidth / flex;
+                             }(),
+                             height: bottomHeight,
++                            needCtr: false,
+                           ),
+                         ),
+                         if (videoDetailController.showReply)

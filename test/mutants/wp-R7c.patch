@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
+index 989e78b1f..39c75d045 100644
+--- a/lib/pages/video/controller.dart
++++ b/lib/pages/video/controller.dart
+@@ -846,7 +846,7 @@ class VideoDetailController extends GetxController
+               }
+             : null,
+       );
+-      if (plPlayerController.isFullScreen.value || showVideoSheet) {
++      if (showVideoSheet) {
+         PageUtils.showVideoBottomSheet(
+           context,
+           child: plPlayerController.darkVideoPage

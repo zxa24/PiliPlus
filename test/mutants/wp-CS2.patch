@@ -1,0 +1,12 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..b01c5c909 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -910,6 +910,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                         videoIntro(
+                           width: introWidth,
+                           height: maxHeight,
++                          needCtr: false,
+                         ),
+                         if (videoDetailController.showReply) videoReplyPanel(),
+                         if (_shouldShowSeasonPanel) seasonPanel,

@@ -92,7 +92,8 @@
 #               design.md §5 S0b 「runner 通用化」: -Plan watch_page.
 #
 #   pwsh -NoProfile -File test/mutants/run.ps1 -Plan watch_page [-Phase S0]
-#        [-Only wp-R2a] [-Batch] [-Slot 1] [-Out <dir>] [-Baseline <dir>] ...
+#        [-Only wp-R2a] [-Batch] [-Slot 1] [-Out <dir>] [-Baseline <dir>] [-DryRun]
+#        [-PlanFile <wp-mutants.json>] ...
 #   pwsh -NoProfile -File test/mutants/run.ps1 -Plan watch_page -Alternate
 #        [-Parent <rev>] [-Commit <rev>] [-Passes 2] [-Checks id,id]
 #        [-OnlySide parent|new] [-Slot 1] [-Slot2 2] [-Batch] [-DryRun]
@@ -253,7 +254,16 @@
 # difference, is rerun once and judged by the rerun. A failing unmutated
 # baseline is rerun once; failing again, that check's mutants are error
 # and the run goes on (runner 补充②). "uncovered": "<why>" in an entry =
-# 未覆盖: not run, listed.
+# 未覆盖: not run, listed. "pending": "<why>" = a mutant of a later step
+# (S1b / S1c / S2, design §6.6 「落地」) whose patch and catchers are
+# written in that step: it has a landing but no patch, location or
+# catchers (any of them is refused); its landing must be one some phase of
+# the plan's "phases" runs, other than S0 (today S1b, S1c, S2: a typo such
+# as "S1B" is refused, not silently in no run); a run of another phase
+# leaves it out, and a run of its own phase lists it "not written" (not
+# caught: that run exits 1 until the step writes it).
+# -PlanFile <file>: another watch_page plan (the offline self-test's); its
+# patches are looked for beside it. Default test/mutants/wp-mutants.json.
 #
 # -Batch (watch_page; design 「批次场景开关」): by default checks with batch
 # fullscreen or pip (their baselines, mutants and alternate runs) are
@@ -271,6 +281,9 @@
 # passes. Worktrees are kept for more passes (needed after a 需补跑) and
 # removed with -Cleanup. -DryRun prints the run order and launches,
 # builds and writes nothing.
+# In the mutant mode -DryRun checks the plan (wp-mutants.json against
+# the field tables, both ways), then lists the mutants -Phase / -Only /
+# -Batch leave, each one's catchers, and every baseline's command line.
 #
 # -CheckTestSide <parent>,<child> (runner 补充④): the test side of S1 must
 # be byte-identical: self_test.dart, self_test_probe.dart, the readings'
@@ -328,6 +341,10 @@ param(
     [switch]$DryRun,
     [switch]$Cleanup,
     [string]$FieldTables = '',
+    # the watch_page plan file (default test/mutants/wp-mutants.json beside
+    # this script); its patches are looked for beside it. The offline
+    # self-test passes a test plan here
+    [string]$PlanFile = '',
     [string]$OriginMap = '',
     [string[]]$CheckTestSide = @(),
     [switch]$LoadOnly
@@ -546,7 +563,10 @@ function Compare-Scenario([string]$scenario, [string]$baseFile, [string]$mutFile
 # (and it lives in this file because S1 must leave run.ps1 byte-identical).
 
 $wpFieldsDir = if ($FieldTables) { $FieldTables } else { Join-Path $here 'wp_fields' }
-$wpManifestFile = Join-Path $here 'wp-mutants.json'
+$wpManifestFile = if ($PlanFile) { [System.IO.Path]::GetFullPath($PlanFile) } else { Join-Path $here 'wp-mutants.json' }
+# a mutant's patch: beside its plan file (watch_page; test/mutants for the
+# default plan) or beside this script (the download plan)
+function Get-PatchDir { if ($script:wp) { Split-Path -Parent $wpManifestFile } else { $here } }
 # a network retry or risk control in an online report: the download plan's
 # retry words, the event log's "[captcha]" area (lines "HH:MM:SS.mmm
 # [area] message"; only the risk check's captcha pages log there, not a
@@ -1723,7 +1743,10 @@ function Read-WpPlan {
 # the manifest's entries against the field tables, both ways: a mutant's
 # expected field must be a must-same field of its check that names the
 # mutant in expectedFor, and every expectedFor must be some mutant's
-function Test-WpPlanMutants($list, $tableSet, $allMutants) {
+function Test-WpPlanMutants($list, $tableSet, $allMutants, $phases = $null) {
+    # the landings a pending entry may have: those some phase runs, but S0
+    # (S0b writes every S0 mutant); a typo would be in no phase's run
+    $laterLandings = @(if ($phases) { foreach ($k in $phases.Keys) { @($phases[$k]) } }) | Where-Object { $_ -and "$_" -cne 'S0' } | Select-Object -Unique
     $errs = [System.Collections.Generic.List[string]]::new()
     $ids = @{}
     foreach ($m in $allMutants) {
@@ -1732,8 +1755,16 @@ function Test-WpPlanMutants($list, $tableSet, $allMutants) {
         $ids[$id] = $m
         if ($id -notmatch '^wp-') { $errs.Add("$id`: watch_page ids start with wp- (design 「变异编号」)") }
         if ($m.Contains('uncovered')) { continue }
+        if ($m.Contains('pending')) {
+            # a later step's mutant, written there (see the header)
+            if (-not $m['landing']) { $errs.Add("$id`: no landing (the step it is written in)") }
+            elseif ("$($m['landing'])" -ceq 'S0') { $errs.Add("$id`: an S0 mutant cannot be pending (S0b writes them all)") }
+            elseif ($laterLandings -cnotcontains "$($m['landing'])") { $errs.Add("$id`: pending landing '$($m['landing'])' is not one a phase runs, but S0 ($($laterLandings -join ', '))") }
+            foreach ($k in 'patch', 'location', 'catchers') { if ($m.Contains($k)) { $errs.Add("$id`: a pending entry has no $k yet") } }
+            continue
+        }
         if ("$($m['patch'])" -notmatch '^wp-.+\.patch$') { $errs.Add("$id`: patch '$($m['patch'])' must be wp-<id>.patch") }
-        elseif (-not (Test-Path -LiteralPath (Join-Path $here $m['patch']))) { $errs.Add("$id`: no $($m['patch'])") }
+        elseif (-not (Test-Path -LiteralPath (Join-Path (Get-PatchDir) $m['patch']))) { $errs.Add("$id`: no $($m['patch'])") }
         if (-not $m['landing']) { $errs.Add("$id`: no landing (the step it is written in)") }
         if (-not $m.Contains('catchers') -and -not $m.Contains('test')) { $errs.Add("$id`: neither catchers nor test") }
         foreach ($c in @($m['catchers'] | Where-Object { $_ })) {
@@ -2108,8 +2139,9 @@ if ($Compare.Count -gt 0) {
 }
 
 # ------------------------------------------------------------------ setup
-# a dry run of -Alternate builds and launches nothing, so needs no flutter
-$dry = $Alternate -and $DryRun
+# a dry run (-Alternate, or watch_page's mutant mode) builds and launches
+# nothing, so needs no flutter
+$dry = $DryRun -and ($Alternate -or $script:wp)
 if (-not $Flutter -and -not $dry) {
     $cmd = Get-Command flutter -ErrorAction SilentlyContinue
     $Flutter = if ($cmd) { $cmd.Source } else { '' }
@@ -2146,10 +2178,19 @@ if (-not $script:wp) {
     if (-not $wpPlan.phases.Contains($Phase)) { throw "-Phase $Phase is not one of wp-mutants.json's phases ($(@($wpPlan.phases.Keys) -join ', '))" }
     $phases = @($wpPlan.phases[$Phase])
     $wpTables = Get-WpFieldTables $wpFieldsDir
-    # the whole plan is checked as written, before anything is filtered
-    Test-WpPlanMutants $wpPlan.mutants $wpTables $wpPlan.mutants
+    # the whole plan is checked as written, before anything is filtered.
+    # -Alternate runs no mutant: when its field tables are not the
+    # repository's test/mutants/wp_fields (a test's or a draft's, by
+    # -FieldTables) the plan's catchers name tables that are not there, so
+    # the plan is not checked against them; on test/mutants/wp_fields,
+    # named by -FieldTables or not, it is
+    $full = { param([string]$p) $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p).TrimEnd([char[]]'\/') }
+    $ownTables = (& $full $wpFieldsDir) -eq (& $full (Join-Path $here 'wp_fields'))
+    $foreignAlternate = $Alternate -and -not $ownTables
+    if (-not $foreignAlternate) { Test-WpPlanMutants $wpPlan.mutants $wpTables $wpPlan.mutants $wpPlan.phases }
     $wpSkipped = [System.Collections.Generic.List[string]]::new()
-    $todo = @(foreach ($m in $wpPlan.mutants) {
+    # (-Alternate runs no mutant: its list stays empty)
+    $todo = @(foreach ($m in $(if ($Alternate) { @() } else { $wpPlan.mutants })) {
             if ($Only.Count -and $Only -notcontains $m['id']) { continue }
             if ($phases -notcontains $m['landing']) { continue }
             # this run's entry is a copy: the batch switch narrows its
@@ -2264,7 +2305,7 @@ function New-Worktree([string]$dir, [switch]$Pub, [string]$at = '') {
 }
 
 function Invoke-Patch([string]$dir, $m) {
-    $patch = Join-Path $here $m['patch']
+    $patch = Join-Path (Get-PatchDir) $m['patch']
     git -C $dir apply $patch 2>&1 | Out-Null
     return $LASTEXITCODE -eq 0
 }
@@ -2317,7 +2358,7 @@ function Wait-Memory([string]$before) {
 function Get-CreatedFiles($m) {
     $prev = ''
     $made = @()
-    foreach ($l in Get-Content (Join-Path $here $m['patch'])) {
+    foreach ($l in Get-Content (Join-Path (Get-PatchDir) $m['patch'])) {
         if ($prev -eq '--- /dev/null' -and $l.StartsWith('+++ b/')) { $made += $l.Substring(6) }
         $prev = $l
     }
@@ -2327,7 +2368,7 @@ function Get-CreatedFiles($m) {
 # the files [m]'s patch changes that exist before it (restored on reset)
 function Get-ChangedFiles($m) {
     $made = Get-CreatedFiles $m
-    return , @(Get-Content (Join-Path $here $m['patch']) | Where-Object { $_ -match '^diff --git a/(\S+) b/' } |
+    return , @(Get-Content (Join-Path (Get-PatchDir) $m['patch']) | Where-Object { $_ -match '^diff --git a/(\S+) b/' } |
             ForEach-Object { $Matches[1] } | Where-Object { $made -notcontains $_ } | Select-Object -Unique)
 }
 
@@ -2886,7 +2927,7 @@ function Invoke-WpSelfTestLoop($list, [string]$dir) {
             }
             $script:built = "mutant $id"
             $lpExe = Install-Slot $dir
-            $lpPatch = Join-Path $here $m['patch']
+            $lpPatch = Join-Path (Get-PatchDir) $m['patch']
             # a catcher whose report another catcher already ran reuses it
             # (one command line, one run); reruns are always new runs
             $lpCache = @{}
@@ -3058,13 +3099,49 @@ if ($Alternate) {
 }
 if ($script:wp) {
     # 未覆盖 entries are listed, not run (AC-S0)
-    foreach ($m in @($todo | Where-Object { $_.Contains('uncovered') })) { Add-Result $m 'not covered' '' "$($m['uncovered'])" (Get-Date) }
+    foreach ($m in @($todo | Where-Object { $_.Contains('uncovered') })) {
+        if ($DryRun) { "$($m['id']) not covered: $($m['uncovered'])" } else { Add-Result $m 'not covered' '' "$($m['uncovered'])" (Get-Date) }
+    }
     $todo = @($todo | Where-Object { -not $_.Contains('uncovered') })
+    # a later step's mutant in its own phase, not written yet (see the header)
+    foreach ($m in @($todo | Where-Object { $_.Contains('pending') })) {
+        $why = "lands in $($m['landing']): $($m['pending'])"
+        if ($DryRun) { "$($m['id']) not written: $why" } else { Add-Result $m 'not written' '' $why (Get-Date) }
+    }
+    $todo = @($todo | Where-Object { -not $_.Contains('pending') })
     if ($wpSkipped.Count) { "skipped by the batch switch: $($wpSkipped -join ', ')" }
     if ($wpPlan.examples.Count) { "example entries skipped: $($wpPlan.examples -join ', ')" }
+    if ($DryRun) {
+        # -DryRun: the plan as checked and narrowed by -Phase / -Only /
+        # -Batch, each mutant's catchers and each baseline's command line;
+        # nothing is built, launched or written
+        "watch_page mutation check (dry run: nothing is built, launched or written): $sha, phase $Phase, $($todo.Count) mutants"
+        $need = [ordered]@{}
+        foreach ($m in $todo) {
+            $cs = @(foreach ($c in @($m['catchers'])) { $need[$c['check']] = $true; "$($c['check']) [$(@($c['expected']) -join ', ')]" })
+            '  {0,-8} {1,-5} {2,-44} {3}' -f $m['id'], $m['landing'], $m['location'], ($cs -join '; ')
+        }
+        # tables sharing a report share one run (one command line)
+        $runs = [ordered]@{}
+        foreach ($id in $need.Keys) {
+            $t = $wpTables.tables[$id]
+            if (-not $runs.Contains($t['report'])) { $runs[$t['report']] = [System.Collections.Generic.List[string]]::new() }
+            $runs[$t['report']].Add($id)
+        }
+        "baselines: $($runs.Count) unmutated runs for $($need.Count) tables$(if ($Baseline) { " (from -Baseline $Baseline when its reports are there)" })"
+        foreach ($rep in $runs.Keys) {
+            $t = $wpTables.tables[$runs[$rep][0]]
+            $pf = if ("$($t['run']['profile'])".StartsWith('snapshot:')) { "$($t['run']['profile'])" } else { 'new profile' }
+            $argv = Get-WpRunArgs $t $wpPlan "wp-baseline-$($t['id'])" (Join-Path '<dir>' $rep) (Join-Path '<dir>' "$($t['id'])_shots") $root '<dir>'
+            '  {0,-28} {1}{2}: {3}' -f ($runs[$rep] -join ','), "$(if ($t['batch']) { "[$($t['batch'])] " })", $pf, ($argv -join ' ')
+        }
+        return
+    }
 }
-$st = if ($script:wp) { @($todo | Where-Object { $_.Contains('catchers') }) }
-else { @($todo | Where-Object { $_.Contains('scenario') -and ($SelfTestAll -or -not $_.Contains('test')) }) }
+# (the outer @(): an if's value of an empty list is $null, which StrictMode
+# then refuses .Count on, e.g. a phase whose entries are all pending)
+$st = @(if ($script:wp) { @($todo | Where-Object { $_.Contains('catchers') }) }
+    else { @($todo | Where-Object { $_.Contains('scenario') -and ($SelfTestAll -or -not $_.Contains('test')) }) })
 if ($NoSelfTest) { $st = @() }
 if ($st.Count) { Test-SelfTestInputs $st }
 "$(if ($script:wp) { 'watch_page' } else { 'AC1' }) mutation check: $sha, phase $Phase, $($todo.Count) mutants -> $Out"

@@ -1,0 +1,48 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..c7a3fd946 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1047,19 +1047,19 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+           child: SizedBox(
+             width: maxWidth - width - padding.horizontal,
+             height: maxHeight - padding.top,
+-            child: MiniScaffold(
+-              key: videoDetailController.childKey,
+-              body: Column(
+-                crossAxisAlignment: CrossAxisAlignment.start,
+-                children: [
+-                  buildTabBar(
+-                    introText: '相关视频',
+-                    showIntro: videoDetailController.isFileSource
+-                        ? true
+-                        : showIntro,
+-                  ),
+-                  Expanded(
+-                    child: tabBarView(
++            child: Column(
++              crossAxisAlignment: CrossAxisAlignment.start,
++              children: [
++                buildTabBar(
++                  introText: '相关视频',
++                  showIntro: videoDetailController.isFileSource
++                      ? true
++                      : showIntro,
++                ),
++                Expanded(
++                  child: MiniScaffold(
++                    key: videoDetailController.childKey,
++                    body: tabBarView(
+                       controller: videoDetailController.tabCtr,
+                       children: [
+                         if (videoDetailController.isFileSource)
+@@ -1083,8 +1083,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                       ],
+                     ),
+                   ),
+-                ],
+-              ),
++                ),
++              ],
+             ),
+           ),
+         ),

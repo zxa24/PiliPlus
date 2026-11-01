@@ -1,0 +1,25 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..6261d0dcc 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -251,19 +251,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     try {
+       if (videoDetailController.scrollCtr.hasClients) {
+         if (isPlaying) {
+-          if (!videoDetailController.isExpanding &&
+-              videoDetailController.scrollCtr.offset != 0 &&
+-              !videoDetailController.animationController.isAnimating) {
+-            videoDetailController.isExpanding = true;
+-            videoDetailController.animationController.forward(
+-              from:
+-                  1 -
+-                  videoDetailController.scrollCtr.offset /
+-                      videoDetailController.videoHeight,
+-            );
+-          } else {
+-            videoDetailController.refreshPage();
+-          }
++          videoDetailController.refreshPage();
+         } else {
+           videoDetailController.refreshPage();
+         }

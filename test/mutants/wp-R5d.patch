@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..1e0844c28 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -828,8 +828,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                   if (kDebugMode) {
+                     debugPrint('handlePlay: querying');
+                   }
+-                  // remembered there (see handlePlay)
+-                  if (!videoDetailController.autoPlay) handlePlay();
+                   return;
+                 }
+                 if (videoDetailController.videoUrl == null ||

@@ -132,7 +132,10 @@
     {
       "name": "pip.branch.geometry.label",
       "path": "moments.pip.branch.geometry.label",
-      "status": "must-same"
+      "status": "must-same",
+      "expectedFor": [
+        "wp-R15a"
+      ]
     },
     {
       "name": "pip.branch.geometry.player",

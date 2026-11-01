@@ -1,0 +1,41 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..caf0f670b 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1455,22 +1455,20 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+         child: child,
+       );
+     }
+-    if (videoDetailController.plPlayerController.keyboardControl) {
+-      child = PlayerFocus(
+-        plPlayerController: videoDetailController.plPlayerController,
+-        introController: introController,
+-        onSendDanmaku: videoDetailController.showShootDanmakuSheet,
+-        canPlay: () {
+-          if (videoDetailController.autoPlay) {
+-            return true;
+-          }
+-          handlePlay();
+-          return false;
+-        },
+-        onSkipSegment: videoDetailController.onSkipSegment,
+-        child: child,
+-      );
+-    }
++    child = PlayerFocus(
++      plPlayerController: videoDetailController.plPlayerController,
++      introController: introController,
++      onSendDanmaku: videoDetailController.showShootDanmakuSheet,
++      canPlay: () {
++        if (videoDetailController.autoPlay) {
++          return true;
++        }
++        handlePlay();
++        return false;
++      },
++      onSkipSegment: videoDetailController.onSkipSegment,
++      child: child,
++    );
+     return videoDetailController.plPlayerController.darkVideoPage
+         ? Theme(data: theme, child: child)
+         : child;

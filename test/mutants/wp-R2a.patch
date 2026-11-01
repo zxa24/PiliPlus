@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..81dec0cb8 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -998,7 +998,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     double width =
+         clampDouble(maxHeight / maxWidth * 1.08, 0.5, 0.7) * maxWidth;
+     if (maxWidth >= 560) {
+-      width = maxWidth - clampDouble(maxWidth - width, 280, 425);
++      width = maxWidth - clampDouble(maxWidth - width, 300, 425);
+     }
+     final videoWidth = isFullScreen ? maxWidth : width;
+     final double height = width / Style.aspectRatio16x9;

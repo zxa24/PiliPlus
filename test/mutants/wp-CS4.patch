@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..cf05d3736 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1036,7 +1036,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                     width: width,
+                     height: introHeight,
+                     needRelated: false,
+-                    needCtr: false,
++                    needCtr: true,
+                   ),
+                 ),
+               ),

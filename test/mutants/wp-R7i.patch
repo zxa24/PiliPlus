@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
+index 989e78b1f..c969cc938 100644
+--- a/lib/pages/video/controller.dart
++++ b/lib/pages/video/controller.dart
+@@ -869,7 +869,7 @@ class VideoDetailController extends GetxController
+   bool get horizontalScreen => plPlayerController.horizontalScreen;
+ 
+   bool get showVideoSheet =>
+-      (!horizontalScreen && !isPortrait) || plPlayerController.isDesktopPip;
++      !horizontalScreen && !isPortrait;
+ 
+   @override
+   late final RxString videoLabel = ''.obs;

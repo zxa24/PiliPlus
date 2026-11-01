@@ -1,0 +1,35 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..b20a9c1d9 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -141,6 +141,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   }
+ 
+   final videoReplyPanelKey = GlobalKey();
++  bool _canPopAtBuild = true;
+   final videoRelatedKey = GlobalKey();
+   final videoIntroKey = GlobalKey();
+ 
+@@ -1315,10 +1316,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     bool isPipMode = false,
+   }) => popScope(
+     key: videoDetailController.videoPlayerKey,
+-    canPop:
+-        !isFullScreen &&
+-        !videoDetailController.plPlayerController.isDesktopPip &&
+-        (videoDetailController.horizontalScreen || isPortrait),
++    canPop: _canPopAtBuild,
+     onPopInvokedWithResult:
+         videoDetailController.plPlayerController.onPopInvokedWithResult,
+     child: Obx(
+@@ -1430,6 +1428,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   @override
+   Widget build(BuildContext context) {
+     SelfTestProbe.recorder?.built('build', heroTag, Size(maxWidth, maxHeight));
++    _canPopAtBuild =
++        !isFullScreen &&
++        !videoDetailController.plPlayerController.isDesktopPip &&
++        (videoDetailController.horizontalScreen || isPortrait);
+     Widget child;
+     if (videoDetailController.plPlayerController.isPipMode) {
+       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);

@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..cf6d39c5d 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -689,7 +689,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+               key: videoDetailController.childKey,
+               body: Column(
+                 children: [
+-                  buildTabBar(onTap: videoDetailController.animToTop),
++                  buildTabBar(onTap: () {}),
+                   Expanded(
+                     child: tabBarView(
+                       hitTestBehavior: .translucent,

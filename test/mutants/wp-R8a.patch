@@ -1,0 +1,12 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..9d6187b12 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1317,7 +1317,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     key: videoDetailController.videoPlayerKey,
+     canPop:
+         !isFullScreen &&
+-        !videoDetailController.plPlayerController.isDesktopPip &&
+         (videoDetailController.horizontalScreen || isPortrait),
+     onPopInvokedWithResult:
+         videoDetailController.plPlayerController.onPopInvokedWithResult,

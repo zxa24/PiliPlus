@@ -1,0 +1,26 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..6a64a6fe7 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1677,6 +1677,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+           ),
+         ),
+ 
++        KeyedSubtree(
++          key: const ValueKey(SelfTestProbe.slotManualPlayer),
++          child: manualPlayerWidget(height),
++        ),
+         KeyedSubtree(
+           key: const ValueKey(SelfTestProbe.slotCover),
+           child: Obx(() {
+@@ -1716,10 +1720,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+             return const SizedBox.shrink();
+           }),
+         ),
+-        KeyedSubtree(
+-          key: const ValueKey(SelfTestProbe.slotManualPlayer),
+-          child: manualPlayerWidget(height),
+-        ),
+ 
+         if (videoDetailController.plPlayerController.enableBlock ||
+             videoDetailController.continuePlayingPart)

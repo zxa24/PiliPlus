@@ -1,0 +1,29 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..71793a27d 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -141,6 +141,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   }
+ 
+   final videoReplyPanelKey = GlobalKey();
++  bool _isVerticalAtBuild = false;
+   final videoRelatedKey = GlobalKey();
+   final videoIntroKey = GlobalKey();
+ 
+@@ -1114,7 +1115,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     if (enableVerticalExpand) {
+       return Obx(
+         () {
+-          if (videoDetailController.isVertical.value && !isPortrait) {
++          if (_isVerticalAtBuild && !isPortrait) {
+             SelfTestProbe.split9x16(heroTag, true);
+             return childSplit(9 / 16);
+           }
+@@ -1430,6 +1431,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   @override
+   Widget build(BuildContext context) {
+     SelfTestProbe.recorder?.built('build', heroTag, Size(maxWidth, maxHeight));
++    _isVerticalAtBuild = videoDetailController.isVertical.value;
+     Widget child;
+     if (videoDetailController.plPlayerController.isPipMode) {
+       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);

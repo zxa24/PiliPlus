@@ -1,0 +1,15 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..17ef56d5d 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1493,9 +1493,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+       videoDetailController.tabCtr = TabController(
+         vsync: videoDetailController,
+         length: tabs.length,
+-        initialIndex: tabs.isEmpty
+-            ? 0
+-            : videoDetailController.tabCtr.index.clamp(0, tabs.length - 1),
++        initialIndex: 0,
+       );
+     }
+ 

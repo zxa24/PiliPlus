@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..0f25213a8 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -783,7 +783,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+               Center(child: playBtn),
+               Align(
+                 alignment: .centerRight,
+-                child: videoDetailController.playedTime == null
++                child: videoDetailController.playedTime != null
+                     ? _moreBtn(colorScheme.onSurface)
+                     : SizedBox(
+                         width: 42,

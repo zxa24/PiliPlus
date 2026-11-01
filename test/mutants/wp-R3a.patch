@@ -1,0 +1,22 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..e02b534e5 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1028,7 +1028,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+             ),
+             if (!videoDetailController.isFileSource)
+               Offstage(
+-                offstage: isFullScreen,
++                offstage: false,
+                 child: SizedBox(
+                   width: width,
+                   height: introHeight,
+@@ -1043,7 +1043,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+           ],
+         ),
+         Offstage(
+-          offstage: isFullScreen,
++          offstage: false,
+           child: SizedBox(
+             width: maxWidth - width - padding.horizontal,
+             height: maxHeight - padding.top,

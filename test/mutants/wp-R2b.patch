@@ -1,0 +1,14 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..ca933c59b 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1006,9 +1006,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+         ? maxHeight - (isWindowMode && !isPortrait ? 0 : padding.top)
+         : height;
+     SelfTestProbe.split16x9(heroTag, height > maxHeight);
+-    if (height > maxHeight) {
+-      return childSplit(Style.aspectRatio16x9);
+-    }
+     final introHeight = maxHeight - height - padding.top;
+     final showIntro =
+         videoDetailController.isUgc && videoDetailController.showRelatedVideo;

@@ -1,0 +1,20 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..fb57d0791 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -1519,11 +1519,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+               return;
+             }
+             String text = tabs[value];
+-            if (videoDetailController.isFileSource ||
++            if ((videoDetailController.isFileSource &&
++                    !text.startsWith('评论')) ||
+                 text == '简介' ||
+                 text == '相关视频') {
+               videoDetailController.introScrollCtr?.animToTop();
+-            } else if (text.startsWith('评论')) {
++            } else if (text.startsWith('评论') &&
++                !videoDetailController.isFileSource) {
+               _videoReplyController.animateToTop();
+             }
+           }

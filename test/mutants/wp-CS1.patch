@@ -1,0 +1,13 @@
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+index ba565d648..74dd522e3 100644
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -695,7 +695,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                       hitTestBehavior: .translucent,
+                       controller: videoDetailController.tabCtr,
+                       children: [
+-                        videoIntro(isHorizontal: false, needCtr: false),
++                        videoIntro(isHorizontal: false, needCtr: true),
+                         if (videoDetailController.showReply)
+                           videoReplyPanel(isNested: true),
+                         if (_shouldShowSeasonPanel) seasonPanel,

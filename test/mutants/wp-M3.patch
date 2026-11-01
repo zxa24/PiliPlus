@@ -1,0 +1,15 @@
+diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
+index 989e78b1f..510d92aa6 100644
+--- a/lib/pages/video/controller.dart
++++ b/lib/pages/video/controller.dart
+@@ -320,9 +320,7 @@ class VideoDetailController extends GetxController
+         duration: const Duration(milliseconds: 200),
+       )..addListener(_animListener));
+ 
+-  void refreshPage() {
+-    scrollKey.currentState?.refresh();
+-  }
++  void refreshPage() {}
+ 
+   void _animListener() {
+     if (animationController.isForwardOrCompleted) {
