@@ -36,9 +36,24 @@ void main() {
     );
   });
 
+  test("an 8K video's formats: tiers 4320 and 2160, not both 2160", () {
+    expect(
+      [(7680, 4320), (3840, 2160), (2560, 1440)].map(
+        (s) => ytQualityTier(s.$1, s.$2),
+      ),
+      [4320, 2160, 1440],
+    );
+    // a wide 8K film: 7680 × 9 / 16 = 4320
+    expect(ytQualityTier(7680, 3200), 4320);
+    // just under 4320: the step below
+    expect(ytQualityTier(7679, 4319), 2160);
+  });
+
   test('the ladder: tops and floors', () {
     expect(ytQualityTier(3840, 2160), 2160);
-    expect(ytQualityTier(7680, 4320), 2160);
+    // 4320 (user 2026-11-01): the top step now
+    expect(ytQualityTier(7680, 4320), 4320);
+    expect(ytQualityTier(15360, 8640), 4320);
     expect(ytQualityTier(2560, 1440), 1440);
     expect(ytQualityTier(640, 360), 360);
     expect(ytQualityTier(426, 240), 240);

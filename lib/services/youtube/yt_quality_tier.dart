@@ -12,8 +12,11 @@ library;
 
 import 'dart:math' as math;
 
-/// The tiers, highest first.
-const ytQualityLadder = [2160, 1440, 1080, 720, 480, 360, 240, 144];
+/// The tiers, highest first. 4320 (user 2026-11-01, design §10 item 9 ①A):
+/// without it an 8K format fell into 2160 too, and a "2160" pick, taking
+/// the largest size of its tier, downloaded 8K — a video's real 4K could
+/// not be chosen.
+const ytQualityLadder = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144];
 
 /// The tier of a [width] x [height] frame: `max(short side, long side × 9 ÷
 /// 16)` (integer division) floored to [ytQualityLadder]; below 144, 144.

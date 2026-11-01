@@ -689,6 +689,35 @@ void main() {
       });
     });
 
+    // user 2026-11-01 (the 4320 tier): on an 8K video an exact 2160 pick
+    // takes the 4K stream, not the 8K one that used to share its tier
+    group('an 8K video', () {
+      final formats = [
+        video(571, 7680, 4320, codec: 'av01.0.16M.08'),
+        video(401, 3840, 2160, codec: 'av01.0.12M.08'),
+        video(400, 2560, 1440, codec: 'av01.0.12M.08'),
+        audio(140),
+      ];
+
+      test('an exact 2160 pick: 3840x2160, not 7680x4320', () {
+        final pick = selectYtVideoFormat(
+          formats,
+          YtFormatPreference.mp4Download(4320, exactHeight: 2160),
+        )!;
+        expect((pick.itag, pick.width, pick.height), (401, 3840, 2160));
+      });
+
+      test('an exact 4320 pick: the 8K stream', () {
+        expect(
+          selectYtVideoFormat(
+            formats,
+            YtFormatPreference.mp4Download(4320, exactHeight: 4320),
+          )!.itag,
+          571,
+        );
+      });
+    });
+
     group('DRC', () {
       final plain = audio(140, bitrate: 128000);
       final drc = audio(140, bitrate: 130000, drc: true);

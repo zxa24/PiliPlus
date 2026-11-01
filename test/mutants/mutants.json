@@ -1018,5 +1018,15 @@
     "kind": "unit",
     "test": "test/services/download/entry_dir_test.dart",
     "catcher": "entry_dir_test.dart: the three guards, a YouTube folder a page folder that is also an export: its download deleted, the export kept"
+  },
+  {
+    "id": "P2-Q2",
+    "patch": "P2-Q2.patch",
+    "location": "lib/services/youtube/yt_quality_tier.dart:19",
+    "change": "the tier ladder without 4320 (an 8K format in tier 2160 again)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/youtube/yt_quality_tier_test.dart",
+    "catcher": "yt_quality_tier_test.dart: an 8K video's formats: tiers 4320 and 2160, not both 2160"
   }
 ]
