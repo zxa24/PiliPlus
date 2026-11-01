@@ -2,7 +2,7 @@
   {
     "id": "M1",
     "patch": "M1.patch",
-    "location": "lib/services/download/download_service.dart:164",
+    "location": "lib/services/download/download_service.dart:183",
     "change": "_retryLater keys its retry state by avid: final key = 'bili:<avid>'",
     "phase": "both",
     "kind": "unit",
@@ -12,8 +12,8 @@
   {
     "id": "M2",
     "patch": "M2.patch",
-    "location": "lib/services/download/download_service.dart:401",
-    "change": "_noteFailure: _failedAway.add('bili:<avid>')",
+    "location": "lib/services/download/download_service.dart:436",
+    "change": "_noteFailure: _failedAway['bili:<avid>'] = kind",
     "phase": "both",
     "kind": "unit",
     "test": "test/services/download/keyed_state_test.dart",
@@ -22,7 +22,7 @@
   {
     "id": "M3",
     "patch": "M3.patch",
-    "location": "lib/services/download/download_service.dart:1228,1230",
+    "location": "lib/services/download/download_service.dart:1369-1371",
     "change": "_queueExtras: _extrasJobs keyed by 'bili:<avid>' (and its identical check)",
     "phase": "both",
     "kind": "unit",
@@ -32,7 +32,7 @@
   {
     "id": "M4",
     "patch": "M4.patch",
-    "location": "lib/services/download/download_service.dart:1145",
+    "location": "lib/services/download/download_service.dart:1286",
     "change": "_resumeExtras: _extrasJobs.containsKey('bili:<avid>')",
     "phase": "both",
     "kind": "unit",
@@ -42,7 +42,7 @@
   {
     "id": "M5",
     "patch": "M5.patch",
-    "location": "lib/services/download/download_service.dart:1031",
+    "location": "lib/services/download/download_service.dart:1160",
     "change": "_completeDownload: _mergingKeys.add('bili:<avid>')",
     "phase": "both",
     "kind": "unit",
@@ -52,7 +52,7 @@
   {
     "id": "M6",
     "patch": "M6.patch",
-    "location": "lib/services/download/download_service.dart:1551",
+    "location": "lib/services/download/download_service.dart:1707",
     "change": "deleteDownload: _mergeDeletedKeys.add('bili:<avid>')",
     "phase": "both",
     "kind": "unit",
@@ -62,7 +62,7 @@
   {
     "id": "M7",
     "patch": "M7.patch",
-    "location": "lib/services/download/download_service.dart:316",
+    "location": "lib/services/download/download_service.dart:342",
     "change": "keep-alive 「暂停」: _pauseAfterMergeKey = 'bili:<avid>'",
     "phase": "both",
     "kind": "unit",
@@ -72,7 +72,7 @@
   {
     "id": "M8",
     "patch": "M8.patch",
-    "location": "lib/services/download/download_service.dart:365",
+    "location": "lib/services/download/download_service.dart:392",
     "change": "_keepAliveState: 「还有 N 个」 counts the current entry too",
     "phase": "both",
     "kind": "unit",
@@ -82,7 +82,7 @@
   {
     "id": "M9",
     "patch": "M9.patch",
-    "location": "lib/services/download/download_service.dart:1529",
+    "location": "lib/services/download/download_service.dart:1685",
     "change": "nextDownload compares avid instead of the key",
     "phase": "both",
     "kind": "unit",
@@ -92,7 +92,7 @@
   {
     "id": "M10",
     "patch": "M10.patch",
-    "location": "lib/services/download/download_service.dart:1607",
+    "location": "lib/services/download/download_service.dart:1767",
     "change": "deletePage stops after the first entry (break)",
     "phase": "both",
     "kind": "unit",
@@ -102,7 +102,7 @@
   {
     "id": "M11",
     "patch": "M11.patch",
-    "location": "lib/services/download/download_service.dart:168",
+    "location": "lib/services/download/download_service.dart:192",
     "change": "_redownloaded.add('bili:<avid>')",
     "phase": "both",
     "kind": "unit",
@@ -122,7 +122,7 @@
   {
     "id": "M13",
     "patch": "M13.patch",
-    "location": "lib/services/download/download_service.dart:435",
+    "location": "lib/services/download/download_service.dart:471",
     "change": "_keepTranscript matches cache entries by pageId instead of the entry's transcriptKey",
     "phase": "both",
     "kind": "unit",
@@ -200,7 +200,7 @@
   {
     "id": "M19",
     "patch": "M19.patch",
-    "location": "lib/services/download/download_platform_bili.dart:393-399",
+    "location": "lib/services/download/download_platform_bili.dart:464-470",
     "change": "no width/height written after the start (bilibili adapter's start)",
     "phase": "both",
     "kind": "unit",
@@ -210,8 +210,8 @@
   {
     "id": "M20",
     "patch": "M20.patch",
-    "location": "lib/services/download/download_platform_bili.dart:334",
-    "change": "_writeIndexJson dropped from the Future.wait (bilibili adapter's start)",
+    "location": "lib/services/download/download_service.dart:981",
+    "change": "the service's start drops writeStreamKey from its Future.wait with the cover (bilibili's: index.json not written)",
     "phase": "both",
     "kind": "unit",
     "test": "test/services/download/start_args_test.dart",
@@ -220,8 +220,8 @@
   {
     "id": "M21",
     "patch": "M21.patch",
-    "location": "lib/services/download/download_platform_bili.dart:380",
-    "change": "expectedTotal always 0 (bilibili adapter's start)",
+    "location": "lib/services/download/download_platform_bili.dart:451",
+    "change": "expectedTotal always 0 (bilibili's transport; oldTypeTag from _BiliPlan)",
     "phase": "both",
     "kind": "unit",
     "test": "test/services/download/start_args_test.dart",
@@ -230,7 +230,7 @@
   {
     "id": "M22",
     "patch": "M22.patch",
-    "location": "lib/services/download/download_platform_bili.dart:383",
+    "location": "lib/services/download/download_platform_bili.dart:454",
     "change": "dash: no audio DownloadManager (bilibili adapter's start)",
     "phase": "both",
     "kind": "unit",
@@ -240,7 +240,7 @@
   {
     "id": "M23",
     "patch": "M23.patch",
-    "location": "lib/services/download/download_platform_bili.dart:450",
+    "location": "lib/services/download/download_platform_bili.dart:521",
     "change": "_startSegment without the identical(_downloadManager, manager) guard",
     "phase": "both",
     "kind": "unit",
@@ -250,7 +250,7 @@
   {
     "id": "M24",
     "patch": "M24.patch",
-    "location": "lib/services/download/download_platform_bili.dart:545",
+    "location": "lib/services/download/download_platform_bili.dart:616",
     "change": "bilibili merge: no entry.mergedPath = output",
     "phase": "both",
     "kind": "selftest",
@@ -260,7 +260,7 @@
   {
     "id": "M25",
     "patch": "M25.patch",
-    "location": "lib/services/download/download_platform_bili.dart:551-553",
+    "location": "lib/services/download/download_platform_bili.dart:622-624",
     "change": "failed merge leaves its empty own export folder",
     "phase": "both",
     "kind": "selftest",
@@ -270,7 +270,7 @@
   {
     "id": "M26",
     "patch": "M26.patch",
-    "location": "lib/services/download/download_service.dart:2, lib/services/download/download_platform_bili.dart:40",
+    "location": "lib/services/download/download_service.dart:2, lib/services/download/download_platform_bili.dart:42",
     "change": "bilibili adapter's save encodes with JsonEncoder.withIndent(' ')",
     "phase": "both",
     "kind": "unit",
@@ -280,7 +280,7 @@
   {
     "id": "M27",
     "patch": "M27.patch",
-    "location": "lib/services/download/download_platform_bili.dart:38-39,43",
+    "location": "lib/services/download/download_platform_bili.dart:40-45",
     "change": "bilibili adapter's save writes entry.json directly, no .tmp + rename",
     "phase": "both",
     "kind": "unit",
@@ -290,7 +290,7 @@
   {
     "id": "M28",
     "patch": "M28.patch",
-    "location": "lib/services/download/download_service.dart:923",
+    "location": "lib/services/download/download_service.dart:1034",
     "change": "_saveEntry not chained: calls the platform's save directly",
     "phase": "both",
     "kind": "unit",
@@ -300,7 +300,7 @@
   {
     "id": "M29",
     "patch": "M29.patch",
-    "location": "lib/services/download/download_transcripts.dart:31,238",
+    "location": "lib/services/download/download_transcripts.dart:31,254",
     "change": "_next: running.value = 'bili:<avid>'",
     "phase": "both",
     "kind": "selftest",
@@ -310,7 +310,7 @@
   {
     "id": "M30",
     "patch": "M30.patch",
-    "location": "lib/services/download/download_transcripts.dart:31,223,236",
+    "location": "lib/services/download/download_transcripts.dart:31,239,252",
     "change": "_next: SubtitleCacheKey.bilibili(entry.avid) (read and session cache) instead of the platform's transcriptKey",
     "phase": "both",
     "kind": "selftest",
@@ -320,7 +320,7 @@
   {
     "id": "M31",
     "patch": "M31.patch",
-    "location": "lib/services/download/download_platform_bili.dart:137",
+    "location": "lib/services/download/download_platform_bili.dart:218",
     "change": "bilibili adapter's extras: the transcript step's key SubtitleCacheKey.bilibili(entry.avid)",
     "phase": "both",
     "kind": "unit",
@@ -420,7 +420,7 @@
   {
     "id": "M41",
     "patch": "M41.patch",
-    "location": "lib/services/download/download_platform_bili.dart:209",
+    "location": "lib/services/download/download_platform_bili.dart:296",
     "change": "「已看完」 threshold - 400 -> - 2000 (bilibili adapter's progressOf)",
     "phase": "both",
     "kind": "widget",
@@ -440,7 +440,7 @@
   {
     "id": "M43",
     "patch": "M43.patch",
-    "location": "lib/services/download/download_platform_bili.dart:198",
+    "location": "lib/services/download/download_platform_bili.dart:285",
     "change": "cover never the local cover.jpg (bilibili adapter's localCover: file null)",
     "phase": "both",
     "kind": "widget",
@@ -450,7 +450,7 @@
   {
     "id": "M44",
     "patch": "M44.patch",
-    "location": "lib/services/download/download_platform_bili.dart:193",
+    "location": "lib/services/download/download_platform_bili.dart:280",
     "change": "cacheWidth inverted (bilibili adapter's coverCacheWidth)",
     "phase": "both",
     "kind": "widget",
@@ -460,7 +460,7 @@
   {
     "id": "M45",
     "patch": "M45.patch",
-    "location": "lib/services/download/download_platform_bili.dart:183",
+    "location": "lib/services/download/download_platform_bili.dart:270",
     "change": "second title line (pageData.part) maxLines 1 -> 2 (bilibili adapter's titleLines)",
     "phase": "both",
     "kind": "widget",
@@ -470,7 +470,7 @@
   {
     "id": "M46",
     "patch": "M46.patch",
-    "location": "lib/services/download/download_platform_bili.dart:215",
+    "location": "lib/services/download/download_platform_bili.dart:302",
     "change": "entry menu without 「更新弹幕」 (bilibili adapter's menu empty)",
     "phase": "both",
     "kind": "widget",
@@ -500,7 +500,7 @@
   {
     "id": "M49",
     "patch": "M49.patch",
-    "location": "lib/services/download/download_platform_bili.dart:233",
+    "location": "lib/services/download/download_platform_bili.dart:320",
     "change": "group menu without 「更新弹幕」 (bilibili adapter's groupMenu empty)",
     "phase": "both",
     "kind": "selftest",
@@ -510,7 +510,7 @@
   {
     "id": "M50",
     "patch": "M50.patch",
-    "location": "lib/services/download/download_service.dart:1529",
+    "location": "lib/services/download/download_service.dart:1685",
     "change": "nextDownload does not skip failed entries",
     "phase": "both",
     "kind": "unit",
@@ -530,7 +530,7 @@
   {
     "id": "M52",
     "patch": "M52.patch",
-    "location": "lib/services/download/download_service.dart:179",
+    "location": "lib/services/download/download_service.dart:203",
     "change": "retry limit made >= retryWaits.length -> >",
     "phase": "both",
     "kind": "unit",
@@ -540,7 +540,7 @@
   {
     "id": "M53",
     "patch": "M53.patch",
-    "location": "lib/services/download/download_service.dart:197",
+    "location": "lib/services/download/download_service.dart:222",
     "change": "retry timer without the curDownload.value?.key != key guard",
     "phase": "both",
     "kind": "unit",
@@ -550,7 +550,7 @@
   {
     "id": "M54",
     "patch": "M54.patch",
-    "location": "lib/services/download/download_service.dart:168",
+    "location": "lib/services/download/download_service.dart:192",
     "change": "damaged merge re-downloaded more than once per start (no !_redownloaded.add(key))",
     "phase": "both",
     "kind": "unit",
@@ -560,7 +560,7 @@
   {
     "id": "M55",
     "patch": "M55.patch",
-    "location": "lib/services/download/download_service.dart:1515,1517-1519",
+    "location": "lib/services/download/download_service.dart:1673-1675",
     "change": "export name: quality appended before the 80-code-point cut (_exportName)",
     "phase": "both",
     "kind": "unit",
@@ -612,11 +612,61 @@
   {
     "id": "M59",
     "patch": "M59.patch",
-    "location": "lib/services/download/download_service.dart:174",
+    "location": "lib/services/download/download_service.dart:198",
     "change": "_retryLater: a failed retry that received bytes resets _retries['bili:<avid>'], not the entry's",
     "phase": "both",
     "kind": "unit",
     "test": "test/services/download/keyed_state_test.dart",
     "catcher": "keyed_state_test.dart: the queue a retry that failed after receiving bytes starts its count over; the other part counts its own"
+  },
+  {
+    "id": "P2-S1",
+    "patch": "P2-S1.patch",
+    "location": "lib/services/download/download_service.dart:951",
+    "change": "the start does not check its generation after resolve",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/start_steps_test.dart",
+    "catcher": "start_steps_test.dart: paused while the play URL is fetched: another quality's stream folder, whose index is another stream, keeps its bytes"
+  },
+  {
+    "id": "P2-S2",
+    "patch": "P2-S2.patch",
+    "location": "lib/services/download/download_service.dart:985-994",
+    "change": "the start does not check its generation after the cover (and its orphan cleanup) is gone",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/start_steps_test.dart",
+    "catcher": "start_steps_test.dart: deleted while the cover and the stream index are written: no folder of it is left behind"
+  },
+  {
+    "id": "P2-S4",
+    "patch": "P2-S4.patch",
+    "location": "lib/services/download/download_service.dart:968",
+    "change": "a readStreamKey that throws empties the stream folder too",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/start_steps_test.dart",
+    "catcher": "start_steps_test.dart: a stream index that cannot be read: the bytes beside it are kept and resumed"
+  },
+  {
+    "id": "P2-S7",
+    "patch": "P2-S7.patch",
+    "location": "lib/services/download/download_platform_bili.dart:412,420",
+    "change": "bilibili's resolve reads oldTypeTag after getVideoUrl",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/start_args_test.dart",
+    "catcher": "start_args_test.dart: the quality before the play URL is the one the size is compared with: a play URL that changes it gives no size"
+  },
+  {
+    "id": "P2-F12",
+    "patch": "P2-F12.patch",
+    "location": "lib/services/download/download_service.dart:1011",
+    "change": "lastError is set in the start's catch for every platform (not only for a DownloadResolveFailure)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/start_steps_test.dart",
+    "catcher": "start_steps_test.dart: a failed play URL: retried, its line says no error of its own, as it always did"
   }
 ]

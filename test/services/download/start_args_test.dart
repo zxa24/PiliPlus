@@ -147,6 +147,23 @@ void main() {
     expect(path.dirname(h.transports.last.path), endsWith('64'));
   });
 
+  test('the quality before the play URL is the one the size is compared '
+      'with: a play URL that changes it gives no size', () async {
+    await start();
+    expect(p1.totalBytes, greaterThan(0));
+    // this start's play URL is another quality than the one the saved size
+    // belongs to; it writes its own into the entry, as the real one does
+    h.plan = (e) {
+      e.typeTag = '64';
+      return dashPlan(id: 64);
+    };
+    h.service.startDownload(p1);
+    await until(() => h.transports.length == 1);
+    expect(p1.typeTag, '64');
+    expect(h.transports.single.expectedTotal, 0);
+    expect(path.dirname(h.transports.single.path), endsWith('64'));
+  });
+
   test('dash: a video and an audio transfer at once, into the stream '
       'folder; no audio, one transfer', () async {
     await start();

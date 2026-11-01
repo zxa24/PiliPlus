@@ -1,12 +1,12 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -398,7 +398,7 @@
-         platformOf(entry).classify(error) != DownloadFailure.network) {
+@@ -433,7 +433,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+     }.contains(kind)) {
        return;
      }
--    _failedAway.add(entry.key);
-+    _failedAway.add('bili:${(entry as BiliDownloadEntryInfo).avid}');
+-    _failedAway[entry.key] = kind;
++    _failedAway['bili:${(entry as BiliDownloadEntryInfo).avid}'] = kind;
    }
  
    void _resumeFailedAway() {

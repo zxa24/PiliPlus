@@ -65,6 +65,10 @@ abstract class DownloadEntry with MultiSelectData {
   late String entryDirPath;
   late DownloadStatus status = .wait;
 
+  /// Its retries ran out (the service gave up on it) since it was last
+  /// started. Not saved.
+  bool gaveUp = false;
+
   /// The stream sub-folder of [entryDirPath] in use.
   String get streamTypeTag;
 

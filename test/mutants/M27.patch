@@ -1,9 +1,9 @@
 diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
 --- a/lib/services/download/download_platform_bili.dart
 +++ b/lib/services/download/download_platform_bili.dart
-@@ -35,12 +35,10 @@
-   @override
-   Future<void> save(DownloadEntry entry) async {
+@@ -37,12 +37,10 @@ final class _BiliPlatform implements DownloadPlatform {
+     // deleted meanwhile (a save queued before the delete): not made again
+     if (!Directory(entry.entryDirPath).existsSync()) return;
      final entryJsonFile = File(path.join(entry.entryDirPath, recordFile));
 -    final tmp = File('${entryJsonFile.path}.tmp');
 -    await tmp.writeAsString(
@@ -11,7 +11,7 @@ diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/do
        jsonEncode((entry as BiliDownloadEntryInfo).toJson()),
        flush: true,
      );
--    await tmp.rename(entryJsonFile.path);
+-    await _replaceWith(tmp, entryJsonFile.path);
    }
  
-   /// The danmaku: the service's [DownloadService.downloadDanmaku], also
+   /// Renames [tmp] over [target], again a few times (about 1.5 s in all)

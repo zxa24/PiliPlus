@@ -8,10 +8,11 @@ diff --git a/lib/services/download/download_service.dart b/lib/services/download
  import 'dart:io'
      show
          Directory,
+
 diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
 --- a/lib/services/download/download_platform_bili.dart
 +++ b/lib/services/download/download_platform_bili.dart
-@@ -37,7 +37,9 @@
+@@ -39,7 +39,9 @@ final class _BiliPlatform implements DownloadPlatform {
      final entryJsonFile = File(path.join(entry.entryDirPath, recordFile));
      final tmp = File('${entryJsonFile.path}.tmp');
      await tmp.writeAsString(
@@ -21,4 +22,4 @@ diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/do
 +      ),
        flush: true,
      );
-     await tmp.rename(entryJsonFile.path);
+     await _replaceWith(tmp, entryJsonFile.path);

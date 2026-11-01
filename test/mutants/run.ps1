@@ -5,7 +5,7 @@
 # patches are only ever applied in throwaway git worktrees under
 # _tmp/mutants/, never to the checked-out lib/.
 #
-#   pwsh -NoProfile -File test/mutants/run.ps1 [-Commit <rev>] [-Phase 0|1a|1b]
+#   pwsh -NoProfile -File test/mutants/run.ps1 [-Commit <rev>] [-Phase 0|1a|1b|2]
 #        [-Only M1,M15] [-Slot 1] [-Out <dir>] [-Baseline <dir>] [-NoSelfTest]
 #        [-Flutter <flutter.bat>] [-Work <dir>] [-SelfTestAll] [-SelfTestTree <dir>]
 #        [-NoUnit] [-AsrModels <dir>]
@@ -87,7 +87,11 @@
 # The runner serves two plans. Everything above describes the first, and
 # it still works exactly so:
 #   download    mutants.json (a bare array), scenarios download / queue99 /
-#               transcribe / listshots, -Phase 0|1a|1b. The default plan.
+#               transcribe / listshots, -Phase 0|1a|1b|2. The default plan.
+#               -Phase 2 (stage 2 of the download platforms, its plan §6.3)
+#               runs every mutant: both, 1a-only, 1b-only and 2-only; with
+#               no -Only it first checks how many of each it has picked
+#               ($phase2Counts below) and stops when they differ.
 #   watch_page  wp-mutants.json, design feature-logs/watch-page-shell/
 #               design.md §5 S0b 「runner 通用化」: -Plan watch_page.
 #
@@ -314,7 +318,7 @@ param(
     [string]$Commit = 'HEAD',
     # 0 / 1a / 1b: the download plan; S0 ... S2: watch_page (its manifest's
     # "phases")
-    [ValidateSet('0', '1a', '1b', 'S0', 'S1', 'S1b', 'S1c', 'S2')] [string]$Phase = '0',
+    [ValidateSet('0', '1a', '1b', '2', 'S0', 'S1', 'S1b', 'S1c', 'S2')] [string]$Phase = '0',
     [string[]]$Only = @(),
     [ValidateRange(1, 3)] [int]$Slot = 1,
     [string]$Out = '',
@@ -2180,15 +2184,28 @@ $work = if ($Work) { $Work } else { Join-Path $root '_tmp\mutants' }
 if (-not $dry) { New-Item -ItemType Directory -Force $work | Out-Null }
 
 if (-not $script:wp) {
-    if ($Phase -notin '0', '1a', '1b') { throw "-Phase $Phase is a watch_page phase; the download plan has 0, 1a and 1b" }
+    if ($Phase -notin '0', '1a', '1b', '2') { throw "-Phase $Phase is a watch_page phase; the download plan has 0, 1a, 1b and 2" }
     $all = Get-Content -Raw (Join-Path $here 'mutants.json') | ConvertFrom-Json -AsHashtable
-    $phases = @{ '0' = @('both'); '1a' = @('both', '1a-only'); '1b' = @('1b-only') }[$Phase]
+    $phases = @{ '0' = @('both'); '1a' = @('both', '1a-only'); '1b' = @('1b-only'); '2' = @('both', '1a-only', '1b-only', '2-only') }[$Phase]
     $todo = @($all | Where-Object {
             ($Only.Count -eq 0 -or $Only -contains $_['id']) -and (
                 $phases -contains $_['phase'] -or
                 # 1b: also the self-test items it touches (--download-transcribe)
                 ($Phase -eq '1b' -and $_.Contains('scenario') -and $_['scenario'] -eq 'transcribe'))
         })
+    if ($Phase -eq '2' -and $Only.Count -eq 0) {
+        # stage 2 runs all of them (its plan §6.3, review X7: the first -Phase
+        # 2 left out 1a-only and 1b-only). How many of each it picks: the 61
+        # of stage 1, and the stage-2 mutants each of its commits adds (2a:
+        # 5; 2f: 94, 155 in all) — a commit that adds some raises 2-only
+        $phase2Counts = [ordered]@{ 'both' = 58; '1a-only' = 2; '1b-only' = 1; '2-only' = 5 }
+        foreach ($p in $phase2Counts.Keys) {
+            $n = @($todo | Where-Object { $_['phase'] -eq $p }).Count
+            if ($n -ne $phase2Counts[$p]) { throw "-Phase 2 picked $n mutants of phase $p, not $($phase2Counts[$p]) (mutants.json or `$phase2Counts is wrong)" }
+        }
+        $total = ($phase2Counts.Values | Measure-Object -Sum).Sum
+        if ($todo.Count -ne $total) { throw "-Phase 2 picked $($todo.Count) mutants, not $total" }
+    }
 } else {
     $wpPlan = Read-WpPlan
     if (-not $PSBoundParameters.ContainsKey('Phase')) { $Phase = $wpPlan.defaultPhase }

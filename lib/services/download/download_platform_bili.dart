@@ -69,15 +69,67 @@ final class _BiliPlatform implements DownloadPlatform {
   Future<void> prepare(DownloadEntry entry, DownloadReport report) =>
       _service.downloadDanmaku(entry: entry as BiliDownloadEntryInfo);
 
+  /// Every start asks for the play URL.
   @override
-  Future<void> start(DownloadEntry entry, int gen) =>
-      _service._startBili(entry as BiliDownloadEntryInfo, gen);
+  bool streamsComplete(DownloadEntry entry) => false;
+
+  @override
+  Future<DownloadPlan> resolve(DownloadEntry entry) =>
+      _service._resolveBili(entry as BiliDownloadEntryInfo);
+
+  /// The play URL's streams ([_BiliDownload._streamKey]).
+  @override
+  String? streamKey(DownloadPlan plan) =>
+      _BiliDownload._streamKey((plan as _BiliPlan).media.toJson());
+
+  /// The stream folder's `index.json`; throws when it cannot be read.
+  @override
+  Future<String?> readStreamKey(DownloadEntry entry) async =>
+      _BiliDownload._streamKey(
+        jsonDecode(await _indexFileOf(entry).readAsString()),
+      );
+
+  @override
+  Future<void> writeStreamKey(DownloadEntry entry, DownloadPlan plan) =>
+      _BiliDownload._writeIndexJson(
+        _indexFileOf(entry),
+        (plan as _BiliPlan).media,
+      );
+
+  static File _indexFileOf(DownloadEntry entry) => File(
+    path.join(
+      DownloadService._streamDirPath(entry),
+      DownloadService._indexFile,
+    ),
+  );
+
+  @override
+  Future<void> transport(
+    DownloadEntry entry,
+    DownloadPlan? plan,
+    int gen,
+  ) async => _service._transportBili(
+    entry as BiliDownloadEntryInfo,
+    plan! as _BiliPlan,
+  );
+
+  /// The play URL's request gives no error to tell the network by: its
+  /// failures count as the network's.
+  @override
+  bool get playUrlFailuresAreNetwork => true;
+
+  @override
+  bool get extrasEnabled => true;
+
+  /// Nothing is kept that would bring the same failure back.
+  @override
+  void beforeRetry(DownloadEntry entry, DownloadFailure? kind) {}
 
   /// Saves the cover as `cover.jpg` in the entry folder: from the image
   /// cache, else over [Request.dio]. A failure does not stop the video.
-  Future<bool> cover({
-    required BiliDownloadEntryInfo entry,
-  }) async {
+  @override
+  Future<bool> cover(DownloadEntry entry) async {
+    entry as BiliDownloadEntryInfo;
     try {
       final filePath = path.join(entry.entryDirPath, PathUtils.coverName);
       if (File(filePath).existsSync()) {
@@ -100,8 +152,13 @@ final class _BiliPlatform implements DownloadPlatform {
   }
 
   @override
-  ({(int, int) video, (int, int)? audio}) initialBytes(DownloadEntry entry) =>
-      (video: (entry.downloadedBytes, entry.totalBytes), audio: null);
+  ({(int, int) video, (int, int)? audio, int? mediaGuess, bool? expectAudio})
+  initialBytes(DownloadEntry entry) => (
+    video: (entry.downloadedBytes, entry.totalBytes),
+    audio: null,
+    mediaGuess: null,
+    expectAudio: null,
+  );
 
   @override
   ({String name, String suffix}) exportName(DownloadEntry entry) =>
@@ -124,11 +181,15 @@ final class _BiliPlatform implements DownloadPlatform {
     return (name: parts.join(' - '), suffix: entry.qualityPithyDescription);
   }
 
+  /// Its own merge, which takes its export through the service's private
+  /// members as it always did ([export] is not used).
   @override
-  Future<DownloadMergeResult> merge(DownloadEntry entry) =>
-      (DownloadService.mergeForTest ?? _service._mergeDownload)(
-        entry as BiliDownloadEntryInfo,
-      );
+  Future<DownloadMergeResult> merge(
+    DownloadEntry entry,
+    DownloadExport export,
+  ) => (DownloadService.mergeForTest ?? _service._mergeDownload)(
+    entry as BiliDownloadEntryInfo,
+  );
 
   @override
   Future<Map<String, Object?>> extras({
@@ -181,6 +242,12 @@ final class _BiliPlatform implements DownloadPlatform {
   @override
   int? groupBadge(DownloadEntry entry) =>
       (entry as BiliDownloadEntryInfo).ep?.seasonType;
+
+  @override
+  String? platformBadge(DownloadEntry entry) => null;
+
+  @override
+  DownloadFailureAction? failureAction(DownloadEntry entry) => null;
 
   @override
   ({DownloadTitleLine first, List<DownloadTitleLine> more}) titleLines(
@@ -301,13 +368,47 @@ final class _BiliPlatform implements DownloadPlatform {
   }
 }
 
+/// What bilibili's [_BiliPlatform.resolve] found: the play URL, and the
+/// stream type from before it (the play URL writes the one it got into the
+/// entry; [_BiliDownload._transportBili] compares the two).
+final class _BiliPlan implements DownloadPlan {
+  _BiliPlan(this.media, this.oldTypeTag, this.streamTag);
+
+  final BiliDownloadMediaInfo media;
+  final String? oldTypeTag;
+
+  @override
+  final String streamTag;
+
+  @override
+  int? get mediaGuess => switch (media) {
+    Type1(:final segmentList) => segmentList.fold<int>(
+      0,
+      (s, e) => s + e.bytes,
+    ),
+    // bits per second over the duration (dash: seconds)
+    Type2(:final duration, :final video, :final audio) =>
+      (video.first.bandwidth + (audio?.firstOrNull?.bandwidth ?? 0)) *
+          duration ~/
+          8,
+    _ => null,
+  };
+
+  @override
+  bool get expectAudio => switch (media) {
+    Type2(:final audio) => audio?.isNotEmpty ?? false,
+    _ => false,
+  };
+}
+
 /// The bilibili download's own steps, moved here from the service as they
 /// were (design §3.3): they reach the service's private members directly.
+/// The service runs them in its steps and checks the start's generation
+/// between them (stage-2 plan §2.3).
 extension _BiliDownload on DownloadService {
-  /// The start after the danmaku and the play-URL status: the play URL, the
-  /// stream folder, the stream index and the cover, the transfers and the
-  /// size saved. [gen] is checked after each await, as it always was.
-  Future<void> _startBili(BiliDownloadEntryInfo entry, int gen) async {
+  /// The play URL. The stream type is read before it: the play URL writes
+  /// the one it got into the entry.
+  Future<_BiliPlan> _resolveBili(BiliDownloadEntryInfo entry) async {
     final oldTypeTag = entry.typeTag;
     final mediaFileInfo =
         await (DownloadService.getVideoUrlForTest ?? DownloadHttp.getVideoUrl)(
@@ -316,70 +417,20 @@ extension _BiliDownload on DownloadService {
           source: entry.source,
           pageData: entry.pageData,
         );
-    if (gen != _startGen) return;
-
-    // the stream is picked again on every start (codec / login / quality
-    // settings may have changed). Each quality has its own folder, so the
-    // new one never resumes the old one's bytes; the old folder is kept
-    // until this download completes ([_delStaleStreamDirs]) instead of
-    // being dropped here — leaving login mode re-resolves to a lower
-    // quality and that used to throw away a nearly finished transfer
     if (oldTypeTag != null &&
         oldTypeTag.isNotEmpty &&
         oldTypeTag != entry.typeTag) {
       debugPrint('download stream changed: $oldTypeTag -> ${entry.typeTag}');
     }
+    return _BiliPlan(mediaFileInfo, oldTypeTag, entry.streamTypeTag);
+  }
+
+  /// The transfers of [plan] into the stream folder, and the size of the
+  /// stream picked saved: no await before the transfers start, as before.
+  void _transportBili(BiliDownloadEntryInfo entry, _BiliPlan plan) {
+    final mediaFileInfo = plan.media;
+    final oldTypeTag = plan.oldTypeTag;
     final videoDir = Directory(DownloadService._streamDirPath(entry));
-    final mediaJsonFile = File(
-      path.join(videoDir.path, DownloadService._indexFile),
-    );
-    if (videoDir.existsSync()) {
-      String? oldKey;
-      try {
-        oldKey = _streamKey(jsonDecode(await mediaJsonFile.readAsString()));
-      } catch (_) {}
-      // an unreadable / missing index.json says nothing about the bytes on
-      // disk: they are kept and re-verified by the resume's `Content-Range`
-      // total ([DownloadManager.expectedTotal]) instead of being dropped
-      if (oldKey != null && oldKey != _streamKey(mediaFileInfo.toJson())) {
-        await videoDir.tryDel(recursive: true);
-      }
-    }
-    if (gen != _startGen) return;
-    if (!videoDir.existsSync()) {
-      await videoDir.create(recursive: true);
-    }
-
-    await Future.wait([
-      _writeIndexJson(mediaJsonFile, mediaFileInfo),
-      _bili.cover(entry: entry),
-    ]);
-
-    if (gen != _startGen) {
-      // deleted meanwhile: what was written here (the cover's download
-      // creates its folder) would be left behind as an orphan
-      if (!File(path.join(entry.entryDirPath, DownloadService._entryFile))
-          .existsSync()) {
-        await Directory(entry.entryDirPath).tryDel(recursive: true);
-      }
-      return;
-    }
-    if (curDownload.value?.key != entry.key) {
-      return;
-    }
-
-    entry.progress.mediaGuess = switch (mediaFileInfo) {
-      Type1(:final segmentList) => segmentList.fold(0, (s, e) => s + e.bytes),
-      // bits per second over the duration (dash: seconds)
-      Type2(:final duration, :final video, :final audio) =>
-        (video.first.bandwidth + (audio?.firstOrNull?.bandwidth ?? 0)) *
-            duration ~/
-            8,
-      _ => entry.progress.mediaGuess,
-    };
-    entry.progress.expectAudio =
-        mediaFileInfo is Type2 && (mediaFileInfo.audio?.isNotEmpty ?? false);
-
     switch (mediaFileInfo) {
       case Type1 mediaFileInfo:
         _startSegment(mediaFileInfo.segmentList, 0, videoDir.path);

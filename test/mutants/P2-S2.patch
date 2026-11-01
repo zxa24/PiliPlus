@@ -1,0 +1,20 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -982,16 +982,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+           platform.cover(entry),
+         ]);
+ 
+-        if (gen != _startGen) {
+-          // deleted meanwhile: what was written here (the cover's download
+-          // creates its folder) would be left behind as an orphan
+-          if (!File(
+-            path.join(entry.entryDirPath, platform.recordFile),
+-          ).existsSync()) {
+-            await Directory(entry.entryDirPath).tryDel(recursive: true);
+-          }
+-          return;
+-        }
+         if (curDownload.value?.key != entry.key) {
+           return;
+         }

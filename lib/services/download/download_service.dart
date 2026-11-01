@@ -94,11 +94,26 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
 
   late final _bili = _BiliPlatform(this);
 
-  /// What [entry]'s platform does its own way (design §3.1).
-  DownloadPlatform platformOf(DownloadEntry entry) => switch (entry.platform) {
-    BiliDownloadEntryInfo.platformId => _bili,
-    final other => throw StateError('unknown download platform $other'),
-  };
+  /// What the platforms outside this library are given of the service
+  /// (stage-2 plan §2.2).
+  late final DownloadHost _host = _Host(this);
+
+  /// Tests only: [_host].
+  @visibleForTesting
+  DownloadHost get hostForTest => _host;
+
+  /// The platforms, by [DownloadPlatform.id].
+  late final Map<String, DownloadPlatform> _platforms = {_bili.id: _bili};
+
+  /// The platform named [id]; null: none this build knows.
+  DownloadPlatform? platformNamed(String id) => _platforms[id];
+
+  /// What [entry]'s platform does its own way (design §3.1). Entries of a
+  /// platform this build does not know never get into the list or the
+  /// queue: this throwing is an assertion.
+  DownloadPlatform platformOf(DownloadEntry entry) =>
+      _platforms[entry.platform] ??
+      (throw StateError('unknown download platform ${entry.platform}'));
   void _updateCurStatus(DownloadStatus status) {
     if (curDownload.value case final entry?) {
       entry.status = status;
@@ -139,7 +154,14 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     _retries.remove(key);
     _retryBytes.remove(key);
     _redownloaded.remove(key);
+    _lastFailure.remove(key);
   }
+
+  /// What the last failure of each entry was ([DownloadPlatform.classify]),
+  /// for [DownloadPlatform.beforeRetry]: written where a start or a
+  /// transfer fails, taken (and so cleared) by [_retryLater]; a failure
+  /// that wrote none (a merge's) retries with none.
+  final _lastFailure = <DownloadKey, DownloadFailure>{};
 
   int _bytesOnDisk(DownloadEntry entry) {
     var bytes = 0;
@@ -158,10 +180,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   }
 
   void _retryLater(DownloadEntry entry, DownloadStatus status) {
+    final key = entry.key;
+    // this failure's own, never an earlier one's
+    final kind = _lastFailure.remove(key);
     // off screen (Android): started again once the app is back, see
     // [_resumeFailedAway]
     if (_away) return;
-    final key = entry.key;
     if (status == DownloadStatus.failMerge) {
       // only damaged streams that were removed are worth a start again; the
       // bytes it downloads anew are not progress against the budget below
@@ -190,6 +214,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     entry.status = DownloadStatus.retryWait;
     curDownload.refresh();
     entry.progress.statusChanged();
+    platformOf(entry).beforeRetry(entry, kind);
     // a pause, a delete or another start meanwhile bumps the generation
     final gen = _startGen;
     Timer(wait, () {
@@ -212,6 +237,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     );
     _retries.remove(entry.key);
     _retryBytes.remove(entry.key);
+    entry.gaveUp = true;
     final gen = _startGen;
     // after the failing start has unwound
     scheduleMicrotask(() {
@@ -221,8 +247,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     });
   }
 
-  DownloadManager? _downloadManager;
-  DownloadManager? _audioDownloadManager;
+  DownloadTransfer? _downloadManager;
+  DownloadTransfer? _audioDownloadManager;
 
   /// Bumped by every start, pause and delete: a start still fetching the
   /// danmaku or the play URL when it is paused or deleted has no managers
@@ -325,8 +351,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// download the network failed meanwhile is started again on the return.
   bool _away = false;
 
-  /// Downloads that failed for the network while [_away].
-  final _failedAway = <DownloadKey>{};
+  /// Downloads that failed for the network (or were refused, see
+  /// [_noteFailure]) while [_away], and what the failure was.
+  final _failedAway = <DownloadKey, DownloadFailure>{};
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -394,11 +421,19 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     final entry = curDownload.value;
     if (entry == null) return;
     // the play URL's request gives no error to tell the network by
-    if (!playUrl &&
-        platformOf(entry).classify(error) != DownloadFailure.network) {
+    final kind = playUrl
+        ? DownloadFailure.network
+        : platformOf(entry).classify(error);
+    // a refusal (an address bound to the network left behind) and a
+    // quality not on offer are worth the start again too
+    if (!const {
+      DownloadFailure.network,
+      DownloadFailure.refused,
+      DownloadFailure.qualityUnavailable,
+    }.contains(kind)) {
       return;
     }
-    _failedAway.add(entry.key);
+    _failedAway[entry.key] = kind;
   }
 
   void _resumeFailedAway() {
@@ -408,7 +443,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     // started meanwhile (the user's tap, a notification)
     if (curDownload.value?.status.isDownloading ?? false) return;
     for (final entry in waitDownloadQueue) {
-      if (keys.contains(entry.key) &&
+      if (keys.containsKey(entry.key) &&
           const {
             DownloadStatus.failDownload,
             DownloadStatus.failDownloadAudio,
@@ -419,6 +454,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
           '${entry.logLabel}: failed off screen (${entry.status.name}), '
               'started again',
         );
+        platformOf(entry).beforeRetry(entry, keys[entry.key]);
         startDownload(entry);
         return;
       }
@@ -520,7 +556,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
                 // the app closed while they were being saved
                 if (entry.extrasPending) _resumeExtras(entry);
               } else {
-                final (:video, :audio) = platform.initialBytes(entry);
+                final (:video, :audio, mediaGuess: _, expectAudio: _) = platform
+                    .initialBytes(entry);
                 entry.progress
                   ..planExtras(platform.extrasPlan())
                   ..video(video.$1, video.$2);
@@ -774,6 +811,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   }) {
     _releaseExtras();
     if (!retry) _forgetRetries(entry.key);
+    entry.gaveUp = false;
     // already finished downloading; the merge completes it
     if (_mergingKeys.contains(entry.key)) return Future.value();
     final gen = ++_startGen;
@@ -869,9 +907,15 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     return true;
   }
 
+  /// A start, in the platform's steps (stage-2 plan §2.3). [gen] is
+  /// checked after each step that awaits: a pause, a delete or another
+  /// start meanwhile has bumped it, and what the step brought is dropped —
+  /// nothing written, no transfer started.
   Future<void> _startDownload(DownloadEntry entry, int gen) async {
     final platform = platformOf(entry);
-    final (:video, :audio) = platform.initialBytes(entry);
+    final (:video, :audio, :mediaGuess, :expectAudio) = platform.initialBytes(
+      entry,
+    );
     entry.progress
       ..restart()
       ..planExtras(platform.extrasPlan())
@@ -896,10 +940,77 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
 
       _updateCurStatus(DownloadStatus.getPlayUrl);
 
-      await platform.start(entry, gen);
+      final DownloadPlan? plan;
+      if (platform.streamsComplete(entry)) {
+        // nothing to fetch: no play URL, no cover (design §2.3)
+        plan = null;
+        if (mediaGuess != null) entry.progress.mediaGuess = mediaGuess;
+        if (expectAudio != null) entry.progress.expectAudio = expectAudio;
+      } else {
+        plan = await platform.resolve(entry);
+        if (gen != _startGen) return;
+
+        // the stream is picked again on every start (codec / login /
+        // quality settings may have changed). Each stream has its own
+        // folder, so another one never resumes this one's bytes; an old
+        // folder is kept until this download completes
+        // ([_delStaleStreamDirs]) instead of being dropped here — leaving
+        // login mode re-resolves to a lower quality and that used to throw
+        // away a nearly finished transfer
+        final streamDir = Directory(
+          path.join(entry.entryDirPath, plan.streamTag),
+        );
+        final newKey = platform.streamKey(plan);
+        if (newKey != null && streamDir.existsSync()) {
+          String? oldKey;
+          try {
+            oldKey = await platform.readStreamKey(entry);
+          } catch (_) {}
+          // an unreadable / missing identity says nothing about the bytes
+          // on disk: they are kept and re-verified by the transfer
+          if (oldKey != null && oldKey != newKey) {
+            await streamDir.tryDel(recursive: true);
+          }
+        }
+        if (gen != _startGen) return;
+        if (!streamDir.existsSync()) {
+          await streamDir.create(recursive: true);
+        }
+
+        await Future.wait([
+          platform.writeStreamKey(entry, plan),
+          platform.cover(entry),
+        ]);
+
+        if (gen != _startGen) {
+          // deleted meanwhile: what was written here (the cover's download
+          // creates its folder) would be left behind as an orphan
+          if (!File(
+            path.join(entry.entryDirPath, platform.recordFile),
+          ).existsSync()) {
+            await Directory(entry.entryDirPath).tryDel(recursive: true);
+          }
+          return;
+        }
+        if (curDownload.value?.key != entry.key) {
+          return;
+        }
+
+        if (plan.mediaGuess case final guess?) {
+          entry.progress.mediaGuess = guess;
+        }
+        entry.progress.expectAudio = plan.expectAudio;
+      }
+
+      await platform.transport(entry, plan, gen);
     } catch (e) {
       if (gen == _startGen) {
-        _noteFailure(e, playUrl: true);
+        final kind = platform.classify(e);
+        // a platform's own words for it (bilibili's resolve throws none:
+        // its retry line says `-` as it always did)
+        if (e is DownloadResolveFailure) lastError = e.message;
+        _lastFailure[entry.key] = kind;
+        _noteFailure(e, playUrl: platform.playUrlFailuresAreNetwork);
         _updateCurStatus(DownloadStatus.failPlayUrl);
       }
       if (kDebugMode) {
@@ -970,12 +1081,20 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// Last download error (diagnostics: self test, logs).
   String? lastError;
 
+  /// [_lastFailure] of the current download: a transfer of it failed so.
+  void _noteLastFailure(Object error) {
+    if (curDownload.value case final entry?) {
+      _lastFailure[entry.key] = platformOf(entry).classify(error);
+    }
+  }
+
   void _onDone([Object? error]) {
     if (error != null) {
       lastError = 'video: $error';
       debugPrint('download failed: $lastError');
     }
     if (error != null) {
+      _noteLastFailure(error);
       _noteFailure(error);
       // the entry has failed: stop the audio stream too (its bytes are kept
       // for the resume), instead of letting it download and retry on its own
@@ -1009,6 +1128,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     if (error != null) {
       lastError = 'audio: $error';
       debugPrint('download failed: $lastError');
+      _noteLastFailure(error);
       _noteFailure(error);
     }
     if (error == null) curDownload.value?.progress.audioDone();
@@ -1036,6 +1156,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     _audioDownloadManager = null;
     entry.downloadedBytes = entry.totalBytes;
     final key = entry.key;
+    _lastFailure.remove(key);
     _mergingKeys.add(key);
     _mergeDeletedKeys.remove(key);
     _updateCurStatus(DownloadStatus.merging);
@@ -1043,9 +1164,15 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     if (entry is BiliDownloadEntryInfo) {
       if (selfTestBeforeMerge case final hook?) await hook(entry);
     }
-    final (:output, :inputs, :damaged, :corrupt) = await platformOf(
+    final platform = platformOf(entry);
+    final (:output, :inputs, :damaged, :corrupt) = await platform.merge(
       entry,
-    ).merge(entry);
+      (
+        claim: () => _exportFilePath(entry),
+        failed: _dropExport,
+        release: _releaseExport,
+      ),
+    );
     _mergingKeys.remove(key);
     final pauseNext = _pauseAfterMergeKey == key;
     if (pauseNext) _pauseAfterMergeKey = null;
@@ -1112,9 +1239,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       }
     }
     await _delStaleStreamDirs(entry);
+    // a platform whose extras are not saved yet keeps them marked
+    // ([extrasPending]) for a later build (stage-2 plan §2.5)
+    final extras = output != null && platform.extrasEnabled;
     // still listed as downloading while its extras are saved (added before
     // it leaves the queue, so the list never shows it missing)
-    if (output != null) {
+    if (extras) {
       extrasQueue.add(entry..status = DownloadStatus.extrasWait);
     } else {
       entry.progress.complete();
@@ -1140,12 +1270,14 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       unawaited(transcripts.finished(entry));
       // comments / subtitles etc. can take many requests: do not hold the
       // queue for them
-      _queueExtras(entry, output);
+      if (extras) _queueExtras(entry, output);
     }
   }
 
   /// Saves the extras of [entry] that an earlier run did not finish.
   void _resumeExtras(DownloadEntry entry) {
+    // not saved by this build: left marked, neither held nor queued
+    if (!platformOf(entry).extrasEnabled) return;
     if (_holdExtras) {
       _heldExtras.add(entry);
       return;
@@ -1365,6 +1497,21 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   static bool _isOwnFolder(String file) =>
       path.basename(path.dirname(file)) == path.basenameWithoutExtension(file);
 
+  /// [DownloadExport.failed]: what a failed merge left of its export file
+  /// [output] goes, and the export's own folder once it is empty (as
+  /// bilibili's merge cleans up after itself).
+  static Future<void> _dropExport(String output) async {
+    await File(output).tryDel();
+    final folder = Directory(path.dirname(output));
+    if (_isOwnFolder(output) && folder.listSync().isEmpty) {
+      await folder.tryDel();
+    }
+  }
+
+  /// [DownloadExport.release]: the merge into [output]'s folder is over.
+  static void _releaseExport(String output) =>
+      _mergeFolders.remove(path.dirname(output));
+
   Future<void> _deleteMerged(DownloadEntry entry) async {
     if (entry.mergedPath case final merged?) {
       if (_isOwnFolder(merged)) {
@@ -1559,6 +1706,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     if (_mergingKeys.contains(entry.key)) {
       _mergeDeletedKeys.add(entry.key);
     }
+    _lastFailure.remove(entry.key);
     // bilibili's segment repair
     if (entry is BiliDownloadEntryInfo) {
       await _repairManagers[entry.cid]?.cancel(isDelete: true);
@@ -1606,6 +1754,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       if (_mergingKeys.contains(entry.key)) {
         _mergeDeletedKeys.add(entry.key);
       }
+      _lastFailure.remove(entry.key);
       if (entry is BiliDownloadEntryInfo) {
         await _repairManagers[entry.cid]?.cancel(isDelete: true);
       }
@@ -1668,6 +1817,87 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     if (downloadNext) {
       nextDownload();
     }
+  }
+}
+
+/// [DownloadHost] (stage-2 plan §2.2): the start's generation, the
+/// transfer slot and its callbacks, the record's save — for a platform
+/// outside this library. The callbacks are the service's own, platform
+/// neutral: the record's size is the two streams' together.
+final class _Host implements DownloadHost {
+  _Host(this._service);
+
+  final DownloadService _service;
+
+  @override
+  bool isCurrent(int gen) => gen == _service._startGen;
+
+  @override
+  Future<void> save(DownloadEntry entry) => _service._saveEntry(entry);
+
+  @override
+  DownloadTransfer? attach(
+    int gen,
+    DownloadEntry entry,
+    DownloadTransfer Function(DownloadTransferReport report) build,
+  ) {
+    final s = _service;
+    if (gen != s._startGen || s.curDownload.value?.key != entry.key) {
+      return null;
+    }
+    late final DownloadTransfer transfer;
+    // a callback of a transfer paused, deleted or replaced: dropped
+    bool current() => identical(s._downloadManager, transfer);
+    var video = (0, 0);
+    var audio = (0, 0);
+    void bytes() {
+      int known(int total) => total > 0 ? total : 0;
+      final total = known(video.$2) + known(audio.$2);
+      // the size is saved when it changes, the bytes only in memory (as
+      // [_onReceive] does)
+      if (total > 0 && entry.totalBytes != total) {
+        s._saveEntry(entry..totalBytes = total);
+      }
+      entry
+        ..downloadedBytes = video.$1 + audio.$1
+        ..status = transfer.status;
+      s.curDownload.refresh();
+    }
+
+    transfer = build((
+      video: (received, total) {
+        if (!current()) return;
+        video = (received, total);
+        entry.progress.video(received, total);
+        bytes();
+      },
+      audio: (received, total) {
+        if (!current()) return;
+        audio = (received, total);
+        entry.progress.audio(received, total);
+        bytes();
+      },
+      videoDone: () {
+        if (!current()) return;
+        entry.progress.videoDone();
+        s._updateCurStatus(transfer.status);
+      },
+      done: ([error]) {
+        if (!current()) return;
+        if (error != null) {
+          s._onDone(error);
+          return;
+        }
+        entry.progress.audioDone();
+        // the audio slot is empty: its status is the transfer's
+        // (completed), and the merge follows
+        s._onDone();
+      },
+    ));
+    s
+      .._downloadManager = transfer
+      .._audioDownloadManager = null;
+    return transfer;
   }
 }
 
