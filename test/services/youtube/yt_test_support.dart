@@ -13,6 +13,9 @@
 ///     110 characters. The tests only ever ask "is a plain `url` present?",
 ///     never fetch one, and the recorder's egress IP has no business sitting
 ///     in a file.
+///   * the manifest URLs (`hlsManifestUrl`, `serverAbrStreamingUrl`) keep
+///     their length but carry `0.0.0.0` for the egress IP (redacted when the
+///     player fixtures were first committed, 2026-11-01).
 ///
 /// **No test in this directory touches the network.**
 library;
