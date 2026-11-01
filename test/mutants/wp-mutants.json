@@ -465,7 +465,8 @@
         {
           "check": "R5d-autoplayoff-online",
           "expected": [
-            "end.extras.controller.playerStatus"
+            "end.extras.controller.videoState",
+            "end.extras.controller.ownsPlayer"
           ]
         }
       ]

@@ -448,20 +448,23 @@
     {
       "name": "end.extras.controller.videoState",
       "path": "moments.end.extras.controller.videoState",
-      "status": "must-same"
-    },
-    {
-      "name": "end.extras.controller.ownsPlayer",
-      "path": "moments.end.extras.controller.ownsPlayer",
-      "status": "must-same"
-    },
-    {
-      "name": "end.extras.controller.playerStatus",
-      "path": "moments.end.extras.controller.playerStatus",
       "status": "must-same",
       "expectedFor": [
         "wp-R5d"
       ]
+    },
+    {
+      "name": "end.extras.controller.ownsPlayer",
+      "path": "moments.end.extras.controller.ownsPlayer",
+      "status": "must-same",
+      "expectedFor": [
+        "wp-R5d"
+      ]
+    },
+    {
+      "name": "end.extras.controller.playerStatus",
+      "path": "moments.end.extras.controller.playerStatus",
+      "status": "must-same"
     },
     {
       "name": "end.extras.controller.isFullScreen",

@@ -41,12 +41,15 @@ import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/common/publish/publish_route.dart';
 import 'package:PiliPlus/pages/episode_panel/view.dart' show EpisodePanel;
 import 'package:PiliPlus/pages/video/controller.dart';
+import 'package:PiliPlus/pages/video/introduction/local/view.dart'
+    show LocalIntroPanel;
 import 'package:PiliPlus/pages/video/introduction/pgc/view.dart'
     show PgcIntroPage;
 import 'package:PiliPlus/pages/video/introduction/ugc/view.dart'
     show UgcIntroPanel;
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/page.dart'
     show PagesPanel;
+import 'package:PiliPlus/pages/video/related/view.dart' show RelatedVideoPanel;
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/pages/video/reply/local_reply_panel.dart';
 import 'package:PiliPlus/pages/video/reply/view.dart' show VideoReplyPanel;
@@ -1550,8 +1553,20 @@ final class _Scan {
         when value == CommonIntroController) {
       return 'intro';
     }
+    // by what it holds too: a mutant that drops the key (R4d) must still
+    // find the list, and lose its offset, not the reading
+    if (widget case CustomScrollView(:final slivers)
+        when slivers.any(_isIntroSliver)) {
+      return 'intro';
+    }
     return null;
   }
+
+  static bool _isIntroSliver(Widget sliver) => switch (sliver) {
+    UgcIntroPanel() || PgcIntroPage() || RelatedVideoPanel() => true,
+    SliverPadding(child: LocalIntroPanel()) => true,
+    _ => false,
+  };
 
   static _Scan of(WpPage page) {
     final scan = _Scan._();
