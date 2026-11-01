@@ -1954,17 +1954,34 @@ function Restore-WpSnapshot($t, [string]$profileName) {
     catch { throw "field table $($t['id']): $($_.Exception.Message)" }
 }
 
+# A debug build's media_kit keeps a pointer in
+# %TEMP%\com.alexmercerind.media_kit.NativeReferenceHolder.<pid> (for hot
+# restart) and never deletes the file; a later process that gets the same
+# pid reads the dead process's pointer and crashes, exit 0xC0000005 in its
+# first seconds (native_reference_holder.dart:41-57; all 36 such crashes of
+# 2026-11-01 had a file of their pid written before they started). Before
+# each launch the files of processes that are gone are deleted; a running
+# process's file is left alone.
+function Clear-MediaKitHolders {
+    $live = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($p in Get-Process) { [void]$live.Add($p.Id) }
+    Get-ChildItem -LiteralPath ([System.IO.Path]::GetTempPath()) -Filter 'com.alexmercerind.media_kit.NativeReferenceHolder.*' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '\.(\d+)$' -and -not $live.Contains([int]$Matches[1]) } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
 # runs one check from a slot's exe; returns the report path. Same rules as
 # Invoke-SelfTest: a new profile per run, deleted afterwards. A process
 # that ends abnormally (an exit code other than the self test's own 0 / 1,
 # not a timeout of ours) before writing its report is run once more with
-# the same command line and a new profile (a startup crash, exit
-# 0xC0000005 before any Dart output, seen in ~5 % of launches, S0b part
-# 3a): both attempts go into <report>.crash.json, which the mutant rows
-# and runs.jsonl report; a second crash leaves no report, and the run is
+# the same command line and a new profile (the startup crash above, seen
+# in 5-16 % of launches before the cleanup, S0b parts 3a and 5): both
+# attempts go into <report>.crash.json, which the mutant rows and
+# runs.jsonl report; a second crash leaves no report, and the run is
 # `error` (runner 补充①). Baselines, mutants and -Alternate all run here.
 $script:wpLaunch = {
     param([string]$exe, [string[]]$argv, [int]$minutes)
+    Clear-MediaKitHolders
     $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru
     $timedOut = $false
     if (-not $p.WaitForExit($minutes * 60000)) {
@@ -1976,8 +1993,8 @@ $script:wpLaunch = {
     return @{ exit = $p.ExitCode; timedOut = $timedOut }
 }
 $script:wpCrashPause = 2
-# before the rerun after a crash (the crash came back when relaunched
-# within seconds: twice, 2026-10-31; not shown to be the cause)
+# before the rerun after a crash (kept from before the cause above was
+# found; the rerun gets a new pid, which is what helps)
 $script:wpCrashRetryPause = 10
 function Invoke-WpSelfTest([string]$exe, $t, $plan, [string]$dir, [string]$tag, [string]$tree) {
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -2510,6 +2527,7 @@ function Invoke-SelfTest([string]$exe, [string]$scenario, [string]$dir, [string]
         New-Item -ItemType Directory -Force $into | Out-Null
         Copy-Item -Recurse $AsrModels (Join-Path $into 'asr')
     }
+    Clear-MediaKitHolders
     $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru
     if (-not $p.WaitForExit(30 * 60000)) {
         # ours: started just above
