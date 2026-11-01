@@ -1,0 +1,238 @@
+{
+  "id": "A-R9-brightness",
+  "about": "design §6.3 R9 的亮度恢复: a plain page pushed over the watch page and popped, first with the app's brightness untouched, then after a brightness swipe to 0.2 (setbrightness: what PLVideoPlayer.setBrightness does): covered it is reset (didPushNext), back it is the page's 0.2 again (didPopNext). Control: back unchanged vs back changed",
+  "platform": "android",
+  "mutants": "none",
+  "check": "wpSteps",
+  "report": "A-R9-brightness.json",
+  "type": "recording",
+  "batch": null,
+  "network": true,
+  "run": {
+    "args": [
+      "--wp-open",
+      "bili:https://www.bilibili.com/video/BV1wbxr6REXk",
+      "--wp-steps",
+      "host:rotate:0;pause;settle;brightness:start;push:blank;wait:800;brightness:coveredUnchanged;pop;settle;brightness:backUnchanged;setbrightness:0.2;brightness:set;push:blank;wait:800;brightness:covered;pop;settle;brightness:back;read:end"
+    ],
+    "prefs": [
+      "horizontalScreen:bool=true",
+      "setSystemBrightness:bool=false"
+    ],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 8
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "kind",
+      "path": "kind",
+      "status": "must-same"
+    },
+    {
+      "name": "events.android",
+      "path": "events.android",
+      "status": "must-same"
+    },
+    {
+      "name": "events.skipped",
+      "path": "events.skipped",
+      "status": "must-same"
+    },
+    {
+      "name": "end.window",
+      "path": "moments.end.window",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.scalars",
+      "path": "moments.end.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.label",
+      "path": "moments.end.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.player",
+      "path": "moments.end.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.branch.geometry.columns",
+      "path": "moments.end.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].roles",
+      "path": "moments.end.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].index",
+      "path": "moments.end.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "end.tabs[0].texts",
+      "path": "moments.end.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "end.tabCtr",
+      "path": "moments.end.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.player",
+      "path": "moments.end.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.kept.tabArea",
+      "path": "moments.end.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "end.slots",
+      "path": "moments.end.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "end.sheet",
+      "path": "moments.end.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "end.player",
+      "path": "moments.end.player",
+      "status": "must-same"
+    },
+    {
+      "name": "end.more.slots",
+      "path": "moments.end.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.controller.isFullScreen",
+      "path": "moments.end.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "end.extras.controller.scrollRatio",
+      "path": "moments.end.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.statusBar",
+      "path": "moments.end.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.canPop",
+      "path": "moments.end.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.removeSafeArea",
+      "path": "moments.end.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.horizontalScreen",
+      "path": "moments.end.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.orientation",
+      "path": "moments.end.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.physical",
+      "path": "moments.end.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.viewPadding",
+      "path": "moments.end.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.padding",
+      "path": "moments.end.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.systemBarsShown",
+      "path": "moments.end.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "end.android.pip",
+      "path": "moments.end.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.host:rotate:0#1",
+      "path": "events.host:rotate:0#1",
+      "status": "unstable"
+    },
+    {
+      "name": "events.brightness:start",
+      "path": "events.brightness:start",
+      "status": "must-same"
+    },
+    {
+      "name": "events.brightness:coveredUnchanged",
+      "path": "events.brightness:coveredUnchanged",
+      "status": "must-same"
+    },
+    {
+      "name": "events.brightness:backUnchanged",
+      "path": "events.brightness:backUnchanged",
+      "status": "must-same"
+    },
+    {
+      "name": "events.brightness:set",
+      "path": "events.brightness:set",
+      "status": "must-same"
+    },
+    {
+      "name": "events.brightness:covered",
+      "path": "events.brightness:covered",
+      "status": "must-same"
+    },
+    {
+      "name": "events.brightness:back",
+      "path": "events.brightness:back",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "control": {
+    "kind": "inRun",
+    "pairs": [
+      {
+        "a": "events.brightness:covered.application",
+        "b": "events.brightness:back.application"
+      },
+      {
+        "a": "events.brightness:backUnchanged.application",
+        "b": "events.brightness:back.application"
+      }
+    ],
+    "expect": [],
+    "what": "R9 亮度改过 / 没改过: the application brightness (not the player value the step writes): reset while covered vs restored on return, and the system value back unchanged vs the restored 0.2"
+  },
+  "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
+  "evidence": "control: application brightness covered vs back, backUnchanged vs back"
+}

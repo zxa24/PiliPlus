@@ -202,6 +202,9 @@ import 'package:path/path.dart' as path;
 import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/utils/app_exit.dart';
+import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
+import 'package:PiliPlus/utils/device_utils.dart';
+import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:PiliPlus/services/translate/llama_engine.dart';
 import 'package:PiliPlus/services/translate/translation_layout.dart';
 import 'package:PiliPlus/services/translate/translation_models.dart';
@@ -1491,6 +1494,11 @@ abstract final class SelfTest {
       _shots = _arg(args, '--shots') ?? _shots;
       await scenario('wpSteps', () => _inWindow(args, () => _wpSteps(args)));
     }
+    // `--wipe-profile NAME` (repeatable; Android): the named self-test
+    // profiles' folders deleted (see _wipeProfiles)
+    if (args.contains('--wipe-profile')) {
+      await scenario('wipeProfiles', () => _wipeProfiles(args));
+    }
     // `--wp-read [--wp-tag T] [--wp-hold S] [--wp-rounds N]`: opens
     // nothing; run after `--open-offline` / `--open-bili` (in the same
     // command line), it records every accessor reading of the page named T
@@ -2415,13 +2423,111 @@ abstract final class SelfTest {
   /// - conditions for waitfor / require, beside the ones above: owns,
   ///   notowns, dserror, standin, playerup (the stand-in gone), gate,
   ///   season, viewpoints, medialist, ytready, ytfailed
+  ///
+  /// Android (part 6a, design §6.3 and §6.4's phone items; the driver is
+  /// test/android/wp_adb.ps1, the tables test/android/wp_fields/). Every
+  /// reading has an `android` part there (self_test_watch.dart), and
+  /// events.android the settings the run started with:
+  /// - `fs:inapp|native@portrait|landscape|any`, `fsexit@...`: on Android
+  ///   the orientation the step asks for is part of 「完成」 (§6.2 v13: the
+  ///   window's orientation as well, at most 5 s after the flag, else not
+  ///   measured); events[<moment>Rotation] the ask, the flag, the
+  ///   orientation's arrival (ms on the run's clock) and every size the
+  ///   frames saw from the ask (F0). After fsexit the frames go on 3 s (F0:
+  ///   at least 2 s after the exit). Required on Android, refused off it
+  /// - `host:ACTION` the host does ACTION (rotate:0|1|2|3: user_rotation;
+  ///   home; front: the activity brought back; landscape, portrait: the
+  ///   window made that shape the way the driver was told, R8): the test
+  ///   writes `<out>.host` {n, token, action}, the driver does it and sets
+  ///   `debug.librepili.ack` to the token, the test waits for that (60 s,
+  ///   else stopped); events[host:ACTION#n] the two times
+  /// - `sys:L` events[sys:L] the system's side with no page
+  ///   (WpRead.androidSystem): after a page has gone
+  /// - `syspip` system picture in picture as the player's button asks it
+  ///   (PlPlayerController.enterPip); waits for the activity to be in it
+  ///   (events.syspip). Conditions `pip`, `nopip`, `portrait`, `landscape`
+  /// - `setbrightness:V` the app's brightness set as the brightness swipe
+  ///   does (PLVideoPlayer.setBrightness without its indicator);
+  ///   `brightness:L` events[brightness:L]: whether the app's brightness is
+  ///   changed, and to what (R9)
+  /// - `closeall` the top bar's 返回主页 (onCloseAll); events.closeall
+  /// `--wipe-profile NAME` (repeatable): the named self-test profiles'
+  /// folders deleted, both of them, beside this run's own: the data folder
+  /// (`<files>/selftest-NAME`, Hive, downloads) and the temp one
+  /// (`<cache>/LibrePili/selftest-NAME`). For the phone (design §6.3
+  /// 「交替与 profile」: each pass's profiles deleted after it): a release
+  /// build's private storage is out of the shell's reach (`run-as` needs a
+  /// debuggable package), so the app deletes them, run by
+  /// test/android/wp_adb.ps1 under its own fixed profile. Only names
+  /// starting `wp` (the driver's), of letters, digits, `-` and `_`, never
+  /// this run's own; anything else is refused, not cleaned. pass = every
+  /// folder that was there is gone.
+  static Future<Map<String, dynamic>> _wipeProfiles(List<String> args) async {
+    if (!Platform.isAndroid) {
+      return {'pass': false, 'error': '--wipe-profile: Android only'};
+    }
+    final names = [
+      for (var i = 0; i < args.length - 1; i++)
+        if (args[i] == '--wipe-profile') args[i + 1],
+    ];
+    final own = selfTestProfileDir;
+    final dataRoot = Directory(appSupportDirPath).parent.path;
+    final tempRoot = Directory(tmpDirPath).parent.path;
+    final out = <Map<String, Object?>>[];
+    var ok = names.isNotEmpty;
+    for (final name in names) {
+      final folder = 'selftest-$name';
+      if (!RegExp(r'^wp[A-Za-z0-9_-]*$').hasMatch(name) || folder == own) {
+        out.add({'name': name, 'refused': true});
+        ok = false;
+        continue;
+      }
+      final dirs = <String, Object?>{};
+      for (final root in [dataRoot, tempRoot]) {
+        final dir = Directory(path.join(root, folder));
+        if (!dir.existsSync()) {
+          dirs[dir.path] = 'absent';
+          continue;
+        }
+        try {
+          await dir.delete(recursive: true);
+          dirs[dir.path] = dir.existsSync() ? 'still there' : 'deleted';
+        } catch (e) {
+          dirs[dir.path] = 'error: $e';
+        }
+        if (dirs[dir.path] != 'deleted') ok = false;
+      }
+      out.add({'name': name, 'dirs': dirs});
+    }
+    return {
+      'pass': ok,
+      'own': own,
+      'dataRoot': dataRoot,
+      'tempRoot': tempRoot,
+      'profiles': out,
+    };
+  }
+
   static Future<Map<String, dynamic>> _wpSteps(List<String> args) async {
     final spec = _arg(args, '--wp-open') ?? '';
     final steps = [
       for (final s in (_arg(args, '--wp-steps') ?? '').split(';'))
         if (s.trim().isNotEmpty) s.trim(),
     ];
-    final run = _WpRun(spec, steps);
+    final run = _WpRun(spec, steps)..hostOut = _arg(args, '--out');
+    if (Platform.isAndroid) {
+      // the settings the phone items depend on (§6.3 「转屏」: every Android
+      // run reports them)
+      run.events['android'] = {
+        'sdk': DeviceUtils.sdkInt,
+        'horizontalScreen': Pref.horizontalScreen,
+        'fullScreenMode': Pref.fullScreenMode.name,
+        'enableVerticalExpand': Pref.enableVerticalExpand,
+        'removeSafeArea': Pref.removeSafeArea,
+        'autoPiP': Pref.autoPiP,
+        'setSystemBrightness': Pref.setSystemBrightness,
+      };
+    }
     // `--yt-source invidious|direct` as the other YouTube checks take it
     // (set later in the run for them): the YouTube page's source from the
     // first open (§6.4 YouTube 不同: the Invidious probe)
@@ -13299,6 +13405,10 @@ final class _WpRun {
     'notvertical' => !bili.isVertical.value,
     'fullscreen' => player.isFullScreen.value,
     'windowed' => !player.isFullScreen.value,
+    // Android: picture in picture, the window's orientation
+    'pip' => Platform.isAndroid && AndroidHelper.isPipMode,
+    'nopip' => Platform.isAndroid && !AndroidHelper.isPipMode,
+    'portrait' || 'landscape' => Platform.isAndroid && _orientation() == c,
     // the current page's ownership of the shared player, and the player's
     // own status (R10 「失败的是下面那一页」, R9)
     'owns' => bili.ownsPlayer,
@@ -13364,8 +13474,18 @@ final class _WpRun {
 
   Future<void> step(String step) async {
     final colon = step.indexOf(':');
-    final verb = colon < 0 ? step : step.substring(0, colon);
-    final arg = colon < 0 ? '' : step.substring(colon + 1);
+    var verb = colon < 0 ? step : step.substring(0, colon);
+    var arg = colon < 0 ? '' : step.substring(colon + 1);
+    // fs:<how>@<orientation>, fsexit@<orientation> (Android)
+    String? orient;
+    if (verb.startsWith('fsexit@')) {
+      orient = verb.substring('fsexit@'.length);
+      verb = 'fsexit';
+    } else if (verb == 'fs' && arg.contains('@')) {
+      orient = arg.substring(arg.indexOf('@') + 1);
+      arg = arg.substring(0, arg.indexOf('@'));
+    }
+    if (verb == 'fs' || verb == 'fsexit') _orientArg(step, orient);
     switch (verb) {
       case 'read':
         await read(arg);
@@ -13401,21 +13521,25 @@ final class _WpRun {
         }
         await read('enterBefore');
         _startFrames();
+        _askedAt = _clock.elapsedMilliseconds;
         unawaited(
           player.triggerFullScreen(
             status: true,
             inAppFullScreen: arg == 'inapp',
           ),
         );
-        await _fsDone(true, 'enterDone');
+        await _fsDone(true, 'enterDone', orient);
       case 'fsexit':
         await read('exitBefore');
+        _askedAt = _clock.elapsedMilliseconds;
         unawaited(player.triggerFullScreen(status: false));
-        await _fsDone(false, 'exitDone');
+        await _fsDone(false, 'exitDone', orient);
         // the exit left fullscreen, flag and all (§6.4 R3)
         events['exitCleared'] =
             !player.isFullScreen.value && !player.fsProcessing;
-        await Future.delayed(const Duration(seconds: 1));
+        // on a phone the rotation can land after the flag (PC
+        // resetScreenRotation; R3 F0 「手机上」 records 2 s at least)
+        await Future.delayed(Duration(seconds: Platform.isAndroid ? 3 : 1));
         _framesOn = false;
       case 'tab' || 'taptab':
         final bars = WpRead.tabBars(tag!);
@@ -13711,9 +13835,189 @@ final class _WpRun {
           stop('$verb: the window never settled');
         }
         events[verb] = {'pip': player.isDesktopPip};
+      // ---- Android only (a desktop table never names them)
+      case 'host':
+        await _host(arg);
+      case 'sys':
+        _androidOnly(step);
+        events['sys:$arg'] =
+            await WpRead.settled(WpRead.androidSystem) ??
+            WpRead.unread('notSettled');
+      case 'syspip':
+        _androidOnly(step);
+        player.enterPip();
+        await _waitPip(true, step);
+      case 'brightness':
+        _androidOnly(step);
+        events['brightness:$arg'] = await _brightness();
+      case 'setbrightness':
+        _androidOnly(step);
+        final v = double.tryParse(arg);
+        if (v == null || v < 0 || v > 1) {
+          stop('setbrightness takes 0 to 1, not "$arg"');
+        }
+        // what the player view's brightness swipe does (PLVideoPlayer
+        // setBrightness; setSystemBrightness off, the plan's default)
+        await ScreenBrightnessPlatform.instance.setApplicationScreenBrightness(
+          v,
+        );
+        player.brightness.value = v;
+        await Future.delayed(const Duration(milliseconds: 300));
+      case 'closeall':
+        _androidOnly(step);
+        await _closeAll();
       default:
         stop('no step "$step"');
     }
+  }
+
+  // ------------------------------------------------------------ android
+
+  /// The report's path (`--out`): the host handshake writes beside it.
+  String? hostOut;
+  int _hostN = 0;
+
+  /// When the last fullscreen ask was made, on the run's clock.
+  int _askedAt = 0;
+
+  void _androidOnly(String step) {
+    if (!Platform.isAndroid) stop('$step: Android only');
+  }
+
+  /// fs / fsexit's orientation: required on Android (§6.2 v13: part of
+  /// 「完成」; the table names it from fullScreenMode and the material),
+  /// refused elsewhere.
+  void _orientArg(String step, String? orient) {
+    if (!Platform.isAndroid) {
+      if (orient != null) stop('$step: @orientation is Android only');
+      return;
+    }
+    if (orient == null) {
+      stop(
+        '$step: on Android name the orientation (@portrait, @landscape, '
+        '@any)',
+      );
+    }
+    if (!const {'portrait', 'landscape', 'any'}.contains(orient)) {
+      stop('$step: @portrait, @landscape or @any, not "@$orient"');
+    }
+  }
+
+  String _orientation() =>
+      WpRead.androidSystem()['orientation'] as String? ?? 'unknown';
+
+  /// `host:ACTION`: written to `<out>.host`, done by the driver, answered
+  /// through `debug.librepili.ack` (a `debug.*` property: only the shell
+  /// and root can set it). The token carries the profile, so an answer
+  /// left from another run is never taken for this one.
+  Future<void> _host(String action) async {
+    _androidOnly('host:$action');
+    final out = hostOut;
+    if (out == null) stop('host:$action: needs --out');
+    final n = ++_hostN;
+    final token = '$selfTestProfileDir:$n';
+    final asked = _clock.elapsedMilliseconds;
+    File('$out.host').writeAsStringSync(
+      jsonEncode({'n': n, 'token': token, 'action': action, 'atMs': asked}),
+    );
+    note('host $action ($token)');
+    final clock = Stopwatch()..start();
+    while (true) {
+      final r = await Process.run('getprop', ['debug.librepili.ack']);
+      if ('${r.stdout}'.trim() == token) break;
+      if (clock.elapsed > const Duration(seconds: 60)) {
+        stop('host:$action: no answer from the host in 60 s');
+      }
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    events['host:$action#$n'] = {
+      'askedMs': asked,
+      'ackMs': _clock.elapsedMilliseconds,
+    };
+  }
+
+  /// Until the activity is (not) in picture in picture, at most 10 s, else
+  /// the run stops unmeasured (the state the step is for never came); then
+  /// the window settled. events[step]: what it came to and when.
+  Future<void> _waitPip(bool target, String step) async {
+    final clock = Stopwatch()..start();
+    while (AndroidHelper.isPipMode != target &&
+        clock.elapsed < const Duration(seconds: 10)) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    events[step] = {
+      'pip': AndroidHelper.isPipMode,
+      'ms': clock.elapsedMilliseconds,
+    };
+    if (AndroidHelper.isPipMode != target) {
+      stop(
+        '$step: picture in picture ${target ? 'never came' : 'never left'} '
+        '(10 s)',
+      );
+    }
+    if (await WpRead.settled(() => true) == null) {
+      stop('$step: the window never settled');
+    }
+  }
+
+  /// R9: the app's own brightness (the window's), not the system's: a
+  /// value only when the app changed it, `system` otherwise (the system's
+  /// follows the room).
+  Future<Map<String, Object?>> _brightness() async {
+    final b = ScreenBrightnessPlatform.instance;
+    double r3(double v) => (v * 1000).roundToDouble() / 1000;
+    final changed = await b.hasApplicationScreenBrightnessChanged;
+    return {
+      'changed': changed,
+      'application': changed ? r3(await b.application) : 'system',
+      'player': r3(player.brightness.value),
+    };
+  }
+
+  /// `closeall`: the top bar's 返回主页 (B:761-762, the fullscreen header's
+  /// too: onCloseAll), then the page's route gone (10 s) and its
+  /// controller (5 s), the window settled; events.closeall.
+  Future<void> _closeAll() async {
+    final route = WpRead.find(tag!).page?.route;
+    final since = DateTime.now();
+    player.onCloseAll();
+    final clock = Stopwatch()..start();
+    var gone = false;
+    while (!gone && clock.elapsed < const Duration(seconds: 10)) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      gone = route == null || !Ctl.routes.stack.contains(route);
+    }
+    final out = Stopwatch()..start();
+    while (_pageThere && out.elapsed < const Duration(seconds: 5)) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    if (await WpRead.settled(() => true) == null) {
+      stop('closeall: the window never settled');
+    }
+    events['closeall'] = {
+      'gone': gone,
+      'pops': _logSince(since, '[selftest] pop: '),
+      ..._state(),
+    };
+  }
+
+  /// F0 on a phone (R3 「手机上」): from the ask to now, when the flag came
+  /// and the orientation, and every size the frames saw, in order
+  /// ([ms, width, height] at each change).
+  Map<String, Object?> _rotation(int flagMs, int? orientMs) {
+    final sizes = <List<Object?>>[];
+    for (final row in _frames) {
+      if ((row[0] as int) < _askedAt) continue;
+      if (sizes.isEmpty || sizes.last[1] != row[2] || sizes.last[2] != row[3]) {
+        sizes.add([row[0], row[2], row[3]]);
+      }
+    }
+    return {
+      'askMs': _askedAt,
+      'flagMs': flagMs,
+      'orientMs': orientMs,
+      'sizes': sizes,
+    };
   }
 
   // ------------------------------------------------------------ pages
@@ -13899,6 +14203,7 @@ final class _WpRun {
       'fsProcessing': p.fsProcessing,
       'pip': p.isDesktopPip,
       'controlsLock': p.controlsLock.value,
+      if (Platform.isAndroid) 'androidPip': AndroidHelper.isPipMode,
     };
   }
 
@@ -14245,8 +14550,11 @@ final class _WpRun {
   int? _opensMark;
 
   /// Waits for the fullscreen flag to be [target] with fsProcessing false,
-  /// then reads [label] once settled (§6.2 「完成」).
-  Future<void> _fsDone(bool target, String label) async {
+  /// then reads [label] once settled (§6.2 「完成」). On Android also the
+  /// window's orientation [orient] (unless `any`), at most 5 s after the
+  /// flag: the rotation can land after resetScreenRotation has returned
+  /// and fsProcessing cleared (PC 4955-4970); not there = not measured.
+  Future<void> _fsDone(bool target, String label, [String? orient]) async {
     final clock = Stopwatch()..start();
     while (player.isFullScreen.value != target || player.fsProcessing) {
       if (clock.elapsed > const Duration(seconds: 10)) {
@@ -14255,8 +14563,43 @@ final class _WpRun {
       await Future.delayed(const Duration(milliseconds: 20));
     }
     events['${label}Ms'] = clock.elapsedMilliseconds;
+    if (!Platform.isAndroid) {
+      await read(label);
+      return;
+    }
+    final flagMs = _clock.elapsedMilliseconds;
+    int? orientMs;
+    if (orient != 'any') {
+      final wait = Stopwatch()..start();
+      while (_orientation() != orient) {
+        if (wait.elapsed > const Duration(seconds: 5)) {
+          events['${label}Rotation'] = _rotation(flagMs, null);
+          stop('$label: the window never turned $orient (5 s)');
+        }
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+      orientMs = _clock.elapsedMilliseconds;
+    }
     await read(label);
+    events['${label}Rotation'] = _rotation(flagMs, orientMs);
+    // and the page's own MediaQuery at the frame the reading was taken
+    // (read settles first: the window may turn again in that second)
+    if (orient != 'any') {
+      final at = _pageOrientation(moments[label]);
+      if (at != orient) {
+        stop('$label: the page was $at at its reading, not $orient');
+      }
+    }
   }
+
+  /// The page's orientation as its MediaQuery had it in [reading] (the
+  /// reading's `window.logical`, read in the post-frame callback the
+  /// settle ends with): what MediaQuery.orientationOf gives the page.
+  static String _pageOrientation(Object? reading) => switch (reading) {
+    {'window': {'logical': [final num w, final num h]}} =>
+      w > h ? 'landscape' : 'portrait',
+    _ => 'unknown',
+  };
 
   // ------------------------------------------------------------ expand
 

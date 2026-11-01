@@ -1,0 +1,1035 @@
+{
+  "id": "A-R12-safearea-on",
+  "about": "design §6.4 R12 (手机): removeSafeArea on (a late final of the player: one run each). The page's padding and colour bar, the system bars (viewPadding, the app's shown flag), then: a second watch page pushed and left by back (嵌套观看页返回), native fullscreen and 返回主页 from it (全屏中返回主页: onCloseAll, which leaves desktop fullscreen only, PC 5114-5119), and a page opened from the home page and left by back (隐藏时离开本页 when the bars are hidden). sys:* the system's side once the page is gone. Control: the page's padding against the other run (A-R12-safearea-off)",
+  "platform": "android",
+  "mutants": "none",
+  "check": "wpSteps",
+  "report": "A-R12-safearea-on.json",
+  "type": "recording",
+  "batch": null,
+  "network": true,
+  "run": {
+    "args": [
+      "--wp-open",
+      "bili:https://www.bilibili.com/video/BV1wbxr6REXk",
+      "--wp-steps",
+      "host:rotate:0;pause;settle;read:page;sys:page;push:bili:https://www.bilibili.com/video/BV1Ntxr6xE7Y;pause;settle;read:nested;back:nested;on:main;settle;read:afterNested;sys:afterNested;fs:native@landscape;closeall;sys:home;push:bili:https://www.bilibili.com/video/BV1Ntxr6xE7Y;pause;settle;read:again;back:leave;sys:afterLeave"
+    ],
+    "prefs": [
+      "horizontalScreen:bool=true",
+      "fullScreenMode:int=0",
+      "removeSafeArea:bool=true"
+    ],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 10
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "kind",
+      "path": "kind",
+      "status": "must-same"
+    },
+    {
+      "name": "events.android",
+      "path": "events.android",
+      "status": "must-same"
+    },
+    {
+      "name": "events.skipped",
+      "path": "events.skipped",
+      "status": "must-same"
+    },
+    {
+      "name": "page.window",
+      "path": "moments.page.window",
+      "status": "must-same"
+    },
+    {
+      "name": "page.branch.scalars",
+      "path": "moments.page.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "page.branch.geometry.label",
+      "path": "moments.page.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "page.branch.geometry.player",
+      "path": "moments.page.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "page.branch.geometry.columns",
+      "path": "moments.page.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "page.tabs[0].roles",
+      "path": "moments.page.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "page.tabs[0].index",
+      "path": "moments.page.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "page.tabs[0].texts",
+      "path": "moments.page.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "page.tabCtr",
+      "path": "moments.page.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "page.kept.player",
+      "path": "moments.page.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "page.kept.tabArea",
+      "path": "moments.page.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "page.slots",
+      "path": "moments.page.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "page.sheet",
+      "path": "moments.page.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "page.player",
+      "path": "moments.page.player",
+      "status": "must-same"
+    },
+    {
+      "name": "page.more.slots",
+      "path": "moments.page.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "page.extras.controller.isFullScreen",
+      "path": "moments.page.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "page.extras.controller.scrollRatio",
+      "path": "moments.page.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.statusBar",
+      "path": "moments.page.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.canPop",
+      "path": "moments.page.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.removeSafeArea",
+      "path": "moments.page.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.horizontalScreen",
+      "path": "moments.page.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.orientation",
+      "path": "moments.page.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.physical",
+      "path": "moments.page.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.viewPadding",
+      "path": "moments.page.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.padding",
+      "path": "moments.page.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.systemBarsShown",
+      "path": "moments.page.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "page.android.pip",
+      "path": "moments.page.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.window",
+      "path": "moments.nested.window",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.branch.scalars",
+      "path": "moments.nested.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.branch.geometry.label",
+      "path": "moments.nested.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.branch.geometry.player",
+      "path": "moments.nested.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.branch.geometry.columns",
+      "path": "moments.nested.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.tabs[0].roles",
+      "path": "moments.nested.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.tabs[0].index",
+      "path": "moments.nested.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.tabs[0].texts",
+      "path": "moments.nested.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "nested.tabCtr",
+      "path": "moments.nested.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.kept.player",
+      "path": "moments.nested.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.kept.tabArea",
+      "path": "moments.nested.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.slots",
+      "path": "moments.nested.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.sheet",
+      "path": "moments.nested.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.player",
+      "path": "moments.nested.player",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.more.slots",
+      "path": "moments.nested.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.extras.controller.isFullScreen",
+      "path": "moments.nested.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.extras.controller.scrollRatio",
+      "path": "moments.nested.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.statusBar",
+      "path": "moments.nested.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.canPop",
+      "path": "moments.nested.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.removeSafeArea",
+      "path": "moments.nested.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.horizontalScreen",
+      "path": "moments.nested.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.orientation",
+      "path": "moments.nested.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.physical",
+      "path": "moments.nested.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.viewPadding",
+      "path": "moments.nested.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.padding",
+      "path": "moments.nested.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.systemBarsShown",
+      "path": "moments.nested.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "nested.android.pip",
+      "path": "moments.nested.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.window",
+      "path": "moments.afterNested.window",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.branch.scalars",
+      "path": "moments.afterNested.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.branch.geometry.label",
+      "path": "moments.afterNested.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.branch.geometry.player",
+      "path": "moments.afterNested.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.branch.geometry.columns",
+      "path": "moments.afterNested.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.tabs[0].roles",
+      "path": "moments.afterNested.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.tabs[0].index",
+      "path": "moments.afterNested.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.tabs[0].texts",
+      "path": "moments.afterNested.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "afterNested.tabCtr",
+      "path": "moments.afterNested.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.kept.player",
+      "path": "moments.afterNested.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.kept.tabArea",
+      "path": "moments.afterNested.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.slots",
+      "path": "moments.afterNested.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.sheet",
+      "path": "moments.afterNested.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.player",
+      "path": "moments.afterNested.player",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.more.slots",
+      "path": "moments.afterNested.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.extras.controller.isFullScreen",
+      "path": "moments.afterNested.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.extras.controller.scrollRatio",
+      "path": "moments.afterNested.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.statusBar",
+      "path": "moments.afterNested.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.canPop",
+      "path": "moments.afterNested.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.removeSafeArea",
+      "path": "moments.afterNested.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.horizontalScreen",
+      "path": "moments.afterNested.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.orientation",
+      "path": "moments.afterNested.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.physical",
+      "path": "moments.afterNested.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.viewPadding",
+      "path": "moments.afterNested.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.padding",
+      "path": "moments.afterNested.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.systemBarsShown",
+      "path": "moments.afterNested.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "afterNested.android.pip",
+      "path": "moments.afterNested.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.window",
+      "path": "moments.enterBefore.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.scalars",
+      "path": "moments.enterBefore.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.label",
+      "path": "moments.enterBefore.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.player",
+      "path": "moments.enterBefore.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.branch.geometry.columns",
+      "path": "moments.enterBefore.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].roles",
+      "path": "moments.enterBefore.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].index",
+      "path": "moments.enterBefore.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.tabs[0].texts",
+      "path": "moments.enterBefore.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "enterBefore.tabCtr",
+      "path": "moments.enterBefore.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.player",
+      "path": "moments.enterBefore.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.kept.tabArea",
+      "path": "moments.enterBefore.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.slots",
+      "path": "moments.enterBefore.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.sheet",
+      "path": "moments.enterBefore.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.player",
+      "path": "moments.enterBefore.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.more.slots",
+      "path": "moments.enterBefore.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.isFullScreen",
+      "path": "moments.enterBefore.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.extras.controller.scrollRatio",
+      "path": "moments.enterBefore.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.statusBar",
+      "path": "moments.enterBefore.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.canPop",
+      "path": "moments.enterBefore.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.removeSafeArea",
+      "path": "moments.enterBefore.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.horizontalScreen",
+      "path": "moments.enterBefore.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.orientation",
+      "path": "moments.enterBefore.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.physical",
+      "path": "moments.enterBefore.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.viewPadding",
+      "path": "moments.enterBefore.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.padding",
+      "path": "moments.enterBefore.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.systemBarsShown",
+      "path": "moments.enterBefore.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "enterBefore.android.pip",
+      "path": "moments.enterBefore.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.window",
+      "path": "moments.enterDone.window",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.scalars",
+      "path": "moments.enterDone.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.label",
+      "path": "moments.enterDone.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.player",
+      "path": "moments.enterDone.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.branch.geometry.columns",
+      "path": "moments.enterDone.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].roles",
+      "path": "moments.enterDone.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].index",
+      "path": "moments.enterDone.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.tabs[0].texts",
+      "path": "moments.enterDone.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "enterDone.tabCtr",
+      "path": "moments.enterDone.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.player",
+      "path": "moments.enterDone.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.kept.tabArea",
+      "path": "moments.enterDone.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.slots",
+      "path": "moments.enterDone.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.sheet",
+      "path": "moments.enterDone.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.player",
+      "path": "moments.enterDone.player",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.more.slots",
+      "path": "moments.enterDone.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.isFullScreen",
+      "path": "moments.enterDone.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.extras.controller.scrollRatio",
+      "path": "moments.enterDone.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.statusBar",
+      "path": "moments.enterDone.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.canPop",
+      "path": "moments.enterDone.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.removeSafeArea",
+      "path": "moments.enterDone.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.horizontalScreen",
+      "path": "moments.enterDone.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.orientation",
+      "path": "moments.enterDone.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.physical",
+      "path": "moments.enterDone.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.viewPadding",
+      "path": "moments.enterDone.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.padding",
+      "path": "moments.enterDone.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.systemBarsShown",
+      "path": "moments.enterDone.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "enterDone.android.pip",
+      "path": "moments.enterDone.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "again.window",
+      "path": "moments.again.window",
+      "status": "must-same"
+    },
+    {
+      "name": "again.branch.scalars",
+      "path": "moments.again.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "again.branch.geometry.label",
+      "path": "moments.again.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "again.branch.geometry.player",
+      "path": "moments.again.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "again.branch.geometry.columns",
+      "path": "moments.again.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "again.tabs[0].roles",
+      "path": "moments.again.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "again.tabs[0].index",
+      "path": "moments.again.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "again.tabs[0].texts",
+      "path": "moments.again.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "again.tabCtr",
+      "path": "moments.again.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "again.kept.player",
+      "path": "moments.again.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "again.kept.tabArea",
+      "path": "moments.again.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "again.slots",
+      "path": "moments.again.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "again.sheet",
+      "path": "moments.again.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "again.player",
+      "path": "moments.again.player",
+      "status": "must-same"
+    },
+    {
+      "name": "again.more.slots",
+      "path": "moments.again.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "again.extras.controller.isFullScreen",
+      "path": "moments.again.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "again.extras.controller.scrollRatio",
+      "path": "moments.again.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.statusBar",
+      "path": "moments.again.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.canPop",
+      "path": "moments.again.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.removeSafeArea",
+      "path": "moments.again.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.horizontalScreen",
+      "path": "moments.again.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.orientation",
+      "path": "moments.again.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.physical",
+      "path": "moments.again.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.viewPadding",
+      "path": "moments.again.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.padding",
+      "path": "moments.again.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.systemBarsShown",
+      "path": "moments.again.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "again.android.pip",
+      "path": "moments.again.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.host:rotate:0#1",
+      "path": "events.host:rotate:0#1",
+      "status": "unstable"
+    },
+    {
+      "name": "events.sys:page.orientation",
+      "path": "events.sys:page.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:page.physical",
+      "path": "events.sys:page.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:page.viewPadding",
+      "path": "events.sys:page.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:page.padding",
+      "path": "events.sys:page.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:page.systemBarsShown",
+      "path": "events.sys:page.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:page.pip",
+      "path": "events.sys:page.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterNested.orientation",
+      "path": "events.sys:afterNested.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterNested.physical",
+      "path": "events.sys:afterNested.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterNested.viewPadding",
+      "path": "events.sys:afterNested.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterNested.padding",
+      "path": "events.sys:afterNested.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterNested.systemBarsShown",
+      "path": "events.sys:afterNested.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterNested.pip",
+      "path": "events.sys:afterNested.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:home.orientation",
+      "path": "events.sys:home.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:home.physical",
+      "path": "events.sys:home.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:home.viewPadding",
+      "path": "events.sys:home.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:home.padding",
+      "path": "events.sys:home.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:home.systemBarsShown",
+      "path": "events.sys:home.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:home.pip",
+      "path": "events.sys:home.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterLeave.orientation",
+      "path": "events.sys:afterLeave.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterLeave.physical",
+      "path": "events.sys:afterLeave.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterLeave.viewPadding",
+      "path": "events.sys:afterLeave.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterLeave.padding",
+      "path": "events.sys:afterLeave.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterLeave.systemBarsShown",
+      "path": "events.sys:afterLeave.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "events.sys:afterLeave.pip",
+      "path": "events.sys:afterLeave.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:nested.pops",
+      "path": "events.back:nested.pops",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:nested.alive",
+      "path": "events.back:nested.alive",
+      "status": "must-same"
+    },
+    {
+      "name": "events.closeall.gone",
+      "path": "events.closeall.gone",
+      "status": "must-same"
+    },
+    {
+      "name": "events.closeall.routes",
+      "path": "events.closeall.routes",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:leave.pops",
+      "path": "events.back:leave.pops",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:leave.alive",
+      "path": "events.back:leave.alive",
+      "status": "must-same"
+    },
+    {
+      "name": "events.enterDoneRotation",
+      "path": "events.enterDoneRotation",
+      "status": "unstable"
+    },
+    {
+      "name": "events.enterDoneMs",
+      "path": "events.enterDoneMs",
+      "status": "unstable"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "control": {
+    "kind": "pair",
+    "with": "A-R12-safearea-off",
+    "path": "moments.page.window.padding",
+    "what": "R12 removeSafeArea 开 / 关两次运行的 padding 与系统栏"
+  },
+  "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
+  "evidence": "control: moments.page.window.padding against A-R12-safearea-off"
+}

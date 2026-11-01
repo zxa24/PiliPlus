@@ -1,0 +1,338 @@
+{
+  "id": "A-R5-statusbar",
+  "about": "design §6.4 R5 手机上: the portrait page paused, scrollRatio 0 and then the outer list at its end (scrollRatio 1 ≥ 0.5): the colour bar's status-bar style (android.statusBar: icons light over black at 0, the theme's reverse at ≥ 0.5, B childWhenDisabled), with scrollRatio and the bar colour. Light theme (the plan's themeMode 0). Control: the icon brightness at 0 vs ≥ 0.5",
+  "platform": "android",
+  "mutants": "none",
+  "check": "wpSteps",
+  "report": "A-R5-statusbar.json",
+  "type": "recording",
+  "batch": null,
+  "network": true,
+  "run": {
+    "args": [
+      "--wp-open",
+      "bili:https://www.bilibili.com/video/BV1wbxr6REXk",
+      "--wp-steps",
+      "host:rotate:0;pause;settle;read:top;scroll:nestedOuter=max;settle;read:scrolled"
+    ],
+    "prefs": [
+      "horizontalScreen:bool=true"
+    ],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 8
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "kind",
+      "path": "kind",
+      "status": "must-same"
+    },
+    {
+      "name": "events.android",
+      "path": "events.android",
+      "status": "must-same"
+    },
+    {
+      "name": "events.skipped",
+      "path": "events.skipped",
+      "status": "must-same"
+    },
+    {
+      "name": "top.window",
+      "path": "moments.top.window",
+      "status": "must-same"
+    },
+    {
+      "name": "top.branch.scalars",
+      "path": "moments.top.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "top.branch.geometry.label",
+      "path": "moments.top.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "top.branch.geometry.player",
+      "path": "moments.top.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "top.branch.geometry.columns",
+      "path": "moments.top.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "top.tabs[0].roles",
+      "path": "moments.top.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "top.tabs[0].index",
+      "path": "moments.top.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "top.tabs[0].texts",
+      "path": "moments.top.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "top.tabCtr",
+      "path": "moments.top.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "top.kept.player",
+      "path": "moments.top.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "top.kept.tabArea",
+      "path": "moments.top.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "top.slots",
+      "path": "moments.top.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "top.sheet",
+      "path": "moments.top.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "top.player",
+      "path": "moments.top.player",
+      "status": "must-same"
+    },
+    {
+      "name": "top.more.slots",
+      "path": "moments.top.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "top.extras.controller.isFullScreen",
+      "path": "moments.top.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "top.extras.controller.scrollRatio",
+      "path": "moments.top.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.statusBar",
+      "path": "moments.top.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.canPop",
+      "path": "moments.top.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.removeSafeArea",
+      "path": "moments.top.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.horizontalScreen",
+      "path": "moments.top.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.orientation",
+      "path": "moments.top.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.physical",
+      "path": "moments.top.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.viewPadding",
+      "path": "moments.top.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.padding",
+      "path": "moments.top.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.systemBarsShown",
+      "path": "moments.top.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "top.android.pip",
+      "path": "moments.top.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.window",
+      "path": "moments.scrolled.window",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.branch.scalars",
+      "path": "moments.scrolled.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.branch.geometry.label",
+      "path": "moments.scrolled.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.branch.geometry.player",
+      "path": "moments.scrolled.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.branch.geometry.columns",
+      "path": "moments.scrolled.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.tabs[0].roles",
+      "path": "moments.scrolled.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.tabs[0].index",
+      "path": "moments.scrolled.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.tabs[0].texts",
+      "path": "moments.scrolled.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "scrolled.tabCtr",
+      "path": "moments.scrolled.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.kept.player",
+      "path": "moments.scrolled.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.kept.tabArea",
+      "path": "moments.scrolled.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.slots",
+      "path": "moments.scrolled.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.sheet",
+      "path": "moments.scrolled.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.player",
+      "path": "moments.scrolled.player",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.more.slots",
+      "path": "moments.scrolled.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.extras.controller.isFullScreen",
+      "path": "moments.scrolled.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.extras.controller.scrollRatio",
+      "path": "moments.scrolled.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.statusBar",
+      "path": "moments.scrolled.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.canPop",
+      "path": "moments.scrolled.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.removeSafeArea",
+      "path": "moments.scrolled.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.horizontalScreen",
+      "path": "moments.scrolled.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.orientation",
+      "path": "moments.scrolled.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.physical",
+      "path": "moments.scrolled.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.viewPadding",
+      "path": "moments.scrolled.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.padding",
+      "path": "moments.scrolled.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.systemBarsShown",
+      "path": "moments.scrolled.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "scrolled.android.pip",
+      "path": "moments.scrolled.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.host:rotate:0#1",
+      "path": "events.host:rotate:0#1",
+      "status": "unstable"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "control": {
+    "kind": "inRun",
+    "pairs": [
+      {
+        "a": "moments.top.android.statusBar.iconBrightness",
+        "b": "moments.scrolled.android.statusBar.iconBrightness"
+      }
+    ],
+    "expect": [],
+    "what": "R5 scrollRatio 0 与 ≥ 0.5 的状态栏图标亮度"
+  },
+  "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
+  "evidence": "control: top vs scrolled android.statusBar.iconBrightness"
+}

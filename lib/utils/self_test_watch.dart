@@ -30,10 +30,12 @@ library;
 
 import 'dart:async' show Completer;
 import 'dart:io' show Platform;
+import 'dart:ui' show ViewPadding;
 
 import 'package:PiliPlus/common/widgets/fractionally_sized_box.dart';
 import 'package:PiliPlus/common/widgets/scaffold/bottom_sheet.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
+import 'package:PiliPlus/common/widgets/simple_app_bar.dart';
 import 'package:PiliPlus/common/widgets/svg/play_icon.dart';
 import 'package:PiliPlus/common/widgets/sliver/video_header.dart'
     show VideoHeader;
@@ -63,8 +65,11 @@ import 'package:PiliPlus/pages/youtube/comments/yt_comment_pane.dart'
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/view.dart' show YtVideoPage;
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart'
+    show showSystemBar_;
 import 'package:PiliPlus/plugin/pl_player/view/view.dart' show PLVideoPlayer;
 import 'package:PiliPlus/services/ctl/ctl_app.dart';
+import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:PiliPlus/utils/self_test_probe.dart';
 import 'package:PiliPlus/utils/self_test_window.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -230,7 +235,7 @@ abstract final class WpRead {
   /// reading that could not be taken.
   static Map<String, Object?> read(String tag) {
     final (:page, :why) = find(tag);
-    const parts = [
+    final parts = [
       'window',
       'branch',
       'tabs',
@@ -240,6 +245,8 @@ abstract final class WpRead {
       'player',
       'extras',
       'more',
+      // Android only (design §6.3): desktop reports keep their shape
+      if (Platform.isAndroid) 'android',
     ];
     if (page == null) {
       return {
@@ -282,6 +289,83 @@ abstract final class WpRead {
       'player': _guard(() => _player(page)),
       'extras': _guard(() => _extras(page, scan)),
       'more': _guard(() => _more(page, scan)),
+      if (Platform.isAndroid) 'android': _guard(() => _android(page, scan)),
+    };
+  }
+
+  // ------------------------------------------------------------ android
+  //
+  // What only a phone shows (design §6.3 「只在 Android 上能看到」, §6.4 the
+  // phone items): the colour bar's status-bar style (R5), the player's pop
+  // scope (R8: canPop, the half of the back's disposition the tree holds;
+  // didPop is S0a's observer, in the back step's `pops`), the settings the
+  // phone items turn on, and the system's side (androidSystem).
+
+  /// The page's Android part; `none` for what the page has not built.
+  static Map<String, Object?> _android(WpPage page, _Scan scan) {
+    final ctr =
+        page.kind == 'bili' &&
+            Get.isRegistered<VideoDetailController>(tag: page.tag)
+        ? Get.find<VideoDetailController>(tag: page.tag)
+        : null;
+    return {
+      'statusBar': _guard(() => _statusBar(page)),
+      'canPop': _guard(
+        () => switch (scan.biliPlayer?.widget) {
+          PopScope(:final canPop) => canPop,
+          _ => 'none',
+        },
+      ),
+      'removeSafeArea': ctr?.removeSafeArea ?? 'none',
+      'horizontalScreen': ctr?.horizontalScreen ?? 'none',
+      ...androidSystem(),
+    };
+  }
+
+  /// The colour bar the page puts over the status bar (B `childWhenDisabled`
+  /// and the landscape branches: SimpleAppBar, an AnnotatedRegion whose
+  /// style is what reaches the system), the first under the page; `none`
+  /// when the page builds none (removeAppBar: removeSafeArea, a window,
+  /// fullscreen in a window).
+  static Object _statusBar(WpPage page) {
+    final bar = firstUnder(page.element, (w) => w is SimpleAppBar);
+    if (bar == null) return 'none';
+    final w = bar.widget as SimpleAppBar;
+    return {
+      'height': half(w.height),
+      'iconBrightness': w.statusBarIconBrightness.name,
+      'statusBarBrightness': w.statusBarBrightness.name,
+      // the navigation bar's icons: SimpleAppBar gives brightness.reverse
+      'pageBrightness': w.brightness.name,
+      'color': w.backgroundColor.toARGB32().toRadixString(16),
+    };
+  }
+
+  /// The system's side on Android, with no page: the window's orientation
+  /// and size, the system bars as the view reports them (`viewPadding`:
+  /// what the bars take, zero when hidden; `padding`), the app's own
+  /// record of whether it last showed or hid them (fullscreen.dart), and
+  /// whether the activity is in picture in picture. Off Android every key
+  /// is `$unread`.
+  static Map<String, Object?> androidSystem() {
+    if (!Platform.isAndroid) return {'system': unread('notAndroid')};
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+    if (view == null) return {'system': unread('noView')};
+    final ratio = view.devicePixelRatio;
+    List<double> insets(ViewPadding p) => [
+      half(p.left / ratio),
+      half(p.top / ratio),
+      half(p.right / ratio),
+      half(p.bottom / ratio),
+    ];
+    final size = view.physicalSize;
+    return {
+      'orientation': size.width > size.height ? 'landscape' : 'portrait',
+      'physical': [size.width, size.height],
+      'viewPadding': insets(view.viewPadding),
+      'padding': insets(view.padding),
+      'systemBarsShown': showSystemBar_,
+      'pip': _guard(() => AndroidHelper.isPipMode),
     };
   }
 

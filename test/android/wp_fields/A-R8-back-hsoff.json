@@ -1,0 +1,390 @@
+{
+  "id": "A-R8-back-hsoff",
+  "about": "design §6.4 R8 手机上: 横屏适配 off, two pages: the one on top upright gets a back (canPop true, didPop true: paused and callback cleared), then the window is made landscape-shaped (host:landscape, by wp_adb.ps1 -LandscapeMethod) and the page under gets a back (canPop false by B 1296-1299, didPop false, PC: Get.back). Reported: canPop (android.canPop before each back) and the back handling's lines (events.back:*.pops, S0a's observer); not whether the page is left (both leave, design wp8#5). Control: canPop upright vs sideways",
+  "platform": "android",
+  "mutants": "none",
+  "check": "wpSteps",
+  "report": "A-R8-back-hsoff.json",
+  "type": "recording",
+  "batch": null,
+  "network": true,
+  "run": {
+    "args": [
+      "--wp-open",
+      "bili:https://www.bilibili.com/video/BV1wbxr6REXk",
+      "--wp-steps",
+      "host:rotate:0;host:portrait;pause;settle;push:bili:https://www.bilibili.com/video/BV1Ntxr6xE7Y;pause;settle;read:upright;back:upright;on:main;settle;host:landscape;waitfor:landscape@15000;require:landscape;settle;read:sideways;back:sideways;state:end;host:portrait"
+    ],
+    "prefs": [
+      "horizontalScreen:bool=false",
+      "fullScreenMode:int=0"
+    ],
+    "planPrefs": true,
+    "profile": "fresh",
+    "asr": false,
+    "minutes": 10
+  },
+  "measured": "measured",
+  "preconditions": [],
+  "fields": [
+    {
+      "name": "kind",
+      "path": "kind",
+      "status": "must-same"
+    },
+    {
+      "name": "events.android",
+      "path": "events.android",
+      "status": "must-same"
+    },
+    {
+      "name": "events.skipped",
+      "path": "events.skipped",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.window",
+      "path": "moments.upright.window",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.branch.scalars",
+      "path": "moments.upright.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.branch.geometry.label",
+      "path": "moments.upright.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.branch.geometry.player",
+      "path": "moments.upright.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.branch.geometry.columns",
+      "path": "moments.upright.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.tabs[0].roles",
+      "path": "moments.upright.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.tabs[0].index",
+      "path": "moments.upright.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.tabs[0].texts",
+      "path": "moments.upright.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "upright.tabCtr",
+      "path": "moments.upright.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.kept.player",
+      "path": "moments.upright.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.kept.tabArea",
+      "path": "moments.upright.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.slots",
+      "path": "moments.upright.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.sheet",
+      "path": "moments.upright.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.player",
+      "path": "moments.upright.player",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.more.slots",
+      "path": "moments.upright.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.extras.controller.isFullScreen",
+      "path": "moments.upright.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.extras.controller.scrollRatio",
+      "path": "moments.upright.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.statusBar",
+      "path": "moments.upright.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.canPop",
+      "path": "moments.upright.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.removeSafeArea",
+      "path": "moments.upright.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.horizontalScreen",
+      "path": "moments.upright.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.orientation",
+      "path": "moments.upright.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.physical",
+      "path": "moments.upright.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.viewPadding",
+      "path": "moments.upright.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.padding",
+      "path": "moments.upright.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.systemBarsShown",
+      "path": "moments.upright.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "upright.android.pip",
+      "path": "moments.upright.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.window",
+      "path": "moments.sideways.window",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.branch.scalars",
+      "path": "moments.sideways.branch.scalars",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.branch.geometry.label",
+      "path": "moments.sideways.branch.geometry.label",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.branch.geometry.player",
+      "path": "moments.sideways.branch.geometry.player",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.branch.geometry.columns",
+      "path": "moments.sideways.branch.geometry.columns",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.tabs[0].roles",
+      "path": "moments.sideways.tabs[0].roles",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.tabs[0].index",
+      "path": "moments.sideways.tabs[0].index",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.tabs[0].texts",
+      "path": "moments.sideways.tabs[0].texts",
+      "status": "unstable"
+    },
+    {
+      "name": "sideways.tabCtr",
+      "path": "moments.sideways.tabCtr",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.kept.player",
+      "path": "moments.sideways.kept.player",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.kept.tabArea",
+      "path": "moments.sideways.kept.tabArea",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.slots",
+      "path": "moments.sideways.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.sheet",
+      "path": "moments.sideways.sheet",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.player",
+      "path": "moments.sideways.player",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.more.slots",
+      "path": "moments.sideways.more.slots",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.extras.controller.isFullScreen",
+      "path": "moments.sideways.extras.controller.isFullScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.extras.controller.scrollRatio",
+      "path": "moments.sideways.extras.controller.scrollRatio",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.statusBar",
+      "path": "moments.sideways.android.statusBar",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.canPop",
+      "path": "moments.sideways.android.canPop",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.removeSafeArea",
+      "path": "moments.sideways.android.removeSafeArea",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.horizontalScreen",
+      "path": "moments.sideways.android.horizontalScreen",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.orientation",
+      "path": "moments.sideways.android.orientation",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.physical",
+      "path": "moments.sideways.android.physical",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.viewPadding",
+      "path": "moments.sideways.android.viewPadding",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.padding",
+      "path": "moments.sideways.android.padding",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.systemBarsShown",
+      "path": "moments.sideways.android.systemBarsShown",
+      "status": "must-same"
+    },
+    {
+      "name": "sideways.android.pip",
+      "path": "moments.sideways.android.pip",
+      "status": "must-same"
+    },
+    {
+      "name": "events.host:rotate:0#1",
+      "path": "events.host:rotate:0#1",
+      "status": "unstable"
+    },
+    {
+      "name": "events.host:portrait#2",
+      "path": "events.host:portrait#2",
+      "status": "unstable"
+    },
+    {
+      "name": "events.host:landscape#3",
+      "path": "events.host:landscape#3",
+      "status": "unstable"
+    },
+    {
+      "name": "events.host:portrait#4",
+      "path": "events.host:portrait#4",
+      "status": "unstable"
+    },
+    {
+      "name": "events.back:upright.pops",
+      "path": "events.back:upright.pops",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:upright.alive",
+      "path": "events.back:upright.alive",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:sideways.pops",
+      "path": "events.back:sideways.pops",
+      "status": "must-same"
+    },
+    {
+      "name": "events.back:sideways.alive",
+      "path": "events.back:sideways.alive",
+      "status": "must-same"
+    },
+    {
+      "name": "events.waitfor:landscape@15000",
+      "path": "events.waitfor:landscape@15000",
+      "status": "must-same"
+    },
+    {
+      "name": "events.state:end",
+      "path": "events.state:end",
+      "status": "must-same"
+    },
+    {
+      "name": "events.require:landscape",
+      "path": "events.require:landscape",
+      "status": "must-same"
+    }
+  ],
+  "uiErrors": {
+    "status": "must-same",
+    "unstable": [],
+    "expectedFor": []
+  },
+  "control": {
+    "kind": "inRun",
+    "pairs": [
+      {
+        "a": "moments.upright.android.canPop",
+        "b": "moments.sideways.android.canPop"
+      }
+    ],
+    "expect": [],
+    "what": "R8 横屏适配关时横 / 竖两种朝向下返回的处置 (canPop; didPop in events.back:*.pops)"
+  },
+  "calibrated": "android, written by hand in part 6a (no APK of this code yet): structure must-same, content unstable. Calibrate on the 6b APK: test/android/wp_adb.ps1 -Checks <id> -Commit <S0b> -Passes 2, then run.ps1 -Plan watch_page -Compare <dir> -FieldTables test/android/wp_fields",
+  "evidence": "control: upright vs sideways android.canPop",
+  "landscapeMethod": "choose: wp_adb.ps1 -LandscapeMethod freeform (first, design §6.3: multi-window, the app's orientation request does not apply) or wmsize; decided on the first 6b run (README R8)"
+}

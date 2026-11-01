@@ -23,6 +23,18 @@ on:
                 default: false
                 type: boolean
 
+            # LibrePili: the watch-page test builds (design feature-logs/
+            # watch-page-shell/design.md §6.3 「从不卸载」): every APK compared on
+            # the phone has the same versionCode, so `adb install -r` swaps
+            # them without a downgrade. Empty = today's versionCode
+            # (git rev-list --count, lib/scripts/build.ps1). Android only, and
+            # refused together with a tag: a release keeps its own number.
+            build_number:
+                description: "Android versionCode to build with (digits; empty = commit count). Test builds only, not with a tag"
+                required: false
+                default: ""
+                type: string
+
             build_ios:
                 description: "Build iOS"
                 required: false
@@ -54,7 +66,36 @@ on:
                 type: string
 
 jobs:
+    # LibrePili: the inputs checked before any job starts (every job needs
+    # it): a refused build_number stops the whole run, desktop releases of a
+    # tag included
+    check_inputs:
+        name: Check inputs
+        runs-on: ubuntu-latest
+        permissions: {}
+        steps:
+            - name: Check build number
+              env:
+                  BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+                  TAG: ${{ github.event.inputs.tag }}
+              run: |
+                  if [ -z "$BUILD_NUMBER" ]; then
+                    echo "no build_number: versionCode from the commit count"
+                    exit 0
+                  fi
+                  # Android's versionCode is at most 2100000000
+                  if ! printf '%s' "$BUILD_NUMBER" | grep -Eq '^[1-9][0-9]{0,9}$' || [ "$BUILD_NUMBER" -gt 2100000000 ]; then
+                    echo "::error::build_number must be a whole number from 1 to 2100000000, not '$BUILD_NUMBER'"
+                    exit 1
+                  fi
+                  if [ -n "$TAG" ]; then
+                    echo "::error::build_number is for test builds: refusing it together with tag '$TAG'"
+                    exit 1
+                  fi
+                  echo "build_number $BUILD_NUMBER accepted"
+
     android:
+        needs: check_inputs
         if: ${{ github.event.inputs.build_android == 'true' }}
         name: Release Android
         runs-on: ubuntu-latest
@@ -127,15 +168,22 @@ jobs:
               shell: pwsh
               run: lib/scripts/build.ps1 android
 
+            - name: Show build number
+              if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_number != '' }}
+              env:
+                  BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+              # checked by the check_inputs job this one needs
+              run: echo "versionCode fixed at $BUILD_NUMBER (the commit count would be $(git rev-list --count HEAD))"
+
             - name: Flutter Build Release Apk
               if: ${{ github.event_name == 'workflow_dispatch' }}
-              run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub ${{ github.event.inputs.android_dev == 'true' && '--android-project-arg=dev=true' || '' }}
+              run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub ${{ github.event.inputs.android_dev == 'true' && '--android-project-arg=dev=true' || '' }} ${{ github.event.inputs.build_number != '' && format('--build-number={0}', github.event.inputs.build_number) || '' }}
 
             - name: Rename
               run: |
                   for file in build/app/outputs/flutter-apk/app-*-release.apk; do
                     abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
-                    mv "$file" "LibrePili_android_${{ env.version }}${{ github.event.inputs.android_dev == 'true' && '_dev' || '' }}_${abi}.apk"
+                    mv "$file" "LibrePili_android_${{ env.version }}${{ github.event.inputs.android_dev == 'true' && '_dev' || '' }}${{ github.event.inputs.build_number != '' && format('_vc{0}', github.event.inputs.build_number) || '' }}_${abi}.apk"
                   done
               shell: bash
 
@@ -169,6 +217,7 @@ jobs:
                   path: LibrePili_android_*_x86_64.apk
 
     ios:
+        needs: check_inputs
         if: ${{ github.event.inputs.build_ios == 'true' }}
         uses: ./.github/workflows/ios.yml
         permissions:
@@ -177,6 +226,7 @@ jobs:
             tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
     mac:
+        needs: check_inputs
         if: ${{ github.event.inputs.build_mac == 'true' }}
         uses: ./.github/workflows/mac.yml
         permissions:
@@ -185,6 +235,7 @@ jobs:
             tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
     win_x64:
+        needs: check_inputs
         if: ${{ github.event.inputs.build_win_x64 == 'true' }}
         uses: ./.github/workflows/win_x64.yml
         permissions:
@@ -193,6 +244,7 @@ jobs:
             tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
     linux_x64:
+        needs: check_inputs
         if: ${{ github.event.inputs.build_linux_x64 == 'true' }}
         uses: ./.github/workflows/linux_x64.yml
         permissions:
