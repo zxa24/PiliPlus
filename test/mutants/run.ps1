@@ -2085,6 +2085,7 @@ $script:dlStage2 = [ordered]@{
     '2c' = @('P2-R1', 'P2-R2', 'P2-R3', 'P2-R4', 'P2-R5', 'P2-R10', 'P2-R12', 'P2-R17', 'P2-R18', 'P2-Q1')
     '2bc-fix' = @('P2-D9', 'P2-D10', 'P2-D11')
     '4320' = @('P2-Q2')
+    '2d' = @('P2-T1', 'P2-T2', 'P2-T3', 'P2-T4', 'P2-T5', 'P2-T6', 'P2-T7', 'P2-T8', 'P2-T9', 'P2-T10', 'P2-T11', 'P2-T12', 'P2-T13', 'P2-T14', 'P2-T16', 'P2-T17', 'P2-T18')
 }
 
 # ids unique, phases known: throws on the first that is not

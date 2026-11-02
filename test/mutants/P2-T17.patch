@@ -1,0 +1,23 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -843,11 +843,15 @@ class _StreamMeta {
+   /// Completes once every write asked for so far is done.
+   Future<void> get settled => _chain;
+ 
+-  Future<void> set(String stream, YtStreamId id) {
++  Future<void> set(String stream, YtStreamId id) async {
+     _now[stream] = id;
+-    final write = _chain.then((_) => _write());
+-    _chain = write.then((_) {}, onError: (_) {});
+-    return write;
++    // each stream reads the file and writes it back with its own part
++    final file = File(path.join(_dir, 'stream.json'));
++    final disk = await _read(file) ?? {'format': format, 'source': _source};
++    disk[stream] = id.toJson(audio: stream == 'audio');
++    final tmp = File('${file.path}.$stream.tmp');
++    await tmp.writeAsString(jsonEncode(disk), flush: true);
++    await tmp.rename(file.path);
+   }
+ 
+   Future<void> _write() async {

@@ -1028,5 +1028,175 @@
     "kind": "unit",
     "test": "test/services/youtube/yt_quality_tier_test.dart",
     "catcher": "yt_quality_tier_test.dart: an 8K video's formats: tiers 4320 and 2160, not both 2160"
+  },
+  {
+    "id": "P2-T1",
+    "patch": "P2-T1.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:451-455",
+    "change": "rule 6 (complete: no request) removed",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: already complete (rule 6) no request for it, reported once at its length, then done"
+  },
+  {
+    "id": "P2-T2",
+    "patch": "P2-T2.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:459-461",
+    "change": "rule 7 does not need an lmt on both sides",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: a resume (rule 7) no lmt on the new side: from 0 (no validator), never a resume"
+  },
+  {
+    "id": "P2-T3",
+    "patch": "P2-T3.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:378",
+    "change": "the overlap check skipped",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: a resume (rule 7) a byte changed in the last 64 KB: from 0 (overlap mismatch)"
+  },
+  {
+    "id": "P2-T4",
+    "patch": "P2-T4.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:575-576,591",
+    "change": "the overlap check reads the first 64 KB",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: a resume (rule 7) the last 64 KB read back first, then the rest; no restart"
+  },
+  {
+    "id": "P2-T5",
+    "patch": "P2-T5.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:82-83",
+    "change": "a null overwrites a known total or version (YtStreamId.over)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: already complete (rule 6) a total and a version not given now: those known kept (p3#2)"
+  },
+  {
+    "id": "P2-T6",
+    "patch": "P2-T6.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:861,870",
+    "change": "stream.json written in place, not through .tmp + rename",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: stream.json read and written (§2.2 p5#7) written through .tmp + rename, never in place"
+  },
+  {
+    "id": "P2-T7",
+    "patch": "P2-T7.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:791-795",
+    "change": "no .tmp fallback when stream.json does not read",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: stream.json read and written (§2.2 p5#7) torn, with a whole .tmp: the .tmp read, a resume (variant d(1))"
+  },
+  {
+    "id": "P2-T8",
+    "patch": "P2-T8.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:470-472",
+    "change": "a second restart from 0 for the same reason allowed",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: answers that do not fit (§4.2) a second 416 in the same start: failDownload"
+  },
+  {
+    "id": "P2-T9",
+    "patch": "P2-T9.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:657-660",
+    "change": "a 200 taken while resuming (appended)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: answers that do not fit (§4.2) a 200 to a range after the overlap: from 0 (range ignored)"
+  },
+  {
+    "id": "P2-T10",
+    "patch": "P2-T10.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:269",
+    "change": "callbacks do not look at _cancelled (_say)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_pair_transfer_test.dart",
+    "catcher": "yt_pair_transfer_test.dart: progress before a cancel, none after it; no done (AC16)"
+  },
+  {
+    "id": "P2-T11",
+    "patch": "P2-T11.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:194",
+    "change": "a stream already whole reported in the constructor",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_pair_transfer_test.dart",
+    "catcher": "yt_pair_transfer_test.dart: both streams already complete: nothing called back in the constructor"
+  },
+  {
+    "id": "P2-T12",
+    "patch": "P2-T12.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:314",
+    "change": "done sent through then, detached from task",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_pair_transfer_test.dart",
+    "catcher": "yt_pair_transfer_test.dart: done is called within the task: once, and nothing after it"
+  },
+  {
+    "id": "P2-T13",
+    "patch": "P2-T13.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:757-760",
+    "change": "cancel closes the clients before it sets pause",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_pair_transfer_test.dart",
+    "catcher": "yt_pair_transfer_test.dart: a cancel sets pause before the client is closed"
+  },
+  {
+    "id": "P2-T14",
+    "patch": "P2-T14.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:340",
+    "change": "a stream's catch does not look at _cancelled first",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_pair_transfer_test.dart",
+    "catcher": "yt_pair_transfer_test.dart: a pause mid-body: no done, the status stays pause, bytes kept"
+  },
+  {
+    "id": "P2-T16",
+    "patch": "P2-T16.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:486",
+    "change": "a restart from 0 keeps the old lmt (and total)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: stream.json read and written (§2.2 p5#7) known → unknown → known: the old lmt not kept for the new bytes"
+  },
+  {
+    "id": "P2-T17",
+    "patch": "P2-T17.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:846-850",
+    "change": "each stream reads stream.json and writes it back (no _StreamMeta chain)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_resume_test.dart",
+    "catcher": "yt_resume_test.dart: stream.json read and written (§2.2 p5#7) both streams learn their totals together: both in stream.json"
+  },
+  {
+    "id": "P2-T18",
+    "patch": "P2-T18.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:340",
+    "change": "the stopped stream's exception taken as a failure",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_pair_transfer_test.dart",
+    "catcher": "yt_pair_transfer_test.dart: the audio fails: the video stopped, one done with the audio"
   }
 ]
