@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
+import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/youtube/source_router.dart';
 import 'package:PiliPlus/services/youtube/yt_pair_transfer.dart';
@@ -252,6 +253,105 @@ void main() {
     },
   );
 
+  /// Two downloads: this one at the 1080 tier with its bytes in `137-140`
+  /// (neither source offers 137: it gives up), the other at 720, whose
+  /// transfer [_Running] holds while it downloads.
+  Future<(YtDownloadEntry, YtDownloadEntry)> twoGivingUp(
+    List<_Running> transfers,
+  ) async {
+    h.newTransfer = (spec, report) => _Running()..also(transfers.add);
+    await h.start(
+      records: [
+        (root) =>
+            ytEntry(root, maxHeight: 1080, stamp: 2)..streamTag = '137-140',
+        (root) => ytEntry(root, id: _otherId, maxHeight: 720, stamp: 1),
+      ],
+      before: plant137,
+    );
+    h.direct.formats = without137();
+    h.invidious.formats = without137();
+    final e = h.entry();
+    final other = h.entry(_otherId);
+    unawaited(h.service.startDownload(e));
+    await until(() => e.gaveUp, reason: 'its retries spent');
+    // the queue went on with the other one: its transfer runs
+    await until(
+      () =>
+          identical(h.service.curDownload.value, other) && transfers.isNotEmpty,
+      reason: 'the other downloading',
+    );
+    return (e, other);
+  }
+
+  for (final (name, removeQueue) in [
+    ('the delete takes it off the queue', true),
+    // the list's multi-select takes them off after its deletes
+    ('the delete leaves it queued (multi-select)', false),
+  ]) {
+    test(
+      'the switch saving, the download deleted meanwhile ($name): not '
+      'started — the other download goes on, the folders stay gone '
+      '(review 2f)',
+      () async {
+        final transfers = <_Running>[];
+        final (e, other) = await twoGivingUp(transfers);
+        final action = h.service.platformOf(e).failureAction(e)!;
+        final gate = Completer<void>();
+        final routers = h.routers.length;
+        late Future<bool?> took;
+        late Future<void> deleted;
+        IOOverrides.runWithIOOverrides(() {
+          took = h.service.takeFailureAction(e, action);
+        }, _HeldFirstSave(gate.future));
+        await settle();
+        deleted = h.service.deleteDownload(
+          entry: e,
+          removeQueue: removeQueue,
+          downloadNext: false,
+        );
+        await settle();
+        gate.complete();
+        await deleted;
+        expect(await took, isNull);
+        await settle(200);
+        expect(Directory(e.entryDirPath).existsSync(), isFalse);
+        expect(Directory(e.pageDirPath).existsSync(), isFalse);
+        expect(identical(h.service.curDownload.value, other), isTrue);
+        expect(transfers, hasLength(1));
+        expect(transfers.single.cancelled, isFalse);
+        // no resolve of the deleted one
+        expect(h.routers.skip(routers).where((r) => !r.own), isEmpty);
+      },
+    );
+  }
+
+  test(
+    'a stale tap (the download started again since the button was drawn): '
+    'nothing (review 2f)',
+    () async {
+      final transfers = <_Running>[];
+      h.newTransfer = (spec, report) => _Running()..also(transfers.add);
+      await start();
+      h.direct.formats = without137();
+      h.invidious.formats = without137();
+      final e = h.entry();
+      unawaited(h.service.startDownload(e));
+      await until(() => e.gaveUp, reason: 'its retries spent');
+      final stale = h.service.platformOf(e).failureAction(e)!;
+      // 137 offered again; the row's own tap starts it
+      h.direct.formats = [
+        ytVideoFormat(137, bytes: h.server.bodies['video']!.length),
+        ...without137(),
+      ];
+      unawaited(h.service.startDownload(e));
+      await until(() => transfers.isNotEmpty, reason: 'its transfer');
+      expect(await h.service.takeFailureAction(e, stale), isNull);
+      expect((e.maxHeight, e.streamTag), (1080, '137-140'));
+      expect((await h.record(e))['max_height'], 1080);
+      expect(transfers, hasLength(1));
+    },
+  );
+
   test('the switch not saved: the entry as it was, not started', () async {
     await start();
     h.direct.formats = without137();
@@ -390,4 +490,30 @@ class _Unwritable implements File {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// A transfer that downloads until it is cancelled.
+class _Running implements DownloadTransfer {
+  final _task = Completer<void>();
+  var cancelled = false;
+
+  @override
+  DownloadStatus status = DownloadStatus.downloading;
+
+  @override
+  Future<void> get task => _task.future;
+
+  @override
+  Future<void> cancel({required bool isDelete}) async {
+    cancelled = true;
+    if (!isDelete) status = DownloadStatus.pause;
+    if (!_task.isCompleted) _task.complete();
+  }
+}
+
+extension<T> on T {
+  T also(void Function(T) f) {
+    f(this);
+    return this;
+  }
 }

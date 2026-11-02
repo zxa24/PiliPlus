@@ -2090,6 +2090,7 @@ $script:dlStage2 = [ordered]@{
     '2d-fix' = @('P2-T19', 'P2-T20', 'P2-T21', 'P2-T22', 'P2-T23', 'P2-T24', 'P2-T25', 'P2-T26', 'P2-T27')
     '2e-fix' = @('P2-S11', 'P2-S12', 'P2-T28', 'P2-H9', 'P2-R19', 'P2-R20', 'P2-R21', 'P2-R22', 'P2-R23', 'P2-R24', 'P2-R25')
     '2f' = @('P2-L4', 'P2-L6', 'P2-L7', 'P2-L10', 'P2-L11', 'P2-L12', 'P2-L15', 'P2-L16', 'P2-L17')
+    '2f-fix' = @('P2-L18', 'P2-L19', 'P2-L20', 'P2-L21', 'P2-H10', 'P2-H11', 'P2-H12')
 }
 
 # ids unique, phases known: throws on the first that is not

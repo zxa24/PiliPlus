@@ -439,7 +439,8 @@ final class YtDownloadPlatform implements DownloadPlatform {
   /// written to [YtSourceRouter.sharedHealth], no instance set aside. Not
   /// the other when the mode is a single source (`--yt-source`, as a
   /// start's own router does not ask it), nor the direct source while it
-  /// cools down in the shared table.
+  /// cools down in the shared table, nor at all when the direct source has
+  /// said the video is live.
   Future<YtDownloadOffer> offerFor(String videoId) async {
     final mode = YtSourceStore.debugMode;
     final play = _router(
@@ -460,12 +461,16 @@ final class YtDownloadPlatform implements DownloadPlatform {
         other: Future.value(),
       );
     }
+    final liveNow = sourceId == _directId && (current.value?.liveNow ?? false);
     return YtDownloadOffer(
       detail: current.value,
       sourceId: sourceId,
       verdict: current.verdict,
-      liveNow: sourceId == _directId && (current.value?.liveNow ?? false),
-      other: _otherOffer(videoId, sourceId, mode),
+      liveNow: liveNow,
+      // live: the other source is not asked at all — Invidious answers a
+      // live video with a 403 that sets aside the instances the pages share
+      // (design §9, §10-5 ④ b; review 2f)
+      other: liveNow ? Future.value() : _otherOffer(videoId, sourceId, mode),
     );
   }
 

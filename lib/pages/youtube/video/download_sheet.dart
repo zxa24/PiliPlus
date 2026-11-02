@@ -127,6 +127,10 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
 
   /// Queued or downloaded already: its words, and no 「下载」.
   String? _existing;
+
+  /// The download list read (design §8: until then 「下载」 shows a spinner
+  /// and cannot be tapped).
+  var _listRead = false;
   var _adding = false;
 
   String get _key => 'yt:${widget.videoId}';
@@ -142,7 +146,10 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
     // the list read first: before it a downloaded video is in neither
     await _service.waitForInitialization;
     if (!mounted) return;
-    setState(() => _existing = _existingNow());
+    setState(() {
+      _listRead = true;
+      _existing = _existingNow();
+    });
   }
 
   String? _existingNow() {
@@ -203,6 +210,7 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
   bool get _live => (_offer?.liveNow ?? false) || _otherLive;
 
   bool get _canDownload =>
+      _listRead &&
       !_loading &&
       !_adding &&
       _existing == null &&
@@ -258,6 +266,7 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
       'existing': _existing,
       'message': _messageNow(),
       'canDownload': _canDownload,
+      'listRead': _listRead,
     });
   }
 
@@ -405,7 +414,7 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
           FilledButton(
             key: const ValueKey('download'),
             onPressed: _canDownload ? _download : null,
-            child: _adding || _loading
+            child: _adding || _loading || !_listRead
                 ? const SizedBox.square(
                     dimension: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),

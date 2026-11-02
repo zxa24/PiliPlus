@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -470,7 +470,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+       // live: the other source is not asked at all — Invidious answers a
+       // live video with a 403 that sets aside the instances the pages share
+       // (design §9, §10-5 ④ b; review 2f)
+-      other: liveNow ? Future.value() : _otherOffer(videoId, sourceId, mode),
++      other: _otherOffer(videoId, sourceId, mode),
+     );
+   }
+ 

@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -461,7 +461,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+         other: Future.value(),
+       );
+     }
+-    final liveNow = sourceId == _directId && (current.value?.liveNow ?? false);
++    final liveNow = current.value?.liveNow ?? false;
+     return YtDownloadOffer(
+       detail: current.value,
+       sourceId: sourceId,

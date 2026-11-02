@@ -1,9 +1,13 @@
 // LibrePili: the YouTube download self-tests (feature-logs/
 // download-platforms stage-2 plan §5): `--yt-download`, `--yt-resume`,
 // `--yt-download-transcribe`, `--yt-panel`, `--yt-open`, with
-// `--yt-quality`, `--yt-stop`, `--yt-tamper`, `--yt-inject`, `--yt-away`
-// (and `--yt-list-delay`, read in SelfTestPref before the list is). A part
-// of self_test.dart: it shares its report helpers.
+// `--yt-quality`, `--yt-stop`, `--yt-tamper`, `--yt-inject`, `--yt-away`,
+// `--yt-switch-720` (take the 720p switch once the retries are spent),
+// `--yt-past-panel` (enqueue what the panel refuses: a live or upcoming
+// video, to see the start refuse it) and `--yt-list-delay` (read in
+// SelfTestPref before the list is). Nothing is deleted: each run's profile
+// keeps what it downloaded for the same profile's next run (`--keep` is not
+// read). A part of self_test.dart: it shares its report helpers.
 part of 'self_test.dart';
 
 /// What one `--yt-inject` asks for (stage-2 plan §5).
@@ -296,6 +300,8 @@ abstract final class _YtDl {
       YtPairTransfer.selfTestInject = null;
       YtPairTransfer.selfTestOnBytes = null;
       DownloadService.selfTestBeforeOtherMerge = null;
+      DownloadService.selfTestOnFailureKind = null;
+      DownloadService.selfTestBeforeRestart = null;
       Request.dio.interceptors.remove(dio);
     };
   }
@@ -350,7 +356,12 @@ abstract final class _YtDl {
       return {'pass': false, 'error': 'unknown --yt-tamper "$tamper"'};
     }
     final away = args.contains('--yt-away');
+    final switch720 = args.contains('--yt-switch-720');
+    final pastPanel = args.contains('--yt-past-panel');
     final run = _YtRun();
+    // the kinds the service took its failures as, in order, each as it is
+    // noted (a retry takes the note away at once)
+    final kinds = <String>[];
     final logSince = DateTime.now();
     final unhook = _hooks(args, run, inject);
     final report = <String, dynamic>{'key': key, 'mode': mode};
@@ -395,6 +406,9 @@ abstract final class _YtDl {
         service.didChangeAppLifecycleState(AppLifecycleState.paused);
         report['away'] = true;
       }
+      DownloadService.selfTestOnFailureKind = (e, kind) {
+        if (e.key == key) kinds.add(kind.name);
+      };
       trail = _StatusTrail(service, () => _entryOf(id))..start();
       YtDownloadEntry? entry;
       if (mode == 'resume') {
@@ -409,26 +423,42 @@ abstract final class _YtDl {
         final (page, why) = await _openPage(id);
         if (page == null) return {...report, 'pass': false, 'error': why};
         final offer = await _platform.offerFor(id);
-        final detail = offer.detail;
+        final pageDetail = page.detail.value;
         Get.back();
+        report['offer'] = {
+          'sourceId': offer.sourceId,
+          'verdict': '${offer.verdict.cause.name}<${offer.verdict.signal}>',
+          'liveNow': offer.liveNow,
+          'tiers': ytDownloadableTiers(offer.detail?.formats ?? const []),
+        };
+        // what the panel would not enqueue: a refusal (live, upcoming, no
+        // answer) ends here unless the run asks to go past the panel, to
+        // see the start itself refuse it (AC15)
+        final refused = offer.detail == null || offer.liveNow;
+        if (refused && !pastPanel) {
+          return {
+            ...report,
+            'end': 'the panel refused',
+            'pass': true,
+            'sourcesAsked': run.asked,
+          };
+        }
+        final detail = refused ? pageDetail : offer.detail;
         if (detail == null) {
           return {
             ...report,
             'pass': false,
-            'error':
-                'offer: ${offer.verdict.cause.name}<${offer.verdict.signal}>',
+            'error': 'no detail to enqueue (neither the panel nor the page)',
             'sourcesAsked': run.asked,
           };
         }
+        if (refused) report['pastPanel'] = true;
         final tier =
             int.tryParse(_arg(args, '--yt-quality') ?? '') ??
-            ytDefaultTier(detail.formats, page.maxHeight.value);
-        report['offer'] = {
-          'sourceId': offer.sourceId,
-          'liveNow': offer.liveNow,
-          'tiers': ytDownloadableTiers(detail.formats),
-          'tier': tier,
-        };
+            (refused
+                ? 360
+                : ytDefaultTier(detail.formats, page.maxHeight.value));
+        (report['offer'] as Map)['tier'] = tier;
         if (tier == null) {
           return {
             ...report,
@@ -463,23 +493,54 @@ abstract final class _YtDl {
           : path.join(target.entryDirPath, target.streamTypeTag);
       final oldSha = oldDir == null ? null : _shaOf(oldDir);
       Map<String, dynamic>? switched;
+      // the switch's moments (AC-Q ④): the record it saved and the bar,
+      // after the save and before the start; then the first video request
+      // of the new pair and the merge, the old folder's bytes read again at
+      // each
+      var switchStarted = false;
+      Map<String, Object?>? atFirstRequest;
+      Map<String, String>? oldShaAtMerge;
+      DownloadService.selfTestBeforeRestart = (e) {
+        if (e.key != key || switched == null) return;
+        switched['saved'] = _recordSync(target);
+        switched['videoTotalBeforeStart'] = target.progress.videoTotal;
+        switched['initialBytesBeforeStart'] = _initialBytes(target);
+        switchStarted = true;
+      };
+      final onRequest = YtPairTransfer.selfTestOnRequest;
+      YtPairTransfer.selfTestOnRequest = (stream, range) {
+        onRequest?.call(stream, range);
+        if (switchStarted && atFirstRequest == null && stream == 'video') {
+          atFirstRequest = {
+            'range': range,
+            'videoTotal': target.progress.videoTotal,
+            'oldStreamDirSha1': oldDir == null ? null : _shaOf(oldDir),
+          };
+        }
+      };
+      final onMerge = DownloadService.selfTestBeforeOtherMerge;
+      DownloadService.selfTestBeforeOtherMerge = (e) async {
+        if (switchStarted && e.key == key && oldDir != null) {
+          oldShaAtMerge = _shaOf(oldDir);
+        }
+        await onMerge?.call(e);
+      };
       if (mode == 'resume') unawaited(service.startDownload(target));
 
       final clock = Stopwatch()..start();
       DateTime? failedAt;
       var resumed = false;
+      DateTime? resumedAt;
+      // when the status last changed: a failure that stays after the
+      // return is an end (AC11's 429 on every request)
+      var lastStatus = target.status;
+      var lastChange = DateTime.now();
       String? end;
-      // the kinds the service took its failures as, in order
-      final kinds = <String>[];
       while (clock.elapsed < const Duration(minutes: 20)) {
         await Future.delayed(const Duration(milliseconds: 500));
         _sample(run, target, clock);
         if (service.extrasQueue.any((e) => e.key == key)) {
           run.extrasQueueSeen = true;
-        }
-        if (service.selfTestFailureOf(key)?.name case final kind?
-            when kinds.lastOrNull != kind) {
-          kinds.add(kind);
         }
         if (service.selfTestState.keepAlive case final k?) {
           final text = '${k.title}|${k.text}';
@@ -499,23 +560,41 @@ abstract final class _YtDl {
           break;
         }
         final status = target.status;
+        if (status != lastStatus) {
+          lastStatus = status;
+          lastChange = DateTime.now();
+        }
         if (away && status.isFailed && !resumed) {
           failedAt ??= DateTime.now();
           if (DateTime.now().difference(failedAt) >=
               const Duration(seconds: 5)) {
             resumed = true;
+            resumedAt = DateTime.now();
             report['failedOffScreen'] = status.name;
             service.didChangeAppLifecycleState(AppLifecycleState.resumed);
           }
           continue;
+        }
+        // back on screen and not started again: it stays failed (no
+        // retries are left to come; 15 s with no change)
+        if (resumedAt != null &&
+            status.isFailed &&
+            !target.gaveUp &&
+            DateTime.now().difference(resumedAt) >=
+                const Duration(seconds: 15) &&
+            DateTime.now().difference(lastChange) >=
+                const Duration(seconds: 15)) {
+          end = 'stays failed: ${status.name}';
+          break;
         }
         if (status == DownloadStatus.failNoFormat) {
           end = 'failNoFormat';
           break;
         }
         if (target.gaveUp && status.isFailed) {
-          // AC-Q ①: the 720p switch, as the row's button does it
-          final action = switched == null
+          // AC-Q ①: the 720p switch, as the row's button does it — only
+          // when the run asks (`--yt-switch-720`); else this is its end
+          final action = switch720 && switched == null
               ? _platform.failureAction(target)
               : null;
           if (action != null) {
@@ -525,8 +604,6 @@ abstract final class _YtDl {
             };
             final took = await service.takeFailureAction(target, action);
             switched['taken'] = took;
-            switched['after'] = await _record(target);
-            switched['videoTotalAtStart'] = target.progress.videoTotal;
             if (took ?? false) continue;
           }
           end = 'gave up: ${status.name}';
@@ -579,7 +656,12 @@ abstract final class _YtDl {
         'extrasQueueSeen': run.extrasQueueSeen,
         'keepAliveTexts': run.keepAliveTexts,
         'injected': run.injected,
-        'switched': ?switched,
+        if (switched case final s?)
+          'switched': {
+            ...s,
+            'atFirstRequest': atFirstRequest,
+            'oldStreamDirSha1AtMerge': oldShaAtMerge,
+          },
         if (oldDir != null) ...{
           'oldStreamDir': oldDir,
           'oldStreamDirSha1': oldSha,
@@ -657,6 +739,16 @@ abstract final class _YtDl {
     if (!f.existsSync()) return null;
     try {
       return jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+    } catch (e) {
+      return {'unreadable': '$e'};
+    }
+  }
+
+  static Map<String, dynamic>? _recordSync(YtDownloadEntry e) {
+    final f = File(path.join(e.entryDirPath, YtDownloadEntry.recordFile));
+    if (!f.existsSync()) return null;
+    try {
+      return jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
     } catch (e) {
       return {'unreadable': '$e'};
     }
@@ -779,10 +871,18 @@ abstract final class _YtDl {
   /// `--yt-panel <id>`: the page and its panel opened, the panel's state
   /// once both sources have answered (or the other timed out), and a
   /// screenshot.
-  static Future<Map<String, dynamic>> panel(String input) async {
+  static Future<Map<String, dynamic>> panel(
+    List<String> args,
+    String input,
+  ) async {
     final id = tryParseYouTubeVideoId(input) ?? input;
+    final injectArg = _arg(args, '--yt-inject');
+    final inject = _YtInject.parse(injectArg);
+    if (injectArg != null && inject == null) {
+      return {'pass': false, 'error': 'unknown --yt-inject "$injectArg"'};
+    }
     final run = _YtRun();
-    final unhook = _hooks(const [], run, null);
+    final unhook = _hooks(args, run, inject);
     try {
       final before = _sharedHealth();
       final (page, why) = await _openPage(id);

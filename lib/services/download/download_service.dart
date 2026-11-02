@@ -584,10 +584,15 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     keepAlive: _keepAliveState,
   );
 
-  /// What the self-tests report as a download's failure kind (stage-2 plan
-  /// §5 `failureKind`): the one noted for [key] now (read before a retry
-  /// takes it).
-  DownloadFailure? selfTestFailureOf(DownloadKey key) => _lastFailure[key];
+  /// The self-tests' (stage-2 plan §5 `failureKind`): each failure kind as
+  /// it is noted (a retry takes the note away at once, so it is not read
+  /// later); null in every other run.
+  static void Function(DownloadEntry entry, DownloadFailure kind)?
+  selfTestOnFailureKind;
+
+  /// The self-tests' (AC-Q ④): a failure action's entry, its record saved,
+  /// just before it is started again; null in every other run.
+  static void Function(DownloadEntry entry)? selfTestBeforeRestart;
 
   Future<void> _readDownloadList() async {
     if (readListGateForTest case final gate?) await gate();
@@ -903,26 +908,57 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
 
   /// A platform's action on a failed entry ([DownloadPlatform.
   /// failureAction], the 720p button, stage-2 plan §4.2): [action] changes
-  /// the entry, then [restartWith]. Not saved: the entry is put back as it
-  /// was, so memory and the record agree, and false. One at a time per
-  /// download: a second tap while the first is saving does nothing (null).
+  /// the entry, its record is saved, then it is started again. True:
+  /// started. False: not saved — the entry put back as it was, so memory
+  /// and the record agree. Null, nothing done: the action no longer applies
+  /// (a button drawn before the entry changed), the entry is not the
+  /// service's (the same object queued or listed, its folder there), a tap
+  /// before this one is still under way, or the entry was deleted while it
+  /// saved (review 2f: a delete drops the action; it is never started, so it
+  /// neither stops another download nor makes the deleted folders again).
   Future<bool?> takeFailureAction(
     DownloadEntry entry,
     DownloadFailureAction action,
   ) async {
     final key = entry.key;
-    if (!_takingAction.add(key)) return null;
+    if (platformOf(entry).failureAction(entry) == null ||
+        !_holds(entry) ||
+        _takingAction.containsKey(key)) {
+      return null;
+    }
+    final token = _takingAction[key] = Object();
+    bool current() => identical(_takingAction[key], token) && _holds(entry);
     try {
       final undo = action.apply(entry);
-      if (await restartWith(entry)) return true;
-      undo();
-      return false;
+      try {
+        await _saveEntry(entry, valid: current);
+      } catch (e) {
+        EventLog.add('download', '${entry.logLabel}: not restarted: $e');
+        undo();
+        return false;
+      }
+      if (!current()) {
+        undo();
+        return null;
+      }
+      selfTestBeforeRestart?.call(entry);
+      await startDownload(entry);
+      return true;
     } finally {
-      _takingAction.remove(key);
+      if (identical(_takingAction[key], token)) _takingAction.remove(key);
     }
   }
 
-  final _takingAction = <DownloadKey>{};
+  /// The downloads whose failure action is being taken, each with its own
+  /// token (a delete removes it).
+  final _takingAction = <DownloadKey, Object>{};
+
+  /// [entry] is still the service's: the same object queued or listed, and
+  /// its folder there.
+  bool _holds(DownloadEntry entry) =>
+      (waitDownloadQueue.any((e) => identical(e, entry)) ||
+          downloadList.any((e) => identical(e, entry))) &&
+      Directory(entry.entryDirPath).existsSync();
 
   /// [entry]'s record saved as it is now (a page changed it: the 720p
   /// button, stage-2 plan §4.2), then started again. False: the record
@@ -935,6 +971,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       EventLog.add('download', '${entry.logLabel}: not restarted: $e');
       return false;
     }
+    // deleted while it saved: not the service's to start (review 2f)
+    if (!_holds(entry)) return false;
     await startDownload(entry);
     return true;
   }
@@ -1225,6 +1263,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         // its retry line says `-` as it always did)
         if (e is DownloadResolveFailure) lastError = e.message;
         _lastFailure[entry.key] = kind;
+        selfTestOnFailureKind?.call(entry, kind);
         _noteFailure(e, playUrl: platform.playUrlFailuresAreNetwork);
         _updateCurStatus(switch (kind) {
           // (bilibili's classify gives neither)
@@ -1315,7 +1354,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// [_lastFailure] of the current download: a transfer of it failed so.
   void _noteLastFailure(Object error) {
     if (curDownload.value case final entry?) {
-      _lastFailure[entry.key] = platformOf(entry).classify(error);
+      final kind = _lastFailure[entry.key] = platformOf(entry).classify(error);
+      selfTestOnFailureKind?.call(entry, kind);
     }
   }
 
@@ -1969,6 +2009,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       _mergeDeletedKeys.add(entry.key);
     }
     _lastFailure.remove(entry.key);
+    // a failure action under way is not taken any more (review 2f)
+    _takingAction.remove(entry.key);
     // bilibili's segment repair
     if (entry is BiliDownloadEntryInfo) {
       await _repairManagers[entry.cid]?.cancel(isDelete: true);

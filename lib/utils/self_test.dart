@@ -1597,7 +1597,7 @@ abstract final class SelfTest {
     }
     if (_arg(args, '--yt-panel') case final video?) {
       _shots = _arg(args, '--shots') ?? _shots;
-      await scenario('ytPanel', () => _YtDl.panel(video));
+      await scenario('ytPanel', () => _YtDl.panel(args, video));
     }
     if (_arg(args, '--yt-open') case final video?) {
       await scenario('ytOpen', () => _YtDl.open(video));

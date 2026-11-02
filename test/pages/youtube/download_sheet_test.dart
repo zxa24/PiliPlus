@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:PiliPlus/pages/youtube/video/download_sheet.dart';
 import 'package:PiliPlus/services/download/download_platform_yt.dart';
+import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/youtube/source_router.dart';
 import 'package:PiliPlus/services/youtube/yt_source_store.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
@@ -84,7 +85,7 @@ void main() {
     WidgetTester tester, {
     int pageCap = 1080,
     YtVideoDetail? pageDetail,
-    bool settle = true,
+    bool wait = true,
   }) async {
     await tester.pumpWidget(
       GetMaterialApp(
@@ -98,10 +99,13 @@ void main() {
         ),
       ),
     );
-    if (settle) {
+    if (wait) {
       for (var i = 0; i < 5; i++) {
         await tester.pump();
       }
+      // the list's read is a future of the real zone (a test's only)
+      await tester.runAsync(() => settle(10));
+      await tester.pump();
     }
   }
 
@@ -170,7 +174,7 @@ void main() {
   testWidgets('asking: a spinner, 「下载」 off', (tester) async {
     final hold = Completer<void>();
     h.direct.holdDetail = () => hold.future;
-    await pump(tester, settle: false);
+    await pump(tester, wait: false);
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsWidgets);
     expect(downloadButton(tester).onPressed, isNull);
@@ -179,6 +183,8 @@ void main() {
     for (var i = 0; i < 5; i++) {
       await tester.pump();
     }
+    await tester.runAsync(() => settle(10));
+    await tester.pump();
     expect(listed(tester), [(1080, true), (720, true), (480, true)]);
     expect(downloadButton(tester).onPressed, isNotNull);
   });
@@ -316,13 +322,54 @@ void main() {
     expect(listed(tester), [(1080, true)]);
   });
 
-  testWidgets('live now: no tiers, its words, 「下载」 off', (tester) async {
-    h.direct.liveNow = true;
-    await pump(tester);
-    expect(find.text('直播中或尚未开播的视频不能下载'), findsOneWidget);
-    expect(find.byType(ListTile), findsNothing);
-    expect(downloadButton(tester).onPressed, isNull);
-  });
+  testWidgets(
+    'live now: no tiers, its words, 「下载」 off; the other source not asked',
+    (tester) async {
+      h.direct.liveNow = true;
+      await pump(tester);
+      expect(find.text('直播中或尚未开播的视频不能下载'), findsOneWidget);
+      expect(find.byType(ListTile), findsNothing);
+      expect(downloadButton(tester).onPressed, isNull);
+      // Invidious answers a live video with a 403 that sets its shared
+      // instances aside (design §9): not asked at all (review 2f)
+      expect(h.invidious.detailCalls, 0);
+    },
+  );
+
+  testWidgets(
+    'Invidious current, the other (direct) refusing it as upcoming: the live '
+    'words',
+    (tester) async {
+      // the shared router's four tries at direct fail (then Invidious);
+      // the panel's own router asks direct next
+      h.direct.detailFailures.addAll([
+        ...List.filled(4, const YtVerdict(YtCause.transient, 'timeout')),
+        const YtVerdict(
+          YtCause.contentUnavailable,
+          'playability:live_stream_offline',
+          'soon',
+          true,
+        ),
+      ]);
+      await pump(tester);
+      expect(find.text('直播中或尚未开播的视频不能下载'), findsOneWidget);
+      expect(h.direct.detailCalls, 5);
+    },
+  );
+
+  testWidgets(
+    "Invidious current saying liveNow: not live (only the direct source's "
+    'counts)',
+    (tester) async {
+      h.direct.detailFailures.addAll(
+        List.filled(4, const YtVerdict(YtCause.transient, 'timeout')),
+      );
+      h.invidious.liveNow = true;
+      await pump(tester);
+      expect(find.text('直播中或尚未开播的视频不能下载'), findsNothing);
+      expect(listed(tester), [(1080, true), (720, true), (480, true)]);
+    },
+  );
 
   testWidgets("a live stream's replay (live content, not live now): listed", (
     tester,
@@ -454,6 +501,40 @@ void main() {
           deleteExported: true,
         ),
       );
+    },
+  );
+
+  testWidgets(
+    'the download list not read yet: 「下载」 a spinner, off; read: on '
+    '(design §8, review 2f)',
+    (tester) async {
+      final gate = Completer<void>();
+      DownloadService.readListGateForTest = () => gate.future;
+      try {
+        await tester.runAsync(() async {
+          h.service.reloadDownloadList();
+          await settle();
+        });
+        await pump(tester);
+        expect(listed(tester), [(1080, true), (720, true), (480, true)]);
+        expect(downloadButton(tester).onPressed, isNull);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('download')),
+            matching: find.byType(CircularProgressIndicator),
+          ),
+          findsOneWidget,
+        );
+        await tester.runAsync(() async {
+          gate.complete();
+          await h.service.waitForInitialization;
+          await settle(10);
+        });
+        await tester.pump();
+        expect(downloadButton(tester).onPressed, isNotNull);
+      } finally {
+        DownloadService.readListGateForTest = null;
+      }
     },
   );
 }
