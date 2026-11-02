@@ -593,16 +593,44 @@ class YtPairTransfer implements DownloadTransfer {
     _progress(leg, onDisk, force: true);
   }
 
-  /// `.size`: the total the bytes on disk were written for (as
-  /// DownloadManager's).
-  Future<int?> _readSize(_Leg leg) async {
+  Future<int?> _readSize(_Leg leg) async => readSize(leg.size);
+
+  /// `.size` ([file]): the total the bytes on disk were written for (as
+  /// DownloadManager's); null: none, or not one.
+  static int? readSize(File file) {
     try {
-      final f = leg.size;
-      if (!f.existsSync() || f.lengthSync() > 32) return null;
-      final v = int.tryParse((await f.readAsString()).trim());
+      if (!file.existsSync() || file.lengthSync() > 32) return null;
+      final v = int.tryParse(file.readAsStringSync().trim());
       return v != null && v > 0 ? v : null;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// [stream] (`video` / `audio`) of the folder [dir] is whole by the rule
+  /// a transfer of [video] and [audio] from it applies (design §4.2 rules
+  /// 4 and 6, review 2e): the folder is theirs, the stream's total is
+  /// known, no `.size` says another, and the file is exactly that long. A
+  /// start that finds both whole needs no address: its transfer asks for
+  /// nothing. Never throws (what cannot be read is not whole).
+  static bool wholeOnDisk(
+    String dir,
+    String stream,
+    YtStreamId video,
+    YtStreamId audio,
+  ) {
+    try {
+      if (!_folderOf(path.basename(dir), video, audio)) return false;
+      final id = stream == 'video' ? video : audio;
+      final total = id.bytes;
+      final file = File(path.join(dir, '$stream.m4s'));
+      final sized = readSize(File('${file.path}.size'));
+      return total != null &&
+          (sized == null || sized == total) &&
+          file.existsSync() &&
+          file.lengthSync() == total;
+    } catch (_) {
+      return false;
     }
   }
 

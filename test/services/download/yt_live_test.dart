@@ -9,8 +9,11 @@ import 'dart:io';
 import 'package:PiliPlus/models_new/download/download_entry.dart';
 import 'package:PiliPlus/services/youtube/source_router.dart';
 import 'package:PiliPlus/services/youtube/yt_source_store.dart';
+import 'package:PiliPlus/services/youtube/yt_classifier.dart';
 import 'package:PiliPlus/services/youtube/yt_verdict.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../youtube/yt_test_support.dart' show syntheticPlayer;
 
 import 'download_test_support.dart';
 import 'yt_download_test_support.dart';
@@ -67,6 +70,32 @@ void main() {
       await h.run(e, status: DownloadStatus.failNoFormat);
       expect(h.log.where((l) => l.contains('again in')), isEmpty);
       expectNoTransfer();
+    },
+  );
+
+  test(
+    'upcoming as the classifier reads it (suspect: videoDetails came back), '
+    'after two suspect answers: still failNoFormat (review 2e)',
+    () async {
+      await start();
+      final verdict = classifyYtPlayer(
+        syntheticPlayer(
+          status: 'LIVE_STREAM_OFFLINE',
+          reason: 'Premieres in 2 hours',
+          videoDetails: {'videoId': ytId, 'title': 'soon'},
+        ),
+      );
+      // what the classifier says of it, as the router sees it
+      expect(verdict.signal, 'playability:live_stream_offline');
+      expect(verdict.suspectClient, isTrue);
+      // the pages' shared health: two suspect answers already
+      YtSourceRouter.sharedHealth['direct'] = YtSourceHealth()
+        ..suspectStreak = ytSuspectStreakIsBroken - 1;
+      h.direct.detailFailures.add(verdict);
+      final e = h.entry();
+      await h.run(e, status: DownloadStatus.failNoFormat);
+      expect(h.service.lastError, contains('live_stream_offline'));
+      expect(h.log.where((l) => l.contains('again in')), isEmpty);
     },
   );
 

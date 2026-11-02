@@ -1392,7 +1392,15 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
           await File('$input.size').tryDel();
         }
         entry.downloadedBytes = 0;
-        entry.progress.video(0, entry.totalBytes);
+        // what is on disk now, as a start says it: bilibili's video counter
+        // (0, totalBytes) as before; a platform that reports its streams
+        // apart, each stream its own (review 2e)
+        final (:video, :audio, mediaGuess: _, expectAudio: _) = platformOf(
+          entry,
+        ).initialBytes(entry);
+        if (audio != null) entry.progress.restartVideo();
+        entry.progress.video(video.$1, video.$2);
+        if (audio != null) entry.progress.audio(audio.$1, audio.$2);
         EventLog.add('download', '${entry.logLabel}: damaged streams removed');
         // as [_retryLater] decides: once per start by the user
         (toastForTest ?? SmartDialog.showToast)(
@@ -2047,6 +2055,17 @@ final class _Host implements DownloadHost {
     bool valid() => _ofCurrent(gen, entry);
     if (!valid()) return Future<void>.value();
     return _service._saveEntry(entry, valid: valid);
+  }
+
+  @override
+  Future<void> saveTaken(DownloadEntry entry) {
+    final s = _service;
+    bool valid() =>
+        (s.waitDownloadQueue.any((e) => identical(e, entry)) ||
+            s.downloadList.any((e) => identical(e, entry))) &&
+        Directory(entry.entryDirPath).existsSync();
+    if (!valid()) return Future<void>.value();
+    return s._saveEntry(entry, valid: valid);
   }
 
   /// A transfer is live while it moves bytes.

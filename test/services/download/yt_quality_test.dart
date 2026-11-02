@@ -88,6 +88,8 @@ void main() {
       unawaited(h.service.startDownload(e));
       await until(() => e.gaveUp, reason: 'its retries spent');
       expect(e.status, DownloadStatus.failQuality);
+      // what was not on offer: the pair whose bytes are on disk (review 2e)
+      expect(h.service.lastError, startsWith('the pair on disk ('));
       expect(
         h.log.where((l) => l.contains('yt:$ytId') && l.contains('again in')),
         hasLength(3),
@@ -113,6 +115,7 @@ void main() {
       await until(() => e.gaveUp, reason: 'its retries spent');
       expect(e.status, DownloadStatus.failQuality);
       expect(e.streamTag, isNull);
+      expect(h.service.lastError, startsWith('tier 1080 not offered'));
       expect(transferLines(), isEmpty);
     },
   );
@@ -191,8 +194,13 @@ void main() {
       action!.apply(e);
       expect((e.maxHeight, e.streamTag, e.qualityLabel), (720, null, '720p'));
       int? videoTotalAtResolve;
-      h.direct.holdDetail = () async =>
-          videoTotalAtResolve ??= e.progress.videoTotal;
+      double? shownAtResolve;
+      // the bar before the switch: what the 1080 bytes on disk made it
+      final shownBefore = e.progress.value;
+      h.direct.holdDetail = () async {
+        videoTotalAtResolve ??= e.progress.videoTotal;
+        shownAtResolve ??= e.progress.value;
+      };
       final saved = <Map<String, dynamic>>[];
       h.mergeGate = (_) async {
         saved.add(await h.record(e));
@@ -201,6 +209,9 @@ void main() {
       unawaited(h.service.restartWith(e));
       await h.untilStatus(e);
       expect(videoTotalAtResolve, 0);
+      // the bar starts over with the counters (review 2e)
+      expect(shownBefore, greaterThan(0));
+      expect(shownAtResolve, 0);
       expect(e.maxHeight, 720);
       expect(e.streamTag, '136-140');
       expect(e.qualityLabel, '720p60');

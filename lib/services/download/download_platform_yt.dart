@@ -262,15 +262,14 @@ final class YtDownloadPlatform implements DownloadPlatform {
     final dir = _streamDir(entry as YtDownloadEntry);
     if (dir == null) return false;
     final ids = readYtStreamIds(dir);
-    bool whole(String stream, YtStreamId? id) {
-      final total = id?.bytes;
-      final file = File(path.join(dir, '$stream.m4s'));
-      return total != null && file.existsSync() && file.lengthSync() == total;
-    }
-
-    return ids != null &&
-        whole('video', ids.video) &&
-        whole('audio', ids.audio);
+    final video = ids?.video;
+    final audio = ids?.audio;
+    // the transfer's own rule (review 2e): what it would take as whole
+    // without a request, nothing it would start from 0
+    return video != null &&
+        audio != null &&
+        YtPairTransfer.wholeOnDisk(dir, 'video', video, audio) &&
+        YtPairTransfer.wholeOnDisk(dir, 'audio', video, audio);
   }
 
   /// The current stream folder (`main/<stream_tag>`); null: none yet.
@@ -289,9 +288,15 @@ final class YtDownloadPlatform implements DownloadPlatform {
       return (video: (0, 0), audio: (0, 0), mediaGuess: 0, expectAudio: true);
     }
     final ids = readYtStreamIds(dir);
+    // called before the start's own failure handling: never throws (a
+    // stream it cannot measure counts as 0, review 2e)
     (int, int) of(String stream, YtStreamId? id) {
-      final file = File(path.join(dir, '$stream.m4s'));
-      return (file.existsSync() ? file.lengthSync() : 0, id?.bytes ?? 0);
+      var onDisk = 0;
+      try {
+        final file = File(path.join(dir, '$stream.m4s'));
+        if (file.existsSync()) onDisk = file.lengthSync();
+      } catch (_) {}
+      return (onDisk, id?.bytes ?? 0);
     }
 
     final video = of('video', ids?.video);
@@ -340,6 +345,10 @@ final class YtDownloadPlatform implements DownloadPlatform {
   /// sharedHealth]), dropped when the download completes or is deleted.
   final _ownHealth = <DownloadKey, Map<String, YtSourceHealth>>{};
 
+  /// Tests only: the downloads that hold their own router health.
+  @visibleForTesting
+  Iterable<DownloadKey> get ownHealthForTest => _ownHealth.keys;
+
   YtSourceRouter _router(
     YtSourceMode mode, {
     required bool own,
@@ -371,19 +380,14 @@ final class YtDownloadPlatform implements DownloadPlatform {
       own: false,
       health: YtSourceRouter.sharedHealth,
     );
-    final detail = await play.run((s) => s.detail(id));
+    final detail = await play.run((s) async => _definite(await s.detail(id)));
     if (!detail.ok) throw _failed(detail.verdict);
-    // the direct source's answer only: Invidious does not tell (§10-5 4 b)
-    if (detail.source?.id == _directId && detail.value!.liveNow) {
-      throw const DownloadResolveFailure(
-        DownloadFailure.noFormat,
-        'live or upcoming',
-      );
-    }
+    _checkLive(detail);
+    final pin = _pinOf(entry);
     final preference = YtFormatPreference.mp4Download(
       entry.maxHeight,
       exactHeight: entry.maxHeight,
-      pin: _pinOf(entry),
+      pin: pin,
       preferNonDrc: true,
     );
     var streams = await play.run(
@@ -394,8 +398,10 @@ final class YtDownloadPlatform implements DownloadPlatform {
           await _askOther(entry, streams.source?.id, mode, preference) ??
           (throw DownloadResolveFailure(
             DownloadFailure.qualityUnavailable,
-            'tier ${entry.maxHeight} not offered '
-            '(${streams.verdict.signal})',
+            // what was not on offer: the pair whose bytes are on disk, or
+            // the tier (review 2e)
+            '${pin != null ? 'the pair on disk ($pin)' : 'tier ${entry.maxHeight}'} '
+            'not offered (${streams.verdict.signal})',
           ));
     }
     if (!streams.ok) throw _failed(streams.verdict);
@@ -422,6 +428,34 @@ final class YtDownloadPlatform implements DownloadPlatform {
 
   static const _directId = 'direct';
 
+  /// An upcoming video's refusal (`live_stream_offline`) is a statement
+  /// about the video, not a sign of a stale client: the classifier marks
+  /// it suspect when `videoDetails` came back, and a router's run of such
+  /// verdicts would turn it into `clientBroken` before this download read
+  /// it (design §10-5 item 3, review 2e). Taken as definite here, in this
+  /// download's own call, before the router sees it; the shared classifier
+  /// and router are as they were.
+  static YtResult<YtVideoDetail> _definite(YtResult<YtVideoDetail> r) {
+    final v = r.verdict;
+    if (r.ok ||
+        !v.suspectClient ||
+        !v.signal.startsWith('playability:live_stream_offline')) {
+      return r;
+    }
+    return YtResult.failed(YtVerdict(v.cause, v.signal, v.detail));
+  }
+
+  /// A live or upcoming video, by the direct source's answer only:
+  /// Invidious does not tell (§10-5 4 b).
+  static void _checkLive(YtRoutedResult<YtVideoDetail> detail) {
+    if (detail.source?.id == _directId && (detail.value?.liveNow ?? false)) {
+      throw const DownloadResolveFailure(
+        DownloadFailure.noFormat,
+        'live or upcoming',
+      );
+    }
+  }
+
   /// This download's own router on the source that did not have the pair
   /// (§10-7 Q4 d): its own health table, nothing set aside. Null: it had
   /// none either, or may not be asked — the direct source in a cooldown of
@@ -447,10 +481,26 @@ final class YtDownloadPlatform implements DownloadPlatform {
       own: true,
       health: _ownHealth.putIfAbsent(entry.key, () => {}),
     );
-    final r = await own.run(
-      (s) => s.streams(entry.videoId, preference: preference),
-    );
-    return r.ok ? r : null;
+    try {
+      // the pair's own source says whether it is live (review 2e): the
+      // shared detail may have been another source's
+      if (otherIsDirect) {
+        final detail = await own.run(
+          (s) async => _definite(await s.detail(entry.videoId)),
+        );
+        if (!detail.ok) return null;
+        _checkLive(detail);
+      }
+      final r = await own.run(
+        (s) => s.streams(entry.videoId, preference: preference),
+      );
+      return r.ok ? r : null;
+    } finally {
+      // deleted meanwhile: its own health goes with it (review 2e)
+      if (!Directory(entry.entryDirPath).existsSync()) {
+        _ownHealth.remove(entry.key);
+      }
+    }
   }
 
   /// The pair the bytes on disk are of (design §4.1): from the current
@@ -590,7 +640,9 @@ final class YtDownloadPlatform implements DownloadPlatform {
       }
       return (newTransferForTest ?? _newTransfer)(spec, report);
     });
-    if (transfer != null && changed) await _host.save(gen, entry);
+    // what the start found is the record's once the transfer is taken,
+    // whatever start comes next (review 2e): not bound to this generation
+    if (transfer != null && changed) await _host.saveTaken(entry);
   }
 
   DownloadTransfer _newTransfer(
@@ -669,6 +721,9 @@ final class YtDownloadPlatform implements DownloadPlatform {
         );
       }
       EventLog.add('download', '${entry.logLabel}: merge failed: $e');
+      // not damaged: the download is complete (no export): its own health
+      // goes, as on a merge that worked (review 2e)
+      if (!damaged) _ownHealth.remove(entry.key);
       return (output: null, inputs: inputs, damaged: damaged, corrupt: corrupt);
     } finally {
       if (output != null) export.release(output);

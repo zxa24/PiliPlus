@@ -249,6 +249,10 @@ class DownloadProgress extends ChangeNotifier {
   /// sum of both an earlier run left.
   void restartVideo() {
     videoReceived = videoTotal = 0;
+    _videoFinished = false;
+    // what [restart] showed was worked out from the counters just cleared
+    // (review 2e): the bar starts over with them
+    _shown = 0;
     _changed();
   }
 

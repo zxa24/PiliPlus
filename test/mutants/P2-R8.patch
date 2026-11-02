@@ -1,12 +1,12 @@
 diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
 --- a/lib/services/download/download_platform_yt.dart
 +++ b/lib/services/download/download_platform_yt.dart
-@@ -393,7 +393,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+@@ -397,7 +397,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
        streams =
            await _askOther(entry, streams.source?.id, mode, preference) ??
            (throw DownloadResolveFailure(
 -            DownloadFailure.qualityUnavailable,
 +            DownloadFailure.noFormat,
-             'tier ${entry.maxHeight} not offered '
-             '(${streams.verdict.signal})',
-           ));
+             // what was not on offer: the pair whose bytes are on disk, or
+             // the tier (review 2e)
+             '${pin != null ? 'the pair on disk ($pin)' : 'tier ${entry.maxHeight}'} '

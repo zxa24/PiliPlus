@@ -8,6 +8,7 @@
 import 'dart:io';
 
 import 'package:PiliPlus/models_new/download/download_entry.dart';
+import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
@@ -102,7 +103,21 @@ void main() {
       await start();
       h.remuxError = const FormatException('a box cut short');
       final e = h.entry();
+      // the bar as the streams are removed: each stream its own total, not
+      // both streams' sum in the video's (review 2e)
+      (int, int)? shown;
+      final toast = DownloadService.toastForTest!;
+      DownloadService.toastForTest = (m) {
+        if (m.contains('损坏')) {
+          shown ??= (e.progress.videoTotal, e.progress.audioTotal);
+        }
+        toast(m);
+      };
       await h.run(e);
+      expect(shown, (
+        h.server.bodies['video']!.length,
+        h.server.bodies['audio']!.length,
+      ));
       expect(h.log, contains(contains('yt:$ytId: damaged streams removed')));
       expect(h.toasts, contains('音视频文件已损坏，将重新下载'));
       expect(h.remuxed, hasLength(2));

@@ -99,6 +99,16 @@ abstract interface class DownloadHost {
   /// late save of a deleted download must not write over the record of
   /// one added again in the same folder).
   Future<void> save(int gen, DownloadEntry entry);
+
+  /// Saves [entry]'s record after the saves of it already under way, once
+  /// [attach] took its transfer (review 2e): what the start found is the
+  /// record's from then on, whatever start comes next (another start
+  /// bumps the generation and pauses this one without a save of its own).
+  /// Only while the service still holds this entry object (in its queue or
+  /// list) and its folder is there — checked now and again when the save's
+  /// turn comes: never over a deleted download, nor over the record of one
+  /// added again in the same folder.
+  Future<void> saveTaken(DownloadEntry entry);
 }
 
 /// What [DownloadPlatform.resolve] found for one start (stage-2 plan §2.3).

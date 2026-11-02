@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -438,6 +438,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+   static YtResult<YtVideoDetail> _definite(YtResult<YtVideoDetail> r) {
+     final v = r.verdict;
+     if (r.ok ||
++        v.cause == v.cause ||
+         !v.suspectClient ||
+         !v.signal.startsWith('playability:live_stream_offline')) {
+       return r;

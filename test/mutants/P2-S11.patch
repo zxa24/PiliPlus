@@ -1,0 +1,16 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -292,10 +292,8 @@ final class YtDownloadPlatform implements DownloadPlatform {
+     // stream it cannot measure counts as 0, review 2e)
+     (int, int) of(String stream, YtStreamId? id) {
+       var onDisk = 0;
+-      try {
+-        final file = File(path.join(dir, '$stream.m4s'));
+-        if (file.existsSync()) onDisk = file.lengthSync();
+-      } catch (_) {}
++      final file = File(path.join(dir, '$stream.m4s'));
++      if (file.existsSync()) onDisk = file.lengthSync();
+       return (onDisk, id?.bytes ?? 0);
+     }
+ 
