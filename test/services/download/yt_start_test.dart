@@ -260,6 +260,71 @@ void main() {
     expect(h.service.lastError, 'contentUnavailable<no-playable-pair>');
   });
 
+  test(
+    "a DRC stream's bytes on disk: the pin asks for the DRC 140 (review 2d)",
+    () async {
+      await h.start(
+        records: [(root) => record(root)..streamTag = '137-140.drc'],
+        formats: [
+          ytVideoFormat(137, bytes: 300 * 1024 + 5),
+          ytAudioFormat(140, bytes: 120 * 1024 + 3),
+          ytAudioFormat(140, bytes: 120 * 1024 + 3, drc: true),
+        ],
+        before: (root) {
+          final dir = Directory(
+            path.join(root.path, 'yt_$ytId', 'main', '137-140.drc'),
+          )..createSync(recursive: true);
+          File(path.join(dir.path, 'audio.m4s')).writeAsBytesSync([1, 2, 3]);
+          File(path.join(dir.path, 'stream.json')).writeAsStringSync(
+            PairFixture.jsonText(
+              const YtStreamId(itag: 137, bytes: 300 * 1024 + 5, lmt: 'v1'),
+              const YtStreamId(
+                itag: 140,
+                isDefault: true,
+                drc: true,
+                bytes: 120 * 1024 + 3,
+                lmt: 'a1',
+              ),
+            ),
+          );
+        },
+      );
+      final e = h.entry();
+      await h.run(e);
+      expect(h.direct.preferences.first.pin?.drc, isTrue);
+      expect(e.streamTag, '137-140.drc');
+    },
+  );
+
+  test(
+    "a transfer's failure in lastError: no stream URL, no query (review 2d)",
+    () async {
+      await h.start(
+        records: [record],
+        formats: [
+          {
+            ...ytVideoFormat(137, bytes: 300 * 1024 + 5),
+            'url':
+                '${FakeStreamServer.url('video')}?sig=SECRET2&ip=203.0.113.7',
+          },
+          ytAudioFormat(140, bytes: 120 * 1024 + 3),
+        ],
+      );
+      // every range of the video dropped: the transfer's budget spent
+      h.server.script = (s, n, _) =>
+          s == 'video' ? const FakeAnswer.range(cutAfter: 0) : null;
+      final e = h.entry();
+      await h.run(
+        e,
+        any: {DownloadStatus.failDownload, DownloadStatus.retryWait},
+      );
+      final error = h.service.lastError!;
+      expect(error, contains('HttpException'));
+      expect(error, isNot(contains('SECRET2')));
+      expect(error, isNot(contains('203.0.113.7')));
+    },
+  );
+
   test('a record that differs from the plan is saved once taken', () async {
     await h.start(records: [record]);
     final e = h.entry();

@@ -1,14 +1,12 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -334,7 +334,9 @@ class YtPairTransfer implements DownloadTransfer {
-         _say(() => report.done(YtTransferError(leg.name, error)));
-       } else if (!_cancelled) {
+@@ -378,7 +378,7 @@ class YtPairTransfer implements DownloadTransfer {
+         _done(YtTransferError(leg.name, error));
+       } else {
          _status = DownloadStatus.completed;
--        _say(report.done);
-+        unawaited(
-+          Future<void>.delayed(Duration.zero).then((_) => _say(report.done)),
-+        );
+-        _done();
++        unawaited(Future<void>.delayed(Duration.zero).then((_) => _done()));
        }
      } catch (e) {
-       if (_cancelled) return;
+       if (_cancelled || _reported) return;

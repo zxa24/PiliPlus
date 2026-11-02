@@ -1,0 +1,13 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -720,9 +720,6 @@ class YtPairTransfer implements DownloadTransfer {
+     final theirs = BytesBuilder(copy: false);
+     await for (final data in response.timeout(idleTimeout)) {
+       _check();
+-      if (theirs.length + data.length > k) {
+-        throw const YtRangeError.unexpected('an overlap past its range');
+-      }
+       theirs.add(data);
+     }
+     if (theirs.length < k) throw YtShortBody(from + theirs.length, onDisk);

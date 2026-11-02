@@ -145,6 +145,9 @@ class FakeYtHttp extends Fake implements HttpClient {
   Duration idleTimeout = const Duration(seconds: 15);
 
   @override
+  Duration? connectionTimeout;
+
+  @override
   set findProxy(String Function(Uri url)? f) {}
 
   @override
@@ -267,42 +270,56 @@ class FakeAnswer {
   const FakeAnswer._({
     this.status,
     this.contentRange,
+    this.location,
     this.whole = false,
     this.body,
     this.total,
     this.cutAfter,
     this.endAfter,
     this.extra = 0,
+    this.rangeHeader,
+    this.noLength = false,
   });
 
-  /// [status] with no body ([contentRange] its header, if any).
-  const FakeAnswer.status(int status, {String? contentRange})
-    : this._(status: status, contentRange: contentRange);
+  /// [status] with no body ([contentRange] / [location] its headers, if
+  /// any).
+  const FakeAnswer.status(int status, {String? contentRange, String? location})
+    : this._(status: status, contentRange: contentRange, location: location);
 
-  /// 200: the whole stream, the range ignored.
-  const FakeAnswer.whole() : this._(whole: true);
+  /// 200: the whole stream, the range ignored ([noLength]: without a
+  /// Content-Length).
+  const FakeAnswer.whole({bool noLength = false})
+    : this._(whole: true, noLength: noLength);
 
   /// The range answer, but: its bytes taken from [body] (another version
   /// of the stream), its total stated as [total], the connection dropped
-  /// after [cutAfter] bytes, the body ended cleanly after [endAfter], or
-  /// [extra] bytes more than its Content-Range says.
+  /// after [cutAfter] bytes, the body ended cleanly after [endAfter],
+  /// [extra] bytes more than its Content-Range says, or its Content-Range
+  /// [contentRange] (`(first, last) => header`) in place of the true one
+  /// (`*` totals, another start …; the body is still the bytes asked for,
+  /// cut to the header's length).
   const FakeAnswer.range({
     List<int>? body,
     int? total,
     int? cutAfter,
     int? endAfter,
     int extra = 0,
+    String Function(int first, int last)? rangeHeader,
   }) : this._(
          body: body,
          total: total,
          cutAfter: cutAfter,
          endAfter: endAfter,
          extra: extra,
+         rangeHeader: rangeHeader,
        );
 
   final int? status;
   final String? contentRange;
+  final String? location;
+  final String Function(int first, int last)? rangeHeader;
   final bool whole;
+  final bool noLength;
   final List<int>? body;
   final int? total;
   final int? cutAfter;
@@ -334,15 +351,27 @@ class FakeStreamServer {
   /// Called as a client is closed.
   void Function()? onClose;
 
+  /// Awaited in each `openUrl` of [stream] (a lookup or a connection that
+  /// takes its time); the request it gives is only answered once closed.
+  Future<void> Function(String stream)? openHold;
+
+  /// Requests a client opened, answered or not.
+  var opened = 0;
+
   /// Bytes per body event.
   int piece = 16 << 10;
 
   /// How many clients were made.
   var clients = 0;
 
+  /// The clients made, in order.
+  final made = <HttpClient>[];
+
   HttpClient client() {
     clients++;
-    return _StreamClient(this);
+    final c = _StreamClient(this);
+    made.add(c);
+    return c;
   }
 
   /// The URL of [stream] on this server.
@@ -355,7 +384,7 @@ class FakeStreamServer {
       if (s == stream) r,
   ];
 
-  _Answered _answer(String stream, String? range) {
+  _Answered _answer(String stream, String? range, Uri uri) {
     final n = requests.where((r) => r.$1 == stream).length;
     requests.add((stream, range));
     final scripted = script?.call(stream, n, range);
@@ -363,13 +392,20 @@ class FakeStreamServer {
     if (scripted?.status case final status?) {
       return _Answered(status, {
         'content-range': ?scripted!.contentRange,
+        'location': ?scripted.location,
       }, const []);
     }
     final m = range == null
         ? null
         : RegExp(r'^bytes=(\d+)-(\d*)$').firstMatch(range);
     if (m == null || scripted?.whole == true) {
-      return _Answered(200, {'content-length': '${full.length}'}, full);
+      return _Answered(
+        200,
+        {if (scripted?.noLength != true) 'content-length': '${full.length}'},
+        full,
+        stream: stream,
+        uri: uri,
+      );
     }
     final source = scripted?.body ?? full;
     final from = int.parse(m[1]!);
@@ -384,17 +420,25 @@ class FakeStreamServer {
     if (scripted != null && scripted.extra > 0) {
       bytes = [...bytes, ...List.filled(scripted.extra, 0xEE)];
     }
+    var header = 'bytes $from-$to/${scripted?.total ?? source.length}';
+    if (scripted?.rangeHeader case final make?) {
+      header = make(from, to);
+      // the body as long as the header says (from the bytes asked for)
+      final m = RegExp(r'^bytes (\d+)-(\d+)/').firstMatch(header);
+      if (m != null) {
+        final n = int.parse(m[2]!) - int.parse(m[1]!) + 1;
+        if (n >= 0 && n < bytes.length) bytes = bytes.sublist(0, n);
+      }
+    }
     return _Answered(
       206,
-      {
-        'content-range': 'bytes $from-$to/${scripted?.total ?? source.length}',
-        'content-length': '${bytes.length}',
-      },
+      {'content-range': header, 'content-length': '${bytes.length}'},
       bytes,
       stream: stream,
       offset: from,
       cutAfter: scripted?.cutAfter,
       endAfter: scripted?.endAfter,
+      uri: uri,
     );
   }
 }
@@ -408,6 +452,7 @@ class _Answered {
     this.offset = 0,
     this.cutAfter,
     this.endAfter,
+    this.uri,
   });
 
   final int status;
@@ -417,6 +462,10 @@ class _Answered {
   final int offset;
   final int? cutAfter;
   final int? endAfter;
+
+  /// The request's: a dropped connection's error carries it, as dart:io's
+  /// does.
+  final Uri? uri;
 }
 
 class _StreamClient extends Fake implements HttpClient {
@@ -428,6 +477,9 @@ class _StreamClient extends Fake implements HttpClient {
 
   @override
   Duration idleTimeout = const Duration(seconds: 15);
+
+  @override
+  Duration? connectionTimeout;
 
   @override
   set findProxy(String Function(Uri url)? f) {}
@@ -445,7 +497,10 @@ class _StreamClient extends Fake implements HttpClient {
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) async {
     if (_isClosed) throw StateError('Client is closed');
-    return _StreamRequest(this, url.pathSegments.last);
+    await server.openHold?.call(url.pathSegments.last);
+    if (_isClosed) throw StateError('Client is closed');
+    server.opened++;
+    return _StreamRequest(this, url.pathSegments.last, url);
   }
 
   @override
@@ -491,7 +546,7 @@ class _StreamClient extends Fake implements HttpClient {
         if (cancelled) return;
         if (a.cutAfter != null) {
           out.addError(
-            const HttpException('Connection closed while receiving data'),
+            HttpException('Connection closed while receiving data', uri: a.uri),
           );
         }
         await out.close();
@@ -501,10 +556,12 @@ class _StreamClient extends Fake implements HttpClient {
 }
 
 class _StreamRequest extends Fake implements HttpClientRequest {
-  _StreamRequest(this._client, this._stream);
+  _StreamRequest(this._client, this._stream, this._uri);
 
   final _StreamClient _client;
   final String _stream;
+  final Uri _uri;
+  var _aborted = false;
 
   @override
   bool followRedirects = true;
@@ -514,9 +571,12 @@ class _StreamRequest extends Fake implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async {
+    // an aborted request is never sent
+    if (_aborted) throw const HttpException('request aborted');
     final a = _client.server._answer(
       _stream,
       headers.value(HttpHeaders.rangeHeader),
+      _uri,
     );
     final response = _StreamResponse(a.status, _client._body(a));
     a.headers.forEach(response.headers.set);
@@ -524,7 +584,7 @@ class _StreamRequest extends Fake implements HttpClientRequest {
   }
 
   @override
-  void abort([Object? exception, StackTrace? stackTrace]) {}
+  void abort([Object? exception, StackTrace? stackTrace]) => _aborted = true;
 }
 
 class _StreamResponse extends Stream<List<int>> implements HttpClientResponse {
@@ -617,23 +677,30 @@ List<int> ytBytes(int n, int seed) =>
 /// ([video] and [audio], default two patterns), and what a test plants in
 /// it and reads back.
 class PairFixture {
-  PairFixture(this.root, {List<int>? video, List<int>? audio})
-    : server = FakeStreamServer({
-        'video': video ?? ytBytes(300 * 1024 + 5, 1),
-        'audio': audio ?? ytBytes(120 * 1024 + 3, 2),
-      }) {
+  PairFixture(
+    this.root, {
+    List<int>? video,
+    List<int>? audio,
+    this.tag = '137-140',
+  }) : server = FakeStreamServer({
+         'video': video ?? ytBytes(300 * 1024 + 5, 1),
+         'audio': audio ?? ytBytes(120 * 1024 + 3, 2),
+       }) {
     Directory(path.dirname(dir)).createSync(recursive: true);
   }
 
   final Directory root;
   final FakeStreamServer server;
 
+  /// The stream folder's name.
+  final String tag;
+
   static var _n = 0;
 
   /// The id the last [start] logged under.
   late String id;
 
-  String get dir => path.join(root.path, 'yt_$ytId', 'main', '137-140');
+  String get dir => path.join(root.path, 'yt_$ytId', 'main', tag);
 
   List<int> body(String stream) => server.bodies[stream]!;
 
@@ -649,9 +716,11 @@ class PairFixture {
     Object? bytes = _same,
     Object? lmt = _same,
     String? track,
+    bool drc = false,
   }) => YtStreamId(
     itag: stream == 'video' ? 137 : 140,
     track: track,
+    drc: drc,
     bytes: identical(bytes, _same) ? body(stream).length : bytes as int?,
     lmt: identical(lmt, _same)
         ? (stream == 'video' ? 'v1' : 'a1')
@@ -689,14 +758,21 @@ class PairFixture {
     YtStreamId? video,
     YtStreamId? audio,
     String? streamDir,
+    String query = '',
   }) {
     id = 'pair${(_n++).toString().padLeft(7, '0')}';
     return YtPairTransfer(
       videoId: id,
       source: 'direct',
       streamDir: streamDir ?? dir,
-      video: (url: FakeStreamServer.url('video'), id: video ?? idOf('video')),
-      audio: (url: FakeStreamServer.url('audio'), id: audio ?? idOf('audio')),
+      video: (
+        url: '${FakeStreamServer.url('video')}$query',
+        id: video ?? idOf('video'),
+      ),
+      audio: (
+        url: '${FakeStreamServer.url('audio')}$query',
+        id: audio ?? idOf('audio'),
+      ),
       report: calls.report,
       httpClient: server.client,
     );

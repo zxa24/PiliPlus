@@ -1,0 +1,13 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -524,7 +524,8 @@ class YtPairTransfer implements DownloadTransfer {
+     }
+     // 4. the totals known — the new one, `.size`, the old one — any two
+     // that differ: another stream's bytes, never one of them taken
+-    if ({id.bytes, sized, old?.bytes}.whereType<int>().length > 1) {
++    if (id.bytes != null &&
++        {id.bytes, sized, old?.bytes}.whereType<int>().length > 1) {
+       return _restart(leg, 'size');
+     }
+     final expected = leg.expected;

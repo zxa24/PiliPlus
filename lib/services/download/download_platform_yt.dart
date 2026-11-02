@@ -470,17 +470,19 @@ final class YtDownloadPlatform implements DownloadPlatform {
     final ids = readYtStreamIds(dir);
     final video = ids?.video;
     final audio = ids?.audio;
-    // the identity read, of this folder's pair: its own track id
+    // the identity read, of this folder's pair: its own track id and DRC
+    // mark (the folder name says the same of both)
     if (video != null &&
         audio != null &&
         video.itag == byName.videoItag &&
         audio.itag == byName.audioItag &&
-        ytAudioTrackDigest(audio.track) == byName.audioTrackDigest) {
+        ytAudioTrackDigest(audio.track) == byName.audioTrackDigest &&
+        audio.drc == byName.drc) {
       return YtFormatPin(
         videoItag: video.itag,
         audioItag: audio.itag,
         audioTrackId: audio.track,
-        drc: byName.drc,
+        drc: audio.drc,
       );
     }
     return byName;
@@ -757,7 +759,8 @@ final class YtDownloadPlatform implements DownloadPlatform {
   /// ends whatever is still being read); false: not a 200.
   static Future<bool> _fetchCover(Uri uri, File part) async {
     final client = (httpClientForTest ?? HttpClient.new)()
-      ..idleTimeout = const Duration(seconds: 30);
+      ..idleTimeout = const Duration(seconds: 30)
+      ..connectionTimeout = const Duration(seconds: 30);
     final deadline = Timer(coverDeadline, () => client.close(force: true));
     try {
       final (_, response) = await YtCheckedHops(client).send(
@@ -766,6 +769,8 @@ final class YtDownloadPlatform implements DownloadPlatform {
         timeout: const Duration(seconds: 30),
         allow: isYtImageHost,
         drainTimeout: const Duration(seconds: 10),
+        // the lookup and the connection too (review 2d)
+        connectTimeout: const Duration(seconds: 30),
       );
       if (response.statusCode != HttpStatus.ok) {
         await response

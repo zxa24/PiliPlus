@@ -7,8 +7,8 @@
 /// a connection dropped mid-body. With these types, the `HttpException`s
 /// left are dart:io's own (a body cut short, headers cut short).
 ///
-/// No `toString` here quotes a URL: a stream URL's query carries the
-/// viewer's address and a signature.
+/// No text here quotes a URL ([ytErrorText]): a stream URL's query carries
+/// the viewer's address and a signature.
 library;
 
 import 'dart:async';
@@ -103,6 +103,10 @@ class YtTooManyRedirects implements Exception {
 }
 
 /// What the transfer reports through `done`: which stream failed and why.
+/// [cause] is kept as it was thrown (it is classified by its type); its
+/// text here carries no URL — dart:io's `HttpException` appends the
+/// request's whole URI, a `FormatException` of a URL its input, and the
+/// service writes this text into `lastError` and the debug output.
 class YtTransferError implements Exception {
   const YtTransferError(this.stream, this.cause);
 
@@ -111,8 +115,23 @@ class YtTransferError implements Exception {
   final Object cause;
 
   @override
-  String toString() => '$stream: $cause';
+  String toString() => '$stream: ${ytErrorText(cause)}';
 }
+
+/// [error] as text without any URL in it: an `HttpException` without its
+/// URI, a `FormatException` without its input, and any other URL left in
+/// the text cut to its scheme and host (a stream URL's path and query
+/// carry the viewer's address and a signature).
+String ytErrorText(Object error) {
+  final text = switch (error) {
+    HttpException(:final message) => 'HttpException: $message',
+    FormatException(:final message) => 'FormatException: $message',
+    _ => '$error',
+  };
+  return text.replaceAllMapped(_url, (m) => '${m[1]}://${m[2]}/…');
+}
+
+final _url = RegExp(r'([A-Za-z][A-Za-z0-9+.-]*)://([^\s/?#,]+)[^\s,]*');
 
 /// Whether [error] is the network failing (design §4.3 `network`): counted
 /// against the transfer's budget, and started again once the app is back

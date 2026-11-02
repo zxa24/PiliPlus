@@ -29,6 +29,8 @@ import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/youtube/stream_relay.dart';
+import 'package:PiliPlus/services/youtube/yt_format_select.dart'
+    show ytAudioTrackDigest;
 import 'package:PiliPlus/services/youtube/yt_models.dart';
 import 'package:PiliPlus/services/youtube/yt_transfer_errors.dart';
 import 'package:flutter/foundation.dart' show immutable, visibleForTesting;
@@ -41,6 +43,7 @@ class YtStreamId {
     required this.itag,
     this.track,
     this.isDefault = false,
+    this.drc = false,
     this.bytes,
     this.lmt,
   });
@@ -54,6 +57,7 @@ class YtStreamId {
       itag: format.itag,
       track: format.audioTrackId,
       isDefault: format.audioIsDefault,
+      drc: format.isDrc,
       bytes: _total(format.contentLength) ?? _total(query['clen']),
       lmt: _version(format.raw['lastModified']) ?? _version(query['lmt']),
     );
@@ -64,6 +68,10 @@ class YtStreamId {
   /// The audio track's own id (not its digest); null: a single track.
   final String? track;
   final bool isDefault;
+
+  /// A DRC (dynamic range compressed) audio track: the same itag, track
+  /// and total as the plain one, other bytes (design §10-5 item 1 b).
+  final bool drc;
 
   /// The stream's total; null: not known.
   final int? bytes;
@@ -79,6 +87,7 @@ class YtStreamId {
           itag: itag,
           track: track,
           isDefault: isDefault,
+          drc: drc,
           bytes: bytes ?? old.bytes,
           lmt: lmt ?? old.lmt,
         );
@@ -87,6 +96,7 @@ class YtStreamId {
     itag: itag,
     track: track,
     isDefault: isDefault,
+    drc: drc,
     bytes: total,
     lmt: lmt,
   );
@@ -95,25 +105,30 @@ class YtStreamId {
     'itag': itag,
     'track': track,
     if (audio) 'default': isDefault,
+    if (audio) 'drc': drc,
     'bytes': bytes,
     'lmt': lmt,
   };
 
   /// [json] as `stream.json` holds a stream, checked field by field; null:
-  /// not one (no itag, or a track that is not text). A total that is not
-  /// an int, or a version that is not text, reads as not known.
+  /// not one (no itag, a track that is not text, a DRC mark that is not a
+  /// bool). A total that is not an int, or a version that is not text,
+  /// reads as not known. No DRC mark (a 2d record): not DRC.
   static YtStreamId? fromJson(Object? json) {
     if (json is! Map) return null;
     final itag = json['itag'];
     final track = json['track'];
+    final drc = json['drc'];
     final bytes = json['bytes'];
     final lmt = json['lmt'];
     if (itag is! int || itag <= 0) return null;
     if (track != null && track is! String) return null;
+    if (drc != null && drc is! bool) return null;
     return YtStreamId(
       itag: itag,
       track: track as String?,
       isDefault: json['default'] == true,
+      drc: drc == true,
       bytes: bytes is int ? _total(bytes) : null,
       lmt: lmt is String ? _version(lmt) : null,
     );
@@ -285,12 +300,28 @@ class YtPairTransfer implements DownloadTransfer {
   /// Ends a wait between attempts early (a cancel, or a stop).
   final _wake = Completer<void>();
 
+  /// `done` was delivered: never a second time (DownloadManager's
+  /// `_reported`).
+  var _reported = false;
+
   late _StreamMeta _meta;
 
-  /// [call], unless this transfer was cancelled.
+  /// [call], unless this transfer was cancelled. What the service's
+  /// callback throws is its own: logged, never a failure of the transfer.
   void _say(void Function() call) {
     if (_cancelled) return;
-    call();
+    try {
+      call();
+    } catch (e) {
+      EventLog.add('download', 'yt:$videoId: a callback threw: $e');
+    }
+  }
+
+  /// `done`, once.
+  void _done([Object? error]) {
+    if (_reported) return;
+    _reported = true;
+    _say(() => error == null ? report.done() : report.done(error));
   }
 
   void _log(_Leg leg, String text) =>
@@ -311,6 +342,16 @@ class YtPairTransfer implements DownloadTransfer {
       )) {
         throw ArgumentError.value(streamDir, 'streamDir', 'not a stream tag');
       }
+      // the folder is the pair's: an identity not read takes its itags and
+      // track from the name (design §4.2 rule 1), so the name must be of
+      // these two streams
+      if (!_folderOf(path.basename(streamDir), _video.id, _audio.id)) {
+        throw ArgumentError.value(
+          path.basename(streamDir),
+          'streamDir',
+          'not the folder of ${_video.id.itag}/${_audio.id.itag}',
+        );
+      }
       if (!_busy.add(key)) {
         throw StateError('another transfer is in $streamDir');
       }
@@ -325,21 +366,24 @@ class YtPairTransfer implements DownloadTransfer {
       );
       await Future.wait([_runLeg(_video), _runLeg(_audio)]);
       await _meta.settled;
+      // a pause after a stream failed, while the other was being stopped:
+      // a pause it stays (no failure is set over it)
+      if (_cancelled) return;
       // a failure is only ever a stream's own ([_runLeg] looks at the
-      // cancel first): a paused transfer has none, and keeps `pause`
+      // cancel first)
       if (_failure case (final leg, final error)) {
         _status = identical(leg, _video)
             ? DownloadStatus.failDownload
             : DownloadStatus.failDownloadAudio;
-        _say(() => report.done(YtTransferError(leg.name, error)));
-      } else if (!_cancelled) {
+        _done(YtTransferError(leg.name, error));
+      } else {
         _status = DownloadStatus.completed;
-        _say(report.done);
+        _done();
       }
     } catch (e) {
-      if (_cancelled) return;
+      if (_cancelled || _reported) return;
       _status = DownloadStatus.failDownload;
-      _say(() => report.done(YtTransferError(_video.name, e)));
+      _done(YtTransferError(_video.name, e));
     } finally {
       for (final leg in _legs) {
         leg.client?.close(force: true);
@@ -373,6 +417,17 @@ class YtPairTransfer implements DownloadTransfer {
 
   void _check() {
     if (_cancelled || _stopping) throw const _Stopped();
+  }
+
+  /// [name] is the stream folder of [video] and [audio]: their itags, the
+  /// audio track's digest and the DRC mark (YtStreamTag's form).
+  static bool _folderOf(String name, YtStreamId video, YtStreamId audio) {
+    final m = YtDownloadEntry.streamTagPattern.firstMatch(name);
+    return m != null &&
+        int.tryParse(m[1]!) == video.itag &&
+        int.tryParse(m[2]!) == audio.itag &&
+        m[3] == ytAudioTrackDigest(audio.track) &&
+        (m[4] != null) == audio.drc;
   }
 
   int _length(File file) => file.existsSync() ? file.lengthSync() : 0;
@@ -426,6 +481,13 @@ class YtPairTransfer implements DownloadTransfer {
         if (!ytRetriedInTransfer(e)) rethrow;
         failures = _length(leg.file) > before ? 1 : failures + 1;
         if (failures >= maxAttempts) rethrow;
+        // the bytes kept are resumed by the retry: only with the version
+        // known (§10-4 A, as at the start); else from 0, once per start (a
+        // second time fails the stream with this error)
+        if (_length(leg.file) > 0 && leg.id.lmt == null) {
+          await _restart(leg, 'no validator', e);
+          check = false;
+        }
         // pause / delete / a stop cut the wait short
         await Future.any<void>([
           Future<void>.delayed(backoff(failures)),
@@ -454,17 +516,15 @@ class YtPairTransfer implements DownloadTransfer {
       // 2.
       if (old.itag != id.itag) return _restart(leg, 'itag');
       if (old.track != id.track) return _restart(leg, 'track');
+      if (old.drc != id.drc) return _restart(leg, 'drc');
       // 3.
       if (old.lmt != null && id.lmt != null && old.lmt != id.lmt) {
         return _restart(leg, 'lmt');
       }
-      // 4.
-      if (old.bytes != null && id.bytes != null && old.bytes != id.bytes) {
-        return _restart(leg, 'size');
-      }
     }
-    // the size the bytes on disk were written for is another stream's
-    if (sized != null && id.bytes != null && sized != id.bytes) {
+    // 4. the totals known — the new one, `.size`, the old one — any two
+    // that differ: another stream's bytes, never one of them taken
+    if ({id.bytes, sized, old?.bytes}.whereType<int>().length > 1) {
       return _restart(leg, 'size');
     }
     final expected = leg.expected;
@@ -510,13 +570,22 @@ class YtPairTransfer implements DownloadTransfer {
     if (leg.expected case final total?) await _writeSize(leg, total);
   }
 
+  /// [leg] is complete: its length is its expected total, known (design
+  /// §10-4 A). The identity's total is filled in only where it was not
+  /// known; a known one that differs is another stream's.
   Future<void> _complete(_Leg leg) async {
     final onDisk = _length(leg.file);
-    if (_meta.now(leg.name).bytes != onDisk) {
-      // a total no answer stated: what was there when the stream ended
+    final expected = leg.expected;
+    if (expected == null || onDisk != expected) {
+      throw YtRangeError.total('$onDisk on disk, expected ${expected ?? '?'}');
+    }
+    final known = _meta.now(leg.name).bytes;
+    if (known != null && known != onDisk) {
+      throw YtRangeError.total('$onDisk on disk, $known known');
+    }
+    if (known == null) {
       await _meta.set(leg.name, _meta.now(leg.name).withBytes(onDisk));
     }
-    leg.expected = onDisk;
     try {
       if (leg.size.existsSync()) await leg.size.delete();
     } catch (_) {}
@@ -550,17 +619,44 @@ class YtPairTransfer implements DownloadTransfer {
       throw YtHttpStatus(code);
     }
     final hops = leg.hops ??= YtCheckedHops(
-      leg.client = _newClient()..idleTimeout = idleTimeout,
+      leg.client = _newClient()
+        ..idleTimeout = idleTimeout
+        ..connectionTimeout = idleTimeout,
     );
     try {
-      final (_, response) = await hops.send(
+      final sent = hops.send(
         'GET',
         Uri.parse(leg.url),
         headers: {HttpHeaders.rangeHeader: range},
         timeout: idleTimeout,
         drainTimeout: idleTimeout,
+        // the lookup and the connection too, not only the headers
+        connectTimeout: idleTimeout,
+        // a request opened after a pause or a stop is not sent
+        onRequest: (request) {
+          if (_cancelled || _stopping) request.abort();
+        },
       );
-      return response;
+      // a pause or a stop does not wait for a lookup or a connection:
+      // what comes of it later is let go
+      var gone = false;
+      unawaited(
+        sent.then((r) {
+          if (gone) _discard(r.$2);
+        }, onError: (_) {}),
+      );
+      try {
+        final (_, response) = await Future.any([
+          sent,
+          _wake.future.then<(HttpClientRequest, HttpClientResponse)>(
+            (_) => throw const _Stopped(),
+          ),
+        ]);
+        return response;
+      } on _Stopped {
+        gone = true;
+        rethrow;
+      }
     } on HttpException catch (e) {
       if (e.message == 'too many redirects') {
         throw YtTooManyRedirects(e.uri?.host ?? '');
@@ -615,9 +711,11 @@ class YtPairTransfer implements DownloadTransfer {
       await _discard(response);
       throw YtRangeError.unexpected('the overlap at $from');
     }
-    if (range.$3 != null && range.$3 != leg.expected) {
+    // a resume's total is known: an answer that does not state it (`*`)
+    // does not say these are its bytes
+    if (range.$3 != leg.expected) {
       await _discard(response);
-      throw YtRangeError.total('${range.$3}, expected ${leg.expected}');
+      throw YtRangeError.total('${range.$3 ?? '*'}, expected ${leg.expected}');
     }
     final theirs = BytesBuilder(copy: false);
     await for (final data in response.timeout(idleTimeout)) {
@@ -688,9 +786,20 @@ class YtPairTransfer implements DownloadTransfer {
             throw YtRangeError.total('$whole, expected $expected');
           }
           final limit = expected ?? whole;
+          // a body of no length that nothing told: nothing could say it is
+          // the whole stream
+          if (limit == null) {
+            await _discard(response);
+            throw const YtRangeError.total('a whole body of no length');
+          }
+          if (expected == null) {
+            // learnt from this answer, as a 206's total is
+            leg.expected = limit;
+            await _writeSize(leg, limit);
+            await _meta.set(leg.name, _meta.now(leg.name).withBytes(limit));
+          }
           final got = await _write(leg, response, 0, limit);
-          if (limit != null && got < limit) throw YtShortBody(got, limit);
-          leg.expected = got;
+          if (got < limit) throw YtShortBody(got, limit);
           return;
         case HttpStatus.partialContent:
           final range = _rangeOf(response);
@@ -719,8 +828,9 @@ class YtPairTransfer implements DownloadTransfer {
           final want = last - at + 1;
           final got = await _write(leg, response, at, want);
           if (got < want) throw YtShortBody(at + got, last + 1);
-          // no total stated: a range shorter than asked is the end
-          if (total == null && last < end) return;
+        // no total stated (`*`): a range shorter than asked is not the
+        // end of anything; the next range is asked for. The end is a
+        // stated total reached, or a 416 that states it
         default:
           await _discard(response);
           throw YtHttpStatus(response.statusCode);

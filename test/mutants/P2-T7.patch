@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -811,11 +811,6 @@ class _StreamMeta {
+@@ -921,11 +921,6 @@ class _StreamMeta {
      final tmp = File('${file.path}.tmp');
      var json = await _read(file);
      var fromTmp = false;

@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -772,15 +772,15 @@ class YtPairTransfer implements DownloadTransfer {
+@@ -882,15 +882,15 @@ class YtPairTransfer implements DownloadTransfer {
        // the status and the flag first: whatever the closed connection
        // throws is read as the cancel it is (design §4.3 p4#3)
        _cancelled = true;

@@ -80,6 +80,7 @@ void main() {
         'itag': 140,
         'track': null,
         'default': false,
+        'drc': false,
         'bytes': f.body('audio').length,
         'lmt': 'a1',
       });

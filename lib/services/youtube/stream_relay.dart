@@ -98,7 +98,9 @@ class YtCheckedHops {
   /// when it runs out; [onRequest] is given each hop's request as it opens,
   /// so a caller can abort one still waiting. [allow] refuses a hop (the
   /// first one too) before it is opened; [drainTimeout] bounds the reading
-  /// of each redirect's body (without it, as long as it takes).
+  /// of each redirect's body (without it, as long as it takes);
+  /// [connectTimeout] bounds each hop's check (its name lookup) and its
+  /// connection — one opened after that is aborted, never sent.
   Future<(HttpClientRequest, HttpClientResponse)> send(
     String method,
     Uri uri, {
@@ -107,14 +109,37 @@ class YtCheckedHops {
     void Function(HttpClientRequest request)? onRequest,
     bool Function(Uri uri)? allow,
     Duration? drainTimeout,
+    Duration? connectTimeout,
   }) async {
     for (var hop = 0; hop <= maxHops; hop++) {
       // [allow]: the caller's own rule for every hop, before it is opened
       if (allow != null && !allow(uri)) {
         throw YtHopRefused(uri, 'not an allowed host');
       }
-      await check(uri);
-      final request = await client.openUrl(method, uri);
+      final checked = check(uri);
+      if (connectTimeout == null) {
+        await checked;
+      } else {
+        await checked.timeout(
+          connectTimeout,
+          onTimeout: () =>
+              throw TimeoutException('no address in time', connectTimeout),
+        );
+      }
+      final opening = client.openUrl(method, uri);
+      final HttpClientRequest request;
+      if (connectTimeout == null) {
+        request = await opening;
+      } else {
+        request = await opening.timeout(
+          connectTimeout,
+          onTimeout: () {
+            // opened late: let go, not sent
+            opening.then((r) => r.abort(), onError: (_) {});
+            throw TimeoutException('no connection in time', connectTimeout);
+          },
+        );
+      }
       onRequest?.call(request);
       request.followRedirects = false;
       headers.forEach(request.headers.set);

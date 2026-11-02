@@ -151,6 +151,24 @@ void main() {
     },
   );
 
+  test(
+    'a second done of the same transfer: dropped, one merge (review 2d)',
+    () async {
+      await start();
+      final e = h.entry();
+      final a = await transferOf(e);
+      a.status = DownloadStatus.completed;
+      a.report.video(4000, 4000);
+      a.report.audio(50, 50);
+      a.report.done();
+      a.report.done(StateError('a second done'));
+      // (this fake writes no streams: the merge itself fails, once)
+      await until(() => h.beforeMerge.isNotEmpty);
+      await settle(100);
+      expect(h.beforeMerge, hasLength(1));
+    },
+  );
+
   test("the record's total: both streams', the bytes both", () async {
     await start();
     final e = h.entry();

@@ -772,7 +772,7 @@
   {
     "id": "P2-D4",
     "patch": "P2-D4.patch",
-    "location": "lib/services/download/download_platform_yt.dart:534",
+    "location": "lib/services/download/download_platform_yt.dart:980",
     "change": "checkExisting: a record it cannot read counts as none (a new one made over it)",
     "phase": "2-only",
     "kind": "unit",
@@ -782,7 +782,7 @@
   {
     "id": "P2-D5",
     "patch": "P2-D5.patch",
-    "location": "lib/services/download/download_platform_yt.dart:536",
+    "location": "lib/services/download/download_platform_yt.dart:982",
     "change": "checkExisting compares the video ids ignoring case",
     "phase": "2-only",
     "kind": "unit",
@@ -792,7 +792,7 @@
   {
     "id": "P2-D6",
     "patch": "P2-D6.patch",
-    "location": "lib/services/download/download_platform_yt.dart:579",
+    "location": "lib/services/download/download_platform_yt.dart:1025",
     "change": "create does not wait for the list to be read",
     "phase": "2-only",
     "kind": "unit",
@@ -812,7 +812,7 @@
   {
     "id": "P2-D8",
     "patch": "P2-D8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:548",
+    "location": "lib/services/download/download_platform_yt.dart:994",
     "change": "newEntry writes the time stamps in ms (not seconds)",
     "phase": "2-only",
     "kind": "unit",
@@ -822,7 +822,7 @@
   {
     "id": "P2-L1",
     "patch": "P2-L1.patch",
-    "location": "lib/services/download/download_platform_yt.dart:435",
+    "location": "lib/services/download/download_platform_yt.dart:876",
     "change": "localCover gives the remote thumbnail when there is no cover.jpg",
     "phase": "2-only",
     "kind": "unit",
@@ -832,7 +832,7 @@
   {
     "id": "P2-L2",
     "patch": "P2-L2.patch",
-    "location": "lib/services/download/download_platform_yt.dart:445",
+    "location": "lib/services/download/download_platform_yt.dart:886",
     "change": "progressOf's position from LocalHistory.resumePoint (null, so 0, under one second); finished kept",
     "phase": "2-only",
     "kind": "unit",
@@ -842,7 +842,7 @@
   {
     "id": "P2-L3",
     "patch": "P2-L3.patch",
-    "location": "lib/services/download/download_platform_yt.dart:932",
+    "location": "lib/services/download/download_platform_yt.dart:937",
     "change": "onDeleted removes the video's LocalHistory entry",
     "phase": "2-only",
     "kind": "unit",
@@ -862,7 +862,7 @@
   {
     "id": "P2-L9",
     "patch": "P2-L9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:17,724",
+    "location": "lib/services/download/download_platform_yt.dart:17,727",
     "change": "the cover through Request.dio (the app's Dio)",
     "phase": "2-only",
     "kind": "unit",
@@ -872,7 +872,7 @@
   {
     "id": "P2-L13",
     "patch": "P2-L13.patch",
-    "location": "lib/services/download/download_platform_yt.dart:503-505",
+    "location": "lib/services/download/download_platform_yt.dart:949-951",
     "change": "openOffline calls LocalPlayer.open even when merged_path is null (once, with an empty path)",
     "phase": "2-only",
     "kind": "unit",
@@ -882,7 +882,7 @@
   {
     "id": "P2-L14",
     "patch": "P2-L14.patch",
-    "location": "lib/services/download/download_platform_yt.dart:505",
+    "location": "lib/services/download/download_platform_yt.dart:951",
     "change": "openOffline opens the online page instead of LocalPlayer.open(merged_path)",
     "phase": "2-only",
     "kind": "unit",
@@ -912,7 +912,7 @@
   {
     "id": "P2-R3",
     "patch": "P2-R3.patch",
-    "location": "lib/services/download/download_platform_yt.dart:43",
+    "location": "lib/services/download/download_platform_yt.dart:54",
     "change": "YtStreamTag: the audio track as its id cleaned up (non-alphanumerics to _), not its digest",
     "phase": "2-only",
     "kind": "unit",
@@ -922,7 +922,7 @@
   {
     "id": "P2-R4",
     "patch": "P2-R4.patch",
-    "location": "lib/services/download/download_platform_yt.dart:46",
+    "location": "lib/services/download/download_platform_yt.dart:57",
     "change": "YtStreamTag: no .drc for DRC audio",
     "phase": "2-only",
     "kind": "unit",
@@ -952,7 +952,7 @@
   {
     "id": "P2-R12",
     "patch": "P2-R12.patch",
-    "location": "lib/services/download/download_platform_yt.dart:73",
+    "location": "lib/services/download/download_platform_yt.dart:84",
     "change": "YtStreamTag.matches compares the raw track id with the digest of the folder name",
     "phase": "2-only",
     "kind": "unit",
@@ -982,7 +982,7 @@
   {
     "id": "P2-Q1",
     "patch": "P2-Q1.patch",
-    "location": "lib/services/youtube/yt_quality_tier.dart:25-29",
+    "location": "lib/services/youtube/yt_quality_tier.dart:28-32",
     "change": "ytQualityTier returns the short side (no long side x 9 / 16, no ladder)",
     "phase": "2-only",
     "kind": "unit",
@@ -1032,7 +1032,7 @@
   {
     "id": "P2-T1",
     "patch": "P2-T1.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:474-478",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:534-538",
     "change": "rule 6 (complete: no request) removed",
     "phase": "2-only",
     "kind": "unit",
@@ -1042,7 +1042,7 @@
   {
     "id": "P2-T2",
     "patch": "P2-T2.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:482-484",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:542-544",
     "change": "rule 7 does not need an lmt on both sides",
     "phase": "2-only",
     "kind": "unit",
@@ -1052,7 +1052,7 @@
   {
     "id": "P2-T3",
     "patch": "P2-T3.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:401",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:456",
     "change": "the overlap check skipped",
     "phase": "2-only",
     "kind": "unit",
@@ -1062,7 +1062,7 @@
   {
     "id": "P2-T4",
     "patch": "P2-T4.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:598-599,614",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:694-695,710",
     "change": "the overlap check reads the first 64 KB",
     "phase": "2-only",
     "kind": "unit",
@@ -1072,7 +1072,7 @@
   {
     "id": "P2-T5",
     "patch": "P2-T5.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:82-83",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:91-92",
     "change": "a null overwrites a known total or version (YtStreamId.over)",
     "phase": "2-only",
     "kind": "unit",
@@ -1082,7 +1082,7 @@
   {
     "id": "P2-T6",
     "patch": "P2-T6.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:884,893",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:994,1003",
     "change": "stream.json written in place, not through .tmp + rename",
     "phase": "2-only",
     "kind": "unit",
@@ -1092,7 +1092,7 @@
   {
     "id": "P2-T7",
     "patch": "P2-T7.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:814-818",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:924-928",
     "change": "no .tmp fallback when stream.json does not read",
     "phase": "2-only",
     "kind": "unit",
@@ -1102,7 +1102,7 @@
   {
     "id": "P2-T8",
     "patch": "P2-T8.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:493-495",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:553-555",
     "change": "a second restart from 0 for the same reason allowed",
     "phase": "2-only",
     "kind": "unit",
@@ -1112,7 +1112,7 @@
   {
     "id": "P2-T9",
     "patch": "P2-T9.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:680-683",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:778-781",
     "change": "a 200 taken while resuming (appended)",
     "phase": "2-only",
     "kind": "unit",
@@ -1122,7 +1122,7 @@
   {
     "id": "P2-T10",
     "patch": "P2-T10.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:292",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:312",
     "change": "callbacks do not look at _cancelled (_say)",
     "phase": "2-only",
     "kind": "unit",
@@ -1132,7 +1132,7 @@
   {
     "id": "P2-T11",
     "patch": "P2-T11.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:217",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:232",
     "change": "a stream already whole reported in the constructor",
     "phase": "2-only",
     "kind": "unit",
@@ -1142,8 +1142,8 @@
   {
     "id": "P2-T12",
     "patch": "P2-T12.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:337",
-    "change": "done sent through then, detached from task",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:381",
+    "change": "done sent through then, detached from task (_done)",
     "phase": "2-only",
     "kind": "unit",
     "test": "test/services/download/yt_pair_transfer_test.dart",
@@ -1152,7 +1152,7 @@
   {
     "id": "P2-T13",
     "patch": "P2-T13.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:780-783",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:890-893",
     "change": "cancel closes the clients before it sets pause",
     "phase": "2-only",
     "kind": "unit",
@@ -1162,8 +1162,8 @@
   {
     "id": "P2-T14",
     "patch": "P2-T14.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:363",
-    "change": "a stream's catch does not look at _cancelled first",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:369-371,407",
+    "change": "a caught exception during a cancel taken as a failure: the stream's catch does not look at _cancelled, nor does the run before it sets a failure",
     "phase": "2-only",
     "kind": "unit",
     "test": "test/services/download/yt_pair_transfer_test.dart",
@@ -1172,7 +1172,7 @@
   {
     "id": "P2-T16",
     "patch": "P2-T16.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:509",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:569",
     "change": "a restart from 0 keeps the old lmt (and total)",
     "phase": "2-only",
     "kind": "unit",
@@ -1182,7 +1182,7 @@
   {
     "id": "P2-T17",
     "patch": "P2-T17.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:869-873",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:979-983",
     "change": "each stream reads stream.json and writes it back (no _StreamMeta chain)",
     "phase": "2-only",
     "kind": "unit",
@@ -1192,7 +1192,7 @@
   {
     "id": "P2-T18",
     "patch": "P2-T18.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:363",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:407",
     "change": "the stopped stream's exception taken as a failure",
     "phase": "2-only",
     "kind": "unit",
@@ -1232,7 +1232,7 @@
   {
     "id": "P2-S8",
     "patch": "P2-S8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:527",
+    "location": "lib/services/download/download_platform_yt.dart:529",
     "change": "YouTube's writeStreamKey writes stream.json",
     "phase": "2-only",
     "kind": "unit",
@@ -1382,7 +1382,7 @@
   {
     "id": "P2-F8",
     "patch": "P2-F8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:688",
+    "location": "lib/services/download/download_platform_yt.dart:690",
     "change": "429 classified as refused",
     "phase": "2-only",
     "kind": "unit",
@@ -1432,7 +1432,7 @@
   {
     "id": "P2-R7",
     "patch": "P2-R7.patch",
-    "location": "lib/services/download/download_platform_yt.dart:509-510",
+    "location": "lib/services/download/download_platform_yt.dart:511-512",
     "change": "live_stream_offline classified other",
     "phase": "2-only",
     "kind": "unit",
@@ -1452,7 +1452,7 @@
   {
     "id": "P2-R9",
     "patch": "P2-R9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:586-587",
+    "location": "lib/services/download/download_platform_yt.dart:588-589",
     "change": "quality_label not rewritten from the picked format",
     "phase": "2-only",
     "kind": "unit",
@@ -1502,7 +1502,7 @@
   {
     "id": "P2-L5",
     "patch": "P2-L5.patch",
-    "location": "lib/services/download/download_platform_yt.dart:857",
+    "location": "lib/services/download/download_platform_yt.dart:862",
     "change": "the 720p switch's apply keeps stream_tag",
     "phase": "2-only",
     "kind": "unit",
@@ -1512,7 +1512,7 @@
   {
     "id": "P2-R11",
     "patch": "P2-R11.patch",
-    "location": "lib/services/download/download_platform_yt.dart:511",
+    "location": "lib/services/download/download_platform_yt.dart:513",
     "change": "clientBroken + no-playable-pair classified noFormat",
     "phase": "2-only",
     "kind": "unit",
@@ -1522,7 +1522,7 @@
   {
     "id": "P2-X1",
     "patch": "P2-X1.patch",
-    "location": "lib/services/download/download_platform_yt.dart:825",
+    "location": "lib/services/download/download_platform_yt.dart:830",
     "change": "transcriptKey a bilibili key",
     "phase": "2-only",
     "kind": "unit",
@@ -1538,5 +1538,95 @@
     "kind": "unit",
     "test": "test/services/download/yt_transcribe_test.dart",
     "catcher": "yt_transcribe_test.dart: completed: marked, its start the coverage the cache has under yt:<id>"
+  },
+  {
+    "id": "P2-T19",
+    "patch": "P2-T19.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:806",
+    "change": "a 206's start not checked against the range asked (range.$1 != at)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: answers that do not state their total, or other bytes a 206 of another start: from 0 (range unexpected)"
+  },
+  {
+    "id": "P2-T20",
+    "patch": "P2-T20.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:831",
+    "change": "a short 206 with a `*` total taken as the end, the expected total known or not",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: answers that do not state their total, or other bytes a short range with `*`, the total known: not the end, the next asked"
+  },
+  {
+    "id": "P2-T21",
+    "patch": "P2-T21.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:487-490",
+    "change": "a retry within a start keeps the bytes on disk with no version known",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: a retry within a start keeps bytes only with a version no lmt: a drop, then another version: from 0 (no validator)"
+  },
+  {
+    "id": "P2-T22",
+    "patch": "P2-T22.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:527",
+    "change": "totals compared only against a known new total (.size against the old one not)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: the identity totals that disagree (.size against the old one): from 0 (size), not taken as complete"
+  },
+  {
+    "id": "P2-T23",
+    "patch": "P2-T23.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:519",
+    "change": "the DRC mark not compared in rule 2",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: the identity a DRC 140 against a plain 140 on disk: from 0 (drc)"
+  },
+  {
+    "id": "P2-T24",
+    "patch": "P2-T24.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:348",
+    "change": "the stream folder's name not checked against the two identities",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: the identity a DRC stream in a plain folder: refused, nothing asked or written"
+  },
+  {
+    "id": "P2-T25",
+    "patch": "P2-T25.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:723-725",
+    "change": "the overlap body's cap (k bytes) removed",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: answers that do not state their total, or other bytes an overlap body past its range: from 0 (range unexpected)"
+  },
+  {
+    "id": "P2-T26",
+    "patch": "P2-T26.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:313-317",
+    "change": "a callback's throw not caught by _say (it becomes the stream's failure)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: the callbacks a videoDone that throws: not a failure of the video"
+  },
+  {
+    "id": "P2-T27",
+    "patch": "P2-T27.patch",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:716",
+    "change": "the overlap takes a `*` total as its stream's",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transfer_checks_test.dart",
+    "catcher": "yt_transfer_checks_test.dart: answers that do not state their total, or other bytes the overlap answered with `*`: from 0 (range total)"
   }
 ]

@@ -74,6 +74,8 @@ void main() {
     expect(http.requests, [('GET', Uri.parse(e.cover))]);
     expect(http.closed, isTrue);
     expect(dio.asked, isEmpty);
+    // the connection bounded too, not only the headers (review 2d)
+    expect(http.connectionTimeout, const Duration(seconds: 30));
   });
 
   test('already there: nothing fetched', () async {
