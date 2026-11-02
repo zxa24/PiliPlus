@@ -85,6 +85,16 @@ static void my_application_activate(GApplication *application) {
   // Background defaults to black, override it here if necessary, e.g. #00000000
   // for transparent.
   gdk_rgba_parse(&background_color, "#000000");
+  // A transparent background lets FlView skip filling the whole window with
+  // it on every frame (it paints only when not all four channels are 0); a
+  // test switch while the cost at large window sizes is measured
+  // (feature-logs/linux-4k-perf).
+  g_autofree gchar *transparent_bg = g_build_filename(
+      g_get_user_data_dir(), "com.zxa24.librepili", "transparent_bg", NULL);
+  if (g_file_test(transparent_bg, G_FILE_TEST_EXISTS)) {
+    background_color = {0.0, 0.0, 0.0, 0.0};
+    g_message("transparent background (%s)", transparent_bg);
+  }
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
