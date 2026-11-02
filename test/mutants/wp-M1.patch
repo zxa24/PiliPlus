@@ -1,8 +1,8 @@
-diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
-index 989e78b1f..000b72143 100644
---- a/lib/pages/video/controller.dart
-+++ b/lib/pages/video/controller.dart
-@@ -334,7 +334,7 @@ class VideoDetailController extends GetxController
+diff --git a/lib/pages/common/watch_page/watch_page_state.dart b/lib/pages/common/watch_page/watch_page_state.dart
+index 200df0d67..9e1e83085 100644
+--- a/lib/pages/common/watch_page/watch_page_state.dart
++++ b/lib/pages/common/watch_page/watch_page_state.dart
+@@ -86,7 +86,7 @@ class WatchPageShellState {
    void _calcAnimHeight() {
      if (isExpanding) {
        animHeight = clampDouble(

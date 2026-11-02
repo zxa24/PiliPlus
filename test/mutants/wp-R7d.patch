@@ -1,13 +1,22 @@
 diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
-index 989e78b1f..542026cad 100644
+index a8d0c0402..4cddd43ce 100644
 --- a/lib/pages/video/controller.dart
 +++ b/lib/pages/video/controller.dart
-@@ -2447,7 +2447,7 @@ class VideoDetailController extends GetxController
-         ),
-       );
-     }
--    if (plPlayerController.isFullScreen.value || showVideoSheet) {
-+    if (showVideoSheet) {
-       final child = PostPanel(
-         enableSlide: false,
+@@ -45,6 +45,7 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
+ import 'package:PiliPlus/models_new/video/video_stein_edgeinfo/data.dart';
+ import 'package:PiliPlus/pages/audio/view.dart';
+ import 'package:PiliPlus/pages/common/publish/publish_route.dart';
++import 'package:PiliPlus/pages/common/watch_page/watch_page_source.dart';
+ import 'package:PiliPlus/pages/common/watch_page/watch_page_state.dart';
+ import 'package:PiliPlus/pages/search/widgets/search_text.dart';
+ import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
+@@ -2400,6 +2401,9 @@ class VideoDetailController extends GetxController
          videoDetailController: this,
+         plPlayerController: plPlayerController,
+       ),
++      policy: shell.showVideoSheet
++          ? SheetPolicy.perR7
++          : SheetPolicy.alwaysInPage,
+     );
+   }
+ 

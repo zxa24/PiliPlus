@@ -1,15 +1,15 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..a778a3e03 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -633,7 +633,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-             controller: videoDetailController.scrollCtr,
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..b58bd95e2 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -141,7 +141,9 @@ class WatchPageLayouts {
+             controller: shell.scrollCtr,
              scrollBehavior: const NoOverscrollIndicator(),
              pinnedHeaderSliverHeightBuilder: () {
 -              double pinnedHeight = this.isFullScreen || !isPortrait
 +              double pinnedHeight = this.isFullScreen
-+                  ? videoDetailController.videoHeight
++                  ? shell.videoHeight
 +                  : !isPortrait
                    ? maxHeight - (isWindowMode && !isPortrait ? 0 : padding.top)
-                   : videoDetailController.isExpanding ||
-                         videoDetailController.isCollapsing
+                   : shell.isExpanding || shell.isCollapsing
+                   ? shell.animHeight

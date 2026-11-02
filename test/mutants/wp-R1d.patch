@@ -1,29 +1,37 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..71793a27d 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -141,6 +141,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-   }
- 
-   final videoReplyPanelKey = GlobalKey();
-+  bool _isVerticalAtBuild = false;
-   final videoRelatedKey = GlobalKey();
-   final videoIntroKey = GlobalKey();
- 
-@@ -1114,7 +1115,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-     if (enableVerticalExpand) {
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..f124ffb55 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -680,7 +680,7 @@ class WatchPageLayouts {
+     if (source.sharedPlayer.enableVerticalExpand) {
        return Obx(
          () {
--          if (videoDetailController.isVertical.value && !isPortrait) {
-+          if (_isVerticalAtBuild && !isPortrait) {
-             SelfTestProbe.split9x16(heroTag, true);
+-          if (source.isVertical.value && !layoutIsPortrait) {
++          if (shell.isVerticalAtBuild && !layoutIsPortrait) {
+             SelfTestProbe.split9x16(source.pageTag, true);
              return childSplit(9 / 16);
            }
-@@ -1430,6 +1431,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-   @override
-   Widget build(BuildContext context) {
-     SelfTestProbe.recorder?.built('build', heroTag, Size(maxWidth, maxHeight));
-+    _isVerticalAtBuild = videoDetailController.isVertical.value;
+diff --git a/lib/pages/common/watch_page/watch_page_shell.dart b/lib/pages/common/watch_page/watch_page_shell.dart
+index e272672a1..410b3e0fe 100644
+--- a/lib/pages/common/watch_page/watch_page_shell.dart
++++ b/lib/pages/common/watch_page/watch_page_shell.dart
+@@ -29,6 +29,7 @@ class WatchPageShell extends StatelessWidget {
+     final maxWidth = source.maxWidth;
+     final maxHeight = source.maxHeight;
+     final tag = source.pageTag;
++    source.shell.isVerticalAtBuild = source.isVertical.value;
      Widget child;
-     if (videoDetailController.plPlayerController.isPipMode) {
-       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);
+     if (player.isPipMode) {
+       SelfTestProbe.firstLevel(tag, SelfTestProbe.pip);
+diff --git a/lib/pages/common/watch_page/watch_page_state.dart b/lib/pages/common/watch_page/watch_page_state.dart
+index 200df0d67..1a8c0bd0f 100644
+--- a/lib/pages/common/watch_page/watch_page_state.dart
++++ b/lib/pages/common/watch_page/watch_page_state.dart
+@@ -28,6 +28,7 @@ class WatchPageShellState {
+ 
+   /// live: written by the page's didChangeDependencies (R14)
+   bool isPortrait = true;
++  bool isVerticalAtBuild = false;
+ 
+   /// the layout's isPortrait (R3's readers table): S1 has no fullscreen
+   /// stickiness, so it is [isPortrait]

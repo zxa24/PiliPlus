@@ -1,8 +1,8 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..6d1530a35 100644
+index ac5c5af3d..057a915b3 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -2110,7 +2110,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -1306,7 +1306,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
            null => const SizedBox.shrink(),
          }
        : VideoReplyPanel(

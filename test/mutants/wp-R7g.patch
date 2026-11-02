@@ -1,21 +1,19 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..c7a3fd946 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1047,19 +1047,19 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..90f6f95d2 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -600,17 +600,17 @@ class WatchPageLayouts {
            child: SizedBox(
              width: maxWidth - width - padding.horizontal,
              height: maxHeight - padding.top,
 -            child: MiniScaffold(
--              key: videoDetailController.childKey,
+-              key: shell.childKey,
 -              body: Column(
 -                crossAxisAlignment: CrossAxisAlignment.start,
 -                children: [
 -                  buildTabBar(
 -                    introText: '相关视频',
--                    showIntro: videoDetailController.isFileSource
--                        ? true
--                        : showIntro,
+-                    showIntro: source.isFileSource ? true : showIntro,
 -                  ),
 -                  Expanded(
 -                    child: tabBarView(
@@ -24,18 +22,16 @@ index ba565d648..c7a3fd946 100644
 +              children: [
 +                buildTabBar(
 +                  introText: '相关视频',
-+                  showIntro: videoDetailController.isFileSource
-+                      ? true
-+                      : showIntro,
++                  showIntro: source.isFileSource ? true : showIntro,
 +                ),
 +                Expanded(
 +                  child: MiniScaffold(
-+                    key: videoDetailController.childKey,
++                    key: shell.childKey,
 +                    body: tabBarView(
-                       controller: videoDetailController.tabCtr,
+                       controller: shell.tabCtr,
                        children: [
-                         if (videoDetailController.isFileSource)
-@@ -1083,8 +1083,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+                         if (source.isFileSource)
+@@ -649,8 +649,8 @@ class WatchPageLayouts {
                        ],
                      ),
                    ),

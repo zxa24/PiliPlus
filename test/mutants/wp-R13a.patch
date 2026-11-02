@@ -1,41 +1,13 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..caf0f670b 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1455,22 +1455,20 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_shell.dart b/lib/pages/common/watch_page/watch_page_shell.dart
+index e272672a1..440f23fe2 100644
+--- a/lib/pages/common/watch_page/watch_page_shell.dart
++++ b/lib/pages/common/watch_page/watch_page_shell.dart
+@@ -54,7 +54,7 @@ class WatchPageShell extends StatelessWidget {
          child: child,
        );
      }
--    if (videoDetailController.plPlayerController.keyboardControl) {
--      child = PlayerFocus(
--        plPlayerController: videoDetailController.plPlayerController,
--        introController: introController,
--        onSendDanmaku: videoDetailController.showShootDanmakuSheet,
--        canPlay: () {
--          if (videoDetailController.autoPlay) {
--            return true;
--          }
--          handlePlay();
--          return false;
--        },
--        onSkipSegment: videoDetailController.onSkipSegment,
--        child: child,
--      );
--    }
-+    child = PlayerFocus(
-+      plPlayerController: videoDetailController.plPlayerController,
-+      introController: introController,
-+      onSendDanmaku: videoDetailController.showShootDanmakuSheet,
-+      canPlay: () {
-+        if (videoDetailController.autoPlay) {
-+          return true;
-+        }
-+        handlePlay();
-+        return false;
-+      },
-+      onSkipSegment: videoDetailController.onSkipSegment,
-+      child: child,
-+    );
-     return videoDetailController.plPlayerController.darkVideoPage
-         ? Theme(data: theme, child: child)
-         : child;
+-    if (player.keyboardControl) {
++    {
+       child = PlayerFocus(
+         plPlayerController: player,
+         introController: source.introController,

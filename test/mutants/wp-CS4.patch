@@ -1,13 +1,13 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..cf05d3736 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1036,7 +1036,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-                     width: width,
-                     height: introHeight,
-                     needRelated: false,
--                    needCtr: false,
-+                    needCtr: true,
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..1ba9ed0da 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -587,7 +587,7 @@ class WatchPageLayouts {
+                       isFullScreen: isFullScreen,
+                       width: width,
+                       height: introHeight,
+-                      attachIntroController: false,
++                      attachIntroController: true,
+                     ),
+                     withRelated: false,
                    ),
-                 ),
-               ),

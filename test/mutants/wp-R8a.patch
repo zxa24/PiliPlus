@@ -1,12 +1,15 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..9d6187b12 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1317,7 +1317,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-     key: videoDetailController.videoPlayerKey,
-     canPop:
-         !isFullScreen &&
--        !videoDetailController.plPlayerController.isDesktopPip &&
-         (videoDetailController.horizontalScreen || isPortrait),
-     onPopInvokedWithResult:
-         videoDetailController.plPlayerController.onPopInvokedWithResult,
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..a9dd483d3 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -875,9 +875,7 @@ class WatchPageLayouts {
+     return popScope(
+       key: shell.videoPlayerKey,
+       canPop:
+-          !isFullScreen &&
+-          !source.sharedPlayer.isDesktopPip &&
+-          (source.sharedPlayer.horizontalScreen || isPortrait),
++          !isFullScreen && (source.sharedPlayer.horizontalScreen || isPortrait),
+       onPopInvokedWithResult: source.sharedPlayer.onPopInvokedWithResult,
+       child: Obx(
+         () =>

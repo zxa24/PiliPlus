@@ -1,8 +1,8 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..99750a0ee 100644
+index ac5c5af3d..8c49ed524 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -436,7 +436,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -410,7 +410,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
      isShowing = false;
      // a cover tap waiting for the play URL is not played under the page
      // on top (see handlePlay)

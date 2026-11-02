@@ -1,25 +1,22 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..6261d0dcc 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -251,19 +251,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_state.dart b/lib/pages/common/watch_page/watch_page_state.dart
+index 200df0d67..2ae0ea256 100644
+--- a/lib/pages/common/watch_page/watch_page_state.dart
++++ b/lib/pages/common/watch_page/watch_page_state.dart
+@@ -112,16 +112,7 @@ class WatchPageShellState {
      try {
-       if (videoDetailController.scrollCtr.hasClients) {
+       if (scrollCtr.hasClients) {
          if (isPlaying) {
--          if (!videoDetailController.isExpanding &&
--              videoDetailController.scrollCtr.offset != 0 &&
--              !videoDetailController.animationController.isAnimating) {
--            videoDetailController.isExpanding = true;
--            videoDetailController.animationController.forward(
--              from:
--                  1 -
--                  videoDetailController.scrollCtr.offset /
--                      videoDetailController.videoHeight,
+-          if (!isExpanding &&
+-              scrollCtr.offset != 0 &&
+-              !animationController.isAnimating) {
+-            isExpanding = true;
+-            animationController.forward(
+-              from: 1 - scrollCtr.offset / videoHeight,
 -            );
 -          } else {
--            videoDetailController.refreshPage();
+-            refreshPage();
 -          }
-+          videoDetailController.refreshPage();
++          refreshPage();
          } else {
-           videoDetailController.refreshPage();
+           refreshPage();
          }

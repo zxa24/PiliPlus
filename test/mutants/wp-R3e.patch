@@ -1,12 +1,12 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..b1c706b43 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1314,7 +1314,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-     required double height,
-     bool isPipMode = false,
-   }) => popScope(
--    key: videoDetailController.videoPlayerKey,
-     canPop:
-         !isFullScreen &&
-         !videoDetailController.plPlayerController.isDesktopPip &&
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..be9752075 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -873,7 +873,6 @@ class WatchPageLayouts {
+     final width = ctx.slotWidth!;
+     final height = ctx.slotHeight!;
+     return popScope(
+-      key: shell.videoPlayerKey,
+       canPop:
+           !isFullScreen &&
+           !source.sharedPlayer.isDesktopPip &&

@@ -1,21 +1,14 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..533d3a039 100644
+index ac5c5af3d..f7bc93cef 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -2146,7 +2146,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-     int? cid,
-   ]) {
-     assert((cid == null) == (bvid == null));
--    final isFullScreen = this.isFullScreen;
-     if (cid == null) {
-       videoDetailController.showMediaListPanel(context);
-       return;
-@@ -2189,7 +2188,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-         onReversePlay(isSeason: season != null);
-       },
+@@ -1390,6 +1390,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+       context,
+       (context, {required inPage}) => listSheetContent(enableSlide: inPage),
+       theme: theme,
++      policy: videoDetailController.shell.showVideoSheet
++          ? SheetPolicy.perR7
++          : SheetPolicy.alwaysInPage,
      );
--    if (isFullScreen || videoDetailController.showVideoSheet) {
-+    if (videoDetailController.showVideoSheet) {
-       final child = listSheetContent(enableSlide: false);
-       PageUtils.showVideoBottomSheet(
-         context,
+   }
+ 

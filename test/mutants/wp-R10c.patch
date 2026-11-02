@@ -1,15 +1,15 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..b8c3c2d28 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1701,13 +1701,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..948b4c03f 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -1123,13 +1123,6 @@ class WatchPageLayouts {
                            ),
                          ),
                        ),
 -                      // a tap while the play URL is asked for: it plays once
--                      // the URL is in (see handlePlay)
+-                      // the URL is in (see the page's onPlayTap)
 -                      Obx(
--                        () => videoDetailController.playAfterQuery.value
+-                        () => source.playPending
 -                            ? const Center(child: PlayerLoadingMark())
 -                            : const SizedBox.shrink(),
 -                      ),

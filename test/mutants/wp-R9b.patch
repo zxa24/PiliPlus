@@ -1,8 +1,8 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..b818796c9 100644
+index ac5c5af3d..16ee622a1 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -503,8 +503,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -481,8 +481,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
        videoDetailController.plPlayerController.pause();
      }
  

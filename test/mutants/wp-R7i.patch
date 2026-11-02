@@ -1,13 +1,14 @@
-diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
-index 989e78b1f..c969cc938 100644
---- a/lib/pages/video/controller.dart
-+++ b/lib/pages/video/controller.dart
-@@ -869,7 +869,7 @@ class VideoDetailController extends GetxController
-   bool get horizontalScreen => plPlayerController.horizontalScreen;
+diff --git a/lib/pages/common/watch_page/watch_page_state.dart b/lib/pages/common/watch_page/watch_page_state.dart
+index 200df0d67..657d2ba3a 100644
+--- a/lib/pages/common/watch_page/watch_page_state.dart
++++ b/lib/pages/common/watch_page/watch_page_state.dart
+@@ -33,8 +33,7 @@ class WatchPageShellState {
+   /// stickiness, so it is [isPortrait]
+   bool get layoutIsPortrait => isPortrait;
  
-   bool get showVideoSheet =>
--      (!horizontalScreen && !isPortrait) || plPlayerController.isDesktopPip;
-+      !horizontalScreen && !isPortrait;
+-  bool get showVideoSheet =>
+-      (!player.horizontalScreen && !isPortrait) || player.isDesktopPip;
++  bool get showVideoSheet => !player.horizontalScreen && !isPortrait;
  
-   @override
-   late final RxString videoLabel = ''.obs;
+   final videoPlayerKey = GlobalKey();
+   final childKey = GlobalKey<MiniScaffoldState>();

@@ -1,17 +1,17 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..e02b534e5 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1028,7 +1028,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..b14d45872 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -576,7 +576,7 @@ class WatchPageLayouts {
              ),
-             if (!videoDetailController.isFileSource)
+             if (source.introColumnInLandscape)
                Offstage(
 -                offstage: isFullScreen,
 +                offstage: false,
                  child: SizedBox(
                    width: width,
                    height: introHeight,
-@@ -1043,7 +1043,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -596,7 +596,7 @@ class WatchPageLayouts {
            ],
          ),
          Offstage(

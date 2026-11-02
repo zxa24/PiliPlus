@@ -1,13 +1,13 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..50c10ea50 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1437,7 +1437,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-     } else if (!videoDetailController.horizontalScreen) {
-       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.portrait);
-       child = childWhenDisabled;
+diff --git a/lib/pages/common/watch_page/watch_page_shell.dart b/lib/pages/common/watch_page/watch_page_shell.dart
+index e272672a1..ef59af70a 100644
+--- a/lib/pages/common/watch_page/watch_page_shell.dart
++++ b/lib/pages/common/watch_page/watch_page_shell.dart
+@@ -36,7 +36,7 @@ class WatchPageShell extends StatelessWidget {
+     } else if (!player.horizontalScreen) {
+       SelfTestProbe.firstLevel(tag, SelfTestProbe.portrait);
+       child = layouts.childWhenDisabled;
 -    } else if (maxWidth / maxHeight >= kScreenRatio) {
 +    } else if (maxWidth / maxHeight >= 1.1) {
-       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.landscape);
-       child = childWhenDisabledLandscape;
+       SelfTestProbe.firstLevel(tag, SelfTestProbe.landscape);
+       child = layouts.childWhenDisabledLandscape;
      } else if (maxWidth / Style.aspectRatio16x9 < 0.4 * maxHeight) {
