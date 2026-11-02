@@ -6,7 +6,8 @@
 ///
 /// Stage 2b: the record, the list, the cover, the new-download guard and
 /// the offline open; 2e: the start (resolve, the pair transfer, the merge),
-/// its failures and the 720p switch.
+/// its failures and the 720p switch; 2f: what the panel offers
+/// ([YtDownloadPlatform.offerFor]).
 library;
 
 import 'dart:async';
@@ -165,6 +166,54 @@ typedef YtTransferSpec = ({
   YtStreamSpec video,
   YtStreamSpec audio,
 });
+
+/// What the download panel lists (stage-2 plan §4.4), taken once when it
+/// opens and kept until it closes: the current source's answer, and the
+/// other source's, which may come later ([other]).
+final class YtDownloadOffer {
+  const YtDownloadOffer({
+    required this.detail,
+    required this.sourceId,
+    required this.verdict,
+    required this.liveNow,
+    required this.other,
+  });
+
+  /// The current source's detail (its formats are what can be downloaded);
+  /// null: it failed ([verdict]).
+  final YtVideoDetail? detail;
+
+  /// The source that answered (null: none did).
+  final String? sourceId;
+
+  final YtVerdict verdict;
+
+  /// Live now or not started yet, as the direct source says it (a live
+  /// flag, or its refusal of an upcoming video): nothing to download.
+  final bool liveNow;
+
+  /// The other source's answer, for the greyed tiers (§10-7 Q6 b); null:
+  /// not asked (a single-source mode, the direct source cooling down in
+  /// the shared table), refused, failed, or later than
+  /// [YtDownloadPlatform.otherWait].
+  final Future<YtOtherOffer?> other;
+}
+
+/// The other source's answer to the panel.
+final class YtOtherOffer {
+  const YtOtherOffer({
+    required this.sourceId,
+    required this.formats,
+    required this.liveNow,
+  });
+
+  final String sourceId;
+  final List<YtFormat> formats;
+
+  /// The other source is the direct one and says the video is live or
+  /// upcoming.
+  final bool liveNow;
+}
 
 final class YtDownloadPlatform implements DownloadPlatform {
   YtDownloadPlatform(this._host);
@@ -339,6 +388,21 @@ final class YtDownloadPlatform implements DownloadPlatform {
   static Future<void> Function(List<String> inputs, String output)?
   remuxForTest;
 
+  // The self-tests' (`--yt-inject`, stage-2 plan §5), in a release build
+  // too: null in every other run.
+
+  /// Wraps each source a router of this adapter is built over (the
+  /// downloads' and the panel's).
+  static YouTubeVideoSource Function(YouTubeVideoSource source)?
+  selfTestWrapSource;
+
+  /// Thrown by the next merge in place of the remux (once).
+  static Object? selfTestMergeError;
+
+  /// How long the panel waits for the other source (§4.4: 10 s).
+  @visibleForTesting
+  static Duration otherWait = const Duration(seconds: 10);
+
   YtDirectSource? _direct;
 
   /// Each download's own router's health (never [YtSourceRouter.
@@ -359,13 +423,104 @@ final class YtDownloadPlatform implements DownloadPlatform {
     }
     YtSourceStore.load();
     YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
+    final wrap = selfTestWrapSource ?? (s) => s;
     return YtSourceRouter(
-      _direct ??= YtDirectSource.create(),
-      fallback: YtInvidiousSource.shared,
+      wrap(_direct ??= YtDirectSource.create()),
+      fallback: wrap(YtInvidiousSource.shared),
       mode: mode,
       health: health,
     );
   }
+
+  /// What the panel lists (stage-2 plan §4.4), asked once when it opens:
+  /// the current source by the router the video pages share (as a start
+  /// asks it), then — once it is known which source that is — the other
+  /// one by a router of the panel's own: its own health table, nothing
+  /// written to [YtSourceRouter.sharedHealth], no instance set aside. Not
+  /// the other when the mode is a single source (`--yt-source`, as a
+  /// start's own router does not ask it), nor the direct source while it
+  /// cools down in the shared table.
+  Future<YtDownloadOffer> offerFor(String videoId) async {
+    final mode = YtSourceStore.debugMode;
+    final play = _router(
+      mode,
+      own: false,
+      health: YtSourceRouter.sharedHealth,
+    );
+    final current = await play.run(
+      (s) async => _definite(await s.detail(videoId)),
+    );
+    final sourceId = current.source?.id;
+    if (!current.ok) {
+      return YtDownloadOffer(
+        detail: null,
+        sourceId: sourceId,
+        verdict: current.verdict,
+        liveNow: _liveRefusal(current.verdict),
+        other: Future.value(),
+      );
+    }
+    return YtDownloadOffer(
+      detail: current.value,
+      sourceId: sourceId,
+      verdict: current.verdict,
+      liveNow: sourceId == _directId && (current.value?.liveNow ?? false),
+      other: _otherOffer(videoId, sourceId, mode),
+    );
+  }
+
+  /// The other source's answer to the panel (see [offerFor]); never
+  /// throws.
+  Future<YtOtherOffer?> _otherOffer(
+    String videoId,
+    String? asked,
+    YtSourceMode mode,
+  ) async {
+    if (mode != YtSourceMode.auto || asked == null) return null;
+    final otherIsDirect = asked != _directId;
+    // read only: the shared table is the pages'
+    final directCooling =
+        !(YtSourceRouter.sharedHealth[_directId]?.availableAt(DateTime.now()) ??
+            true);
+    if (otherIsDirect && directCooling) return null;
+    final own = _router(
+      otherIsDirect ? YtSourceMode.directOnly : YtSourceMode.fallbackOnly,
+      own: true,
+      health: {},
+    );
+    try {
+      final r = await own
+          .run((s) async => _definite(await s.detail(videoId)))
+          .timeout(otherWait);
+      final id = r.source?.id ?? (otherIsDirect ? _directId : '');
+      if (!r.ok) {
+        // the direct source's refusal of an upcoming video still says it
+        return otherIsDirect && _liveRefusal(r.verdict)
+            ? YtOtherOffer(sourceId: id, formats: const [], liveNow: true)
+            : null;
+      }
+      return YtOtherOffer(
+        sourceId: id,
+        formats: r.value!.formats,
+        liveNow: otherIsDirect && r.value!.liveNow,
+      );
+    } catch (e) {
+      // later than [otherWait] (its answer, if any, is dropped), or failed
+      EventLog.add(
+        'download',
+        'yt:$videoId: the panel did not hear the other '
+            'source: ${e is TimeoutException ? 'timeout' : e}',
+      );
+      return null;
+    }
+  }
+
+  /// A refusal that says the video is live or upcoming (as [_failed]
+  /// reads it): the direct source's `live_stream_offline`, Invidious's
+  /// `invidious:live`.
+  static bool _liveRefusal(YtVerdict verdict) =>
+      verdict.signal == 'invidious:live' ||
+      verdict.signal.startsWith('playability:live_stream_offline');
 
   /// The pair this start downloads (stage-2 plan §3.3). Nothing of the
   /// entry is changed and nothing saved: what it found goes into the entry
@@ -702,6 +857,10 @@ final class YtDownloadPlatform implements DownloadPlatform {
     try {
       output = await export.claim();
       final out = output;
+      if (selfTestMergeError case final e?) {
+        selfTestMergeError = null;
+        throw e;
+      }
       await (remuxForTest ?? _remux)(inputs, out);
       entry.mergedPath = out;
       _ownHealth.remove(entry.key);
@@ -905,17 +1064,30 @@ final class YtDownloadPlatform implements DownloadPlatform {
   /// 「切换为下载 720p」 (stage-2 plan §4.2): on a download whose tier is
   /// not on offer and whose retries are spent. [DownloadFailureAction.apply]
   /// only changes the entry in memory — tier 720, no stream folder (so no
-  /// pin), its label — the page then calls `restartWith`. The old folder is
-  /// left until the download completes.
+  /// pin), its label — and gives back the three as they were; the page
+  /// then has the service save and start it. The old folder is left until
+  /// the download completes.
   @override
   DownloadFailureAction? failureAction(DownloadEntry entry) =>
       entry.status == DownloadStatus.failQuality && entry.gaveUp
       ? (
           label: '切换为下载 720p',
-          apply: (entry) => (entry as YtDownloadEntry)
-            ..maxHeight = 720
-            ..streamTag = null
-            ..quality = '720p',
+          apply: (entry) {
+            entry as YtDownloadEntry;
+            final (tier, tag, label) = (
+              entry.maxHeight,
+              entry.streamTag,
+              entry.quality,
+            );
+            entry
+              ..maxHeight = 720
+              ..streamTag = null
+              ..quality = '720p';
+            return () => entry
+              ..maxHeight = tier
+              ..streamTag = tag
+              ..quality = label;
+          },
         )
       : null;
 

@@ -866,6 +866,9 @@ class FormatYtSource implements YouTubeVideoSource {
   List<Map<String, dynamic>> formats;
   bool liveNow;
 
+  /// A live stream's replay: `isLive` (`isLiveContent`) without [liveNow].
+  bool replay = false;
+
   /// Videos live now (or upcoming), beside [liveNow] for all.
   final liveIds = <String>{};
 
@@ -899,7 +902,7 @@ class FormatYtSource implements YouTubeVideoSource {
         thumbnails: const [],
         formats: [for (final f in formats) YtFormat(f)],
         captionTracks: const [],
-        isLive: liveNow || liveIds.contains(videoId),
+        isLive: liveNow || liveIds.contains(videoId) || replay,
         liveNow: liveNow || liveIds.contains(videoId),
         expiresIn: const Duration(hours: 6),
       ),

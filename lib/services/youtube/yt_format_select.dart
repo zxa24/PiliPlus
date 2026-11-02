@@ -12,6 +12,7 @@
 /// So both sides are codec-constrained first and only then ranked.
 library;
 
+import 'dart:async' show Zone;
 import 'dart:convert' show utf8;
 
 import 'package:PiliPlus/services/youtube/yt_models.dart';
@@ -198,11 +199,20 @@ YtFormatSelection? selectYtFormats(
   List<YtFormat> formats, [
   YtFormatPreference pref = YtFormatPreference.standard,
 ]) {
+  // the self-tests' `--yt-inject drop:` (stage-2 plan §5): in a zone that
+  // holds a set of itags under [ytSelfTestDropKey] (one source's calls),
+  // those formats are not there
+  if (Zone.current[ytSelfTestDropKey] case final Set<int> drop) {
+    formats = formats.where((f) => !drop.contains(f.itag)).toList();
+  }
   final video = selectYtVideoFormat(formats, pref);
   final audio = selectYtAudioFormat(formats, pref);
   if (video == null || audio == null) return null;
   return YtFormatSelection(video, audio);
 }
+
+/// The zone key of the itags a self-test leaves out ([selectYtFormats]).
+const ytSelfTestDropKey = #librePiliYtSelfTestDrop;
 
 /// The best video-only format under [pref], or null.
 YtFormat? selectYtVideoFormat(

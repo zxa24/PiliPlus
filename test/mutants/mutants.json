@@ -22,7 +22,7 @@
   {
     "id": "M3",
     "patch": "M3.patch",
-    "location": "lib/services/download/download_service.dart:1572-1574",
+    "location": "lib/services/download/download_service.dart:1619-1621",
     "change": "_queueExtras: _extrasJobs keyed by 'bili:<avid>' (and its identical check)",
     "phase": "both",
     "kind": "unit",
@@ -32,7 +32,7 @@
   {
     "id": "M4",
     "patch": "M4.patch",
-    "location": "lib/services/download/download_service.dart:1489",
+    "location": "lib/services/download/download_service.dart:1536",
     "change": "_resumeExtras: _extrasJobs.containsKey('bili:<avid>')",
     "phase": "both",
     "kind": "unit",
@@ -42,7 +42,7 @@
   {
     "id": "M5",
     "patch": "M5.patch",
-    "location": "lib/services/download/download_service.dart:1348",
+    "location": "lib/services/download/download_service.dart:1391",
     "change": "_completeDownload: _mergingKeys.add('bili:<avid>')",
     "phase": "both",
     "kind": "unit",
@@ -52,7 +52,7 @@
   {
     "id": "M6",
     "patch": "M6.patch",
-    "location": "lib/services/download/download_service.dart:1919",
+    "location": "lib/services/download/download_service.dart:1969",
     "change": "deleteDownload: _mergeDeletedKeys.add('bili:<avid>')",
     "phase": "both",
     "kind": "unit",
@@ -82,7 +82,7 @@
   {
     "id": "M9",
     "patch": "M9.patch",
-    "location": "lib/services/download/download_service.dart:1897",
+    "location": "lib/services/download/download_service.dart:1947",
     "change": "nextDownload compares avid instead of the key",
     "phase": "both",
     "kind": "unit",
@@ -92,7 +92,7 @@
   {
     "id": "M10",
     "patch": "M10.patch",
-    "location": "lib/services/download/download_service.dart:1979",
+    "location": "lib/services/download/download_service.dart:2029",
     "change": "deletePage stops after the first entry (break)",
     "phase": "both",
     "kind": "unit",
@@ -210,7 +210,7 @@
   {
     "id": "M20",
     "patch": "M20.patch",
-    "location": "lib/services/download/download_service.dart:1155",
+    "location": "lib/services/download/download_service.dart:1198",
     "change": "the service's start drops writeStreamKey from its Future.wait with the cover (bilibili's: index.json not written)",
     "phase": "both",
     "kind": "unit",
@@ -290,7 +290,7 @@
   {
     "id": "M28",
     "patch": "M28.patch",
-    "location": "lib/services/download/download_service.dart:1214",
+    "location": "lib/services/download/download_service.dart:1257",
     "change": "_saveEntry not chained: calls the platform's save directly",
     "phase": "both",
     "kind": "unit",
@@ -480,7 +480,7 @@
   {
     "id": "M47",
     "patch": "M47.patch",
-    "location": "lib/pages/download/detail/widgets/item.dart:126",
+    "location": "lib/pages/download/detail/widgets/item.dart:127",
     "change": "no notify 400 ms after back from the offline page",
     "phase": "both",
     "kind": "widget",
@@ -510,7 +510,7 @@
   {
     "id": "M50",
     "patch": "M50.patch",
-    "location": "lib/services/download/download_service.dart:1897",
+    "location": "lib/services/download/download_service.dart:1947",
     "change": "nextDownload does not skip failed entries",
     "phase": "both",
     "kind": "unit",
@@ -560,7 +560,7 @@
   {
     "id": "M55",
     "patch": "M55.patch",
-    "location": "lib/services/download/download_service.dart:1885-1887",
+    "location": "lib/services/download/download_service.dart:1935-1937",
     "change": "export name: quality appended before the 80-code-point cut (_exportName)",
     "phase": "both",
     "kind": "unit",
@@ -622,7 +622,7 @@
   {
     "id": "P2-S1",
     "patch": "P2-S1.patch",
-    "location": "lib/services/download/download_service.dart:1125",
+    "location": "lib/services/download/download_service.dart:1168",
     "change": "the start does not check its generation after resolve",
     "phase": "2-only",
     "kind": "unit",
@@ -632,7 +632,7 @@
   {
     "id": "P2-S2",
     "patch": "P2-S2.patch",
-    "location": "lib/services/download/download_service.dart:1159-1166",
+    "location": "lib/services/download/download_service.dart:1202-1209",
     "change": "the start does not check its generation after the cover (and its orphan cleanup) is gone",
     "phase": "2-only",
     "kind": "unit",
@@ -642,7 +642,7 @@
   {
     "id": "P2-S4",
     "patch": "P2-S4.patch",
-    "location": "lib/services/download/download_service.dart:1142",
+    "location": "lib/services/download/download_service.dart:1185",
     "change": "a readStreamKey that throws empties the stream folder too",
     "phase": "2-only",
     "kind": "unit",
@@ -662,7 +662,7 @@
   {
     "id": "P2-F12",
     "patch": "P2-F12.patch",
-    "location": "lib/services/download/download_service.dart:1183",
+    "location": "lib/services/download/download_service.dart:1226",
     "change": "lastError is set in the start's catch for every platform (not only for a DownloadResolveFailure)",
     "phase": "2-only",
     "kind": "unit",
@@ -672,7 +672,7 @@
   {
     "id": "P2-H6",
     "patch": "P2-H6.patch",
-    "location": "lib/services/download/download_service.dart:2054-2058",
+    "location": "lib/services/download/download_service.dart:2104-2108",
     "change": "DownloadHost.save without its guard: straight to _saveEntry (no generation, current-entry or folder check, none at its turn)",
     "phase": "2-only",
     "kind": "unit",
@@ -682,7 +682,7 @@
   {
     "id": "P2-H7",
     "patch": "P2-H7.patch",
-    "location": "lib/services/download/download_service.dart:2100",
+    "location": "lib/services/download/download_service.dart:2150",
     "change": "attach's callbacks without the finished flag: a callback after the transfer's own done still acts",
     "phase": "2-only",
     "kind": "unit",
@@ -692,7 +692,7 @@
   {
     "id": "P2-H8",
     "patch": "P2-H8.patch",
-    "location": "lib/services/download/download_service.dart:2088-2095",
+    "location": "lib/services/download/download_service.dart:2138-2145",
     "change": "attach does not refuse a second transfer while one is live (the slot is overwritten)",
     "phase": "2-only",
     "kind": "unit",
@@ -702,7 +702,7 @@
   {
     "id": "P2-E1",
     "patch": "P2-E1.patch",
-    "location": "lib/services/download/download_service.dart:1442",
+    "location": "lib/services/download/download_service.dart:1489",
     "change": "_completeDownload: a platform with extrasEnabled false still goes into extrasQueue and gets its extras job",
     "phase": "2-only",
     "kind": "unit",
@@ -712,7 +712,7 @@
   {
     "id": "P2-E2",
     "patch": "P2-E2.patch",
-    "location": "lib/services/download/download_service.dart:1482-1483",
+    "location": "lib/services/download/download_service.dart:1529-1530",
     "change": "_resumeExtras does not look at extrasEnabled",
     "phase": "2-only",
     "kind": "unit",
@@ -722,7 +722,7 @@
   {
     "id": "P2-E3",
     "patch": "P2-E3.patch",
-    "location": "lib/services/download/download_service.dart:1427",
+    "location": "lib/services/download/download_service.dart:1474",
     "change": "_completeDownload: extras_pending not written for a platform with extrasEnabled false",
     "phase": "2-only",
     "kind": "unit",
@@ -762,7 +762,7 @@
   {
     "id": "P2-D3",
     "patch": "P2-D3.patch",
-    "location": "lib/services/download/download_service.dart:1790",
+    "location": "lib/services/download/download_service.dart:1840",
     "change": "_internalPageName without yt_<11 id characters>",
     "phase": "2-only",
     "kind": "unit",
@@ -772,7 +772,7 @@
   {
     "id": "P2-D4",
     "patch": "P2-D4.patch",
-    "location": "lib/services/download/download_platform_yt.dart:1035",
+    "location": "lib/services/download/download_platform_yt.dart:1207",
     "change": "checkExisting: a record it cannot read counts as none (a new one made over it)",
     "phase": "2-only",
     "kind": "unit",
@@ -782,7 +782,7 @@
   {
     "id": "P2-D5",
     "patch": "P2-D5.patch",
-    "location": "lib/services/download/download_platform_yt.dart:1037",
+    "location": "lib/services/download/download_platform_yt.dart:1209",
     "change": "checkExisting compares the video ids ignoring case",
     "phase": "2-only",
     "kind": "unit",
@@ -792,7 +792,7 @@
   {
     "id": "P2-D6",
     "patch": "P2-D6.patch",
-    "location": "lib/services/download/download_platform_yt.dart:1080",
+    "location": "lib/services/download/download_platform_yt.dart:1252",
     "change": "create does not wait for the list to be read",
     "phase": "2-only",
     "kind": "unit",
@@ -802,7 +802,7 @@
   {
     "id": "P2-D7",
     "patch": "P2-D7.patch",
-    "location": "lib/services/download/download_service.dart:630-637",
+    "location": "lib/services/download/download_service.dart:650-657",
     "change": "the list does not check the platform first: _platforms[...] ?? StateError, caught as an unreadable record",
     "phase": "2-only",
     "kind": "unit",
@@ -812,7 +812,7 @@
   {
     "id": "P2-D8",
     "patch": "P2-D8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:1049",
+    "location": "lib/services/download/download_platform_yt.dart:1221",
     "change": "newEntry writes the time stamps in ms (not seconds)",
     "phase": "2-only",
     "kind": "unit",
@@ -822,7 +822,7 @@
   {
     "id": "P2-L1",
     "patch": "P2-L1.patch",
-    "location": "lib/services/download/download_platform_yt.dart:931",
+    "location": "lib/services/download/download_platform_yt.dart:1103",
     "change": "localCover gives the remote thumbnail when there is no cover.jpg",
     "phase": "2-only",
     "kind": "unit",
@@ -832,7 +832,7 @@
   {
     "id": "P2-L2",
     "patch": "P2-L2.patch",
-    "location": "lib/services/download/download_platform_yt.dart:941",
+    "location": "lib/services/download/download_platform_yt.dart:1113",
     "change": "progressOf's position from LocalHistory.resumePoint (null, so 0, under one second); finished kept",
     "phase": "2-only",
     "kind": "unit",
@@ -842,7 +842,7 @@
   {
     "id": "P2-L3",
     "patch": "P2-L3.patch",
-    "location": "lib/services/download/download_platform_yt.dart:992",
+    "location": "lib/services/download/download_platform_yt.dart:1164",
     "change": "onDeleted removes the video's LocalHistory entry",
     "phase": "2-only",
     "kind": "unit",
@@ -862,7 +862,7 @@
   {
     "id": "P2-L9",
     "patch": "P2-L9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:17,782",
+    "location": "lib/services/download/download_platform_yt.dart:18,941",
     "change": "the cover through Request.dio (the app's Dio)",
     "phase": "2-only",
     "kind": "unit",
@@ -872,7 +872,7 @@
   {
     "id": "P2-L13",
     "patch": "P2-L13.patch",
-    "location": "lib/services/download/download_platform_yt.dart:1004-1006",
+    "location": "lib/services/download/download_platform_yt.dart:1176-1178",
     "change": "openOffline calls LocalPlayer.open even when merged_path is null (once, with an empty path)",
     "phase": "2-only",
     "kind": "unit",
@@ -882,7 +882,7 @@
   {
     "id": "P2-L14",
     "patch": "P2-L14.patch",
-    "location": "lib/services/download/download_platform_yt.dart:1006",
+    "location": "lib/services/download/download_platform_yt.dart:1178",
     "change": "openOffline opens the online page instead of LocalPlayer.open(merged_path)",
     "phase": "2-only",
     "kind": "unit",
@@ -892,7 +892,7 @@
   {
     "id": "P2-R1",
     "patch": "P2-R1.patch",
-    "location": "lib/services/youtube/yt_format_select.dart:217",
+    "location": "lib/services/youtube/yt_format_select.dart:227",
     "change": "no excludeMuxed: a muxed format (itag 18) can be the video of a download",
     "phase": "2-only",
     "kind": "unit",
@@ -902,7 +902,7 @@
   {
     "id": "P2-R2",
     "patch": "P2-R2.patch",
-    "location": "lib/services/youtube/yt_format_select.dart:373",
+    "location": "lib/services/youtube/yt_format_select.dart:383",
     "change": "a pin's audio looked for among every track, not the default track's pool",
     "phase": "2-only",
     "kind": "unit",
@@ -912,7 +912,7 @@
   {
     "id": "P2-R3",
     "patch": "P2-R3.patch",
-    "location": "lib/services/download/download_platform_yt.dart:54",
+    "location": "lib/services/download/download_platform_yt.dart:55",
     "change": "YtStreamTag: the audio track as its id cleaned up (non-alphanumerics to _), not its digest",
     "phase": "2-only",
     "kind": "unit",
@@ -922,7 +922,7 @@
   {
     "id": "P2-R4",
     "patch": "P2-R4.patch",
-    "location": "lib/services/download/download_platform_yt.dart:57",
+    "location": "lib/services/download/download_platform_yt.dart:58",
     "change": "YtStreamTag: no .drc for DRC audio",
     "phase": "2-only",
     "kind": "unit",
@@ -932,7 +932,7 @@
   {
     "id": "P2-R5",
     "patch": "P2-R5.patch",
-    "location": "lib/services/youtube/yt_format_select.dart:233",
+    "location": "lib/services/youtube/yt_format_select.dart:243",
     "change": "exactHeight not judged (the nearest under the cap instead)",
     "phase": "2-only",
     "kind": "unit",
@@ -952,7 +952,7 @@
   {
     "id": "P2-R12",
     "patch": "P2-R12.patch",
-    "location": "lib/services/download/download_platform_yt.dart:84",
+    "location": "lib/services/download/download_platform_yt.dart:85",
     "change": "YtStreamTag.matches compares the raw track id with the digest of the folder name",
     "phase": "2-only",
     "kind": "unit",
@@ -962,7 +962,7 @@
   {
     "id": "P2-R17",
     "patch": "P2-R17.patch",
-    "location": "lib/services/youtube/yt_format_select.dart:388",
+    "location": "lib/services/youtube/yt_format_select.dart:398",
     "change": "no preferNonDrc: the higher-bitrate DRC audio over the plain one",
     "phase": "2-only",
     "kind": "unit",
@@ -972,7 +972,7 @@
   {
     "id": "P2-R18",
     "patch": "P2-R18.patch",
-    "location": "lib/services/youtube/yt_format_select.dart:235",
+    "location": "lib/services/youtube/yt_format_select.dart:245",
     "change": "exactHeight compared with ytShortSide, not ytQualityTier",
     "phase": "2-only",
     "kind": "unit",
@@ -992,7 +992,7 @@
   {
     "id": "P2-D9",
     "patch": "P2-D9.patch",
-    "location": "lib/services/download/download_service.dart:934",
+    "location": "lib/services/download/download_service.dart:977",
     "change": "_getDownloadEntryDir's old-export guard takes entry.json only",
     "phase": "2-only",
     "kind": "unit",
@@ -1002,7 +1002,7 @@
   {
     "id": "P2-D10",
     "patch": "P2-D10.patch",
-    "location": "lib/services/download/download_service.dart:1731",
+    "location": "lib/services/download/download_service.dart:1782",
     "change": "_deleteMerged's isDownload takes entry.json only",
     "phase": "2-only",
     "kind": "unit",
@@ -1012,7 +1012,7 @@
   {
     "id": "P2-D11",
     "patch": "P2-D11.patch",
-    "location": "lib/services/download/download_service.dart:1988",
+    "location": "lib/services/download/download_service.dart:2038",
     "change": "deletePage's foreign-folder branch deletes entry.json folders only",
     "phase": "2-only",
     "kind": "unit",
@@ -1202,7 +1202,7 @@
   {
     "id": "P2-S3",
     "patch": "P2-S3.patch",
-    "location": "lib/services/download/download_service.dart:1162",
+    "location": "lib/services/download/download_service.dart:1205",
     "change": "the start's orphan check takes entry.json only",
     "phase": "2-only",
     "kind": "unit",
@@ -1212,7 +1212,7 @@
   {
     "id": "P2-S5",
     "patch": "P2-S5.patch",
-    "location": "lib/services/download/download_service.dart:1118",
+    "location": "lib/services/download/download_service.dart:1161",
     "change": "streamsComplete not looked at",
     "phase": "2-only",
     "kind": "unit",
@@ -1222,7 +1222,7 @@
   {
     "id": "P2-S6",
     "patch": "P2-S6.patch",
-    "location": "lib/services/download/download_service.dart:1121",
+    "location": "lib/services/download/download_service.dart:1164",
     "change": "the cover fetched when the streams are whole",
     "phase": "2-only",
     "kind": "unit",
@@ -1232,7 +1232,7 @@
   {
     "id": "P2-S8",
     "patch": "P2-S8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:579",
+    "location": "lib/services/download/download_platform_yt.dart:734",
     "change": "YouTube's writeStreamKey writes stream.json",
     "phase": "2-only",
     "kind": "unit",
@@ -1242,7 +1242,7 @@
   {
     "id": "P2-S9",
     "patch": "P2-S9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:420",
+    "location": "lib/services/download/download_platform_yt.dart:575",
     "change": "resolve changes the entry and saves it",
     "phase": "2-only",
     "kind": "unit",
@@ -1252,7 +1252,7 @@
   {
     "id": "P2-S10",
     "patch": "P2-S10.patch",
-    "location": "lib/services/download/download_service.dart:1135",
+    "location": "lib/services/download/download_service.dart:1178",
     "change": "the stream folder made by entry.streamTypeTag, not the plan's streamTag",
     "phase": "2-only",
     "kind": "unit",
@@ -1262,7 +1262,7 @@
   {
     "id": "P2-R13",
     "patch": "P2-R13.patch",
-    "location": "lib/services/download/download_platform_yt.dart:344,379",
+    "location": "lib/services/download/download_platform_yt.dart:408,534",
     "change": "the source mode read when the adapter is built",
     "phase": "2-only",
     "kind": "unit",
@@ -1272,7 +1272,7 @@
   {
     "id": "P2-H1",
     "patch": "P2-H1.patch",
-    "location": "lib/services/download/download_service.dart:2100",
+    "location": "lib/services/download/download_service.dart:2150",
     "change": "attach's callbacks without the identical(slot) guard",
     "phase": "2-only",
     "kind": "unit",
@@ -1282,7 +1282,7 @@
   {
     "id": "P2-H2",
     "patch": "P2-H2.patch",
-    "location": "lib/services/download/download_service.dart:2083",
+    "location": "lib/services/download/download_service.dart:2133",
     "change": "attach does not check the generation",
     "phase": "2-only",
     "kind": "unit",
@@ -1292,7 +1292,7 @@
   {
     "id": "P2-H3",
     "patch": "P2-H3.patch",
-    "location": "lib/services/download/download_service.dart:2134",
+    "location": "lib/services/download/download_service.dart:2184",
     "change": "videoDone calls _completeDownload",
     "phase": "2-only",
     "kind": "unit",
@@ -1302,7 +1302,7 @@
   {
     "id": "P2-H4",
     "patch": "P2-H4.patch",
-    "location": "lib/services/download/download_service.dart:2105",
+    "location": "lib/services/download/download_service.dart:2155",
     "change": "totalBytes from the video stream only",
     "phase": "2-only",
     "kind": "unit",
@@ -1312,7 +1312,7 @@
   {
     "id": "P2-H5",
     "patch": "P2-H5.patch",
-    "location": "lib/services/download/download_service.dart:2057",
+    "location": "lib/services/download/download_service.dart:2107",
     "change": "the handle's save past the per-folder chain",
     "phase": "2-only",
     "kind": "unit",
@@ -1352,7 +1352,7 @@
   {
     "id": "P2-F7",
     "patch": "P2-F7.patch",
-    "location": "lib/services/download/download_service.dart:222,1347",
+    "location": "lib/services/download/download_service.dart:222,1390",
     "change": "a failure's kind used again once read: neither _retryLater nor the completion clears it (the concept; either clear alone is equivalent)",
     "phase": "2-only",
     "kind": "unit",
@@ -1382,7 +1382,7 @@
   {
     "id": "P2-F8",
     "patch": "P2-F8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:745",
+    "location": "lib/services/download/download_platform_yt.dart:904",
     "change": "429 classified as refused",
     "phase": "2-only",
     "kind": "unit",
@@ -1412,7 +1412,7 @@
   {
     "id": "P2-F11",
     "patch": "P2-F11.patch",
-    "location": "lib/services/download/download_service.dart:1185",
+    "location": "lib/services/download/download_service.dart:1228",
     "change": "YouTube resolve failures noted as the network (playUrl: true)",
     "phase": "2-only",
     "kind": "unit",
@@ -1422,7 +1422,7 @@
   {
     "id": "P2-R6",
     "patch": "P2-R6.patch",
-    "location": "lib/services/download/download_platform_yt.dart:451",
+    "location": "lib/services/download/download_platform_yt.dart:606",
     "change": "liveNow not looked at",
     "phase": "2-only",
     "kind": "unit",
@@ -1432,7 +1432,7 @@
   {
     "id": "P2-R7",
     "patch": "P2-R7.patch",
-    "location": "lib/services/download/download_platform_yt.dart:561-562",
+    "location": "lib/services/download/download_platform_yt.dart:716-717",
     "change": "live_stream_offline classified other",
     "phase": "2-only",
     "kind": "unit",
@@ -1442,7 +1442,7 @@
   {
     "id": "P2-R8",
     "patch": "P2-R8.patch",
-    "location": "lib/services/download/download_platform_yt.dart:400",
+    "location": "lib/services/download/download_platform_yt.dart:555",
     "change": "no-pinned-pair (neither source) classified noFormat",
     "phase": "2-only",
     "kind": "unit",
@@ -1452,7 +1452,7 @@
   {
     "id": "P2-R9",
     "patch": "P2-R9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:638-639",
+    "location": "lib/services/download/download_platform_yt.dart:793-794",
     "change": "quality_label not rewritten from the picked format",
     "phase": "2-only",
     "kind": "unit",
@@ -1462,7 +1462,7 @@
   {
     "id": "P2-R14",
     "patch": "P2-R14.patch",
-    "location": "lib/services/download/download_platform_yt.dart:470",
+    "location": "lib/services/download/download_platform_yt.dart:625",
     "change": "no-pinned-pair: the other source not asked",
     "phase": "2-only",
     "kind": "unit",
@@ -1472,7 +1472,7 @@
   {
     "id": "P2-R15",
     "patch": "P2-R15.patch",
-    "location": "lib/services/download/download_platform_yt.dart:482",
+    "location": "lib/services/download/download_platform_yt.dart:637",
     "change": "the download's own router on sharedHealth",
     "phase": "2-only",
     "kind": "unit",
@@ -1482,7 +1482,7 @@
   {
     "id": "P2-R16",
     "patch": "P2-R16.patch",
-    "location": "lib/services/download/download_platform_yt.dart:472-478",
+    "location": "lib/services/download/download_platform_yt.dart:627-633",
     "change": "the direct source asked during its cooldown",
     "phase": "2-only",
     "kind": "unit",
@@ -1492,7 +1492,7 @@
   {
     "id": "P2-T15",
     "patch": "P2-T15.patch",
-    "location": "lib/services/download/download_service.dart:1093",
+    "location": "lib/services/download/download_service.dart:1136",
     "change": "YouTube does not call restartVideo()",
     "phase": "2-only",
     "kind": "unit",
@@ -1502,8 +1502,8 @@
   {
     "id": "P2-L5",
     "patch": "P2-L5.patch",
-    "location": "lib/services/download/download_platform_yt.dart:917",
-    "change": "the 720p switch's apply keeps stream_tag",
+    "location": "lib/services/download/download_platform_yt.dart:1084",
+    "change": "the 720p switch's apply keeps stream_tag (regenerated in 2f: apply gives back its undo)",
     "phase": "2-only",
     "kind": "unit",
     "test": "test/services/download/yt_quality_test.dart",
@@ -1512,7 +1512,7 @@
   {
     "id": "P2-R11",
     "patch": "P2-R11.patch",
-    "location": "lib/services/download/download_platform_yt.dart:563",
+    "location": "lib/services/download/download_platform_yt.dart:718",
     "change": "clientBroken + no-playable-pair classified noFormat",
     "phase": "2-only",
     "kind": "unit",
@@ -1522,7 +1522,7 @@
   {
     "id": "P2-X1",
     "patch": "P2-X1.patch",
-    "location": "lib/services/download/download_platform_yt.dart:885",
+    "location": "lib/services/download/download_platform_yt.dart:1044",
     "change": "transcriptKey a bilibili key",
     "phase": "2-only",
     "kind": "unit",
@@ -1532,7 +1532,7 @@
   {
     "id": "P2-X2",
     "patch": "P2-X2.patch",
-    "location": "lib/services/download/download_service.dart:1468",
+    "location": "lib/services/download/download_service.dart:1515",
     "change": "_completeDownload marks only bilibili entries for their transcript",
     "phase": "2-only",
     "kind": "unit",
@@ -1632,7 +1632,7 @@
   {
     "id": "P2-S11",
     "patch": "P2-S11.patch",
-    "location": "lib/services/download/download_platform_yt.dart:295-298",
+    "location": "lib/services/download/download_platform_yt.dart:344-347",
     "change": "YouTube's initialBytes lets a stream's length lookup throw",
     "phase": "2-only",
     "kind": "unit",
@@ -1652,7 +1652,7 @@
   {
     "id": "P2-R19",
     "patch": "P2-R19.patch",
-    "location": "lib/services/download/download_platform_yt.dart:441",
+    "location": "lib/services/download/download_platform_yt.dart:596",
     "change": "an upcoming video's suspect verdict passed to the router as it is",
     "phase": "2-only",
     "kind": "unit",
@@ -1662,7 +1662,7 @@
   {
     "id": "P2-R20",
     "patch": "P2-R20.patch",
-    "location": "lib/services/download/download_platform_yt.dart:391",
+    "location": "lib/services/download/download_platform_yt.dart:546",
     "change": "the download picks with preferNonDrc false",
     "phase": "2-only",
     "kind": "unit",
@@ -1672,7 +1672,7 @@
   {
     "id": "P2-R21",
     "patch": "P2-R21.patch",
-    "location": "lib/services/download/download_platform_yt.dart:535",
+    "location": "lib/services/download/download_platform_yt.dart:690",
     "change": "the pin drops stream.json's DRC mark",
     "phase": "2-only",
     "kind": "unit",
@@ -1682,7 +1682,7 @@
   {
     "id": "P2-R22",
     "patch": "P2-R22.patch",
-    "location": "lib/services/download/download_platform_yt.dart:523",
+    "location": "lib/services/download/download_platform_yt.dart:678",
     "change": "the pin from the folder name only (stream.json's track id not taken)",
     "phase": "2-only",
     "kind": "unit",
@@ -1702,7 +1702,7 @@
   {
     "id": "P2-H9",
     "patch": "P2-H9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:645",
+    "location": "lib/services/download/download_platform_yt.dart:800",
     "change": "the save after attach bound to the start's generation",
     "phase": "2-only",
     "kind": "unit",
@@ -1712,7 +1712,7 @@
   {
     "id": "P2-R23",
     "patch": "P2-R23.patch",
-    "location": "lib/services/download/download_platform_yt.dart:487-493",
+    "location": "lib/services/download/download_platform_yt.dart:642-648",
     "change": "the other (direct) source's detail not asked whether the video is live",
     "phase": "2-only",
     "kind": "unit",
@@ -1722,7 +1722,7 @@
   {
     "id": "P2-R24",
     "patch": "P2-R24.patch",
-    "location": "lib/services/download/download_platform_yt.dart:499-502",
+    "location": "lib/services/download/download_platform_yt.dart:654-657",
     "change": "the own router's health kept when the download was deleted meanwhile",
     "phase": "2-only",
     "kind": "unit",
@@ -1732,11 +1732,101 @@
   {
     "id": "P2-R25",
     "patch": "P2-R25.patch",
-    "location": "lib/services/download/download_platform_yt.dart:726",
+    "location": "lib/services/download/download_platform_yt.dart:885",
     "change": "the own router's health kept after a merge that fails (not damaged)",
     "phase": "2-only",
     "kind": "unit",
     "test": "test/services/download/yt_start_edges_test.dart",
     "catcher": "yt_start_edges_test.dart: a merge that fails (not damaged) ends the download: its health goes"
+  },
+  {
+    "id": "P2-L4",
+    "patch": "P2-L4.patch",
+    "location": "lib/services/download/download_platform_yt.dart:1072",
+    "change": "the 720p button on every failure whose retries are spent",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_yt_test.dart",
+    "catcher": "detail_item_yt_test.dart: 「切换为下载 720p」 another failure: no button"
+  },
+  {
+    "id": "P2-L10",
+    "patch": "P2-L10.patch",
+    "location": "lib/services/download/download_platform_yt.dart:1072",
+    "change": "the 720p button without gaveUp",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/download/detail_item_yt_test.dart",
+    "catcher": "detail_item_yt_test.dart: 「切换为下载 720p」 failQuality, retries not spent: no button"
+  },
+  {
+    "id": "P2-L6",
+    "patch": "P2-L6.patch",
+    "location": "lib/pages/youtube/video/download_sheet.dart:356",
+    "change": "a greyed tier can be tapped (selected)",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/youtube/download_sheet_test.dart",
+    "catcher": "download_sheet_test.dart: the other source has 1080, the current one not: 1080 greyed, not tappable, its words; the other asked on a router of its own"
+  },
+  {
+    "id": "P2-L7",
+    "patch": "P2-L7.patch",
+    "location": "lib/pages/youtube/video/download_sheet.dart:203",
+    "change": "the panel tells live by isLive (isLiveContent), not liveNow",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/youtube/download_sheet_test.dart",
+    "catcher": "download_sheet_test.dart: a live stream's replay (live content, not live now): listed"
+  },
+  {
+    "id": "P2-L11",
+    "patch": "P2-L11.patch",
+    "location": "lib/pages/youtube/video/download_sheet.dart:183",
+    "change": "the panel's tiers from the page's detail, not its own answer",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/youtube/download_sheet_test.dart",
+    "catcher": "download_sheet_test.dart: the page's own detail is not the list: its 1080 is not selectable when the panel's answer lacks it"
+  },
+  {
+    "id": "P2-L12",
+    "patch": "P2-L12.patch",
+    "location": "lib/pages/youtube/video/download_sheet.dart:70",
+    "change": "page cap 0: nothing selected",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/youtube/download_sheet_test.dart",
+    "catcher": "download_sheet_test.dart: page cap 0 (none): the highest tier selected"
+  },
+  {
+    "id": "P2-L15",
+    "patch": "P2-L15.patch",
+    "location": "lib/pages/youtube/video/download_sheet.dart:57",
+    "change": "the greyed tiers without the other source's (the current one only)",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/youtube/download_sheet_test.dart",
+    "catcher": "download_sheet_test.dart: the other source has 1080, the current one not: 1080 greyed, not tappable, its words; the other asked on a router of its own"
+  },
+  {
+    "id": "P2-L16",
+    "patch": "P2-L16.patch",
+    "location": "lib/services/download/download_platform_yt.dart:485",
+    "change": "the panel asks the direct source while it cools down",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/youtube/download_sheet_test.dart",
+    "catcher": "download_sheet_test.dart: Invidious current while direct cools down: direct not asked, no greyed tier"
+  },
+  {
+    "id": "P2-L17",
+    "patch": "P2-L17.patch",
+    "location": "lib/pages/youtube/video/download_sheet.dart:73",
+    "change": "the default compares the page cap with the tiers, not the short sides",
+    "phase": "2-only",
+    "kind": "widget",
+    "test": "test/pages/youtube/download_sheet_test.dart",
+    "catcher": "download_sheet_test.dart: a wide film: 1080, 720, 480; page cap 800 selects 1080"
   }
 ]

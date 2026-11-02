@@ -1,0 +1,14 @@
+diff --git a/lib/pages/youtube/video/download_sheet.dart b/lib/pages/youtube/video/download_sheet.dart
+--- a/lib/pages/youtube/video/download_sheet.dart
++++ b/lib/pages/youtube/video/download_sheet.dart
+@@ -70,7 +70,9 @@ int? ytDefaultTier(List<YtFormat> formats, int pageCap) {
+   if (videos.isEmpty) return null;
+   final within = pageCap <= 0
+       ? videos
+-      : videos.where((f) => ytShortSide(f) <= pageCap).toList();
++      : videos
++            .where((f) => ytQualityTier(f.width ?? 0, f.height ?? 0) <= pageCap)
++            .toList();
+   return (within.isEmpty ? videos : within)
+       .map((f) => ytQualityTier(f.width ?? 0, f.height ?? 0))
+       .reduce(math.max);

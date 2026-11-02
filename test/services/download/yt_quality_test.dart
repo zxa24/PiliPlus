@@ -7,6 +7,7 @@
 // restarts the download at tier 720 in a new stream folder. Never a quiet
 // step down.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
@@ -225,6 +226,54 @@ void main() {
     },
   );
 
+  test(
+    'the switch taken twice while the first is saving: one save, one start',
+    () async {
+      await start();
+      h.direct.formats = without137();
+      h.invidious.formats = without137();
+      final e = h.entry();
+      unawaited(h.service.startDownload(e));
+      await until(() => e.gaveUp, reason: 'its retries spent');
+      final action = h.service.platformOf(e).failureAction(e)!;
+      final gate = Completer<void>();
+      final routers = h.routers.length;
+      final (first, second) = await IOOverrides.runWithIOOverrides(() async {
+        final first = h.service.takeFailureAction(e, action);
+        final second = await h.service.takeFailureAction(e, action);
+        gate.complete();
+        return (first, second);
+      }, _HeldFirstSave(gate.future));
+      expect(second, isNull);
+      expect(await first, isTrue);
+      await h.untilStatus(e);
+      // one start: one resolve on the shared router
+      expect(h.routers.skip(routers).where((r) => !r.own), hasLength(1));
+    },
+  );
+
+  test('the switch not saved: the entry as it was, not started', () async {
+    await start();
+    h.direct.formats = without137();
+    h.invidious.formats = without137();
+    final e = h.entry();
+    unawaited(h.service.startDownload(e));
+    await until(() => e.gaveUp, reason: 'its retries spent');
+    final before = (e.maxHeight, e.streamTag, e.quality);
+    final routers = h.routers.length;
+    final took = await IOOverrides.runWithIOOverrides(
+      () => h.service.takeFailureAction(
+        e,
+        h.service.platformOf(e).failureAction(e)!,
+      ),
+      _NoRecord(),
+    );
+    expect(took, isFalse);
+    expect((e.maxHeight, e.streamTag, e.quality), before);
+    expect(e.status, DownloadStatus.failQuality);
+    expect(h.routers.length, routers);
+  });
+
   test('the switch: not on a failure that is not the quality', () async {
     await start(pinned: false);
     final e = h.entry()
@@ -258,4 +307,87 @@ void main() {
     expect(DownloadService.beforeMergeForTest, isNotNull);
     expect(e, isA<YtDownloadEntry>());
   });
+}
+
+/// The first record written in its zone waits for its gate; the start's
+/// ones after it are written as they are.
+final class _HeldFirstSave extends IOOverrides {
+  _HeldFirstSave(this.gate);
+
+  final Future<void> gate;
+  var _held = false;
+
+  @override
+  File createFile(String file) {
+    final made = super.createFile(file);
+    if (_held || !file.endsWith('${YtDownloadEntry.recordFile}.tmp')) {
+      return made;
+    }
+    _held = true;
+    return _Held(made, gate);
+  }
+}
+
+class _Held implements File {
+  _Held(this._file, this._gate);
+
+  final File _file;
+  final Future<void> _gate;
+
+  @override
+  String get path => _file.path;
+
+  @override
+  bool existsSync() => _file.existsSync();
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async {
+    await _gate;
+    return _file.writeAsString(contents, mode: mode, flush: flush);
+  }
+
+  @override
+  Future<File> rename(String newPath) => _file.rename(newPath);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// No record can be written in its zone.
+final class _NoRecord extends IOOverrides {
+  @override
+  File createFile(String file) {
+    final made = super.createFile(file);
+    return file.endsWith('${YtDownloadEntry.recordFile}.tmp')
+        ? _Unwritable(made)
+        : made;
+  }
+}
+
+class _Unwritable implements File {
+  _Unwritable(this._file);
+
+  final File _file;
+
+  @override
+  String get path => _file.path;
+
+  @override
+  bool existsSync() => _file.existsSync();
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async => throw FileSystemException('no room', _file.path);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

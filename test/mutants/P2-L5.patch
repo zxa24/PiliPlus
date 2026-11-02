@@ -1,11 +1,11 @@
 diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
 --- a/lib/services/download/download_platform_yt.dart
 +++ b/lib/services/download/download_platform_yt.dart
-@@ -854,7 +854,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
-           label: '切换为下载 720p',
-           apply: (entry) => (entry as YtDownloadEntry)
-             ..maxHeight = 720
--            ..streamTag = null
-             ..quality = '720p',
-         )
-       : null;
+@@ -1081,7 +1081,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
+             );
+             entry
+               ..maxHeight = 720
+-              ..streamTag = null
+               ..quality = '720p';
+             return () => entry
+               ..maxHeight = tier

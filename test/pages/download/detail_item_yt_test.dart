@@ -2,10 +2,12 @@
 // AC7, AC-O): the saved cover or a placeholder (nothing fetched for the
 // list), the YouTube badge, the watch progress from the local history,
 // and a tap on a completed one: its exported file played as a local file,
-// or, when its merge failed, a toast and nothing opened.
-//
-// The 720p button (the failQuality case) is 2f's: its cases join this file
-// then.
+// or, when its merge failed, a toast and nothing opened. 2f: the 720p
+// button on a download whose tier is not on offer and whose retries are
+// spent (§4.2, AC-Q ③ ④): its tap switches the record to the 720 tier and
+// starts it; a record that cannot be saved leaves the entry as it was.
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -14,6 +16,7 @@ import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
 import 'package:PiliPlus/services/download/download_platform_yt.dart';
+import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
@@ -41,7 +44,10 @@ class _Progress extends ChangeNotifier {}
 
 void main() {
   late Directory storage;
-  final h = DownloadHarness();
+  // the service with YouTube's entrances set: a restart (the 720p button)
+  // resolves and transfers offline
+  final y = YtHarness();
+  late DownloadHarness h;
   final opened = <String>[];
   final toasts = <String>[];
 
@@ -51,7 +57,9 @@ void main() {
       'localHistory-yt-item',
       bytes: Uint8List(0),
     );
-    await h.start(entries: const []);
+    h = y.base;
+    await y.start();
+    DetailItem.toastForTest = toasts.add;
     YtDownloadPlatform.openLocalForTest = (p) async {
       opened.add(p);
       return true;
@@ -59,7 +67,8 @@ void main() {
     YtDownloadPlatform.toastForTest = toasts.add;
   });
   tearDownAll(() async {
-    await h.stop();
+    DetailItem.toastForTest = null;
+    await y.stop();
     await closeDownloadStorage(storage);
   });
   setUp(() async {
@@ -199,6 +208,186 @@ void main() {
     expect(Get.currentRoute, '/');
     await tester.pump(const Duration(milliseconds: 500));
   });
+
+  group('「切换为下载 720p」', () {
+    /// A download at the 1080 tier, failed as [status] ([gaveUp]: its
+    /// retries spent), its record on disk, in the queue.
+    YtDownloadEntry failed(DownloadStatus status, {bool gaveUp = true}) {
+      final e = ytEntry(h.root, maxHeight: 1080)
+        ..streamTag = '137-140'
+        ..quality = '1080p';
+      writeYtRecord(h.root, e);
+      e
+        ..status = status
+        ..gaveUp = gaveUp;
+      h.service.waitDownloadQueue.add(e);
+      return e;
+    }
+
+    Future<void> remove(WidgetTester tester, YtDownloadEntry e) =>
+        tester.runAsync(
+          () => h.service.deleteDownload(
+            entry: e,
+            removeList: true,
+            removeQueue: true,
+            deleteExported: true,
+          ),
+        );
+
+    testWidgets('failQuality, retries spent: the button', (tester) async {
+      final e = failed(DownloadStatus.failQuality);
+      await pump(tester, e);
+      expect(find.text('切换为下载 720p'), findsOneWidget);
+      await remove(tester, e);
+    });
+
+    testWidgets('another failure: no button', (tester) async {
+      final e = failed(DownloadStatus.failDownload);
+      await pump(tester, e);
+      expect(find.text('切换为下载 720p'), findsNothing);
+      await remove(tester, e);
+    });
+
+    testWidgets('failQuality, retries not spent: no button', (tester) async {
+      final e = failed(DownloadStatus.failQuality, gaveUp: false);
+      await pump(tester, e);
+      expect(find.text('切换为下载 720p'), findsNothing);
+      await remove(tester, e);
+    });
+
+    testWidgets('it shows once the retries are spent', (tester) async {
+      final e = failed(DownloadStatus.failQuality, gaveUp: false);
+      await pump(tester, e);
+      expect(find.text('切换为下载 720p'), findsNothing);
+      e.gaveUp = true;
+      e.progress.statusChanged();
+      await tester.pump();
+      expect(find.text('切换为下载 720p'), findsOneWidget);
+      await remove(tester, e);
+    });
+
+    testWidgets(
+      'the retries spent by the service itself: the button shows (the row '
+      'hears it)',
+      (tester) async {
+        final e = failed(DownloadStatus.wait, gaveUp: false)..streamTag = null;
+        // neither source has the 1080 tier
+        final keep = y.direct.formats;
+        for (final s in [y.direct, y.invidious]) {
+          s.formats = [
+            for (final f in keep)
+              if (f['itag'] != 137) f,
+          ];
+        }
+        DownloadService.retryWaitsForTest = const [
+          Duration.zero,
+          Duration.zero,
+          Duration.zero,
+        ];
+        try {
+          await pump(tester, e);
+          expect(find.text('切换为下载 720p'), findsNothing);
+          await tester.runAsync(() async {
+            unawaited(h.service.startDownload(e));
+            await until(
+              () => e.gaveUp && e.status == DownloadStatus.failQuality,
+              reason: 'its retries spent',
+            );
+          });
+          await tester.pump();
+          expect(find.text('切换为下载 720p'), findsOneWidget);
+        } finally {
+          DownloadService.retryWaitsForTest = null;
+          for (final s in [y.direct, y.invidious]) {
+            s.formats = keep;
+          }
+        }
+        await remove(tester, e);
+      },
+    );
+
+    testWidgets(
+      'a tap: the record at the 720 tier, no stream folder, then started',
+      (tester) async {
+        final e = failed(DownloadStatus.failQuality);
+        await pump(tester, e);
+        await tester.runAsync(() async {
+          await tester.tap(find.text('切换为下载 720p'));
+          await y.untilStatus(e);
+        });
+        expect(e.maxHeight, 720);
+        expect(toasts, isEmpty);
+        final record = await tester.runAsync(() => y.record(e));
+        expect(record!['max_height'], 720);
+        // the 720 tier's pair (§4.5), in a new folder
+        expect(record['stream_tag'], '136-140');
+        await remove(tester, e);
+      },
+    );
+
+    testWidgets(
+      'a record that cannot be saved: the entry as it was, a toast, not '
+      'started',
+      (tester) async {
+        final e = failed(DownloadStatus.failQuality);
+        await pump(tester, e);
+        await tester.runAsync(() async {
+          await IOOverrides.runWithIOOverrides(
+            () => tester.tap(find.text('切换为下载 720p')),
+            _NoSave(),
+          );
+          await until(() => toasts.isNotEmpty, reason: 'its toast');
+        });
+        expect(toasts, ['下载记录保存失败，未重新开始']);
+        expect(
+          (e.maxHeight, e.streamTag, e.quality),
+          (
+            1080,
+            '137-140',
+            '1080p',
+          ),
+        );
+        expect(e.status, DownloadStatus.failQuality);
+        final record = await tester.runAsync(() => y.record(e));
+        expect(record!['max_height'], 1080);
+        await remove(tester, e);
+      },
+    );
+  });
+}
+
+/// Every record written in its zone fails.
+final class _NoSave extends IOOverrides {
+  @override
+  File createFile(String file) {
+    final made = super.createFile(file);
+    return file.endsWith('${YtDownloadEntry.recordFile}.tmp')
+        ? _FailingFile(made)
+        : made;
+  }
+}
+
+class _FailingFile implements File {
+  _FailingFile(this._file);
+
+  final File _file;
+
+  @override
+  String get path => _file.path;
+
+  @override
+  bool existsSync() => _file.existsSync();
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async => throw FileSystemException('no room', _file.path);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// A 1x1 PNG.

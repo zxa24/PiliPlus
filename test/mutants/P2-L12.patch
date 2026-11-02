@@ -1,0 +1,12 @@
+diff --git a/lib/pages/youtube/video/download_sheet.dart b/lib/pages/youtube/video/download_sheet.dart
+--- a/lib/pages/youtube/video/download_sheet.dart
++++ b/lib/pages/youtube/video/download_sheet.dart
+@@ -67,7 +67,7 @@ List<int> ytGreyedTiers(List<int> downloadable, List<int>? other) {
+ /// page is the 1080 tier here.
+ int? ytDefaultTier(List<YtFormat> formats, int pageCap) {
+   final videos = ytMp4VideoFormats(formats);
+-  if (videos.isEmpty) return null;
++  if (videos.isEmpty || pageCap <= 0) return null;
+   final within = pageCap <= 0
+       ? videos
+       : videos.where((f) => ytShortSide(f) <= pageCap).toList();

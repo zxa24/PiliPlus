@@ -8,7 +8,7 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show HttpException, Platform;
+import 'dart:io' show Platform;
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
 import 'package:PiliPlus/models/common/subtitle_source_preference.dart';
@@ -21,9 +21,6 @@ import 'package:PiliPlus/services/asr/asr_publish.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/asr/model_guard.dart';
-import 'package:PiliPlus/services/asr/model_store.dart'
-    show AsrCancelToken, AsrCancelled;
-import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_choice.dart';
 import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
@@ -44,7 +41,6 @@ import 'package:PiliPlus/services/shutdown_timer_service.dart'
 import 'package:PiliPlus/services/youtube/invidious_instances.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/yt_tracks.dart';
-import 'package:PiliPlus/services/youtube/yt_download.dart';
 import 'package:PiliPlus/services/youtube/yt_source_store.dart';
 import 'package:PiliPlus/services/youtube/yt_subscriptions.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -56,8 +52,7 @@ import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart' show AndroidHelper;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart'
-    show AppLifecycleListener, BuildContext, WidgetsBinding;
+import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsBinding;
 import 'package:get/get.dart';
 import 'package:media_kit/media_kit.dart' show SubtitleTrack;
 
@@ -707,161 +702,6 @@ class YtVideoController extends GetxController
   // ------------------------------------------------------------ subscription
 
   /// Followed locally; YouTube is never told. There is no account here.
-  // ------------------------------------------------------------- download
-
-  /// Downloading is its own path rather than the bilibili download queue:
-  /// that queue is built around an on-disk entry with aid/cid, danmaku and a
-  /// cover, none of which describes a YouTube video. What it shares is the
-  /// remuxer, so the result is the same thing — one finished mp4.
-  final downloading = false.obs;
-  YtDownloadToken? _downloadToken;
-
-  Future<void> download(BuildContext context) async {
-    if (downloading.value) {
-      _downloadToken?.cancel();
-      return;
-    }
-    final pair = _streams;
-    if (pair == null) {
-      SmartDialog.showToast('还没有可下载的流');
-      return;
-    }
-    final token = _downloadToken = _YtDownloadToken();
-    downloading.value = true;
-    SmartDialog.showLoading(
-      msg: '准备下载',
-      onDismiss: token.cancel,
-    );
-    try {
-      String? shownMsg;
-      String? shownStage;
-      DateTime? shownAt;
-      void showProgress(double fraction, String stage) {
-        if (isClosed) return;
-        // every received chunk rebuilt the overlay: only a new figure, and
-        // no more often than a few times a second, except a new stage
-        final msg =
-            '$stage ${(fraction * 100).clamp(0, 100).toStringAsFixed(0)}%';
-        final now = DateTime.now();
-        if (msg == shownMsg ||
-            (stage == shownStage &&
-                shownAt != null &&
-                now.difference(shownAt!) < const Duration(milliseconds: 250))) {
-          return;
-        }
-        shownMsg = msg;
-        shownStage = stage;
-        shownAt = now;
-        SmartDialog.showLoading(msg: msg, onDismiss: token.cancel);
-      }
-
-      final title = detail.value?.title ?? videoId;
-      // the formats' own sizes, which the job's notification counts
-      // against; without one, bitrate × duration. None at all: no job, the
-      // download runs as it did before
-      int sizeOf(YtFormat? f) {
-        if (f == null) return 0;
-        final length = f.contentLength;
-        if (length != null && length > 0) return length;
-        final rate = f.averageBitrate ?? f.bitrate;
-        final ms = f.approxDurationMs ?? 0;
-        return rate > 0 && ms > 0 ? rate * ms ~/ 8000 : 0;
-      }
-
-      int sizeOfPair(YtStreamPair p) =>
-          sizeOf(p.video) + (p.videoUrl == p.audioUrl ? 0 : sizeOf(p.audio));
-
-      // what plays, for the job: an MP4 pair looked up below is about as
-      // big, and the job must be asked for straight from the tap
-      final bytes = sizeOfPair(pair);
-      if (bytes <= 0 && Platform.isAndroid) {
-        EventLog.add(
-          'transfer',
-          'no background job for "$title": size unknown, downloading '
-              'in-process',
-        );
-      }
-      // inside a user-initiated job, as model downloads are: on Android 15
-      // the network goes ~5 s after the screen locks (oct-pass3-D8)
-      final file = await BackgroundTransfer.instance.run(
-        title: '下载 $title',
-        bytes: bytes,
-        token: _YtJobToken(token),
-        body: (keepAlive) async {
-          try {
-            var streams = pair;
-            if (!YtDownloader.remuxable(streams)) {
-              // what plays (VP9 above 1080p, say) is WebM, which the remuxer
-              // cannot read: an MP4 pair of its own, as close to the cap as
-              // MP4 goes
-              // a cancel ends the job now, not when the lookup and its
-              // retries return; what the lookup brings later is dropped
-              final mp4 = await Future.any([
-                play.run(
-                  (s) => s.streams(
-                    videoId,
-                    preference: YtFormatPreference.mp4Download(maxHeight.value),
-                  ),
-                ),
-                token.cancelled.then<YtRoutedResult<YtStreamPair>>(
-                  (_) => throw const YtDownloadCancelled(),
-                ),
-              ]);
-              if (token.isCancelled) throw const YtDownloadCancelled();
-              if (!mp4.ok || mp4.value == null) {
-                throw mp4.verdict.signal.endsWith('no-playable-pair')
-                    ? const YtDownloadNotMp4()
-                    : _messageFor(mp4.verdict);
-              }
-              streams = mp4.value!;
-            }
-            // the pair downloaded, once it is known
-            final own = sizeOfPair(streams);
-            final total = own > 0 ? own : bytes;
-            return await YtDownloader.download(
-              pair: streams,
-              videoId: videoId,
-              title: title,
-              token: token,
-              onProgress: (fraction, stage) {
-                keepAlive((
-                  label: 'YouTube 视频',
-                  received: (fraction.clamp(0, 1) * total).round(),
-                  total: total,
-                  verifying: false,
-                ));
-                showProgress(fraction, stage);
-              },
-            );
-          } on YtDownloadCancelled {
-            // the job ends as cancelled, not as failed
-            throw const AsrCancelled();
-          }
-        },
-      );
-      SmartDialog.dismiss(status: SmartStatus.loading);
-      SmartDialog.showToast('已保存到 $file');
-    } on YtDownloadCancelled {
-      SmartDialog.dismiss(status: SmartStatus.loading);
-      SmartDialog.showToast('已取消下载');
-    } on AsrCancelled {
-      SmartDialog.dismiss(status: SmartStatus.loading);
-      SmartDialog.showToast('已取消下载');
-    } on YtDownloadNotMp4 catch (e) {
-      SmartDialog.dismiss(status: SmartStatus.loading);
-      SmartDialog.showToast('$e');
-    } catch (e) {
-      SmartDialog.dismiss(status: SmartStatus.loading);
-      // not the URL: googlevideo's carries the viewer's address and a
-      // signature, and HttpException's words quote it whole
-      final why = e is HttpException ? e.message : EventLog.withoutQuery('$e');
-      SmartDialog.showToast('下载失败: $why');
-    } finally {
-      downloading.value = false;
-      _downloadToken = null;
-    }
-  }
-
   // ----------------------------------------------------------- favourites
 
   /// Favourites live in the same local folders bilibili videos do — there is
@@ -2184,33 +2024,5 @@ class YtVideoController extends GetxController
     // after the player let go of its streams
     unawaited(_relay?.close());
     super.onClose();
-  }
-}
-
-/// The job's cancel (its notification's button, the system's task manager)
-/// reaches the download's own token.
-/// A download token that can also be awaited: the MP4 lookup before a
-/// download races it.
-class _YtDownloadToken extends YtDownloadToken {
-  final _cancel = Completer<void>();
-
-  Future<void> get cancelled => _cancel.future;
-
-  @override
-  void cancel() {
-    super.cancel();
-    if (!_cancel.isCompleted) _cancel.complete();
-  }
-}
-
-class _YtJobToken extends AsrCancelToken {
-  _YtJobToken(this._download);
-
-  final YtDownloadToken _download;
-
-  @override
-  void cancel() {
-    super.cancel();
-    _download.cancel();
   }
 }

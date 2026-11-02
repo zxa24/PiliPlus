@@ -127,7 +127,10 @@ import 'package:PiliPlus/services/platform_service.dart';
 import 'package:PiliPlus/services/youtube/youtube.dart';
 import 'package:PiliPlus/services/youtube/stream_relay.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
-import 'package:PiliPlus/services/youtube/yt_download.dart';
+import 'package:PiliPlus/services/youtube/yt_pair_transfer.dart';
+import 'package:PiliPlus/services/download/download_platform_yt.dart';
+import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
+import 'package:PiliPlus/pages/youtube/video/download_sheet.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
 import 'package:PiliPlus/services/asr/asr_schedule.dart';
@@ -196,7 +199,8 @@ import 'package:material_ui/material_ui.dart'
         Scaffold,
         SimpleDialog,
         Tooltip,
-        showDialog;
+        showDialog,
+        showModalBottomSheet;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 import 'package:PiliPlus/common/widgets/scale_app.dart';
@@ -213,6 +217,8 @@ import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_track.dart';
 import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/parallel_fetch.dart';
+
+part 'self_test_yt_download.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
 ///
@@ -1570,13 +1576,31 @@ abstract final class SelfTest {
     if (_arg(args, '--yt-replies') case final video?) {
       await scenario('ytReplies', () => _ytReplies(video));
     }
+    // the YouTube downloads (stage-2 plan §5): through the queue
     if (_arg(args, '--yt-download') case final video?) {
-      // --keep leaves the finished mp4 on disk, so another scenario (the
-      // transcriber) can be pointed at it instead of inventing a source
       await scenario(
         'ytDownload',
-        () => _ytDownload(video, keep: args.contains('--keep')),
+        () => _YtDl.download(args, video, mode: 'download'),
       );
+    }
+    if (_arg(args, '--yt-resume') case final video?) {
+      await scenario(
+        'ytResume',
+        () => _YtDl.download(args, video, mode: 'resume'),
+      );
+    }
+    if (_arg(args, '--yt-download-transcribe') case final video?) {
+      await scenario(
+        'ytDownloadTranscribe',
+        () => _YtDl.download(args, video, mode: 'transcribe'),
+      );
+    }
+    if (_arg(args, '--yt-panel') case final video?) {
+      _shots = _arg(args, '--shots') ?? _shots;
+      await scenario('ytPanel', () => _YtDl.panel(video));
+    }
+    if (_arg(args, '--yt-open') case final video?) {
+      await scenario('ytOpen', () => _YtDl.open(video));
     }
     if (_arg(args, '--yt-fav') case final video?) {
       await scenario('ytFav', () => _ytFav(video));
@@ -3540,95 +3564,6 @@ abstract final class SelfTest {
         json,
         'commentThreadRenderer',
       ).isNotEmpty,
-    };
-  }
-
-  /// LibrePili: download a YouTube video and check the file is one playable
-  /// mp4, not two halves with an extension.
-  ///
-  /// The two adaptive streams are remuxed by the same pure-Dart [Mp4Remuxer]
-  /// the bilibili downloads use, so "it finished" is not the question — the
-  /// question is whether the container it wrote has both tracks and a
-  /// duration. That is read back out of the file.
-  static Future<Map<String, dynamic>> _ytDownload(
-    String input, {
-    bool keep = false,
-  }) async {
-    final videoId = tryParseYouTubeVideoId(input) ?? input;
-    unawaited(Get.toNamed('/ytVideo', parameters: {'id': videoId}));
-    await Future.delayed(const Duration(seconds: 4));
-    final controller = Get.find<YtVideoController>(tag: videoId);
-    for (var i = 0; i < 20 && controller.stage.value != .ready; i++) {
-      await Future.delayed(const Duration(seconds: 1));
-    }
-    final pair = controller.streams;
-    if (pair == null) {
-      Get.back();
-      return {'pass': false, 'reason': 'no streams'};
-    }
-
-    // a small cap so the probe downloads a few MB rather than a whole 4K
-    // review: the container is what is being checked, not the bandwidth
-    await controller.setMaxHeight(controller.availableHeights.last);
-    await Future.delayed(const Duration(seconds: 2));
-
-    final stages = <String>[];
-    String? file;
-    String? error;
-    try {
-      file = await YtDownloader.download(
-        pair: controller.streams!,
-        videoId: videoId,
-        title: controller.detail.value?.title ?? videoId,
-        onProgress: (_, stage) {
-          if (stages.isEmpty || stages.last != stage) stages.add(stage);
-        },
-      );
-    } catch (e) {
-      error = '$e';
-    }
-    Get.back();
-    await Future.delayed(const Duration(seconds: 1));
-
-    var bytes = 0;
-    var playable = false;
-    Duration? duration;
-    if (file != null && File(file).existsSync()) {
-      bytes = File(file).lengthSync();
-      // open it the way a player would, and read what it reports back
-      final player = await Player.create();
-      try {
-        await player.open(Media(file), play: false);
-        for (var i = 0; i < 20; i++) {
-          await Future.delayed(const Duration(milliseconds: 500));
-          if (player.state.duration > Duration.zero) break;
-        }
-        duration = player.state.duration;
-        playable =
-            duration > Duration.zero &&
-            player.state.tracks.video.length > 1 &&
-            player.state.tracks.audio.length > 1;
-      } catch (e) {
-        error ??= 'open: $e';
-      } finally {
-        await player.dispose();
-      }
-      if (!keep) {
-        try {
-          File(file).deleteSync();
-        } catch (_) {}
-      }
-    }
-
-    return {
-      'pass': error == null && playable && bytes > 0,
-      'file': file,
-      'bytes': bytes,
-      'seconds': duration?.inSeconds,
-      'expected': controller.detail.value?.duration.inSeconds,
-      'playable': playable,
-      'stages': stages,
-      'error': error,
     };
   }
 
@@ -12855,12 +12790,12 @@ final class _StatusTrail {
   _StatusTrail(this.service, this.find);
 
   final DownloadService service;
-  final BiliDownloadEntryInfo? Function() find;
+  final DownloadEntry? Function() find;
 
   /// Adjacent repeats dropped; `none` while there is no entry.
   final statuses = <String>[];
   final _subscriptions = <StreamSubscription<Object?>>[];
-  BiliDownloadEntryInfo? _entry;
+  DownloadEntry? _entry;
 
   void start() {
     _subscriptions.addAll([

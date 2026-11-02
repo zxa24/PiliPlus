@@ -1,0 +1,12 @@
+diff --git a/lib/pages/youtube/video/download_sheet.dart b/lib/pages/youtube/video/download_sheet.dart
+--- a/lib/pages/youtube/video/download_sheet.dart
++++ b/lib/pages/youtube/video/download_sheet.dart
+@@ -200,7 +200,7 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
+     });
+   }
+ 
+-  bool get _live => (_offer?.liveNow ?? false) || _otherLive;
++  bool get _live => (_offer?.detail?.isLive ?? false) || _otherLive;
+ 
+   bool get _canDownload =>
+       !_loading &&

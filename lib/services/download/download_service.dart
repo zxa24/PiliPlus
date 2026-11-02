@@ -570,8 +570,28 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   @visibleForTesting
   Future<void> knownReadForTest = Future<void>.value();
 
+  /// The self-tests' (`--yt-list-delay`, stage-2 plan §5 AC14): the list
+  /// read this much later, in any build; null in every other run.
+  static Duration? selfTestListDelay;
+
+  /// What the self-tests report of the service at a merge (stage-2 plan
+  /// §5): the start's lock held, no transfer in either slot, the keep-alive
+  /// notification's state.
+  ({bool locked, bool noTransfer, DownloadKeepAliveState? keepAlive})
+  get selfTestState => (
+    locked: _lock.locked,
+    noTransfer: _downloadManager == null && _audioDownloadManager == null,
+    keepAlive: _keepAliveState,
+  );
+
+  /// What the self-tests report as a download's failure kind (stage-2 plan
+  /// §5 `failureKind`): the one noted for [key] now (read before a retry
+  /// takes it).
+  DownloadFailure? selfTestFailureOf(DownloadKey key) => _lastFailure[key];
+
   Future<void> _readDownloadList() async {
     if (readListGateForTest case final gate?) await gate();
+    if (selfTestListDelay case final wait?) await Future<void>.delayed(wait);
     downloadList.clear();
     waitDownloadQueue.clear();
     final downloadDir = Directory(await _getDownloadPath());
@@ -880,6 +900,29 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     }
     return DownloadAddResult.added;
   }
+
+  /// A platform's action on a failed entry ([DownloadPlatform.
+  /// failureAction], the 720p button, stage-2 plan §4.2): [action] changes
+  /// the entry, then [restartWith]. Not saved: the entry is put back as it
+  /// was, so memory and the record agree, and false. One at a time per
+  /// download: a second tap while the first is saving does nothing (null).
+  Future<bool?> takeFailureAction(
+    DownloadEntry entry,
+    DownloadFailureAction action,
+  ) async {
+    final key = entry.key;
+    if (!_takingAction.add(key)) return null;
+    try {
+      final undo = action.apply(entry);
+      if (await restartWith(entry)) return true;
+      undo();
+      return false;
+    } finally {
+      _takingAction.remove(key);
+    }
+  }
+
+  final _takingAction = <DownloadKey>{};
 
   /// [entry]'s record saved as it is now (a page changed it: the 720p
   /// button, stage-2 plan §4.2), then started again. False: the record
@@ -1354,6 +1397,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     } else if (beforeMergeForTest case final hook?) {
       await hook(entry);
     }
+    // the self-tests' (stage-2 plan §5: `--yt-stop merge`, `lockedAtMerge`)
+    if (entry is! BiliDownloadEntryInfo) {
+      await selfTestBeforeOtherMerge?.call(entry);
+    }
     final platform = platformOf(entry);
     final (:output, :inputs, :damaged, :corrupt) = await platform.merge(
       entry,
@@ -1603,6 +1650,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   @visibleForTesting
   static Future<void> Function(DownloadEntry entry)? beforeMergeForTest;
 
+  /// Self test only: [selfTestBeforeMerge] for the entries of the other
+  /// platforms (stage-2 plan §5), in any build.
+  static Future<void> Function(DownloadEntry entry)? selfTestBeforeOtherMerge;
+
   // Tests only: stand-ins for what a download reaches out to (null: the
   // real call). They let a test run the queue on a temporary folder with no
   // network, no transfer and no remux.
@@ -1773,10 +1824,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     return _getDownloadPath();
   }
 
-  /// [_exportDir] and [_scanMedia] for the YouTube downloader: its files go
-  /// where these do, not into the app-private folder on Android.
+  /// [_exportDir] for the self-tests: the exported files go there, not into
+  /// the app-private folder on Android.
   static Future<String> exportDir() => _exportDir();
-  static Future<void> scanMedia(String path) => _scanMedia(path);
 
   static final _illegalFileChars = RegExp(r'[\\/:*?"<>|\x00-\x1F]');
 

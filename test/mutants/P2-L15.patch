@@ -1,0 +1,12 @@
+diff --git a/lib/pages/youtube/video/download_sheet.dart b/lib/pages/youtube/video/download_sheet.dart
+--- a/lib/pages/youtube/video/download_sheet.dart
++++ b/lib/pages/youtube/video/download_sheet.dart
+@@ -54,7 +54,7 @@ List<int> ytDownloadableTiers(List<YtFormat> formats) => {
+ /// other source's downloadable tiers [other] together — less
+ /// [downloadable]. Without the other source's answer: none.
+ List<int> ytGreyedTiers(List<int> downloadable, List<int>? other) {
+-  final reference = {...downloadable, ...?other};
++  final reference = {...downloadable};
+   return (reference..removeAll(downloadable)).toList()
+     ..sort((a, b) => b.compareTo(a));
+ }

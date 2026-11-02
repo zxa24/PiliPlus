@@ -135,10 +135,14 @@ class DownloadResolveFailure implements Exception {
   String toString() => message;
 }
 
-/// A platform's own action on a failed entry of the list.
+/// A platform's own action on a failed entry of the list: [apply] changes
+/// the entry in memory only and gives back what puts it back (the record
+/// is then saved and the download started again,
+/// `DownloadService.takeFailureAction`; a save that fails puts it back, so
+/// the entry in memory stays the one on disk).
 typedef DownloadFailureAction = ({
   String label,
-  void Function(DownloadEntry entry) apply,
+  void Function() Function(DownloadEntry entry) apply,
 });
 
 /// What a failure means for the queue ([DownloadPlatform.classify]).
