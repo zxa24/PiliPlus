@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -654,10 +654,6 @@ class YtPairTransfer implements DownloadTransfer {
+@@ -677,10 +677,6 @@ class YtPairTransfer implements DownloadTransfer {
          case HttpStatus.ok:
            // the range ignored: the whole stream, which only a start from 0
            // can take (after bytes on disk it would be appended to them)

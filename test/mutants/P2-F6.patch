@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -499,7 +499,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+           '${entry.logLabel}: failed off screen (${entry.status.name}), '
+               'started again',
+         );
+-        platformOf(entry).beforeRetry(entry, keys[entry.key]);
++        platformOf(entry).beforeRetry(entry, null);
+         startDownload(entry);
+         return;
+       }

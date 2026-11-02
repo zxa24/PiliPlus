@@ -135,6 +135,29 @@ class YtStreamId {
 /// One stream to download: its address and its identity there.
 typedef YtStreamSpec = ({String url, YtStreamId id});
 
+/// A stream folder's identities as a start reads them before its transfer
+/// (the progress bar's first values, whether both streams are whole, the
+/// pin; stage-2 plan §3.3): `stream.json`, else its `.tmp` (as the
+/// transfer reads them); null: neither reads. Read only, and capped as the
+/// transfer's read is.
+({YtStreamId? video, YtStreamId? audio})? readYtStreamIds(String dir) {
+  final file = File(path.join(dir, 'stream.json'));
+  for (final f in [file, File('${file.path}.tmp')]) {
+    try {
+      if (!f.existsSync() || f.lengthSync() > 64 << 10) continue;
+      final json = jsonDecode(f.readAsStringSync());
+      if (json is Map<String, dynamic> &&
+          json['format'] == _StreamMeta.format) {
+        return (
+          video: YtStreamId.fromJson(json['video']),
+          audio: YtStreamId.fromJson(json['audio']),
+        );
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
 /// What a decision at a stream's start leads to.
 enum _Plan { download, resume, complete }
 

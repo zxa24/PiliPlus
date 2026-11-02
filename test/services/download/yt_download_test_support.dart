@@ -1,12 +1,10 @@
 // LibrePili: what the YouTube download tests share (stage-2 plan
 // feature-logs/download-platforms/phase2-plan.md §3.1): records written
 // into a download root as the adapter writes them, the panel's video
-// detail, a fake HttpClient (the cover) and a fake server of a video's
-// two streams (the pair transfer, 2d).
-//
-// Stage 2b: no stream source or YtHarness yet (they come with the start,
-// 2e); the tests here run the service through DownloadHarness, whose
-// `before` plants the records before the list is read.
+// detail, a fake HttpClient (the cover), a fake server of a video's two
+// streams (the pair transfer, 2d), and for the start (2e) the sources that
+// really pick formats (FormatYtSource) and the service with YouTube's
+// entrances set (YtHarness, over DownloadHarness).
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14,12 +12,20 @@ import 'dart:io';
 import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/download/download_platform_yt.dart';
+import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/youtube/source_router.dart';
 import 'package:PiliPlus/services/youtube/stream_relay.dart';
+import 'package:PiliPlus/services/youtube/video_source.dart';
+import 'package:PiliPlus/services/youtube/yt_format_select.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
 import 'package:PiliPlus/services/youtube/yt_pair_transfer.dart';
+import 'package:PiliPlus/services/youtube/yt_source_store.dart';
+import 'package:PiliPlus/services/youtube/yt_verdict.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
+
+import 'download_test_support.dart';
 
 /// `<YT_LONG>` of the plan's §5.
 const ytId = 'dQw4w9WgXcQ';
@@ -722,4 +728,351 @@ void setUpPairTransfer() {
     YtPairTransfer.selfTestInject = null;
     YtStreamRelay.proxyFor = null;
   });
+}
+
+// ------------------------------------------------- sources and harness
+
+/// A video format of [FakeStreamServer]'s `video` stream: [bytes] its
+/// `contentLength`, [lmt] its `lastModified` (null: not given).
+Map<String, dynamic> ytVideoFormat(
+  int itag, {
+  int width = 1920,
+  int height = 1080,
+  String codec = 'avc1.640028',
+  int? bytes,
+  String? lmt = 'v1',
+  String? label,
+  int bitrate = 2000000,
+}) => {
+  'itag': itag,
+  'mimeType': 'video/mp4; codecs="$codec"',
+  'url': '${FakeStreamServer.url('video')}?itag=$itag',
+  'bitrate': bitrate,
+  'width': width,
+  'height': height,
+  'qualityLabel': ?label,
+  'contentLength': ?bytes?.toString(),
+  'lastModified': ?lmt,
+};
+
+/// An audio format of [FakeStreamServer]'s `audio` stream.
+Map<String, dynamic> ytAudioFormat(
+  int itag, {
+  int? bytes,
+  String? lmt = 'a1',
+  String? track,
+  bool isDefault = true,
+  bool drc = false,
+  int bitrate = 128000,
+}) => {
+  'itag': itag,
+  'mimeType': 'audio/mp4; codecs="mp4a.40.2"',
+  'url': '${FakeStreamServer.url('audio')}?itag=$itag${drc ? '&drc' : ''}',
+  'bitrate': bitrate,
+  'contentLength': ?bytes?.toString(),
+  'lastModified': ?lmt,
+  if (track != null) 'audioTrack': {'id': track, 'audioIsDefault': isDefault},
+  if (drc) 'isDrc': true,
+};
+
+/// A [YouTubeVideoSource] holding [formats] (stage-2 plan §3.1): its
+/// `detail` gives them (with [liveNow]); its `streams` really picks with
+/// `selectYtFormats` and the preference it is given, answering
+/// `no-pinned-pair` / `no-playable-pair` as the direct source does. The
+/// next calls fail with [detailFailures] / [streamFailures], in order. It
+/// records each preference.
+class FormatYtSource implements YouTubeVideoSource {
+  FormatYtSource(this.id, this.formats, {this.liveNow = false});
+
+  @override
+  final String id;
+
+  List<Map<String, dynamic>> formats;
+  bool liveNow;
+
+  /// Videos live now (or upcoming), beside [liveNow] for all.
+  final liveIds = <String>{};
+
+  final detailFailures = <YtVerdict>[];
+  final streamFailures = <YtVerdict>[];
+
+  /// Awaited at the start of each `detail` / `streams` call.
+  Future<void> Function()? holdDetail;
+  Future<void> Function()? holdStreams;
+  final preferences = <YtFormatPreference>[];
+  var detailCalls = 0;
+  var streamCalls = 0;
+
+  @override
+  String get label => id;
+
+  @override
+  Future<YtResult<YtVideoDetail>> detail(String videoId) async {
+    detailCalls++;
+    await holdDetail?.call();
+    if (detailFailures.isNotEmpty) {
+      return YtResult.failed(detailFailures.removeAt(0));
+    }
+    return YtResult.ok(
+      YtVideoDetail(
+        videoId: videoId,
+        title: 'Never Gonna Give You Up',
+        author: 'Rick Astley',
+        channelId: 'UCuAXFkgsw1L7xaCfnd5JJOw',
+        duration: const Duration(seconds: 213),
+        thumbnails: const [],
+        formats: [for (final f in formats) YtFormat(f)],
+        captionTracks: const [],
+        isLive: liveNow || liveIds.contains(videoId),
+        liveNow: liveNow || liveIds.contains(videoId),
+        expiresIn: const Duration(hours: 6),
+      ),
+    );
+  }
+
+  @override
+  Future<YtResult<YtStreamPair>> streams(
+    String videoId, {
+    YtFormatPreference preference = YtFormatPreference.standard,
+  }) async {
+    streamCalls++;
+    preferences.add(preference);
+    await holdStreams?.call();
+    if (streamFailures.isNotEmpty) {
+      return YtResult.failed(streamFailures.removeAt(0));
+    }
+    final all = [for (final f in formats) YtFormat(f)];
+    final picked = selectYtFormats(all, preference);
+    if (picked == null) {
+      if (preference.strict && selectYtFormats(all, preference.loose) != null) {
+        return const YtResult.failed(
+          YtVerdict(YtCause.contentUnavailable, 'no-pinned-pair'),
+        );
+      }
+      final offered =
+          preference.listedCodecsOnly && selectYtFormats(all) != null;
+      return YtResult.failed(
+        YtVerdict(
+          offered ? YtCause.contentUnavailable : YtCause.clientBroken,
+          'no-playable-pair',
+        ),
+      );
+    }
+    return YtResult.ok(
+      YtStreamPair(
+        videoUrl: picked.video.url!,
+        audioUrl: picked.audio.url!,
+        sourceId: id,
+        expiresIn: const Duration(hours: 6),
+        video: picked.video,
+        audio: picked.audio,
+      ),
+    );
+  }
+
+  @override
+  Future<YtResult<List<YtCaptionTrack>>> captionTracks(String videoId) async =>
+      const YtResult.failed(YtVerdict(YtCause.clientBroken, 'not here'));
+
+  @override
+  Future<YtResult<String>> captionContent(
+    YtCaptionTrack track, {
+    YtCaptionFormat format = YtCaptionFormat.vtt,
+    String? translateTo,
+  }) async =>
+      const YtResult.failed(YtVerdict(YtCause.clientBroken, 'not here'));
+
+  @override
+  Future<YtVerdict> probe() async => YtVerdict.ok;
+}
+
+/// A router [YtHarness] made: its mode, whether it was a download's own,
+/// and whether its health table was the pages' shared one.
+typedef YtRouterMade = ({YtSourceMode mode, bool own, bool shared});
+
+/// The download service with YouTube's entrances set (stage-2 plan §3.1):
+/// a [DownloadHarness] with no bilibili entries unless asked, the records
+/// [records] makes planted before the list is read, the two sources
+/// ([direct], [invidious]) behind every router, the real pair transfer on
+/// [server], the merge's remux recorded (and failed with [remuxError]),
+/// `beforeMergeForTest` recorded and held by [mergeGate].
+class YtHarness {
+  final base = DownloadHarness();
+
+  DownloadService get service => base.service;
+  Directory get root => base.root;
+  List<String> get log => base.log;
+  List<String> get toasts => base.toasts;
+
+  late FakeStreamServer server;
+  late FormatYtSource direct;
+  late FormatYtSource invidious;
+
+  final routers = <YtRouterMade>[];
+  final playbackFailed = <String>[];
+
+  /// The remux's inputs, per merge.
+  final remuxed = <List<String>>[];
+
+  /// What `beforeMergeForTest` was called with.
+  final beforeMerge = <DownloadEntry>[];
+
+  /// Held in `beforeMergeForTest`.
+  Future<void>? Function(DownloadEntry entry)? mergeGate;
+
+  /// Thrown by the next remux instead of writing the output (once).
+  Object? remuxError;
+
+  /// [YtDownloadPlatform.newTransferForTest]; null: the real transfer.
+  DownloadTransfer Function(YtTransferSpec spec, DownloadTransferReport r)?
+  newTransfer;
+
+  Future<void> start({
+    List<YtDownloadEntry Function(Directory root)> records = const [],
+    List<String> bili = const [],
+    List<Map<String, dynamic>>? formats,
+    FutureOr<void> Function(Directory root)? before,
+    Map<String, Object?> Function(String entry, Map<String, dynamic> json)?
+    patch,
+  }) async {
+    server = FakeStreamServer({
+      'video': ytBytes(300 * 1024 + 5, 1),
+      'audio': ytBytes(120 * 1024 + 3, 2),
+    });
+    final all =
+        formats ??
+        [
+          ytVideoFormat(137, bytes: server.bodies['video']!.length),
+          ytVideoFormat(
+            136,
+            width: 1280,
+            height: 720,
+            bytes: server.bodies['video']!.length,
+          ),
+          ytAudioFormat(140, bytes: server.bodies['audio']!.length),
+        ];
+    direct = FormatYtSource('direct', all);
+    invidious = FormatYtSource('invidious', all);
+    YtPairTransfer.chunkSize = 100 << 10;
+    YtPairTransfer.backoff = (_) => Duration.zero;
+    YtPairTransfer.idleTimeout = const Duration(seconds: 5);
+    YtStreamRelay.proxyFor = (_) => 'PROXY 127.0.0.1:9';
+    YtDownloadPlatform.routerForTest = (mode, {required own, required health}) {
+      routers.add((
+        mode: mode,
+        own: own,
+        shared: identical(health, YtSourceRouter.sharedHealth),
+      ));
+      return YtSourceRouter(
+        direct,
+        fallback: invidious,
+        mode: mode,
+        health: health,
+        sleep: (_) async {},
+      );
+    };
+    YtDownloadPlatform.playbackFailedForTest = playbackFailed.add;
+    YtDownloadPlatform.toastForTest = base.toasts.add;
+    YtDownloadPlatform.httpClientForTest = () => server.client();
+    YtDownloadPlatform.newTransferForTest = newTransfer;
+    YtDownloadPlatform.remuxForTest = (inputs, output) async {
+      remuxed.add(inputs);
+      if (remuxError case final e?) {
+        remuxError = null;
+        throw e;
+      }
+      await File(output).writeAsBytes([
+        for (final i in inputs) ...File(i).readAsBytesSync(),
+      ]);
+    };
+    DownloadService.beforeMergeForTest = (entry) async {
+      beforeMerge.add(entry);
+      await mergeGate?.call(entry);
+    };
+    await base.start(
+      entries: bili,
+      patch: patch,
+      before: (root) async {
+        for (final make in records) {
+          writeYtRecord(root, make(root));
+        }
+        await before?.call(root);
+      },
+    );
+  }
+
+  Future<void> stop() async {
+    await base.stop();
+    YtPairTransfer.chunkSize = 4 << 20;
+    YtPairTransfer.backoff = (n) => Duration(seconds: n);
+    YtPairTransfer.idleTimeout = const Duration(seconds: 30);
+    YtPairTransfer.selfTestOnBytes = null;
+    YtPairTransfer.selfTestOnRequest = null;
+    YtPairTransfer.selfTestInject = null;
+    YtStreamRelay.proxyFor = null;
+    YtDownloadPlatform.routerForTest = null;
+    YtDownloadPlatform.playbackFailedForTest = null;
+    YtDownloadPlatform.newTransferForTest = null;
+    YtDownloadPlatform.remuxForTest = null;
+    DownloadService.beforeMergeForTest = null;
+    YtSourceStore.debugMode = YtSourceMode.auto;
+    YtSourceRouter.sharedHealth.clear();
+    routers.clear();
+    playbackFailed.clear();
+    remuxed.clear();
+    beforeMerge.clear();
+    mergeGate = null;
+    remuxError = null;
+    newTransfer = null;
+  }
+
+  /// The service's own object for the YouTube download of [id].
+  YtDownloadEntry entry([String id = ytId]) =>
+      [...service.waitDownloadQueue, ...service.downloadList].firstWhere(
+        (e) => e.key == 'yt:$id',
+      ) as YtDownloadEntry;
+
+  /// Starts [entry] and waits until it has [status] (or one of [any]);
+  /// with neither, until it is complete (in the list of downloads, its
+  /// merge over: the status a completion passes through is replaced in the
+  /// same turn).
+  Future<void> run(
+    YtDownloadEntry entry, {
+    DownloadStatus? status,
+    Set<DownloadStatus>? any,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    unawaited(service.startDownload(entry));
+    await untilStatus(entry, status: status, any: any, timeout: timeout);
+  }
+
+  Future<void> untilStatus(
+    YtDownloadEntry entry, {
+    DownloadStatus? status,
+    Set<DownloadStatus>? any,
+    Duration timeout = const Duration(seconds: 10),
+  }) {
+    final want = any ?? {?status};
+    return until(
+      () => want.isEmpty
+          ? service.downloadList.contains(entry)
+          : want.contains(entry.status),
+      timeout: timeout,
+      reason: want.isEmpty
+          ? 'yt:${entry.videoId} complete'
+          : 'yt:${entry.videoId} in $want',
+    );
+  }
+
+  /// The stream folder [entry] uses now.
+  String streamDir(YtDownloadEntry entry) =>
+      path.join(entry.entryDirPath, entry.streamTypeTag);
+
+  /// [entry]'s record as it is on disk.
+  Future<Map<String, dynamic>> record(YtDownloadEntry entry) async =>
+      jsonDecode(
+        await readRecord(
+          File(path.join(entry.entryDirPath, YtDownloadEntry.recordFile)),
+        ),
+      ) as Map<String, dynamic>;
 }

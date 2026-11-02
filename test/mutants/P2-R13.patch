@@ -1,0 +1,21 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -336,6 +336,8 @@ final class YtDownloadPlatform implements DownloadPlatform {
+ 
+   YtDirectSource? _direct;
+ 
++  final YtSourceMode _modeAtStart = YtSourceStore.debugMode;
++
+   /// Each download's own router's health (never [YtSourceRouter.
+   /// sharedHealth]), dropped when the download completes or is deleted.
+   final _ownHealth = <DownloadKey, Map<String, YtSourceHealth>>{};
+@@ -365,7 +367,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+   Future<DownloadPlan> resolve(DownloadEntry entry) async {
+     entry as YtDownloadEntry;
+     final id = entry.videoId;
+-    final mode = YtSourceStore.debugMode;
++    final mode = _modeAtStart;
+     final play = _router(
+       mode,
+       own: false,

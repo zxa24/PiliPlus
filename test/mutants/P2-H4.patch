@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -2083,7 +2083,7 @@ final class _Host implements DownloadHost {
+     var audio = (0, 0);
+     void bytes() {
+       int known(int total) => total > 0 ? total : 0;
+-      final total = known(video.$2) + known(audio.$2);
++      final total = known(video.$2);
+       // the size is saved when it changes, the bytes only in memory (as
+       // [_onReceive] does)
+       if (total > 0 && entry.totalBytes != total) {

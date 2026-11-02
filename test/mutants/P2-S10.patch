@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1132,7 +1132,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+         // login mode re-resolves to a lower quality and that used to throw
+         // away a nearly finished transfer
+         final streamDir = Directory(
+-          path.join(entry.entryDirPath, plan.streamTag),
++          path.join(entry.entryDirPath, entry.streamTypeTag),
+         );
+         final newKey = platform.streamKey(plan);
+         if (newKey != null && streamDir.existsSync()) {

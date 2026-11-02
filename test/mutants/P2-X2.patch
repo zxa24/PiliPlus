@@ -1,0 +1,14 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1457,7 +1457,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+       // the transcript only needs the video file: it does not wait for the
+       // extras either (its files and entry.json are written one at a time
+       // with theirs)
+-      unawaited(transcripts.finished(entry));
++      if (entry is BiliDownloadEntryInfo) {
++        unawaited(transcripts.finished(entry));
++      }
+       // comments / subtitles etc. can take many requests: do not hold the
+       // queue for them
+       if (extras) _queueExtras(entry, output);

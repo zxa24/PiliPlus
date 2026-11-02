@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -257,7 +257,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+     entry.status = DownloadStatus.retryWait;
+     curDownload.refresh();
+     entry.progress.statusChanged();
+-    platformOf(entry).beforeRetry(entry, kind);
+     // a pause, a delete or another start meanwhile bumps the generation
+     final gen = _startGen;
+     Timer(wait, () {

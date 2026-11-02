@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1115,7 +1115,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+       _updateCurStatus(DownloadStatus.getPlayUrl);
+ 
+       final DownloadPlan? plan;
+-      if (platform.streamsComplete(entry)) {
++      if (platform.streamsComplete(entry) && entry.platform == 'none') {
+         // nothing to fetch: no play URL, no cover (design §2.3)
+         plan = null;
+         if (mediaGuess != null) entry.progress.mediaGuess = mediaGuess;

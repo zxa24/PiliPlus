@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -483,7 +483,7 @@ class YtPairTransfer implements DownloadTransfer {
+@@ -506,7 +506,7 @@ class YtPairTransfer implements DownloadTransfer {
      if (leg.file.existsSync()) await leg.file.delete();
      if (leg.size.existsSync()) await leg.size.delete();
      leg.expected = leg.id.bytes;

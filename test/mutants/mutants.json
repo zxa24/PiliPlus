@@ -842,7 +842,7 @@
   {
     "id": "P2-L3",
     "patch": "P2-L3.patch",
-    "location": "lib/services/download/download_platform_yt.dart:492",
+    "location": "lib/services/download/download_platform_yt.dart:932",
     "change": "onDeleted removes the video's LocalHistory entry",
     "phase": "2-only",
     "kind": "unit",
@@ -862,7 +862,7 @@
   {
     "id": "P2-L9",
     "patch": "P2-L9.patch",
-    "location": "lib/services/download/download_platform_yt.dart:17,301",
+    "location": "lib/services/download/download_platform_yt.dart:17,724",
     "change": "the cover through Request.dio (the app's Dio)",
     "phase": "2-only",
     "kind": "unit",
@@ -1032,7 +1032,7 @@
   {
     "id": "P2-T1",
     "patch": "P2-T1.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:451-455",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:474-478",
     "change": "rule 6 (complete: no request) removed",
     "phase": "2-only",
     "kind": "unit",
@@ -1042,7 +1042,7 @@
   {
     "id": "P2-T2",
     "patch": "P2-T2.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:459-461",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:482-484",
     "change": "rule 7 does not need an lmt on both sides",
     "phase": "2-only",
     "kind": "unit",
@@ -1052,7 +1052,7 @@
   {
     "id": "P2-T3",
     "patch": "P2-T3.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:378",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:401",
     "change": "the overlap check skipped",
     "phase": "2-only",
     "kind": "unit",
@@ -1062,7 +1062,7 @@
   {
     "id": "P2-T4",
     "patch": "P2-T4.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:575-576,591",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:598-599,614",
     "change": "the overlap check reads the first 64 KB",
     "phase": "2-only",
     "kind": "unit",
@@ -1082,7 +1082,7 @@
   {
     "id": "P2-T6",
     "patch": "P2-T6.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:861,870",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:884,893",
     "change": "stream.json written in place, not through .tmp + rename",
     "phase": "2-only",
     "kind": "unit",
@@ -1092,7 +1092,7 @@
   {
     "id": "P2-T7",
     "patch": "P2-T7.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:791-795",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:814-818",
     "change": "no .tmp fallback when stream.json does not read",
     "phase": "2-only",
     "kind": "unit",
@@ -1102,7 +1102,7 @@
   {
     "id": "P2-T8",
     "patch": "P2-T8.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:470-472",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:493-495",
     "change": "a second restart from 0 for the same reason allowed",
     "phase": "2-only",
     "kind": "unit",
@@ -1112,7 +1112,7 @@
   {
     "id": "P2-T9",
     "patch": "P2-T9.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:657-660",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:680-683",
     "change": "a 200 taken while resuming (appended)",
     "phase": "2-only",
     "kind": "unit",
@@ -1122,7 +1122,7 @@
   {
     "id": "P2-T10",
     "patch": "P2-T10.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:269",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:292",
     "change": "callbacks do not look at _cancelled (_say)",
     "phase": "2-only",
     "kind": "unit",
@@ -1132,7 +1132,7 @@
   {
     "id": "P2-T11",
     "patch": "P2-T11.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:194",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:217",
     "change": "a stream already whole reported in the constructor",
     "phase": "2-only",
     "kind": "unit",
@@ -1142,7 +1142,7 @@
   {
     "id": "P2-T12",
     "patch": "P2-T12.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:314",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:337",
     "change": "done sent through then, detached from task",
     "phase": "2-only",
     "kind": "unit",
@@ -1152,7 +1152,7 @@
   {
     "id": "P2-T13",
     "patch": "P2-T13.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:757-760",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:780-783",
     "change": "cancel closes the clients before it sets pause",
     "phase": "2-only",
     "kind": "unit",
@@ -1162,7 +1162,7 @@
   {
     "id": "P2-T14",
     "patch": "P2-T14.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:340",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:363",
     "change": "a stream's catch does not look at _cancelled first",
     "phase": "2-only",
     "kind": "unit",
@@ -1172,7 +1172,7 @@
   {
     "id": "P2-T16",
     "patch": "P2-T16.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:486",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:509",
     "change": "a restart from 0 keeps the old lmt (and total)",
     "phase": "2-only",
     "kind": "unit",
@@ -1182,7 +1182,7 @@
   {
     "id": "P2-T17",
     "patch": "P2-T17.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:846-850",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:869-873",
     "change": "each stream reads stream.json and writes it back (no _StreamMeta chain)",
     "phase": "2-only",
     "kind": "unit",
@@ -1192,11 +1192,351 @@
   {
     "id": "P2-T18",
     "patch": "P2-T18.patch",
-    "location": "lib/services/youtube/yt_pair_transfer.dart:340",
+    "location": "lib/services/youtube/yt_pair_transfer.dart:363",
     "change": "the stopped stream's exception taken as a failure",
     "phase": "2-only",
     "kind": "unit",
     "test": "test/services/download/yt_pair_transfer_test.dart",
     "catcher": "yt_pair_transfer_test.dart: the audio fails: the video stopped, one done with the audio"
+  },
+  {
+    "id": "P2-S3",
+    "patch": "P2-S3.patch",
+    "location": "lib/services/download/download_service.dart:1162",
+    "change": "the start's orphan check takes entry.json only",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_start_test.dart",
+    "catcher": "yt_start_test.dart: paused during the cover: the entry folder and its record stay"
+  },
+  {
+    "id": "P2-S5",
+    "patch": "P2-S5.patch",
+    "location": "lib/services/download/download_service.dart:1118",
+    "change": "streamsComplete not looked at",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_start_test.dart",
+    "catcher": "yt_start_test.dart: both streams already whole: no resolve, no cover, merged"
+  },
+  {
+    "id": "P2-S6",
+    "patch": "P2-S6.patch",
+    "location": "lib/services/download/download_service.dart:1121",
+    "change": "the cover fetched when the streams are whole",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_start_test.dart",
+    "catcher": "yt_start_test.dart: both streams already whole: no resolve, no cover, merged"
+  },
+  {
+    "id": "P2-S8",
+    "patch": "P2-S8.patch",
+    "location": "lib/services/download/download_platform_yt.dart:527",
+    "change": "YouTube's writeStreamKey writes stream.json",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_start_test.dart",
+    "catcher": "yt_start_test.dart: stream.json is the transfer's: another lmt → from 0 (lmt)"
+  },
+  {
+    "id": "P2-S9",
+    "patch": "P2-S9.patch",
+    "location": "lib/services/download/download_platform_yt.dart:414",
+    "change": "resolve changes the entry and saves it",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_start_test.dart",
+    "catcher": "yt_start_test.dart: paused during the resolve: the record not changed, nothing saved"
+  },
+  {
+    "id": "P2-S10",
+    "patch": "P2-S10.patch",
+    "location": "lib/services/download/download_service.dart:1135",
+    "change": "the stream folder made by entry.streamTypeTag, not the plan's streamTag",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_start_test.dart",
+    "catcher": "yt_start_test.dart: a first start: the plan's folder, both streams, the merge, the record"
+  },
+  {
+    "id": "P2-R13",
+    "patch": "P2-R13.patch",
+    "location": "lib/services/download/download_platform_yt.dart:339,368",
+    "change": "the source mode read when the adapter is built",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_start_test.dart",
+    "catcher": "yt_start_test.dart: the source mode set after launch: the router is built with it"
+  },
+  {
+    "id": "P2-H1",
+    "patch": "P2-H1.patch",
+    "location": "lib/services/download/download_service.dart:2081",
+    "change": "attach's callbacks without the identical(slot) guard",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_host_test.dart",
+    "catcher": "yt_host_test.dart: a late done of the first transfer: the second download's state, record and bytes unchanged, no merge (AC16)"
+  },
+  {
+    "id": "P2-H2",
+    "patch": "P2-H2.patch",
+    "location": "lib/services/download/download_service.dart:2064",
+    "change": "attach does not check the generation",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_host_test.dart",
+    "catcher": "yt_host_test.dart: a start no longer current: attach takes nothing, build not called"
+  },
+  {
+    "id": "P2-H3",
+    "patch": "P2-H3.patch",
+    "location": "lib/services/download/download_service.dart:2115",
+    "change": "videoDone calls _completeDownload",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_host_test.dart",
+    "catcher": "yt_host_test.dart: videoDone while the audio is downloading: no merge"
+  },
+  {
+    "id": "P2-H4",
+    "patch": "P2-H4.patch",
+    "location": "lib/services/download/download_service.dart:2086",
+    "change": "totalBytes from the video stream only",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_host_test.dart",
+    "catcher": "yt_host_test.dart: the record's total: both streams', the bytes both"
+  },
+  {
+    "id": "P2-H5",
+    "patch": "P2-H5.patch",
+    "location": "lib/services/download/download_service.dart:2049",
+    "change": "the handle's save past the per-folder chain",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_host_test.dart",
+    "catcher": "yt_host_test.dart: the handle's saves of one folder: the second's write after the first's rename"
+  },
+  {
+    "id": "P2-F2",
+    "patch": "P2-F2.patch",
+    "location": "lib/models_new/download/download_entry.dart:131",
+    "change": "failNoFormat not in isFailed",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_retry_test.dart",
+    "catcher": "yt_retry_test.dart: nothing to download: failNoFormat, no retry, the next one starts"
+  },
+  {
+    "id": "P2-F3",
+    "patch": "P2-F3.patch",
+    "location": "lib/services/download/download_service.dart:225-228",
+    "change": "failNoFormat retried",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_retry_test.dart",
+    "catcher": "yt_retry_test.dart: nothing to download: failNoFormat, no retry, the next one starts"
+  },
+  {
+    "id": "P2-F4",
+    "patch": "P2-F4.patch",
+    "location": "lib/services/download/download_service.dart:260",
+    "change": "no beforeRetry before the retry timer",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_retry_test.dart",
+    "catcher": "yt_retry_test.dart: an Invidious address refused: set aside before the retry, then done"
+  },
+  {
+    "id": "P2-F7",
+    "patch": "P2-F7.patch",
+    "location": "lib/services/download/download_service.dart:222,1347",
+    "change": "a failure's kind not cleared once read (_retryLater, and the completion)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_retry_test.dart",
+    "catcher": "yt_retry_test.dart: refused, retried, then a damaged merge retried: set aside once"
+  },
+  {
+    "id": "P2-F5",
+    "patch": "P2-F5.patch",
+    "location": "lib/services/download/download_service.dart:474-475",
+    "change": "_noteFailure records the network only",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_away_test.dart",
+    "catcher": "yt_away_test.dart: refused away: no retry away; back, started again and done"
+  },
+  {
+    "id": "P2-F6",
+    "patch": "P2-F6.patch",
+    "location": "lib/services/download/download_service.dart:502",
+    "change": "_resumeFailedAway's beforeRetry given null",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_away_test.dart",
+    "catcher": "yt_away_test.dart: an Invidious address refused away: set aside before the start again"
+  },
+  {
+    "id": "P2-F8",
+    "patch": "P2-F8.patch",
+    "location": "lib/services/download/download_platform_yt.dart:688",
+    "change": "429 classified as refused",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_away_test.dart",
+    "catcher": "yt_away_test.dart: busy on every request away (429): failed, not started again"
+  },
+  {
+    "id": "P2-F9",
+    "patch": "P2-F9.patch",
+    "location": "lib/services/download/download_service.dart:229-231",
+    "change": "failNoFormat's give-up after the away check",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_away_test.dart",
+    "catcher": "yt_away_test.dart: nothing to download away: the next one starts at once"
+  },
+  {
+    "id": "P2-F10",
+    "patch": "P2-F10.patch",
+    "location": "lib/services/download/download_service.dart:494-495",
+    "change": "failQuality not in the set started again on the return",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_away_test.dart",
+    "catcher": "yt_away_test.dart: a quality not on offer away: back, started again (and retried)"
+  },
+  {
+    "id": "P2-F11",
+    "patch": "P2-F11.patch",
+    "location": "lib/services/download/download_service.dart:1185",
+    "change": "YouTube resolve failures noted as the network (playUrl: true)",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_away_test.dart",
+    "catcher": "yt_away_test.dart: a client broken away: not started again"
+  },
+  {
+    "id": "P2-R6",
+    "patch": "P2-R6.patch",
+    "location": "lib/services/download/download_platform_yt.dart:377-382",
+    "change": "liveNow not looked at",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_live_test.dart",
+    "catcher": "yt_live_test.dart: live now (the direct source): failNoFormat, no retry, the next one"
+  },
+  {
+    "id": "P2-R7",
+    "patch": "P2-R7.patch",
+    "location": "lib/services/download/download_platform_yt.dart:509-510",
+    "change": "live_stream_offline classified other",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_live_test.dart",
+    "catcher": "yt_live_test.dart: upcoming (live_stream_offline): failNoFormat, no retry"
+  },
+  {
+    "id": "P2-R8",
+    "patch": "P2-R8.patch",
+    "location": "lib/services/download/download_platform_yt.dart:396",
+    "change": "no-pinned-pair (neither source) classified noFormat",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_quality_test.dart",
+    "catcher": "yt_quality_test.dart: ① the pinned 137 on neither source: three retries, failQuality, no transfer, the next one"
+  },
+  {
+    "id": "P2-R9",
+    "patch": "P2-R9.patch",
+    "location": "lib/services/download/download_platform_yt.dart:586-587",
+    "change": "quality_label not rewritten from the picked format",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_quality_test.dart",
+    "catcher": "yt_quality_test.dart: ④ the 720p switch: tier 720 in a new folder, the old one kept until done, the bar from 0"
+  },
+  {
+    "id": "P2-R14",
+    "patch": "P2-R14.patch",
+    "location": "lib/services/download/download_platform_yt.dart:436",
+    "change": "no-pinned-pair: the other source not asked",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_quality_test.dart",
+    "catcher": "yt_quality_test.dart: ② not on the current source, on the other: asked through its own router, the shared health untouched"
+  },
+  {
+    "id": "P2-R15",
+    "patch": "P2-R15.patch",
+    "location": "lib/services/download/download_platform_yt.dart:448",
+    "change": "the download's own router on sharedHealth",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_quality_test.dart",
+    "catcher": "yt_quality_test.dart: ② not on the current source, on the other: asked through its own router, the shared health untouched"
+  },
+  {
+    "id": "P2-R16",
+    "patch": "P2-R16.patch",
+    "location": "lib/services/download/download_platform_yt.dart:438-444",
+    "change": "the direct source asked during its cooldown",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_quality_test.dart",
+    "catcher": "yt_quality_test.dart: ② the other source is the direct one, in a cooldown: not asked"
+  },
+  {
+    "id": "P2-T15",
+    "patch": "P2-T15.patch",
+    "location": "lib/services/download/download_service.dart:1093",
+    "change": "YouTube does not call restartVideo()",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_quality_test.dart",
+    "catcher": "yt_quality_test.dart: ④ the 720p switch: tier 720 in a new folder, the old one kept until done, the bar from 0"
+  },
+  {
+    "id": "P2-L5",
+    "patch": "P2-L5.patch",
+    "location": "lib/services/download/download_platform_yt.dart:857",
+    "change": "the 720p switch's apply keeps stream_tag",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_quality_test.dart",
+    "catcher": "yt_quality_test.dart: ④ the 720p switch: tier 720 in a new folder, the old one kept until done, the bar from 0"
+  },
+  {
+    "id": "P2-R11",
+    "patch": "P2-R11.patch",
+    "location": "lib/services/download/download_platform_yt.dart:511",
+    "change": "clientBroken + no-playable-pair classified noFormat",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_classify_test.dart",
+    "catcher": "yt_classify_test.dart: a resolve that fails (§3.3) the streams: clientBroken <no-playable-pair> → other"
+  },
+  {
+    "id": "P2-X1",
+    "patch": "P2-X1.patch",
+    "location": "lib/services/download/download_platform_yt.dart:825",
+    "change": "transcriptKey a bilibili key",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transcribe_test.dart",
+    "catcher": "yt_transcribe_test.dart: completed: marked, its start the coverage the cache has under yt:<id>"
+  },
+  {
+    "id": "P2-X2",
+    "patch": "P2-X2.patch",
+    "location": "lib/services/download/download_service.dart:1460",
+    "change": "_completeDownload marks only bilibili entries for their transcript",
+    "phase": "2-only",
+    "kind": "unit",
+    "test": "test/services/download/yt_transcribe_test.dart",
+    "catcher": "yt_transcribe_test.dart: completed: marked, its start the coverage the cache has under yt:<id>"
   }
 ]

@@ -244,6 +244,14 @@ class DownloadProgress extends ChangeNotifier {
     _changed();
   }
 
+  /// A new run of a platform that reports its two streams apart (YouTube,
+  /// design §2.3 p4#4): the video's counters start over too, not from a
+  /// sum of both an earlier run left.
+  void restartVideo() {
+    videoReceived = videoTotal = 0;
+    _changed();
+  }
+
   // ---------------------------------------------------------------- total
 
   double _shown = 0;

@@ -1,0 +1,11 @@
+diff --git a/lib/models_new/download/download_entry.dart b/lib/models_new/download/download_entry.dart
+--- a/lib/models_new/download/download_entry.dart
++++ b/lib/models_new/download/download_entry.dart
+@@ -128,7 +128,6 @@ enum DownloadStatus {
+     failDownloadAudio ||
+     failPlayUrl ||
+     failMerge ||
+-    failNoFormat ||
+     failQuality => true,
+     _ => false,
+   };

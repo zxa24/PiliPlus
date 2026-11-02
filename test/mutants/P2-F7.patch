@@ -1,0 +1,20 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -219,7 +219,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+   void _retryLater(DownloadEntry entry, DownloadStatus status) {
+     final key = entry.key;
+     // this failure's own, never an earlier one's
+-    final kind = _lastFailure.remove(key);
++    final kind = _lastFailure[key];
+     // nothing this app can download: no retry, and the queue goes on —
+     // off screen too (design §5)
+     if (status == DownloadStatus.failNoFormat) {
+@@ -1344,7 +1344,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+     _audioDownloadManager = null;
+     entry.downloadedBytes = entry.totalBytes;
+     final key = entry.key;
+-    _lastFailure.remove(key);
+     _mergingKeys.add(key);
+     _mergeDeletedKeys.remove(key);
+     _updateCurStatus(DownloadStatus.merging);

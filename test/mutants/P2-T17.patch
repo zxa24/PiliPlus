@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -843,11 +843,15 @@ class _StreamMeta {
+@@ -866,11 +866,15 @@ class _StreamMeta {
    /// Completes once every write asked for so far is done.
    Future<void> get settled => _chain;
  

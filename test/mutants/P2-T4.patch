@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -572,8 +572,8 @@ class YtPairTransfer implements DownloadTransfer {
+@@ -595,8 +595,8 @@ class YtPairTransfer implements DownloadTransfer {
    Future<void> _overlap(_Leg leg) async {
      final onDisk = _length(leg.file);
      final k = min(overlapBytes, onDisk);
@@ -12,7 +12,7 @@ diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/y
      switch (response.statusCode) {
        case HttpStatus.partialContent:
          break;
-@@ -588,7 +588,7 @@ class YtPairTransfer implements DownloadTransfer {
+@@ -611,7 +611,7 @@ class YtPairTransfer implements DownloadTransfer {
          throw YtHttpStatus(response.statusCode);
      }
      final range = _rangeOf(response);

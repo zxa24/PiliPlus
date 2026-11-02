@@ -118,6 +118,16 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   @visibleForTesting
   DownloadHost get hostForTest => _host;
 
+  /// Tests only: whether a start holds [_lock] (AC3 variant b: the merge
+  /// is not in it).
+  @visibleForTesting
+  bool get lockedForTest => _lock.locked;
+
+  /// Tests only: the generation of the start under way ([DownloadHost]'s
+  /// `gen`).
+  @visibleForTesting
+  int get startGenForTest => _startGen;
+
   late final _yt = YtDownloadPlatform(_host);
 
   /// The platforms, by [DownloadPlatform.id].
@@ -210,6 +220,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     final key = entry.key;
     // this failure's own, never an earlier one's
     final kind = _lastFailure.remove(key);
+    // nothing this app can download: no retry, and the queue goes on —
+    // off screen too (design §5)
+    if (status == DownloadStatus.failNoFormat) {
+      _gaveUp(entry, status, 'no format');
+      return;
+    }
     // off screen (Android): started again once the app is back, see
     // [_resumeFailedAway]
     if (_away) return;
@@ -475,6 +491,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
             DownloadStatus.failDownload,
             DownloadStatus.failDownloadAudio,
             DownloadStatus.failPlayUrl,
+            // retried three times on screen, after the return
+            DownloadStatus.failQuality,
           }.contains(entry.status)) {
         EventLog.add(
           'download',
@@ -1068,8 +1086,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     final (:video, :audio, :mediaGuess, :expectAudio) = platform.initialBytes(
       entry,
     );
+    entry.progress.restart();
+    // a platform that reports both streams apart (YouTube): the video's
+    // counters are its own, not the two streams' sum a run before left
+    // (design §2.3 p4#4); bilibili's video stream carries both
+    if (audio != null) entry.progress.restartVideo();
     entry.progress
-      ..restart()
       ..planExtras(platform.extrasPlan())
       // until the play URL tells: about 2 Mbps
       ..mediaGuess = entry.totalTimeMilli * 250
@@ -1161,7 +1183,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
         if (e is DownloadResolveFailure) lastError = e.message;
         _lastFailure[entry.key] = kind;
         _noteFailure(e, playUrl: platform.playUrlFailuresAreNetwork);
-        _updateCurStatus(DownloadStatus.failPlayUrl);
+        _updateCurStatus(switch (kind) {
+          // (bilibili's classify gives neither)
+          DownloadFailure.noFormat => DownloadStatus.failNoFormat,
+          DownloadFailure.qualityUnavailable => DownloadStatus.failQuality,
+          _ => DownloadStatus.failPlayUrl,
+        });
       }
       if (kDebugMode) {
         debugPrint('get download url error: $e');
@@ -1324,6 +1351,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     // its type is bilibili's
     if (entry is BiliDownloadEntryInfo) {
       if (selfTestBeforeMerge case final hook?) await hook(entry);
+    } else if (beforeMergeForTest case final hook?) {
+      await hook(entry);
     }
     final platform = platformOf(entry);
     final (:output, :inputs, :damaged, :corrupt) = await platform.merge(
@@ -1560,6 +1589,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// Bilibili entries only.
   static Future<void> Function(BiliDownloadEntryInfo entry)?
   selfTestBeforeMerge;
+
+  /// [selfTestBeforeMerge] for the entries of the other platforms (stage-2
+  /// plan §2.5): held there, a test sees the merge's moment.
+  @visibleForTesting
+  static Future<void> Function(DownloadEntry entry)? beforeMergeForTest;
 
   // Tests only: stand-ins for what a download reaches out to (null: the
   // real call). They let a test run the queue on a temporary folder with no

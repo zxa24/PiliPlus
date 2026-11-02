@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -508,7 +508,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+       _ when signal == 'invidious:live' => DownloadFailure.noFormat,
+       _ when signal.startsWith('playability:live_stream_offline') =>
+         DownloadFailure.noFormat,
+-      YtCause.contentUnavailable when signal == 'no-playable-pair' =>
++      _ when signal == 'no-playable-pair' =>
+         DownloadFailure.noFormat,
+       YtCause.transient || YtCause.ipBlocked => DownloadFailure.network,
+       _ => DownloadFailure.other,

@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -467,9 +467,7 @@ class YtPairTransfer implements DownloadTransfer {
+@@ -490,9 +490,7 @@ class YtPairTransfer implements DownloadTransfer {
    /// [leg] from 0 for [reason], once per reason in a start: a second time,
    /// [cause] fails it.
    Future<_Plan> _restart(_Leg leg, String reason, [Object? cause]) async {

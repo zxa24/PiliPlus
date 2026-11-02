@@ -1,0 +1,14 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -222,10 +222,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+     final kind = _lastFailure.remove(key);
+     // nothing this app can download: no retry, and the queue goes on —
+     // off screen too (design §5)
+-    if (status == DownloadStatus.failNoFormat) {
+-      _gaveUp(entry, status, 'no format');
+-      return;
+-    }
+     // off screen (Android): started again once the app is back, see
+     // [_resumeFailedAway]
+     if (_away) return;

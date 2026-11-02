@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -191,6 +191,17 @@ class YtPairTransfer implements DownloadTransfer {
+@@ -214,6 +214,17 @@ class YtPairTransfer implements DownloadTransfer {
    }) : _video = _Leg('video', video, streamDir),
         _audio = _Leg('audio', audio, streamDir),
         _newClient = httpClient ?? HttpClient.new {

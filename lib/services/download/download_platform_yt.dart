@@ -5,25 +5,36 @@
 /// methods (`addDownload`, `restartWith`).
 ///
 /// Stage 2b: the record, the list, the cover, the new-download guard and
-/// the offline open. The start's resolve / transport / merge come with 2d
-/// and 2e (plan §7); until then a YouTube entry's start fails as a play URL
-/// the queue retries.
+/// the offline open; 2e: the start (resolve, the pair transfer, the merge),
+/// its failures and the 720p switch.
 library;
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_player.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
+import 'package:PiliPlus/services/youtube/direct_source.dart';
+import 'package:PiliPlus/services/youtube/invidious_source.dart';
+import 'package:PiliPlus/services/youtube/source_router.dart';
 import 'package:PiliPlus/services/youtube/stream_relay.dart';
+import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_format_select.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
+import 'package:PiliPlus/services/youtube/yt_pair_transfer.dart';
+import 'package:PiliPlus/services/youtube/yt_quality_tier.dart';
+import 'package:PiliPlus/services/youtube/yt_source_store.dart';
+import 'package:PiliPlus/services/youtube/yt_transfer_errors.dart';
+import 'package:PiliPlus/services/youtube/yt_verdict.dart';
+import 'package:PiliPlus/utils/mp4_remux.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/extension/file_ext.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -118,10 +129,46 @@ enum YtCreateResult {
   final String message;
 }
 
+/// What a YouTube resolve found (stage-2 plan §3.3).
+final class YtPlan implements DownloadPlan {
+  const YtPlan({
+    required this.pair,
+    required this.streamTag,
+    required this.streamSource,
+    required this.qualityLabel,
+    required this.mediaGuess,
+  });
+
+  final YtStreamPair pair;
+
+  @override
+  final String streamTag;
+
+  /// The source that gave the pair (`direct` / `invidious`).
+  final String streamSource;
+
+  /// The picked format's own label (`720p60`), else its tier's.
+  final String qualityLabel;
+
+  @override
+  final int? mediaGuess;
+
+  @override
+  bool get expectAudio => true;
+}
+
+/// What a pair transfer is built from.
+typedef YtTransferSpec = ({
+  String videoId,
+  String source,
+  String streamDir,
+  YtStreamSpec video,
+  YtStreamSpec audio,
+});
+
 final class YtDownloadPlatform implements DownloadPlatform {
   YtDownloadPlatform(this._host);
 
-  // ignore: unused_field
   final DownloadHost _host;
 
   // Tests only: stand-ins for what this adapter reaches out to (null: the
@@ -135,7 +182,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @visibleForTesting
   static Future<bool> Function(String path)? openLocalForTest;
 
-  /// In place of a new [HttpClient] (the cover; later the transfers too).
+  /// In place of a new [HttpClient] (the cover and the transfers).
   @visibleForTesting
   static HttpClient Function()? httpClientForTest;
 
@@ -205,17 +252,269 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @override
   Future<void> prepare(DownloadEntry entry, DownloadReport report) async {}
 
-  // ------------------------------------------------- the start (2d, 2e)
+  // ------------------------------------------------------------ the start
 
+  /// Both streams of the current stream folder are whole by their
+  /// `stream.json` (design §2.3): no resolve, no cover, the transfer
+  /// reports them complete without a request.
   @override
-  bool streamsComplete(DownloadEntry entry) => false;
+  bool streamsComplete(DownloadEntry entry) {
+    final dir = _streamDir(entry as YtDownloadEntry);
+    if (dir == null) return false;
+    final ids = readYtStreamIds(dir);
+    bool whole(String stream, YtStreamId? id) {
+      final total = id?.bytes;
+      final file = File(path.join(dir, '$stream.m4s'));
+      return total != null && file.existsSync() && file.lengthSync() == total;
+    }
 
+    return ids != null &&
+        whole('video', ids.video) &&
+        whole('audio', ids.audio);
+  }
+
+  /// The current stream folder (`main/<stream_tag>`); null: none yet.
+  static String? _streamDir(YtDownloadEntry entry) {
+    final tag = entry.streamTag;
+    return tag == null ? null : path.join(entry.entryDirPath, tag);
+  }
+
+  /// Each stream on its own (design §2.3 p4#4): its bytes on disk and its
+  /// total in `stream.json` (0: not known); both streams always.
   @override
-  Future<DownloadPlan> resolve(DownloadEntry entry) async =>
+  ({(int, int) video, (int, int)? audio, int? mediaGuess, bool? expectAudio})
+  initialBytes(DownloadEntry entry) {
+    final dir = _streamDir(entry as YtDownloadEntry);
+    if (dir == null) {
+      return (video: (0, 0), audio: (0, 0), mediaGuess: 0, expectAudio: true);
+    }
+    final ids = readYtStreamIds(dir);
+    (int, int) of(String stream, YtStreamId? id) {
+      final file = File(path.join(dir, '$stream.m4s'));
+      return (file.existsSync() ? file.lengthSync() : 0, id?.bytes ?? 0);
+    }
+
+    final video = of('video', ids?.video);
+    final audio = of('audio', ids?.audio);
+    return (
+      video: video,
+      audio: audio,
+      mediaGuess: video.$2 + audio.$2,
+      expectAudio: true,
+    );
+  }
+
+  /// The routers a resolve asks (stage-2 plan §3.3): [own] false is the
+  /// one the video pages share (built anew for each resolve, so a mode set
+  /// after launch holds), true this download's own, which asks the other
+  /// source when the pinned pair or the tier is not offered. [health] is
+  /// the table it keeps its sources' health in.
+  @visibleForTesting
+  static YtSourceRouter Function(
+    YtSourceMode mode, {
+    required bool own,
+    required Map<String, YtSourceHealth> health,
+  })?
+  routerForTest;
+
+  /// In place of [YtInvidiousSource.playbackFailed].
+  @visibleForTesting
+  static void Function(String videoId)? playbackFailedForTest;
+
+  /// In place of a [YtPairTransfer] (a test gets the service's callbacks).
+  @visibleForTesting
+  static DownloadTransfer Function(
+    YtTransferSpec spec,
+    DownloadTransferReport report,
+  )?
+  newTransferForTest;
+
+  /// In place of the remux (a test's streams are not MP4).
+  @visibleForTesting
+  static Future<void> Function(List<String> inputs, String output)?
+  remuxForTest;
+
+  YtDirectSource? _direct;
+
+  /// Each download's own router's health (never [YtSourceRouter.
+  /// sharedHealth]), dropped when the download completes or is deleted.
+  final _ownHealth = <DownloadKey, Map<String, YtSourceHealth>>{};
+
+  YtSourceRouter _router(
+    YtSourceMode mode, {
+    required bool own,
+    required Map<String, YtSourceHealth> health,
+  }) {
+    if (routerForTest case final make?) {
+      return make(mode, own: own, health: health);
+    }
+    YtSourceStore.load();
+    YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
+    return YtSourceRouter(
+      _direct ??= YtDirectSource.create(),
+      fallback: YtInvidiousSource.shared,
+      mode: mode,
+      health: health,
+    );
+  }
+
+  /// The pair this start downloads (stage-2 plan §3.3). Nothing of the
+  /// entry is changed and nothing saved: what it found goes into the entry
+  /// in [transport], once the service has let the start go on.
+  @override
+  Future<DownloadPlan> resolve(DownloadEntry entry) async {
+    entry as YtDownloadEntry;
+    final id = entry.videoId;
+    final mode = YtSourceStore.debugMode;
+    final play = _router(
+      mode,
+      own: false,
+      health: YtSourceRouter.sharedHealth,
+    );
+    final detail = await play.run((s) => s.detail(id));
+    if (!detail.ok) throw _failed(detail.verdict);
+    // the direct source's answer only: Invidious does not tell (§10-5 4 b)
+    if (detail.source?.id == _directId && detail.value!.liveNow) {
+      throw const DownloadResolveFailure(
+        DownloadFailure.noFormat,
+        'live or upcoming',
+      );
+    }
+    final preference = YtFormatPreference.mp4Download(
+      entry.maxHeight,
+      exactHeight: entry.maxHeight,
+      pin: _pinOf(entry),
+      preferNonDrc: true,
+    );
+    var streams = await play.run(
+      (s) => s.streams(id, preference: preference),
+    );
+    if (!streams.ok && streams.verdict.signal == 'no-pinned-pair') {
+      streams =
+          await _askOther(entry, streams.source?.id, mode, preference) ??
+          (throw DownloadResolveFailure(
+            DownloadFailure.qualityUnavailable,
+            'tier ${entry.maxHeight} not offered '
+            '(${streams.verdict.signal})',
+          ));
+    }
+    if (!streams.ok) throw _failed(streams.verdict);
+    final pair = streams.value!;
+    final video = pair.video;
+    final audio = pair.audio;
+    // the sources pick from their formats: a pair without them is theirs
+    // to fix, not a video to give up on
+    if (video == null || audio == null) {
       throw const DownloadResolveFailure(
         DownloadFailure.other,
-        'YouTube streams: not in this build yet',
+        'a pair without its formats',
       );
+    }
+    final tier = ytQualityTier(video.width ?? 0, video.height ?? 0);
+    return YtPlan(
+      pair: pair,
+      streamTag: YtStreamTag.of(video, audio),
+      streamSource: pair.sourceId,
+      qualityLabel: video.qualityLabel ?? '${tier}p',
+      mediaGuess: _guess(video, audio, entry.durationMs),
+    );
+  }
+
+  static const _directId = 'direct';
+
+  /// This download's own router on the source that did not have the pair
+  /// (§10-7 Q4 d): its own health table, nothing set aside. Null: it had
+  /// none either, or may not be asked — the direct source in a cooldown of
+  /// the shared table (read only), or a single-source mode (`--yt-source`:
+  /// one source only).
+  Future<YtRoutedResult<YtStreamPair>?> _askOther(
+    YtDownloadEntry entry,
+    String? asked,
+    YtSourceMode mode,
+    YtFormatPreference preference,
+  ) async {
+    if (mode != YtSourceMode.auto || asked == null) return null;
+    final otherIsDirect = asked != _directId;
+    if (otherIsDirect &&
+        !(YtSourceRouter.sharedHealth[_directId]?.availableAt(
+              DateTime.now(),
+            ) ??
+            true)) {
+      return null;
+    }
+    final own = _router(
+      otherIsDirect ? YtSourceMode.directOnly : YtSourceMode.fallbackOnly,
+      own: true,
+      health: _ownHealth.putIfAbsent(entry.key, () => {}),
+    );
+    final r = await own.run(
+      (s) => s.streams(entry.videoId, preference: preference),
+    );
+    return r.ok ? r : null;
+  }
+
+  /// The pair the bytes on disk are of (design §4.1): from the current
+  /// stream folder's `stream.json`; from its name alone when that does not
+  /// read. Null: no bytes there, so nothing to keep to.
+  static YtFormatPin? _pinOf(YtDownloadEntry entry) {
+    final dir = _streamDir(entry);
+    if (dir == null) return null;
+    bool has(String stream) {
+      final f = File(path.join(dir, '$stream.m4s'));
+      return f.existsSync() && f.lengthSync() > 0;
+    }
+
+    if (!has('video') && !has('audio')) return null;
+    final byName = YtStreamTag.pinOf(path.basename(dir));
+    if (byName == null) return null;
+    final ids = readYtStreamIds(dir);
+    final video = ids?.video;
+    final audio = ids?.audio;
+    // the identity read, of this folder's pair: its own track id
+    if (video != null &&
+        audio != null &&
+        video.itag == byName.videoItag &&
+        audio.itag == byName.audioItag &&
+        ytAudioTrackDigest(audio.track) == byName.audioTrackDigest) {
+      return YtFormatPin(
+        videoItag: video.itag,
+        audioItag: audio.itag,
+        audioTrackId: audio.track,
+        drc: byName.drc,
+      );
+    }
+    return byName;
+  }
+
+  /// Both streams' size: their lengths, else their bitrates over the
+  /// duration (design §3.1).
+  static int? _guess(YtFormat video, YtFormat audio, int durationMs) {
+    if ((video.contentLength, audio.contentLength) case (
+      final v?,
+      final a?,
+    )) {
+      return v + a;
+    }
+    final rate = video.bitrate + audio.bitrate;
+    if (rate <= 0 || durationMs <= 0) return null;
+    return rate * durationMs ~/ 8000;
+  }
+
+  /// A failed answer of a source as a start's failure (stage-2 plan §3.3
+  /// 「失败的归类」): the cause first, then the signal.
+  static DownloadResolveFailure _failed(YtVerdict verdict) {
+    final signal = verdict.signal;
+    final kind = switch (verdict.cause) {
+      _ when signal == 'invidious:live' => DownloadFailure.noFormat,
+      _ when signal.startsWith('playability:live_stream_offline') =>
+        DownloadFailure.noFormat,
+      YtCause.contentUnavailable when signal == 'no-playable-pair' =>
+        DownloadFailure.noFormat,
+      YtCause.transient || YtCause.ipBlocked => DownloadFailure.network,
+      _ => DownloadFailure.other,
+    };
+    return DownloadResolveFailure(kind, '${verdict.cause.name}<$signal>');
+  }
 
   @override
   String? streamKey(DownloadPlan plan) => null;
@@ -227,12 +526,83 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @override
   Future<void> writeStreamKey(DownloadEntry entry, DownloadPlan plan) async {}
 
+  /// The pair transfer, through the handle. What the resolve found is
+  /// written into the entry only when the service takes the transfer (the
+  /// start still the current one), and saved when it changed. [plan] null
+  /// (both streams whole): built from `stream.json`, with no address — it
+  /// asks for nothing.
   @override
   Future<void> transport(
     DownloadEntry entry,
     DownloadPlan? plan,
     int gen,
-  ) async {}
+  ) async {
+    entry as YtDownloadEntry;
+    final YtTransferSpec spec;
+    if (plan == null) {
+      final dir = _streamDir(entry);
+      final ids = dir == null ? null : readYtStreamIds(dir);
+      final video = ids?.video;
+      final audio = ids?.audio;
+      if (dir == null || video == null || audio == null) {
+        throw const DownloadResolveFailure(
+          DownloadFailure.other,
+          'the streams are no longer whole',
+        );
+      }
+      spec = (
+        videoId: entry.videoId,
+        source: entry.streamSource ?? _directId,
+        streamDir: dir,
+        video: (url: '', id: video),
+        audio: (url: '', id: audio),
+      );
+    } else {
+      plan as YtPlan;
+      final pair = plan.pair;
+      spec = (
+        videoId: entry.videoId,
+        source: plan.streamSource,
+        streamDir: path.join(entry.entryDirPath, plan.streamTag),
+        video: (
+          url: pair.videoUrl,
+          id: YtStreamId.of(pair.video!, pair.videoUrl),
+        ),
+        audio: (
+          url: pair.audioUrl,
+          id: YtStreamId.of(pair.audio!, pair.audioUrl),
+        ),
+      );
+    }
+    var changed = false;
+    final transfer = _host.attach(gen, entry, (report) {
+      if (plan is YtPlan) {
+        changed =
+            entry.streamTag != plan.streamTag ||
+            entry.streamSource != plan.streamSource ||
+            entry.quality != plan.qualityLabel;
+        entry
+          ..streamTag = plan.streamTag
+          ..streamSource = plan.streamSource
+          ..quality = plan.qualityLabel;
+      }
+      return (newTransferForTest ?? _newTransfer)(spec, report);
+    });
+    if (transfer != null && changed) await _host.save(gen, entry);
+  }
+
+  DownloadTransfer _newTransfer(
+    YtTransferSpec spec,
+    DownloadTransferReport report,
+  ) => YtPairTransfer(
+    videoId: spec.videoId,
+    source: spec.source,
+    streamDir: spec.streamDir,
+    video: spec.video,
+    audio: spec.audio,
+    report: report,
+    httpClient: httpClientForTest,
+  );
 
   @override
   bool get playUrlFailuresAreNetwork => false;
@@ -246,30 +616,83 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @visibleForTesting
   static bool extrasEnabledForTest = false;
 
+  /// A refusal of an Invidious address: that instance set aside and the
+  /// video's addresses forgotten before the retry asks again (design §4.3
+  /// p2#1). A quality not on offer: nothing — each resolve asks the other
+  /// source itself.
   @override
-  void beforeRetry(DownloadEntry entry, DownloadFailure? kind) {}
+  void beforeRetry(DownloadEntry entry, DownloadFailure? kind) {
+    entry as YtDownloadEntry;
+    if (kind == DownloadFailure.refused &&
+        entry.streamSource == YtInvidiousSource.shared.id) {
+      (playbackFailedForTest ?? YtInvidiousSource.shared.playbackFailed)(
+        entry.videoId,
+      );
+    }
+  }
 
-  @override
-  ({(int, int) video, (int, int)? audio, int? mediaGuess, bool? expectAudio})
-  initialBytes(DownloadEntry entry) => (
-    video: (0, 0),
-    audio: (0, 0),
-    mediaGuess: null,
-    expectAudio: null,
-  );
-
+  /// `main/<stream_tag>/video.m4s` and `audio.m4s` into one mp4 in the
+  /// export folder [export] claims (stage-2 plan §3.5).
   @override
   Future<DownloadMergeResult> merge(
     DownloadEntry entry,
     DownloadExport export,
-  ) async =>
-      (output: null, inputs: const <String>[], damaged: true, corrupt: false);
+  ) async {
+    entry as YtDownloadEntry;
+    final dir = path.join(entry.entryDirPath, entry.streamTypeTag);
+    final inputs = [
+      path.join(dir, 'video.m4s'),
+      path.join(dir, 'audio.m4s'),
+    ];
+    String? output;
+    try {
+      output = await export.claim();
+      final out = output;
+      await (remuxForTest ?? _remux)(inputs, out);
+      entry.mergedPath = out;
+      _ownHealth.remove(entry.key);
+      return (output: out, inputs: inputs, damaged: false, corrupt: false);
+    } catch (e) {
+      if (output != null) await export.failed(output);
+      // damaged bytes (out of the remuxer) or a missing / unreadable
+      // stream: not complete; bytes damaged at their full size are removed
+      // and downloaded again by the caller (as bilibili's dash streams)
+      final damaged =
+          e is FormatException || e is RangeError || e is FileSystemException;
+      final corrupt = e is FormatException || e is RangeError;
+      entry.status = DownloadStatus.failMerge;
+      if (!corrupt) {
+        (toastForTest ?? SmartDialog.showToast)(
+          damaged ? '音视频文件丢失或无法读取，可稍后重新开始该下载' : '合并音视频失败，已保留分离的音视频文件',
+        );
+      }
+      EventLog.add('download', '${entry.logLabel}: merge failed: $e');
+      return (output: null, inputs: inputs, damaged: damaged, corrupt: corrupt);
+    } finally {
+      if (output != null) export.release(output);
+    }
+  }
 
+  // static, so the isolate's closure takes only its two arguments
+  static Future<void> _remux(List<String> inputs, String output) =>
+      Isolate.run(() => Mp4Remuxer.remux(inputs: inputs, output: output));
+
+  /// Design §4.3's table: the transfer's own types say what they are; a
+  /// resolve's failure carries its kind.
   @override
-  DownloadFailure classify(Object error) => switch (error) {
-    DownloadResolveFailure(:final kind) => kind,
-    _ => DownloadFailure.other,
-  };
+  DownloadFailure classify(Object error) {
+    final cause = error is YtTransferError ? error.cause : error;
+    return switch (cause) {
+      DownloadResolveFailure(:final kind) => kind,
+      YtHttpStatus(refused: true) => DownloadFailure.refused,
+      // 429 / 5xx: retried within the transfer; once it gave up, not the
+      // network (its budget is spent) nor a refusal
+      YtHttpStatus() => DownloadFailure.other,
+      YtRangeError() => DownloadFailure.range,
+      _ when ytNetworkFailure(cause) => DownloadFailure.network,
+      _ => DownloadFailure.other,
+    };
+  }
 
   // ------------------------------------------------------------ the cover
 
@@ -419,9 +842,22 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @override
   String? platformBadge(DownloadEntry entry) => 'YouTube';
 
-  /// 「切换为下载 720p」 comes with 2f.
+  /// 「切换为下载 720p」 (stage-2 plan §4.2): on a download whose tier is
+  /// not on offer and whose retries are spent. [DownloadFailureAction.apply]
+  /// only changes the entry in memory — tier 720, no stream folder (so no
+  /// pin), its label — the page then calls `restartWith`. The old folder is
+  /// left until the download completes.
   @override
-  DownloadFailureAction? failureAction(DownloadEntry entry) => null;
+  DownloadFailureAction? failureAction(DownloadEntry entry) =>
+      entry.status == DownloadStatus.failQuality && entry.gaveUp
+      ? (
+          label: '切换为下载 720p',
+          apply: (entry) => (entry as YtDownloadEntry)
+            ..maxHeight = 720
+            ..streamTag = null
+            ..quality = '720p',
+        )
+      : null;
 
   /// Thumbnails are landscape.
   @override
@@ -487,9 +923,14 @@ final class YtDownloadPlatform implements DownloadPlatform {
     );
   }
 
-  /// The watch history is the user's, not the download's: nothing.
+  /// The watch history is the user's, not the download's: left. Each
+  /// download's own router health goes with it.
   @override
-  Future<void> onDeleted(List<DownloadEntry> entries) async {}
+  Future<void> onDeleted(List<DownloadEntry> entries) async {
+    for (final entry in entries) {
+      _ownHealth.remove(entry.key);
+    }
+  }
 
   /// Stage 2: the exported file, as a local file (§10-7 Q1 b); a merge that
   /// failed left no file to play. Stage 3's offline page takes over.

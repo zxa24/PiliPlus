@@ -1,7 +1,7 @@
 diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
 --- a/lib/services/youtube/yt_pair_transfer.dart
 +++ b/lib/services/youtube/yt_pair_transfer.dart
-@@ -858,7 +858,7 @@ class _StreamMeta {
+@@ -881,7 +881,7 @@ class _StreamMeta {
        await tmp.rename(file.path);
        _fromTmp = false;
      }
@@ -10,7 +10,7 @@ diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/y
        jsonEncode({
          'format': format,
          'source': _source,
-@@ -867,6 +867,5 @@ class _StreamMeta {
+@@ -890,6 +890,5 @@ class _StreamMeta {
        }),
        flush: true,
      );

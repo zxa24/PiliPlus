@@ -1,0 +1,29 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -524,7 +524,24 @@ final class YtDownloadPlatform implements DownloadPlatform {
+ 
+   /// The streams' identity is the transfer's (`stream.json`).
+   @override
+-  Future<void> writeStreamKey(DownloadEntry entry, DownloadPlan plan) async {}
++  Future<void> writeStreamKey(DownloadEntry entry, DownloadPlan plan) async {
++    final p = plan as YtPlan;
++    final dir = path.join(entry.entryDirPath, p.streamTag);
++    await File(path.join(dir, 'stream.json')).writeAsString(
++      jsonEncode({
++        'format': 'librepili-yt-stream-1',
++        'source': p.streamSource,
++        'video': YtStreamId.of(
++          p.pair.video!,
++          p.pair.videoUrl,
++        ).toJson(audio: false),
++        'audio': YtStreamId.of(
++          p.pair.audio!,
++          p.pair.audioUrl,
++        ).toJson(audio: true),
++      }),
++    );
++  }
+ 
+   /// The pair transfer, through the handle. What the resolve found is
+   /// written into the entry only when the service takes the transfer (the

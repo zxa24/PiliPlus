@@ -1,7 +1,7 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -1008,7 +1008,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -1180,7 +1180,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
          final kind = platform.classify(e);
          // a platform's own words for it (bilibili's resolve throws none:
          // its retry line says `-` as it always did)
@@ -9,4 +9,4 @@ diff --git a/lib/services/download/download_service.dart b/lib/services/download
 +        lastError = e is DownloadResolveFailure ? e.message : '$e';
          _lastFailure[entry.key] = kind;
          _noteFailure(e, playUrl: platform.playUrlFailuresAreNetwork);
-         _updateCurStatus(DownloadStatus.failPlayUrl);
+         _updateCurStatus(switch (kind) {

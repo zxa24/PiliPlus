@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1090,7 +1090,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+     // a platform that reports both streams apart (YouTube): the video's
+     // counters are its own, not the two streams' sum a run before left
+     // (design §2.3 p4#4); bilibili's video stream carries both
+-    if (audio != null) entry.progress.restartVideo();
+     entry.progress
+       ..planExtras(platform.extrasPlan())
+       // until the play URL tells: about 2 Mbps

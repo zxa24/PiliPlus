@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -685,6 +685,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+     return switch (cause) {
+       DownloadResolveFailure(:final kind) => kind,
+       YtHttpStatus(refused: true) => DownloadFailure.refused,
++      YtHttpStatus(code: 429) => DownloadFailure.refused,
+       // 429 / 5xx: retried within the transfer; once it gave up, not the
+       // network (its budget is spent) nor a refusal
+       YtHttpStatus() => DownloadFailure.other,

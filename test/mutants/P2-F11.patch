@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1182,7 +1182,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+         // its retry line says `-` as it always did)
+         if (e is DownloadResolveFailure) lastError = e.message;
+         _lastFailure[entry.key] = kind;
+-        _noteFailure(e, playUrl: platform.playUrlFailuresAreNetwork);
++        _noteFailure(e, playUrl: true);
+         _updateCurStatus(switch (kind) {
+           // (bilibili's classify gives neither)
+           DownloadFailure.noFormat => DownloadStatus.failNoFormat,
