@@ -12,26 +12,39 @@ part of 'self_test.dart';
 
 /// What one `--yt-inject` asks for (stage-2 plan §5).
 final class _YtInject {
-  _YtInject._(this.kind, {this.dropFrom, this.drop = const {}});
+  _YtInject._(
+    this.kind, {
+    this.dropFrom,
+    Set<int> drop = const {},
+    this.dropTiers = const {},
+  }) : drop = {...drop};
 
   /// Null: the value is not one of §5's ([error] says).
   static _YtInject? parse(String? value) {
     if (value == null) return null;
     if (value.startsWith('drop:')) {
+      // itags, or `@<tier>`: every format of that tier ([ytQualityTier]),
+      // whatever its itag, as the source answers
       final parts = value.split(':');
-      final itags = parts.length == 3
-          ? parts[2].split(',').map(int.tryParse).toList()
-          : const <int?>[];
+      final items = parts.length == 3 ? parts[2].split(',') : const <String>[];
+      final itags = <int>{};
+      final tiers = <int>{};
+      for (final item in items) {
+        final tier = item.startsWith('@');
+        final n = int.tryParse(tier ? item.substring(1) : item);
+        if (n == null) return null;
+        (tier ? tiers : itags).add(n);
+      }
       if (parts.length != 3 ||
           !const {'direct', 'invidious', 'all'}.contains(parts[1]) ||
-          itags.isEmpty ||
-          itags.contains(null)) {
+          items.isEmpty) {
         return null;
       }
       return _YtInject._(
         'drop',
         dropFrom: parts[1],
-        drop: {for (final i in itags) i!},
+        drop: itags,
+        dropTiers: tiers,
       );
     }
     return const {
@@ -50,7 +63,20 @@ final class _YtInject {
 
   final String kind;
   final String? dropFrom;
+
+  /// The itags left out; a tier's are added as a source's answers show
+  /// them ([noteTiers]).
   final Set<int> drop;
+  final Set<int> dropTiers;
+
+  /// The itags of [formats] in [dropTiers] join [drop].
+  void noteTiers(List<YtFormat> formats) {
+    for (final f in formats) {
+      if (dropTiers.contains(ytQualityTier(f.width ?? 0, f.height ?? 0))) {
+        drop.add(f.itag);
+      }
+    }
+  }
 
   bool dropsFrom(String sourceId) =>
       kind == 'drop' && (dropFrom == 'all' || dropFrom == sourceId);
@@ -110,6 +136,7 @@ final class _YtInjectSource implements YouTubeVideoSource {
     var value = r.value;
     if (value != null) {
       final drop = inject?.dropsFrom(id) ?? false;
+      if (drop) inject!.noteTiers(value.formats);
       final live = _isDirect && inject?.kind == 'live';
       if (drop || live) {
         value = YtVideoDetail(
@@ -209,6 +236,9 @@ final class _YtRun {
   DateTime? audioLastByteAt;
   final injected = <String>[];
 
+  /// The adapter's toasts (the merge's, the offline open's).
+  final toasts = <String>[];
+
   /// `googlevideo` / `companion` / another host: where the streams' bytes
   /// came from (design §10-5 item 5 b).
   String? get via {
@@ -286,6 +316,11 @@ abstract final class _YtDl {
         'self-test: the remuxer gave up',
       );
     }
+    // ignore: invalid_use_of_visible_for_testing_member
+    YtDownloadPlatform.toastForTest = (msg) {
+      run.toasts.add(msg);
+      SmartDialog.showToast(msg);
+    };
     final dio = InterceptorsWrapper(
       onRequest: (options, handler) {
         run.dioHosts.add(options.uri.host);
@@ -302,6 +337,8 @@ abstract final class _YtDl {
       DownloadService.selfTestBeforeOtherMerge = null;
       DownloadService.selfTestOnFailureKind = null;
       DownloadService.selfTestBeforeRestart = null;
+      // ignore: invalid_use_of_visible_for_testing_member
+      YtDownloadPlatform.toastForTest = null;
       Request.dio.interceptors.remove(dio);
     };
   }
@@ -418,6 +455,16 @@ abstract final class _YtDl {
         }
         report['initial'] = _progressOf(entry);
         report['initialBytes'] = _initialBytes(entry);
+        // complete already (its stop came with the completion): nothing to
+        // resume — the list never starts a complete entry
+        if (entry.isCompleted) {
+          return {
+            ...report,
+            'end': 'already complete',
+            'pass': true,
+            'record': await _record(entry),
+          };
+        }
         if (tamper != null) report['tamper'] = await _tamper(entry, tamper);
       } else {
         final (page, why) = await _openPage(id);
@@ -655,7 +702,10 @@ abstract final class _YtDl {
         'sharedHealth': _sharedHealth(),
         'extrasQueueSeen': run.extrasQueueSeen,
         'keepAliveTexts': run.keepAliveTexts,
+        // after the end: AC-E wants none once it is complete
+        'keepAliveAfter': service.selfTestState.keepAlive?.text,
         'injected': run.injected,
+        'toasts': run.toasts,
         if (switched case final s?)
           'switched': {
             ...s,
@@ -845,7 +895,12 @@ abstract final class _YtDl {
         final pct = (state.fraction * 100).floor();
         if (percents.lastOrNull != pct) percents.add(pct);
       }
-      if (!e.transcriptPending && state == null) break;
+      // done: no longer pending, its state gone or kept at 1 (the list
+      // shows a finished transcript from it)
+      if (!e.transcriptPending &&
+          (state == null || (state.fraction >= 1 && !state.running))) {
+        break;
+      }
     }
     final merged = e.mergedPath;
     final srt = merged == null
@@ -883,6 +938,7 @@ abstract final class _YtDl {
     }
     final run = _YtRun();
     final unhook = _hooks(args, run, inject);
+    final since = DateTime.now();
     try {
       final before = _sharedHealth();
       final (page, why) = await _openPage(id);
@@ -926,6 +982,11 @@ abstract final class _YtDl {
         'sharedHealthBefore': before,
         'sharedHealthAfter': _sharedHealth(),
         'shot': shot,
+        'log': [
+          for (final (_, line) in EventLog.entries(since: since))
+            if (line.contains('[download]') || line.contains('[invidious]'))
+              line.replaceFirst(RegExp(r'^\S+ '), ''),
+        ],
       };
     } finally {
       YtDownloadSheet.selfTestState = null;
