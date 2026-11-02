@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev webkit2gtk-4.1 libasound2-dev libmpv-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xvfb elfutils
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev webkit2gtk-4.1 libasound2-dev libmpv-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xvfb
         shell: bash
 
       - name: Setup flutter
@@ -126,6 +126,10 @@ jobs:
 
           printf "生成 spec 文件...\n"
           cat > "$RPM_BUILD_ROOT/SPECS/librepili.spec" <<EOF
+          # the bundle as built: no debuginfo package, no strip (libapp.so
+          # is Dart's AOT snapshot)
+          %global debug_package %{nil}
+          %global __os_install_post %{nil}
           Name:           librepili
           Version:        ${{ env.version }}
           Release:        1%{?dist}
