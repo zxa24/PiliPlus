@@ -3015,7 +3015,9 @@ function Invoke-WpAlternate {
         if (Test-Path -LiteralPath $mf) {
             $have = Read-WpJson $mf
             if ($have['commit'] -ne $sd.sha) { throw "$($sd.out) holds reports of $($have['commit']), not $($sd.sha)" }
-            $last = @(Get-WpPassDirs $sd.out | ForEach-Object { [int]($_.name -replace '^pass', '') }) | Sort-Object | Select-Object -Last 1
+            # Get-WpPassDirs returns its list as one object (return , @(...)): the
+            # parentheses unwrap it, so each pass folder reaches ForEach-Object
+            $last = @((Get-WpPassDirs $sd.out) | ForEach-Object { [int]($_.name -replace '^pass', '') }) | Sort-Object | Select-Object -Last 1
             if ($last) { $sd.next = $last + 1 }
         }
     }
