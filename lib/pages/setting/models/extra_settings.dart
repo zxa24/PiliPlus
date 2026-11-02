@@ -392,6 +392,16 @@ List<SettingsModel> get extraSettings => [
     onChanged: Ctl.apply,
   ),
   const SwitchModel(
+    title: '允许命令行控制',
+    subtitle:
+        '需同时打开上一项。允许本机命令行滚动界面、调整窗口大小、记录界面刷新来源，'
+        '用于诊断卡顿；不读写账号、设置与文件，不随备份导入',
+    leading: Icon(Icons.gamepad_outlined),
+    setKey: SettingBoxKey.ctlControl,
+    defaultVal: false,
+    onChanged: Ctl.controlChanged,
+  ),
+  const SwitchModel(
     title: '调试模式',
     subtitle: '在播放器左下角滚动显示转录、翻译、线路卡顿等决策细节，每行停留 15 秒',
     leading: Icon(Icons.bug_report_outlined),

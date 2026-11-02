@@ -689,6 +689,11 @@ abstract final class Pref {
   static bool get ctlServer =>
       _setting.get(SettingBoxKey.ctlServer, defaultValue: false);
 
+  /// LibrePili: whether that reader also takes POST /control/... (off
+  /// unless asked; no effect while the reader is off).
+  static bool get ctlControl =>
+      _setting.get(SettingBoxKey.ctlControl, defaultValue: false);
+
   static bool get debugMode =>
       _setting.get(SettingBoxKey.debugMode, defaultValue: false);
 

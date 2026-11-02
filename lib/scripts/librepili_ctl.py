@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only command-line access to a running LibrePili.
+"""Command-line access to a running LibrePili.
 
 Asks the instance the user is actually using what it is doing: the video
 on screen, where its transcription and translation stand, what the subtitle
-menu says, recent event-log lines, and a whitelisted set of settings.
+menu says, recent event-log lines, a whitelisted set of settings, and how
+often and how slowly it draws (frames).
 
 Needs 设置 → 其它设置 → 允许命令行读取状态 switched on in that instance.
 The app then serves on 127.0.0.1 (port chosen by the system) and writes the
@@ -13,9 +14,19 @@ port and a token to ctl.json in its data folder; this script reads that file.
     python librepili_ctl.py status --raw      # the JSON
     python librepili_ctl.py log --since 2026-09-26T10:00:00 --last 50
     python librepili_ctl.py settings
+    python librepili_ctl.py frames --seconds 5
     python librepili_ctl.py health
     python librepili_ctl.py --profile ctl status     # a self-test profile
     python librepili_ctl.py --android status         # a phone, through adb
+
+With 允许命令行控制 on as well, it can also drive the app (for diagnosing
+performance): scroll, size the window, trace who asks for frames.
+
+    python librepili_ctl.py scroll --dy 120 --times 20 --interval 50
+    python librepili_ctl.py window maximize | unmaximize | minimize | restore
+    python librepili_ctl.py window size --width 1280 --height 720
+    python librepili_ctl.py window                    # info
+    python librepili_ctl.py trace-frames --seconds 10 # then: frames
 
 Standard library only. See librepili_ctl.SKILL.md.
 """
@@ -36,6 +47,7 @@ from pathlib import Path
 APP_ID = "com.zxa24.librepili"
 ANDROID_PACKAGES = [APP_ID + ".debug", APP_ID + ".dev", APP_ID]
 SETTING_HINT = "设置 → 其它设置 → 允许命令行读取状态"
+CONTROL_HINT = "设置 → 其它设置 → 允许命令行控制"
 EXIT_NOT_RUNNING = 2
 EXIT_HTTP = 3
 
@@ -192,9 +204,14 @@ def forward(adb: str, base: list, info: dict) -> dict:
 # ------------------------------------------------------------------- request
 
 
-def request(info: dict, path: str, token: bool = True):
+def request(info: dict, path: str, token: bool = True, body: dict | None = None):
+    """GET, or POST [body] as JSON when it is given."""
     url = f"http://127.0.0.1:{info['port']}{path}"
-    req = urllib.request.Request(url)
+    data = None if body is None else json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data,
+                                 method="GET" if body is None else "POST")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", "Bearer " + info["token"])
     # the app's own address; never a proxy
@@ -209,6 +226,19 @@ def request(info: dict, path: str, token: bool = True):
                 f"401 from {url}: the token was refused ({info.get('_file')} "
                 "may be from an earlier run; the app writes a new one each "
                 "time it starts serving).", EXIT_HTTP)
+        if e.code == 403 and path.startswith("/control/"):
+            raise CtlError(
+                f"403 from {url}: control is off. Turn on 「{CONTROL_HINT}」 "
+                "in that instance (off by default; it needs "
+                f"「{SETTING_HINT}」 too).", EXIT_HTTP)
+        if e.code == 405 and path.startswith("/control/"):
+            raise CtlError(
+                f"405 from {url}: this build takes no control (older than "
+                "the control switch).", EXIT_HTTP)
+        if e.code == 404 and path == "/frames":
+            raise CtlError(
+                f"404 from {url}: this build has no /frames (older than the "
+                "control switch).", EXIT_HTTP)
         raise CtlError(f"HTTP {e.code} from {url}: {body[:300]}", EXIT_HTTP)
     except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
         reason = getattr(e, "reason", e)
@@ -341,6 +371,49 @@ def summarize_log(log: dict) -> str:
     )
 
 
+def _spread(d: dict) -> str:
+    if not d or not d.get("count"):
+        return "none"
+    return (f"p50 {d['p50']} / p90 {d['p90']} / max {d['max']} ms "
+            f"({d['over100ms']} of {d['count']} over 100 ms)")
+
+
+def summarize_frames(f: dict) -> str:
+    out = []
+    view = f.get("view") or {}
+    out.append(
+        f"last {f['seconds']} s: {f['frames']} frames ({f['fps']} fps), "
+        f"last one {f.get('lastFrameAgoMs')} ms ago; asked for: "
+        f"{f['requested']} scheduleFrame, {f['forced']} forced, "
+        f"{f['metricsChanged']} metrics changes"
+    )
+    out.append(
+        f"now: {f['transientCallbacks']} animation callbacks waiting, frame "
+        f"scheduled={f['frameScheduled']}, lifecycle={f.get('lifecycle')}"
+    )
+    if view:
+        out.append(
+            f"view: {view['physicalWidth']:.0f}×{view['physicalHeight']:.0f} "
+            f"px at {view['devicePixelRatio']} "
+            f"({view['logicalWidth']:.0f}×{view['logicalHeight']:.0f} logical)"
+        )
+    t = f.get("timingsMs") or {}
+    for key in ("total", "build", "raster", "startLag", "queue"):
+        out.append(f"  {key:8} {_spread(t.get(key))}")
+    tr = f.get("trace") or {}
+    if tr.get("samples") or tr.get("running"):
+        out.append(
+            f"trace: {'running, ' + str(tr.get('endsInMs')) + ' ms left' if tr.get('running') else 'done'}; "
+            f"{tr['samples']} asks, {tr['kinds']} different stacks"
+            + (f" (+{tr['kindsNotKept']} not kept)" if tr.get("kindsNotKept") else "")
+        )
+        for item in tr.get("top", []):
+            out.append(f"  ×{item['count']}")
+            for line in item["stack"][:10]:
+                out.append(f"      {line}")
+    return "\n".join(out)
+
+
 def summarize_settings(s: dict) -> str:
     width = max((len(k) for k in s), default=0)
     return "\n".join(
@@ -354,9 +427,15 @@ def summarize_settings(s: dict) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description="Read-only access to a running LibrePili "
-        f"(needs 「{SETTING_HINT}」 on).")
-    ap.add_argument("command", choices=["status", "log", "settings", "health"])
+        description="Access to a running LibrePili (needs 「"
+        f"{SETTING_HINT}」 on; scroll / window / trace-frames also 「"
+        f"{CONTROL_HINT}」).")
+    ap.add_argument("command", choices=[
+        "status", "log", "settings", "frames", "health",
+        "scroll", "window", "trace-frames"])
+    ap.add_argument("action", nargs="?", default="info",
+                    help="window: info (default), maximize, unmaximize, "
+                    "minimize, restore, size")
     ap.add_argument("--profile", help="a self-test profile (--profile NAME "
                     "of the app: its folder selftest-NAME)")
     ap.add_argument("--dir", help="the app's support folder, explicitly")
@@ -371,6 +450,19 @@ def main(argv=None) -> int:
     ap.add_argument("--since", help="log: only lines after this ISO time "
                     "(the app's local time, e.g. 2026-09-26T10:00:00)")
     ap.add_argument("--last", type=int, help="log: only the last N lines")
+    ap.add_argument("--seconds", type=int,
+                    help="frames: the last N seconds (1-60, default 5); "
+                    "trace-frames: how long to trace (1-120, default 10)")
+    ap.add_argument("--dy", type=float, help="scroll: logical px per step "
+                    "(default 120; negative scrolls up)")
+    ap.add_argument("--times", type=int, help="scroll: steps (default 10)")
+    ap.add_argument("--interval", type=int,
+                    help="scroll: ms between steps (default 50)")
+    ap.add_argument("--x", type=float, help="scroll: logical x (default: "
+                    "the window's middle)")
+    ap.add_argument("--y", type=float, help="scroll: logical y")
+    ap.add_argument("--width", type=float, help="window size: logical px")
+    ap.add_argument("--height", type=float, help="window size: logical px")
     args = ap.parse_args(argv)
 
     # the labels are Chinese; a Windows console's code page is not UTF-8
@@ -388,6 +480,23 @@ def main(argv=None) -> int:
             if args.last is not None:
                 q.append(f"limit={args.last}")
             data = request(info, "/log" + ("?" + "&".join(q) if q else ""))
+        elif args.command == "frames":
+            data = request(info, "/frames" + (
+                f"?seconds={args.seconds}" if args.seconds else ""))
+        elif args.command == "scroll":
+            body = {k: v for k, v in (
+                ("dy", args.dy), ("times", args.times),
+                ("intervalMs", args.interval), ("x", args.x), ("y", args.y),
+            ) if v is not None}
+            data = request(info, "/control/scroll", body=body)
+        elif args.command == "window":
+            body = {"action": args.action}
+            if args.action == "size":
+                body.update(width=args.width, height=args.height)
+            data = request(info, "/control/window", body=body)
+        elif args.command == "trace-frames":
+            data = request(info, "/control/trace-frames",
+                           body={"seconds": args.seconds or 10})
         else:
             data = request(info, "/" + args.command)
     except CtlError as e:
@@ -402,6 +511,8 @@ def main(argv=None) -> int:
         print(summarize_log(data))
     elif args.command == "settings":
         print(summarize_settings(data))
+    elif args.command == "frames":
+        print(summarize_frames(data))
     else:
         print(json.dumps(data, ensure_ascii=False))
     return 0

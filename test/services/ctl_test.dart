@@ -15,6 +15,7 @@ Future<(int, Map<String, dynamic>)> _get(
   String? token,
   String method = 'GET',
   Map<String, String> headers = const {},
+  String? body,
 }) async {
   final client = HttpClient();
   try {
@@ -26,9 +27,13 @@ Future<(int, Map<String, dynamic>)> _get(
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     }
     headers.forEach(request.headers.set);
+    if (body != null) {
+      request.headers.contentType = ContentType.json;
+      request.write(body);
+    }
     final response = await request.close();
-    final body = await response.transform(utf8.decoder).join();
-    return (response.statusCode, jsonDecode(body) as Map<String, dynamic>);
+    final text = await response.transform(utf8.decoder).join();
+    return (response.statusCode, jsonDecode(text) as Map<String, dynamic>);
   } finally {
     client.close(force: true);
   }
@@ -167,6 +172,140 @@ void main() {
           )).$1,
           HttpStatus.forbidden,
         );
+      } finally {
+        await server.stop();
+      }
+    });
+  });
+
+  group('control', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('ctl_test'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    var allowed = false;
+    final seen = <Map<String, Object?>>[];
+
+    CtlServer make() => CtlServer(
+      dir: dir.path,
+      identity: {'app': 'LibrePili', 'version': 'test', 'profile': null},
+      endpoints: {
+        '/status': (_) => {'hello': 'world'},
+      },
+      controlEndpoints: {
+        '/control/echo': (body) {
+          seen.add(body);
+          return {'got': body};
+        },
+        '/control/bad': (_) => throw const CtlBadRequest('no such thing'),
+      },
+      controlAllowed: () => allowed,
+    );
+
+    test('POST only, with the token, only while allowed', () async {
+      allowed = false;
+      seen.clear();
+      final server = make();
+      await server.start();
+      final port = server.port!;
+      final t = server.token;
+      Future<int> post(String route, {String? body, String? token}) async =>
+          (await _get(
+            port,
+            route,
+            token: token,
+            method: 'POST',
+            body: body,
+          )).$1;
+      try {
+        // not GET, the token, then the switch
+        expect((await _get(port, '/control/echo', token: t)).$1, 405);
+        expect(await post('/control/echo', body: '{}'), 401);
+        expect(await post('/control/echo', body: '{}', token: 'wrong'), 401);
+        final (off, why) = await _get(
+          port,
+          '/control/echo',
+          token: t,
+          method: 'POST',
+          body: '{"a": 1}',
+        );
+        expect(off, HttpStatus.forbidden);
+        expect(why['error'], contains('允许命令行控制'));
+        expect(seen, isEmpty);
+
+        allowed = true;
+        // a browser page: never, allowed or not
+        expect(
+          (await _get(
+            port,
+            '/control/echo',
+            token: t,
+            method: 'POST',
+            body: '{}',
+            headers: {'origin': 'https://example.com'},
+          )).$1,
+          HttpStatus.forbidden,
+        );
+        expect(seen, isEmpty);
+
+        final (ok, answer) = await _get(
+          port,
+          '/control/echo',
+          token: t,
+          method: 'POST',
+          body: '{"a": 1}',
+        );
+        expect(ok, 200);
+        expect(answer, {
+          'got': {'a': 1},
+        });
+        // no body: an empty object
+        expect(await post('/control/echo', token: t), 200);
+        expect(seen.last, isEmpty);
+        // not an object, not JSON
+        expect(await post('/control/echo', body: '[1]', token: t), 400);
+        expect(await post('/control/echo', body: '{', token: t), 400);
+        expect(seen, hasLength(2));
+        // what the endpoint cannot do as asked
+        final (bad, badWhy) = await _get(
+          port,
+          '/control/bad',
+          token: t,
+          method: 'POST',
+          body: '{}',
+        );
+        expect(bad, 400);
+        expect(badWhy['error'], 'no such thing');
+
+        // switched off again: refused from the next request on
+        allowed = false;
+        expect(await post('/control/echo', body: '{}', token: t), 403);
+        expect(seen, hasLength(2));
+        // reading is still GET only
+        expect(await post('/status', body: '{}', token: t), 405);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    test('a server made without control takes none', () async {
+      final server = CtlServer(
+        dir: dir.path,
+        identity: const {'app': 'LibrePili'},
+        endpoints: {
+          '/status': (_) => {'hello': 'world'},
+        },
+      );
+      await server.start();
+      try {
+        final (code, _) = await _get(
+          server.port!,
+          '/control/echo',
+          token: server.token,
+          method: 'POST',
+          body: '{}',
+        );
+        expect(code, HttpStatus.methodNotAllowed);
       } finally {
         await server.stop();
       }

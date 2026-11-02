@@ -19,6 +19,8 @@ import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/model_catalog.dart';
+import 'package:PiliPlus/services/ctl/ctl_control.dart';
+import 'package:PiliPlus/services/ctl/ctl_frames.dart';
 import 'package:PiliPlus/services/ctl/ctl_server.dart';
 import 'package:PiliPlus/services/ctl/ctl_state.dart';
 import 'package:PiliPlus/services/event_log.dart';
@@ -95,6 +97,7 @@ abstract final class Ctl {
     if (!on) {
       final server = _server;
       _server = null;
+      CtlFrames.stop();
       await server?.stop();
       CtlServer.removeStale(appSupportDirPath, mirrorDir: await _mirrorDir());
       if (server != null) EventLog.add('ctl', 'command-line reader stopped');
@@ -109,13 +112,25 @@ abstract final class Ctl {
         '/status': (_) => status(),
         '/log': log,
         '/settings': (_) => ctlSettingsJson(GStorage.setting.get),
+        '/frames': CtlFrames.endpoint,
       },
+      // only with 允许命令行控制 on as well, read at each request
+      controlEndpoints: CtlControl.endpoints,
+      controlAllowed: () => Pref.ctlControl,
     );
     await server.start();
     _server = server;
+    CtlFrames.start();
     // the port, never the token
     EventLog.add('ctl', 'command-line reader on 127.0.0.1:${server.port}');
   }
+
+  /// 允许命令行控制 flicked: noted, nothing else (the server reads it at
+  /// every control request).
+  static void controlChanged(bool on) => EventLog.add(
+    'ctl',
+    on ? 'command-line control allowed' : 'command-line control refused',
+  );
 
   static Map<String, Object?> get identity => {
     'app': 'LibrePili',
@@ -167,6 +182,8 @@ abstract final class Ctl {
                 BuildConfig.buildTime * 1000,
               ).toIso8601String(),
         'pid': pid,
+        // POST /control/... allowed (允许命令行控制)
+        'control': Pref.ctlControl,
         'platform': Platform.operatingSystem,
         'osVersion': Platform.operatingSystemVersion,
         'now': DateTime.now().toIso8601String(),

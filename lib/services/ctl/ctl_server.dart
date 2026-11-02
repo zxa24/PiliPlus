@@ -10,7 +10,12 @@
 /// (the same user, or `adb` on a debuggable Android build) can read the
 /// state; nothing else on the machine can.
 ///
-/// Only GET, only JSON, and nothing that changes the app.
+/// Reading is GET, only JSON, and changes nothing. The few things that do
+/// change the app ([controlEndpoints]: scroll, size the window, trace the
+/// frames — for diagnosing performance, feature-logs/linux-4k-perf) are
+/// POST, need the same token, and are refused (403) unless a second
+/// switch, 设置 → 其它设置 → 允许命令行控制, is on as well ([controlAllowed],
+/// read at every request).
 library;
 
 import 'dart:async';
@@ -23,6 +28,23 @@ import 'package:path/path.dart' as path;
 /// Answers one endpoint: the JSON-encodable value to send.
 typedef CtlEndpoint = FutureOr<Object?> Function(Uri uri);
 
+/// Does one thing to the app, with the request's JSON object ({} for an
+/// empty body): the JSON-encodable answer.
+typedef CtlControlEndpoint = FutureOr<Object?> Function(
+  Map<String, Object?> body,
+);
+
+/// Thrown by an endpoint for a request it cannot do as asked: answered 400
+/// with [message], not 500.
+final class CtlBadRequest implements Exception {
+  const CtlBadRequest(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Anything JSON cannot hold is sent as its `toString`, rather than failing
 /// the whole answer.
 const _encoder = JsonEncoder.withIndent('  ', _asText);
@@ -34,8 +56,12 @@ final class CtlServer {
     required this.endpoints,
     required this.identity,
     this.mirrorDir,
+    this.controlEndpoints = const {},
+    this.controlAllowed = _never,
     String? token,
   }) : token = token ?? newToken();
+
+  static bool _never() => false;
 
   /// Where `ctl.json` is written: the app's support folder.
   final String dir;
@@ -47,6 +73,17 @@ final class CtlServer {
 
   /// By path (`/status`…). Every one needs the token.
   final Map<String, CtlEndpoint> endpoints;
+
+  /// By path (`/control/scroll`…): POST only, with the token, and only
+  /// while [controlAllowed] answers true.
+  final Map<String, CtlControlEndpoint> controlEndpoints;
+
+  /// Whether [controlEndpoints] may run now; asked at every request, so
+  /// turning the switch off takes effect at once.
+  final bool Function() controlAllowed;
+
+  /// The largest request body read, in bytes.
+  static const maxBody = 64 * 1024;
 
   /// Written into `ctl.json` and answered by `/health`: version, profile.
   final Map<String, Object?> identity;
@@ -190,10 +227,14 @@ final class CtlServer {
     if (origin != null) {
       return send(HttpStatus.forbidden, {'error': 'browser requests refused'});
     }
+    final route = request.uri.path;
+    final control = controlEndpoints[route];
+    if (control != null) {
+      return _serveControl(request, control, authorization, send);
+    }
     if (request.method != 'GET') {
       return send(HttpStatus.methodNotAllowed, {'error': 'read-only: GET'});
     }
-    final route = request.uri.path;
     if (route == '/health') {
       return send(HttpStatus.ok, {'ok': true, ...identity});
     }
@@ -207,11 +248,68 @@ final class CtlServer {
       return send(HttpStatus.notFound, {
         'error': 'no such endpoint',
         'endpoints': ['/health', ...endpoints.keys],
+        'control': controlEndpoints.keys.toList(),
       });
     }
     Object? body;
     try {
       body = await endpoint(request.uri);
+    } catch (e) {
+      return send(HttpStatus.internalServerError, {'error': '$e'});
+    }
+    return send(HttpStatus.ok, body);
+  }
+
+  /// A [controlEndpoints] route: POST, the token, the switch, then a JSON
+  /// object body (or none), in that order.
+  Future<void> _serveControl(
+    HttpRequest request,
+    CtlControlEndpoint control,
+    String? authorization,
+    Future<void> Function(int status, Object? body) send,
+  ) async {
+    if (request.method != 'POST') {
+      return send(HttpStatus.methodNotAllowed, {'error': 'control: POST'});
+    }
+    if (!tokenMatches(authorization, token)) {
+      return send(HttpStatus.unauthorized, {
+        'error': 'missing or wrong token (see ctl.json)',
+      });
+    }
+    if (!controlAllowed()) {
+      return send(HttpStatus.forbidden, {
+        'error': 'control is off: 设置 → 其它设置 → 允许命令行控制',
+      });
+    }
+    final Map<String, Object?> args;
+    try {
+      final bytes = <int>[];
+      await for (final chunk in request) {
+        bytes.addAll(chunk);
+        if (bytes.length > maxBody) {
+          return await send(HttpStatus.requestEntityTooLarge, {
+            'error': 'body over $maxBody bytes',
+          });
+        }
+      }
+      final text = utf8.decode(bytes).trim();
+      final decoded = text.isEmpty
+          ? const <String, Object?>{}
+          : jsonDecode(text);
+      if (decoded is! Map) {
+        return await send(HttpStatus.badRequest, {
+          'error': 'body: a JSON object',
+        });
+      }
+      args = decoded.cast<String, Object?>();
+    } catch (e) {
+      return send(HttpStatus.badRequest, {'error': 'body: $e'});
+    }
+    Object? body;
+    try {
+      body = await control(args);
+    } on CtlBadRequest catch (e) {
+      return send(HttpStatus.badRequest, {'error': e.message});
     } catch (e) {
       return send(HttpStatus.internalServerError, {'error': '$e'});
     }

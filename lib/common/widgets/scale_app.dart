@@ -2,6 +2,7 @@ import 'dart:async' show scheduleMicrotask;
 import 'dart:collection' show Queue;
 import 'dart:ui' show PointerDataPacket;
 
+import 'package:PiliPlus/services/ctl/ctl_frames.dart';
 import 'package:flutter/gestures.dart' show PointerEventConverter;
 import 'package:flutter/rendering.dart' show RenderView, ViewConfiguration;
 import 'package:flutter/widgets.dart';
@@ -116,5 +117,36 @@ class ScaledWidgetsFlutterBinding extends WidgetsFlutterBinding {
     while (_pendingPointerEvents.isNotEmpty) {
       handlePointerEvent(_pendingPointerEvents.removeFirst());
     }
+  }
+
+  // LibrePili: the frames asked for and drawn, counted for the command-line
+  // reader's /frames (CtlFrames; one bool test while it is not serving).
+  // A frame is asked for only when none is pending, and scheduleFrame only
+  // with frames enabled: the same tests as SchedulerBinding's own.
+
+  @override
+  void scheduleFrame() {
+    if (CtlFrames.isOn) {
+      CtlFrames.onScheduleFrame(!hasScheduledFrame && framesEnabled);
+    }
+    super.scheduleFrame();
+  }
+
+  @override
+  void scheduleForcedFrame() {
+    if (CtlFrames.isOn) CtlFrames.onForcedFrame(!hasScheduledFrame);
+    super.scheduleForcedFrame();
+  }
+
+  @override
+  void handleBeginFrame(Duration? rawTimeStamp) {
+    if (CtlFrames.isOn) CtlFrames.onBeginFrame();
+    super.handleBeginFrame(rawTimeStamp);
+  }
+
+  @override
+  void handleMetricsChanged() {
+    if (CtlFrames.isOn) CtlFrames.onMetricsChanged();
+    super.handleMetricsChanged();
   }
 }

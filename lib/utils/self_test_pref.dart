@@ -232,6 +232,7 @@ abstract final class SelfTestPref {
     SettingBoxKey.showScanButton: bool,
     SettingBoxKey.scanExplained: bool,
     SettingBoxKey.ctlServer: bool,
+    SettingBoxKey.ctlControl: bool,
     SettingBoxKey.debugMode: bool,
     SettingBoxKey.showDecorate: bool,
     SettingBoxKey.showMedal: bool,

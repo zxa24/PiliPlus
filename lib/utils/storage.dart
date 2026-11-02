@@ -131,8 +131,10 @@ abstract final class GStorage {
   /// in software" would stop this one asking its own hardware. So are the
   /// 设置代理 setting and the hardware decoding mode (user 2026-10-20): a
   /// proxy on another network, or a decoder this device has not, must not
-  /// come with a backup.
+  /// come with a backup. So is 允许命令行控制: a backup from elsewhere must
+  /// not let this device's command line drive the app.
   static const deviceKeys = [
+    SettingBoxKey.ctlControl,
     SettingBoxKey.downloadPath,
     SettingBoxKey.appFont,
     SettingBoxKey.enableDocProvider,
