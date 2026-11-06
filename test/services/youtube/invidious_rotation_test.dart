@@ -92,6 +92,31 @@ void main() {
         isFalse,
       );
     });
+
+    test('not the entries the registry has never reached', () {
+      final hosts = InvidiousInstances.allHttps(
+        jsonDecodeFile('test/fixtures/youtube/invidious/registry.json'),
+      );
+      // listed as https, no stats, no monitor (Yggdrasil addresses)
+      expect(hosts, isNot(contains('https://inv-ygg.nadeko.net')));
+      expect(hosts, isNot(contains('https://inv.nadeko.ygg')));
+      expect(hosts, hasLength(5));
+    });
+
+    test('a .ygg address even with stats', () {
+      final hosts = InvidiousInstances.allHttps([
+        [
+          'a.ygg',
+          {
+            'type': 'https',
+            'uri': 'https://a.ygg',
+            'stats': {'version': '2.0'},
+            'monitor': {'down': false},
+          },
+        ],
+      ]);
+      expect(hosts, isEmpty);
+    });
   });
 
   test('caption languages from the label where the list is refused', () {

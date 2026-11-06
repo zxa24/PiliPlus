@@ -52,6 +52,12 @@ abstract final class InvidiousInstances {
   /// watch page the app plays from (2026-10-12: `invidious.f5.si` marked down
   /// while its watch page served; `inv.nadeko.net` 99.7 % up with its API
   /// off for everyone).
+  ///
+  /// Not the ones the registry has never reached (no `stats`, no `monitor`):
+  /// `inv-ygg.nadeko.net` and `inv.nadeko.ygg`, Yggdrasil addresses listed
+  /// as `https`, were all that was left once the clearnet ones were set
+  /// aside, and a failed lookup of each every 12 s was the user's copy's
+  /// whole "playback" for minutes (2026-11-05).
   static List<String> allHttps(Object? json) {
     if (json is! List) return const [];
     final out = <String>[];
@@ -63,6 +69,8 @@ abstract final class InvidiousInstances {
       if (info['type'] != 'https' || uri is! String || !uri.startsWith('https://')) {
         continue;
       }
+      if (info['stats'] == null && info['monitor'] == null) continue;
+      if (Uri.tryParse(uri)?.host.endsWith('.ygg') ?? true) continue;
       out.add(uri.endsWith('/') ? uri.substring(0, uri.length - 1) : uri);
     }
     return out;
