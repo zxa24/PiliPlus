@@ -1813,6 +1813,25 @@ abstract final class SelfTest {
         PlPlayerController.debugOldSeekFailure = false;
       }
     }
+    // `--give-up BILI_URL [--watch-for 45] [--old-give-up]`: every host cuts
+    // the streams 2 MB in and answers 429 from there on, until 视频无法播放;
+    // then whether anything more is tried by itself (the user's copy,
+    // 2026-11-05: another host and new URLs every 12 s for minutes after).
+    // Passes when nothing is. `--old-give-up`: the steps go on, as before.
+    if (_arg(args, '--give-up') case final target?) {
+      PlPlayerController.debugOldGiveUp = args.contains('--old-give-up');
+      try {
+        await scenario(
+          'giveUp',
+          () => _giveUp(
+            target,
+            watchFor: int.tryParse(_arg(args, '--watch-for') ?? '') ?? 45,
+          ),
+        );
+      } finally {
+        PlPlayerController.debugOldGiveUp = false;
+      }
+    }
     if (_arg(args, '--quality-codecs') case final video?) {
       await scenario('qualityCodecs', () => _qualityCodecs(video));
     }
@@ -9897,6 +9916,90 @@ abstract final class SelfTest {
             ? 'not paused at $seekTo s when played again'
             : 'at $at s, not where it was sent ($seekTo s)',
     };
+  }
+
+
+  /// See `--give-up`.
+  static Future<Map<String, dynamic>> _giveUp(
+    String target, {
+    required int watchFor,
+  }) async {
+    final start = DateTime.now();
+    final cut = _CuttingProxy(2 << 20, oneHost: false, refuseWith: 429);
+    await cut.start();
+    PlPlayerController.debugWrapAll = cut.wrap;
+    try {
+      await PiliScheme.routePushFromUrl(target);
+      await Future.delayed(const Duration(seconds: 3));
+      final page = Get.find<VideoDetailController>(
+        tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+      );
+      final player = page.plPlayerController;
+      for (var i = 0; i < 40 && !page.videoState.value; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+      if (!player.playerStatus.isPlaying) await player.play();
+      DateTime? failedAt;
+      for (var i = 0; i < 180 && failedAt == null; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        for (final (at, line) in EventLog.entries(since: start)) {
+          if (line.contains('[failure]') && line.contains('视频无法播放')) {
+            failedAt = at;
+            break;
+          }
+        }
+      }
+      if (failedAt == null) {
+        Get.back();
+        return {
+          'pass': false,
+          'reason': '视频无法播放 not reached in 180 s',
+          'requests': cut.requests.length,
+          'events': [
+            for (final (_, line) in EventLog.entries(since: start)) line,
+          ],
+        };
+      }
+      final requestsAtFailure = cut.requests.length;
+      await Future.delayed(Duration(seconds: watchFor));
+      final after = [
+        for (final (_, line) in EventLog.entries(since: failedAt)) line,
+      ];
+      bool step(String e) =>
+          e.contains('stream failed:') ||
+          e.contains('still not playing') ||
+          e.contains('no other CDN') ||
+          e.contains('new stream URLs') ||
+          e.contains('reopen at');
+      final steps = after.where(step).toList();
+      final told = after.any(
+        (e) => e.contains('told the viewer it cannot play'),
+      );
+      final requestsAfter = cut.requests.length - requestsAtFailure;
+      SmartDialog.dismiss(tag: 'failure:视频无法播放');
+      Get.back();
+      await Future.delayed(const Duration(seconds: 2));
+      final pass = steps.isEmpty && requestsAfter == 0;
+      return {
+        'pass': pass,
+        'failedAfterSeconds': failedAt.difference(start).inSeconds,
+        'watchedSeconds': watchFor,
+        'stepsAfter': steps.length,
+        'requestsAfter': requestsAfter,
+        'told': told,
+        'steps': steps.take(20).toList(),
+        if (!pass)
+          'reason':
+              '${steps.length} steps and $requestsAfter stream requests '
+              'in $watchFor s after 视频无法播放',
+        'events': [
+          for (final (_, line) in EventLog.entries(since: start)) line,
+        ],
+      };
+    } finally {
+      PlPlayerController.debugWrapAll = null;
+      await cut.close();
+    }
   }
 
   static Future<Map<String, dynamic>> _youtube(String input) async {

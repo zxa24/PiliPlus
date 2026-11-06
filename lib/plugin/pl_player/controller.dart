@@ -842,6 +842,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _recoveryCheck = null;
       _failureCheck?.cancel();
       _failureCheck = null;
+      _viewerActed();
       // the first fill of a new source is not the network falling behind
       _health.clear();
       _healthRest = max(_healthRest, _afterSeekRest);
@@ -2401,6 +2402,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (_replacing) return;
     // waiting for the network: nothing else to try until it is back
     if (_networkWait != null) return;
+    if (_gaveUp('a stream failure')) return;
     // Every host failing at once is the network, not the hosts: the router
     // lost the internet, the player tried the same host and then the other
     // one within ten seconds, and then nothing — it sat at 0:00 for good
@@ -2596,6 +2598,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _recoveryCheck = null;
       if (!identical(dataSource, source) || _replacing || _renewing) return;
       if (_networkWait != null) return;
+      if (_gaveUp('the 12 s look')) return;
       if (!playerStatus.isPlaying) return;
       final moved = position.value != before && !isBuffering.value;
       if (moved) {
@@ -3574,6 +3577,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // up the hosts the network will need once it is back (2026-10-03)
     final source = dataSource;
     if (_networkWait != null) return;
+    if (_gaveUp('another host')) return;
     if (!await _reachable(source)) {
       if (identical(dataSource, source)) _waitForNetwork();
       return;
@@ -3628,8 +3632,43 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         EventLog.add('player', 'playback went on: no failure shown');
         return;
       }
+      _failureShownFor = source;
       FailureReport.show('视频无法播放', '所有线路都试过了，仍无法加载这个视频。');
     });
+  }
+
+  /// The source 视频无法播放 was said of: nothing more is tried by itself
+  /// for it until the viewer plays or seeks, or another source opens. It
+  /// went on every 12 s — another host, new URLs, the same failure — for
+  /// minutes after the viewer was told (the user's copy, 2026-11-05).
+  DataSource? _failureShownFor;
+
+  /// Whether the viewer was told this source cannot play ([_failureShownFor]),
+  /// said once in the log for [what] that is then not done.
+  bool _gaveUp(String what) {
+    if (debugOldGiveUp) return false;
+    if (!identical(_failureShownFor, dataSource)) return false;
+    if (!_gaveUpSaid) {
+      _gaveUpSaid = true;
+      EventLog.add(
+        'player',
+        'told the viewer it cannot play: $what not tried, nor anything more '
+            'until a play or a seek',
+      );
+    }
+    return true;
+  }
+
+  var _gaveUpSaid = false;
+
+  /// For the self-test's control (`--old-give-up`): the steps go on after
+  /// 视频无法播放, as before. Nothing else sets it.
+  static bool debugOldGiveUp = false;
+
+  /// The viewer playing or seeking: the steps are theirs to start again.
+  void _viewerActed() {
+    _failureShownFor = null;
+    _gaveUpSaid = false;
   }
 
   /// Where `Stream ends prematurely at N, should be M` says a stream ended.
@@ -3911,6 +3950,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// 跳转至指定位置
   Future<void> seekTo(Duration position, {bool isSeek = true}) async {
+    _viewerActed();
     if (_playerCount == 0) {
       return;
     }
@@ -4175,6 +4215,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// 播放视频
   Future<void> play({bool repeat = false, bool hideControls = true}) async {
+    _viewerActed();
     if (_playerCount == 0) return;
     pausedBeforeFrame.value = false;
     // 播放时自动隐藏控制条
