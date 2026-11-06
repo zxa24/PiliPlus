@@ -24,6 +24,7 @@ class DownloadProgress extends ChangeNotifier {
   static const stepSubtitles = 'subtitles';
   static const stepCommentList = 'commentList';
   static const stepComments = 'comments';
+  static const stepPreview = 'preview';
 
   /// Seconds one unit of a step takes before it has been measured: a
   /// request (the comment lists wait 200 ms between pages and between a
@@ -35,6 +36,8 @@ class DownloadProgress extends ChangeNotifier {
     stepSubtitles: 0.4,
     stepCommentList: 0.6,
     stepComments: 0.4,
+    // a frame: an exact seek and its decoding
+    stepPreview: 0.3,
   };
 
   /// Comments per page of the hot list.
@@ -47,6 +50,7 @@ class DownloadProgress extends ChangeNotifier {
     stepSubtitles => '保存字幕',
     stepCommentList => '获取评论列表',
     stepComments => '保存评论',
+    stepPreview => '生成截图预览',
     _ => step,
   };
 
@@ -76,6 +80,7 @@ class DownloadProgress extends ChangeNotifier {
     required bool danmaku,
     required bool subtitles,
     required int comments,
+    int preview = 0,
   }) => {
     if (intro) stepIntro: 1,
     if (cover) stepCover: 1,
@@ -85,6 +90,7 @@ class DownloadProgress extends ChangeNotifier {
       stepCommentList: (comments / commentsPerPage).ceil(),
       stepComments: comments,
     },
+    if (preview > 0) stepPreview: preview,
   };
 
   /// [step] begins (its units as planned).

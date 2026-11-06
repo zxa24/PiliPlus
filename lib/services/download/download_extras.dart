@@ -17,6 +17,7 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_files.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
+import 'package:PiliPlus/services/download/preview_sheet.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -33,7 +34,8 @@ import 'package:path/path.dart' as path;
 /// `base.mp4`, `base.danmaku.xml`, `base.danmaku.ass`, `base.LANG.srt`,
 /// `base.asr.srt` and `base.asr.json` (the on-device transcript, see
 /// TranscriptFiles), `base.comments.json`, `base.intro.json` (the intro
-/// page's data, see [introSuffix]), `cover.jpg`. Every part is best-effort:
+/// page's data, see [introSuffix]), `cover.jpg`, `base.preview.N.jpg` and
+/// `base.preview.json` (see PreviewSheet). Every part is best-effort:
 /// a failure never affects the video itself.
 abstract final class DownloadExtras {
   static const xmlSuffix = '.danmaku.xml';
@@ -60,6 +62,8 @@ abstract final class DownloadExtras {
     danmaku: Pref.dlSaveDanmakuXml || Pref.dlSaveDanmakuAss,
     subtitles: Pref.dlSaveSubtitle,
     comments: Pref.dlSaveComments ? Pref.dlCommentCount : 0,
+    // the frames, as many as there can be: the real count replaces it
+    preview: Pref.dlSavePreview ? PreviewSheet.maxFrames : 0,
   );
 
   /// Writes the enabled extras; returns what was written (for self tests).
@@ -156,7 +160,33 @@ abstract final class DownloadExtras {
         () => _comments(entry, folder, base, check, cancelled, progress),
       );
     }
+
+    // last: local work, the requests above are not kept waiting for it
+    if (Pref.dlSavePreview) {
+      await step(DownloadProgress.stepPreview, () async {
+        final video = videoIn(folder, base);
+        if (video == null) return null;
+        return PreviewSheet.write(
+          video: video,
+          folder: folder,
+          base: base,
+          cancelled: cancelled,
+          progress: (done, total) =>
+              progress?.extras(DownloadProgress.stepPreview, done, total),
+        );
+      });
+    }
     return written;
+  }
+
+  /// The video file of [base] in [folder]: the extensions a merge or a
+  /// copy of the streams as they are leaves (DownloadPlatform's sniffing).
+  static String? videoIn(String folder, String base) {
+    for (final ext in const ['.mp4', '.flv', '.ts', '.mkv', '.m4v']) {
+      final file = path.join(folder, '$base$ext');
+      if (File(file).existsSync()) return file;
+    }
+    return null;
   }
 
   // ------------------------------------------------------------ subtitles

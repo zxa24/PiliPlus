@@ -457,6 +457,8 @@ abstract final class Pref {
       _setting.get(SettingBoxKey.dlSaveComments, defaultValue: true);
   static bool get dlSaveCover =>
       _setting.get(SettingBoxKey.dlSaveCover, defaultValue: true);
+  static bool get dlSavePreview =>
+      _setting.get(SettingBoxKey.dlSavePreview, defaultValue: true);
   static int get dlCommentCount =>
       _setting.get(SettingBoxKey.dlCommentCount, defaultValue: 200);
   static int get dlReplyCount =>

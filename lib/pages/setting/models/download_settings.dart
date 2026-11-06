@@ -46,6 +46,14 @@ List<SettingsModel> get downloadSettings => [
     defaultVal: true,
   ),
   const SwitchModel(
+    title: '保存截图预览',
+    subtitle: '下载完成后从视频里每隔一段截一帧，4×4 拼成图（.preview.N.jpg）'
+        '并附时间表（.preview.json），方便 AI 读视频内容；在本机解码',
+    leading: Icon(Icons.grid_view_outlined),
+    setKey: SettingBoxKey.dlSavePreview,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '保存热门评论（JSON）',
     leading: Icon(Icons.comment_outlined),
     setKey: SettingBoxKey.dlSaveComments,

@@ -89,6 +89,7 @@ abstract final class SettingBoxKey {
       dlTranscribe = 'dlTranscribe',
       dlSaveComments = 'dlSaveComments',
       dlSaveCover = 'dlSaveCover',
+      dlSavePreview = 'dlSavePreview',
       dlCommentCount = 'dlCommentCount',
       dlReplyCount = 'dlReplyCount',
       // LibrePili: the settings the subtitle switch replaced, read once to

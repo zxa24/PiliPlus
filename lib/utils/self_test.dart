@@ -110,6 +110,7 @@ import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/download/download_transcripts.dart';
+import 'package:PiliPlus/services/download/preview_sheet.dart';
 import 'package:PiliPlus/pages/history/local.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_library.dart';
@@ -1865,6 +1866,14 @@ abstract final class SelfTest {
         PlPlayerController.debugDisableRecovery = false;
         PlPlayerController.debugNoHealthSteps = false;
       }
+    }
+    // `--preview-sheet FILE`: the preview sheets of FILE written beside it
+    // (PreviewSheet, user 2026-11-06). Passes when there is a frame for each
+    // time asked, each taken within 0.25 s of it, the sheets are there and
+    // progress was told of each frame. Their pixels are checked outside,
+    // against ffmpeg's frames at the same times.
+    if (_arg(args, '--preview-sheet') case final file?) {
+      await scenario('previewSheet', () => _previewSheet(file));
     }
     // `--yt-gate-put VIDEO [--old-gate-put]`: the page fails with only a
     // gated instance left (user 2026-11-06: 只剩下需要验证的直接弹验证), the
@@ -10233,6 +10242,50 @@ abstract final class SelfTest {
             : 'the next source would open at $askedAt s, the picture stopped at '
                   '$cacheEnd s',
       'events': events(),
+    };
+  }
+
+  /// See `--preview-sheet`.
+  static Future<Map<String, dynamic>> _previewSheet(String file) async {
+    final folder = path.dirname(file);
+    final base = path.basenameWithoutExtension(file);
+    var told = 0;
+    final result = await PreviewSheet.write(
+      video: file,
+      folder: folder,
+      base: base,
+      progress: (done, total) => told++,
+    );
+    final index = File(path.join(folder, '$base${PreviewSheet.jsonSuffix}'));
+    if (result == null || !index.existsSync()) {
+      return {'pass': false, 'reason': 'nothing written', 'result': result};
+    }
+    final json = jsonDecode(index.readAsStringSync()) as Map<String, dynamic>;
+    final sheets = json['sheets'] as List;
+    final asked = PreviewSheet.times((json['duration'] as num).toDouble());
+    final taken = [
+      for (final s in sheets)
+        for (final f in s['frames'] as List) (f['t'] as num).toDouble(),
+    ];
+    var worst = 0.0;
+    for (final (i, t) in taken.indexed) {
+      if (i < asked.length) worst = math.max(worst, (t - asked[i]).abs());
+    }
+    final there = sheets.every(
+      (s) => File(path.join(folder, s['file'] as String)).existsSync(),
+    );
+    return {
+      'pass':
+          taken.length == asked.length &&
+          worst < 0.25 &&
+          there &&
+          told == asked.length,
+      'result': result,
+      'asked': asked.length,
+      'taken': taken.length,
+      'worstOffset': worst,
+      'progressTold': told,
+      'index': json,
     };
   }
 

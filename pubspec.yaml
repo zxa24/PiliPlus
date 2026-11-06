@@ -120,6 +120,8 @@ dependencies:
   hive_ce: ^2.19.3
   html: ^0.15.4
   http2: ^2.3.1
+  # the preview sheets' JPEG (already in the lock as a transitive 4.10.1)
+  image: ^4.10.1
   image_cropper: ^12.0.0
   image_picker: ^1.1.2
   intl: ^0.20.2

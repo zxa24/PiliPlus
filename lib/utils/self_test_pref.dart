@@ -183,6 +183,7 @@ abstract final class SelfTestPref {
     SettingBoxKey.dlTranscribe: bool,
     SettingBoxKey.dlSaveComments: bool,
     SettingBoxKey.dlSaveCover: bool,
+    SettingBoxKey.dlSavePreview: bool,
     SettingBoxKey.dlCommentCount: int,
     SettingBoxKey.dlReplyCount: int,
     SettingBoxKey.asrMode: int,

@@ -64,6 +64,8 @@ void main() {
       SettingBoxKey.dlSaveDanmakuXml,
       SettingBoxKey.dlSaveDanmakuAss,
       SettingBoxKey.dlSaveComments,
+      // a player of its own: no libmpv in a unit test
+      SettingBoxKey.dlSavePreview,
     ]) {
       await GStorage.setting.put(key, false);
     }
