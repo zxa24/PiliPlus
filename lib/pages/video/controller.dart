@@ -2740,6 +2740,7 @@ class VideoDetailController extends GetxController
       duration: () => _ownsPlayer && plPlayerController.duration.value > 0
           ? plPlayerController.duration.value.toDouble()
           : null,
+      halted: () => _ownsPlayer && plPlayerController.toldCannotPlay,
       // the stream URL the page has now: it replaces an expired one when
       // it fails over or refreshes for its own playback
       refresh: ({bool expired = false}) async {

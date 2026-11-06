@@ -3710,6 +3710,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   var _gaveUpSaid = false;
 
+  /// Whether 视频无法播放 stands for the source playing now, with nothing
+  /// more tried until the viewer plays or seeks ([_failureShownFor]).
+  bool get toldCannotPlay =>
+      !debugOldGiveUp &&
+      _failureShownFor != null &&
+      identical(_failureShownFor, dataSource);
+
   /// For the self-test's control (`--old-give-up`): the steps go on after
   /// 视频无法播放, as before. Nothing else sets it.
   static bool debugOldGiveUp = false;

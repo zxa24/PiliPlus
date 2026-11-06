@@ -1147,6 +1147,7 @@ class YtVideoController extends GetxController
       duration: () => _ownsPlayer && plPlayerController.duration.value > 0
           ? plPlayerController.duration.value.toDouble()
           : null,
+      halted: () => _ownsPlayer && plPlayerController.toldCannotPlay,
       refresh: ({bool expired = false}) async {
         final now = asrSource;
         return now == null || now.isEmpty ? null : now;

@@ -186,10 +186,12 @@ class AsrSession {
     this.seekable = true,
     double? Function()? playhead,
     double? Function()? duration,
+    bool Function()? halted,
     this.refreshSource,
     this.cacheKey,
   }) : _playheadOf = playhead,
-       _durationOf = duration;
+       _durationOf = duration,
+       _haltedOf = halted;
 
   /// A session with no job behind it, for widget tests.
   @visibleForTesting
@@ -207,6 +209,13 @@ class AsrSession {
 
   final double? Function()? _playheadOf;
   final double? Function()? _durationOf;
+
+  /// Whether the page's player told the viewer it cannot play: no run is
+  /// started until it plays again. Its streams were refused, and so was
+  /// every run, one every 20 s after 视频无法播放 (the user's copy,
+  /// 2026-11-06).
+  final bool Function()? _haltedOf;
+  var _haltSaid = false;
 
   /// See [AsrSourceRefresh].
   final AsrSourceRefresh? refreshSource;
@@ -1234,6 +1243,14 @@ class AsrSession {
   /// or near enough the end of known text — exactly where that text ends.
   Future<void> _startRun(double at, {required bool adjacent}) async {
     if (_starting || _closed) return;
+    if (_haltedOf?.call() ?? false) {
+      if (!_haltSaid) {
+        _haltSaid = true;
+        EventLog.add('asr', 'no run while the player cannot play');
+      }
+      return;
+    }
+    _haltSaid = false;
     _starting = true;
     final token = ++_startToken;
     final first = _serials == 0;
@@ -1578,6 +1595,20 @@ class AsrSession {
     }
   }
 
+  /// Whether a read that mpv ended as the end of the file stopped more than
+  /// [endSlack] short of the player's [length]: a download cut short, not
+  /// the end. A reconnect answered 403 ends the file for mpv as its end
+  /// does; taken for it, 402 s of 2050 s became the media's length, the
+  /// playhead at 419 s stood past it, and every run went to the gap at 0 s
+  /// ("the viewer jumped to 0.0 s", the user's copy, 2026-11-06).
+  @visibleForTesting
+  static bool endedShort(double played, double? length) =>
+      length != null && length > 0 && played < length - endSlack;
+
+  /// How much shorter than its video a media's audio can be: a video's
+  /// length can run a little past its audio's (see [duration]).
+  static const endSlack = 10.0;
+
   /// [run]'s recogniser read its audio to the end. The end of the media —
   /// and so how far the transcript can reach — if its extraction got
   /// there; a download cut short otherwise, tried again from there later.
@@ -1587,7 +1618,8 @@ class AsrSession {
     } catch (_) {}
     if (_closed || run.ended) return;
     if (run.join == null) transcript.advance(run.store, played);
-    if (run.reachedEnd || !seekable) {
+    if ((run.reachedEnd && !endedShort(played, _durationOf?.call())) ||
+        !seekable) {
       // (a source that cannot seek cannot try again: what it got is all)
       _mediaEnd = played;
       debugSeams.add({'kind': 'end', 'run': run.serial, 'at': played});
@@ -1951,6 +1983,7 @@ class AsrService extends GetxService {
     bool seekable = true,
     double? Function()? playhead,
     double? Function()? duration,
+    bool Function()? halted,
     AsrSourceRefresh? refresh,
     AsrPower? power,
     SubtitleCacheKey? cache,
@@ -1963,6 +1996,7 @@ class AsrService extends GetxService {
       seekable: seekable,
       playhead: playhead,
       duration: duration,
+      halted: halted,
       refreshSource: refresh,
       cacheKey: cache,
     );
