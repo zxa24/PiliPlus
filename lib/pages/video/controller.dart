@@ -228,6 +228,8 @@ class VideoDetailController extends GetxController
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
       ..onStepUpDropped = _dropStepUp
+      // its own steps down are not put back (see onStepDownDropped)
+      ..onStepDownDropped = null
       ..onReopen = _reopenAtCurrentPosition
       ..onSourceExpired = _renewPlayUrl
       ..streamBitrate = _streamBitrate;
@@ -694,6 +696,8 @@ class VideoDetailController extends GetxController
       ..onStreamSlow = replaceSlowStreams
       ..onStreamRoomy = raiseQuality
       ..onStepUpDropped = _dropStepUp
+      // its own steps down are not put back (see onStepDownDropped)
+      ..onStepDownDropped = null
       ..onReopen = _reopenAtCurrentPosition
       ..onSourceExpired = _renewPlayUrl;
     args = Get.arguments;

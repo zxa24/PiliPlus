@@ -1813,6 +1813,29 @@ abstract final class SelfTest {
         PlPlayerController.debugOldSeekFailure = false;
       }
     }
+    // `--yt-step-down VIDEO [--step-at 15] [--sample-for 25]
+    // [--old-step-down]`: a YouTube video played, then stepped down as the
+    // health watch steps it, with the relay refusing (429) the requests the
+    // second player makes — as an Invidious companion answered it in the
+    // user's copy (2026-11-05: the reopen after threw 19 s of buffer away
+    // for 38.8 s of loading). Passes when the streams playing are kept and
+    // play on, at the height they had. `--old-step-down`: reopened as before.
+    if (_arg(args, '--yt-step-down') case final video?) {
+      PlPlayerController.debugOldStepDown = args.contains('--old-step-down');
+      try {
+        await scenario(
+          'ytStepDown',
+          () => _ytStepDown(
+            video,
+            stepAt: int.tryParse(_arg(args, '--step-at') ?? '') ?? 15,
+            sampleFor: int.tryParse(_arg(args, '--sample-for') ?? '') ?? 25,
+          ),
+        );
+      } finally {
+        PlPlayerController.debugOldStepDown = false;
+        YtStreamRelay.debugRefuseFrom = null;
+      }
+    }
     // `--give-up BILI_URL [--watch-for 45] [--old-give-up]`: every host cuts
     // the streams 2 MB in and answers 429 from there on, until 视频无法播放;
     // then whether anything more is tried by itself (the user's copy,
@@ -9918,6 +9941,152 @@ abstract final class SelfTest {
     };
   }
 
+  /// See `--yt-step-down`.
+  static Future<Map<String, dynamic>> _ytStepDown(
+    String input, {
+    required int stepAt,
+    required int sampleFor,
+  }) async {
+    final start = DateTime.now();
+    final id = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+    YtVideoController? page;
+    for (var i = 0; i < 900; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      try {
+        page = Get.find<YtVideoController>(tag: id);
+      } catch (_) {}
+      if (page?.stage.value == YtPageStage.ready) break;
+    }
+    if (page?.stage.value != YtPageStage.ready) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'YouTube page never became ready: ${page?.message.value}',
+      };
+    }
+    final player = page!.plPlayerController;
+    if (!player.playerStatus.isPlaying) await player.play();
+    await Future.delayed(Duration(seconds: stepAt));
+    // as in the user's copy: well ahead when the step came (19 s there). A
+    // step with next to nothing ahead is reopened, rightly
+    var ahead = 0;
+    for (var i = 0; i < 90; i++) {
+      ahead = player.buffered.value - player.position.value;
+      if (ahead >= 12) break;
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    if (ahead < 12) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'never 12 s buffered ahead (last $ahead s)',
+      };
+    }
+    final source = player.dataSource;
+    final host = source is NetworkSource
+        ? Uri.tryParse(source.videoSource)?.host
+        : null;
+    final heightBefore = page.maxHeight.value;
+    String line() =>
+        '${player.position.value} s ${player.playerStatus.value.name}'
+        '${player.isBuffering.value ? ' buffering' : ''} '
+        'buffered ${player.buffered.value} · ${page!.maxHeight.value}p';
+    final before = line();
+    final positionBefore = player.position.value;
+    // every request from the first byte on: the second player's, not the
+    // first's one long read already under way
+    YtStreamRelay.debugRefuseFrom = 1;
+    YtStreamRelay.debugRefuseWith = 429;
+    YtStreamRelay.debugRefuseTimes = 4;
+    final stepped = DateTime.now();
+    unawaited(player.debugStepDown());
+    final samples = <String>[];
+    var still = 0;
+    var last = player.position.value;
+    var askedAgain = false;
+    for (var i = 1; i <= sampleFor; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      final now = player.position.value;
+      if (now == last || player.isBuffering.value) still++;
+      last = now;
+      samples.add('$i s: ${line()}');
+      // a page that keeps the quality once first (delivered enough): asked
+      // again, as a second slow spell within 2 min is
+      if (!askedAgain &&
+          i == 2 &&
+          EventLog.entries(
+            since: stepped,
+          ).any((e) => e.$2.contains('quality kept'))) {
+        askedAgain = true;
+        samples.add('quality kept once: asked again');
+        unawaited(player.debugStepDown());
+      }
+    }
+    final events = [
+      for (final (_, line) in EventLog.entries(since: start)) line,
+    ];
+    final stepEvents = [
+      for (final (_, line) in EventLog.entries(since: stepped)) line,
+    ];
+    final heightAfter = page.maxHeight.value;
+    final advanced = player.position.value - positionBefore;
+    Get.back();
+    await Future.delayed(const Duration(seconds: 2));
+    final relayed = host == '127.0.0.1';
+    final steppedDown = stepEvents.any((e) => e.contains('quality down to'));
+    final kept = stepEvents.any((e) => e.contains('step down dropped'));
+    final reopened = stepEvents.any(
+      (e) => e.contains('no second player took over, opening the new streams'),
+    );
+    // the relay's own refusal, or the companion's: a real one came first
+    // on 2026-11-06, as in the user's copy
+    final refused = stepEvents.any(
+      (e) => e.contains('[relay]') && e.contains(': 429'),
+    );
+    final pass =
+        relayed &&
+        steppedDown &&
+        refused &&
+        kept &&
+        !reopened &&
+        heightAfter == heightBefore &&
+        still <= 2;
+    return {
+      'pass': pass,
+      'id': id,
+      'videoHost': host,
+      'relayed': relayed,
+      'steppedDown': steppedDown,
+      'askedAgain': askedAgain,
+      'refused': refused,
+      'kept': kept,
+      'reopened': reopened,
+      'aheadAtStep': ahead,
+      'heightBefore': heightBefore,
+      'heightAfter': heightAfter,
+      'advancedSeconds': advanced,
+      'stillSeconds': still,
+      'before': before,
+      'samples': samples,
+      'stepEvents': stepEvents,
+      if (!pass)
+        'reason': !relayed
+            ? 'not through the relay ($host): nothing to refuse'
+            : !steppedDown
+            ? 'the page made no step down'
+            : !refused
+            ? 'the second player was not refused'
+            : reopened
+            ? 'reopened on the new streams'
+            : !kept
+            ? 'the streams playing were not kept'
+            : heightAfter != heightBefore
+            ? 'height $heightAfter, not put back to $heightBefore'
+            : 'stood still $still s',
+      'events': events,
+    };
+  }
 
   /// See `--give-up`.
   static Future<Map<String, dynamic>> _giveUp(

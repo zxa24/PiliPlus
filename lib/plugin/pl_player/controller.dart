@@ -2812,6 +2812,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// could take over: the page puts back what it played before.
   VoidCallback? onStepUpDropped;
 
+  /// A step down the page made (see [onStreamSlow]) that no second player
+  /// could take over, while the streams playing still play: the page puts
+  /// back what it played before and says so (true); false where it cannot,
+  /// and the new streams are opened in their place.
+  bool Function()? onStepDownDropped;
+
+  /// For the self-test's control (`--old-step-down`): a step down no second
+  /// player took over is opened in place, as before. Nothing else sets it.
+  static bool debugOldStepDown = false;
+
   /// The source whose streams [_replaceStreams] is replacing. Tied to it: a
   /// replacement still asking the page when another video opened held that
   /// one's spinner and recovery back until it ended.
@@ -2901,6 +2911,24 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         onStepUpDropped?.call();
         return;
       }
+      // A step down for a stream not keeping up, while it still has buffer
+      // ahead: the step was for later, and the streams playing play on. An
+      // Invidious companion answered the second player 429, and the reopen
+      // threw away 19 s of buffer for 38.8 s of loading, its own requests
+      // refused as well (the user's copy, 2026-11-05).
+      if (why == 'slow' &&
+          !debugOldStepDown &&
+          _playsOn(player) &&
+          (onStepDownDropped?.call() ?? false)) {
+        EventLog.add(
+          'player',
+          'step down dropped: no second player took over, the streams '
+              'playing kept',
+        );
+        // not asked again at once: the same host refuses the same way
+        _healthRest = max(_healthRest, 60);
+        return;
+      }
       final reopenHere = onReopen;
       if (reopenHere == null) return;
       EventLog.add(
@@ -2925,6 +2953,27 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // what was held back while replacing
         isBuffering.value = _videoPlayerController?.state.buffering ?? false;
       }
+    }
+  }
+
+  /// Whether [player] is playing with at least [_handOverRoom] buffered
+  /// ahead: not standing still waiting for the stream.
+  static bool _playsOn(NativePlayer player) {
+    if (player.state.buffering) return false;
+    try {
+      final here = double.tryParse(player.getProperty('time-pos'));
+      final end = double.tryParse(player.getProperty('demuxer-cache-time'));
+      return here != null && end != null && end - here >= _handOverRoom;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Self-test (`--yt-step-down`): a step down as the health watch asks for
+  /// one, the page's own step and all.
+  Future<void> debugStepDown() async {
+    if (onStreamSlow case final slow?) {
+      await _replaceStreams(slow, why: 'slow', reopen: false);
     }
   }
 

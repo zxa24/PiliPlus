@@ -407,7 +407,8 @@ class YtVideoController extends GetxController
       ..onStreamCut = null
       ..onCdnFailover = _failover
       ..onReopen = _reopenHere
-      ..onStepUpDropped = _dropStepUp;
+      ..onStepUpDropped = _dropStepUp
+      ..onStepDownDropped = _dropStepDown;
     _heightCeiling ??= pair.video == null ? null : ytShortSide(pair.video!);
     openedHeight.value = pair.video == null ? null : ytShortSide(pair.video!);
     // what the buffer is sized by: without it mpv got the 4 MiB setting, 5 s
@@ -1921,7 +1922,11 @@ class YtVideoController extends GetxController
   Future<({String? video, String? audio})?> _stepHeight({
     required bool down,
   }) async {
-    if (!down) _undoStepUp = null;
+    if (down) {
+      _undoStepDown = null;
+    } else {
+      _undoStepUp = null;
+    }
     if (_heightChosen || isClosed) return null;
     if (!down) {
       if (_noStepUpUntil case final until?
@@ -2006,12 +2011,18 @@ class YtVideoController extends GetxController
         return null;
       }
     }
-    if (!down) {
-      final before = (
-        streams: _streams,
-        height: maxHeight.value,
-        bitrate: plPlayerController.streamBitrate,
-      );
+    final before = (
+      streams: _streams,
+      height: maxHeight.value,
+      bitrate: plPlayerController.streamBitrate,
+    );
+    if (down) {
+      _undoStepDown = () {
+        _streams = before.streams;
+        maxHeight.value = before.height;
+        plPlayerController.streamBitrate = before.bitrate;
+      };
+    } else {
       _undoStepUp = () {
         _streams = before.streams;
         maxHeight.value = before.height;
@@ -2050,6 +2061,19 @@ class YtVideoController extends GetxController
   void _dropStepUp() {
     _undoStepUp?.call();
     _undoStepUp = null;
+  }
+
+  /// Puts back what the last step down changed, for one the player did not
+  /// make (see [PlPlayerController.onStepDownDropped]).
+  VoidCallback? _undoStepDown;
+
+  bool _dropStepDown() {
+    final undo = _undoStepDown;
+    _undoStepDown = null;
+    if (undo == null) return false;
+    undo();
+    EventLog.add('player', 'quality back to ${maxHeight.value}p');
+    return true;
   }
 
   /// Self-test: the first open gets URLs YouTube refuses (403).
@@ -2170,7 +2194,8 @@ class YtVideoController extends GetxController
         ..onStreamRoomy = null
         ..onCdnFailover = null
         ..onReopen = null
-        ..onStepUpDropped = null;
+        ..onStepUpDropped = null
+        ..onStepDownDropped = null;
     }
     // 返回主页 (onCloseAll) disposed the player for every page already, as
     // on the bilibili page (view.dart's dispose)
