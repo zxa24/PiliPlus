@@ -1837,6 +1837,35 @@ abstract final class SelfTest {
         YtStreamRelay.debugRefuseFrom = null;
       }
     }
+    // `--yt-dry-hold VIDEO [--cut-mb 8] [--old-dry]`: the video stream of
+    // every URL the page gets cut short and answered 403 from there, the
+    // sound whole — as inv-us2.nadeko.net's companion did (the user's copy,
+    // 2026-11-06: the sound played on for 20 s over a picture standing at
+    // 399 s, and each new source was asked for where the sound had got to).
+    // Passes when, once the track runs dry, the playhead stands and the
+    // next URLs are asked for where the picture stopped. `--old-dry`: the
+    // sound plays on, as before.
+    if (_arg(args, '--yt-dry-hold') case final video?) {
+      PlPlayerController.debugOldDry = args.contains('--old-dry');
+      // in the relay: a proxy in front of it is a hop it refuses (not https)
+      YtStreamRelay.debugCutVideoAt =
+          ((double.tryParse(_arg(args, '--cut-mb') ?? '') ?? 8) * (1 << 20))
+              .round();
+      // the hold alone: no recovery to another host, no step in quality —
+      // the transport recovery switched hosts at the cut before the sound
+      // ran past the picture (2026-11-06 run). Where the next source would
+      // open is read from the player: what the page's failover asks at
+      PlPlayerController.debugDisableRecovery = true;
+      PlPlayerController.debugNoHealthSteps = true;
+      try {
+        await scenario('ytDryHold', () => _ytDryHold(video));
+      } finally {
+        YtStreamRelay.debugCutVideoAt = null;
+        PlPlayerController.debugOldDry = false;
+        PlPlayerController.debugDisableRecovery = false;
+        PlPlayerController.debugNoHealthSteps = false;
+      }
+    }
     // `--yt-gate-put VIDEO [--old-gate-put]`: the page fails with only a
     // gated instance left (user 2026-11-06: 只剩下需要验证的直接弹验证), the
     // in-app browser a stand-in that records what it is asked and is closed.
@@ -10111,6 +10140,99 @@ abstract final class SelfTest {
             ? 'height $heightAfter, not put back to $heightBefore'
             : 'stood still $still s',
       'events': events,
+    };
+  }
+
+  /// See `--yt-dry-hold`.
+  static Future<Map<String, dynamic>> _ytDryHold(String input) async {
+    final start = DateTime.now();
+    final id = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+    YtVideoController? page;
+    for (var i = 0; i < 900; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      try {
+        page = Get.find<YtVideoController>(tag: id);
+      } catch (_) {}
+      if (page?.stage.value == YtPageStage.ready) break;
+    }
+    List<String> events() => [
+      for (final (_, line) in EventLog.entries(since: start)) line,
+    ];
+    if (page?.stage.value != YtPageStage.ready) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'YouTube page never became ready: ${page?.message.value}',
+        'events': events(),
+      };
+    }
+    final player = page!.plPlayerController;
+    if (!player.playerStatus.isPlaying) await player.play();
+    double? mpvAt() =>
+        (player.videoPlayerController?.state.position.inMilliseconds ?? 0) /
+        1000;
+    final dryLine = RegExp(
+      r'a track ran dry: playhead ([\d.]+) s, cache to ([\d.]+) s',
+    );
+    DateTime? dryAt;
+    double? playhead, cacheEnd;
+    for (var i = 0; i < 1800 && dryAt == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      for (final (at, line) in EventLog.entries(since: start)) {
+        if (dryLine.firstMatch(line) case final m?) {
+          dryAt = at;
+          playhead = double.parse(m.group(1)!);
+          cacheEnd = double.parse(m.group(2)!);
+          break;
+        }
+      }
+    }
+    if (dryAt == null) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'no track ran dry in 180 s',
+        'events': events(),
+      };
+    }
+    // where mpv's playhead goes once the watch has seen it: standing while
+    // held, on with the sound as before
+    await Future.delayed(const Duration(milliseconds: 300));
+    final first = mpvAt();
+    await Future.delayed(const Duration(seconds: 3));
+    final then = mpvAt();
+    final ran = first != null && then != null ? then - first : null;
+    // where the next source would open: what the page's failover asks at
+    final askedAt = player.resumePosition.inMilliseconds / 1000;
+    final held = EventLog.entries(
+      since: dryAt,
+    ).any((e) => e.$2.contains('where the picture stopped'));
+    final heldNow = player.heldAtPicture;
+    SmartDialog.dismiss(tag: 'failure:视频无法播放');
+    Get.back();
+    await Future.delayed(const Duration(seconds: 2));
+    final stood = ran != null && ran.abs() < 0.5;
+    final fromPicture = askedAt <= cacheEnd! + 0.5;
+    final pass = held && stood && fromPicture;
+    return {
+      'pass': pass,
+      'id': id,
+      'dryAfterSeconds': dryAt.difference(start).inMilliseconds / 1000,
+      'playheadAtDry': playhead,
+      'cacheEndAtDry': cacheEnd,
+      'held': held,
+      'heldAtTheEnd': heldNow,
+      'mpvRanSecondsIn3': ran,
+      'resumeAt': askedAt,
+      if (!pass)
+        'reason': !held
+            ? 'not held'
+            : !stood
+            ? 'the playhead went on $ran s in 3 s'
+            : 'the next source would open at $askedAt s, the picture stopped at '
+                  '$cacheEnd s',
+      'events': events(),
     };
   }
 

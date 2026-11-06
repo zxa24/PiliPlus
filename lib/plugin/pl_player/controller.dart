@@ -830,6 +830,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // measured on the streams of the part before
       _delivered.clear();
       _resumeAt = null;
+      _dryHold = false;
       _reopening = false;
       _seekFailedAt = _forbiddenAt = null;
       _recheckOnPlay = false;
@@ -1677,6 +1678,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _subscriptions = [
       /// playing
       stream.playing.listen((bool playing) {
+        // held where the picture stopped ([_holdAtPicture]): playback has
+        // not been paused, it waits for its picture
+        if (!playing && _dryHold) return;
+        if (playing) _dryHold = false;
         _pausedAt = playing ? null : (_pausedAt ?? DateTime.now());
         if (playing) {
           _stopWakeLockTimer();
@@ -3763,7 +3768,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// The wait the watch showed is over (or is taken over by mpv's own, or
   /// by a recovery): [isBuffering] goes back to what mpv says.
   void _hideWait() {
-    if (!_waitShown) return;
+    // held where the picture stopped: waiting until a source plays again
+    if (!_waitShown || _dryHold) return;
     _waitShown = false;
     final player = _videoPlayerController;
     final buffering = player?.state.buffering ?? false;
@@ -3805,6 +3811,40 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   final _watchErrors = <String>{};
+
+  /// Playback held at the end of what arrived ([_holdAtPicture]): mpv
+  /// paused, the player still playing and loading for everything else.
+  var _dryHold = false;
+
+  /// For the self-test's control (`--old-dry`): a dry track lets the sound
+  /// play on, and the next source opens where it got to, as before.
+  static bool debugOldDry = false;
+
+  /// A track ran dry: playback waits at [cacheEnd], where the picture
+  /// stopped, and the next source opens there. The sound played on for
+  /// 20 s over a picture that stood at 399 s, and each new source was asked
+  /// for where the sound had got to — 402, 408, 414 s — leaving the stretch
+  /// in between unseen (the user's copy, 2026-11-06, wS64_n65u3k).
+  void _holdAtPicture(NativePlayer player, double? pos, double cacheEnd) {
+    if (debugOldDry || _dryHold) return;
+    final at = Duration(milliseconds: (cacheEnd * 1000).round());
+    _dryHold = true;
+    _resumeAt = at;
+    _renewalPlays = true;
+    position.value = at.inSeconds;
+    EventLog.add(
+      'player',
+      'held at $cacheEnd s, where the picture stopped: the sound does not '
+          'play on without it',
+    );
+    try {
+      player.setProperty('pause', 'yes');
+    } catch (_) {}
+    _showWait(pos, cacheEnd);
+  }
+
+  /// Whether playback is held where the picture stopped ([_holdAtPicture]).
+  bool get heldAtPicture => _dryHold;
 
   void _watchForDryTrack(NativePlayer player) {
     _dryWatch?.cancel();
@@ -3857,6 +3897,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             'player',
             'a track ran dry: playhead $pos s, cache to $cacheEnd s',
           );
+          if (cacheEnd != null) _holdAtPicture(player, pos, cacheEnd);
         case DryVerdict.stuck:
           EventLog.add(
             'player',
@@ -4507,6 +4548,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       );
     }
     _pausedAt ??= DateTime.now();
+    // the viewer's pause from here on, not a wait for the picture
+    _dryHold = false;
     // new URLs being fetched open paused (see [renewalPlays])
     if (_renewing) _renewalPlays = false;
     final player = _videoPlayerController;

@@ -284,6 +284,17 @@ class YtStreamRelay {
   /// (one for each track: a limit that has passed by the reopen).
   static int debugRefuseTimes = 2;
 
+  /// Self-test (`--yt-dry-hold`): every video stream (`mime=video…`) ends at
+  /// this byte of its file, the connection cut there, and a request from it
+  /// on is answered 403 — the sound whole. As inv-us2.nadeko.net's
+  /// companion cut the video at 146 MB and refused the reconnect (the
+  /// user's copy, 2026-11-06).
+  static int? debugCutVideoAt;
+
+  /// The query as it is: decoding a malformed one would throw.
+  static bool _isVideo(Uri upstream) =>
+      upstream.query.contains('mime=video');
+
   HttpServer? _server;
   Future<HttpServer>? _starting;
 
@@ -431,6 +442,27 @@ class YtStreamRelay {
         return;
       }
     }
+    final cutAt = debugCutVideoAt != null && _isVideo(upstream)
+        ? debugCutVideoAt
+        : null;
+    final from =
+        int.tryParse(
+          RegExp(r'bytes=(\d+)-')
+                  .firstMatch(request.headers.value(HttpHeaders.rangeHeader) ?? '')
+                  ?.group(1) ??
+              '',
+        ) ??
+        0;
+    // the reconnect asks from a little short of the cut (mpv's count of
+    // what arrived lags it by a few hundred bytes): refused as from it
+    if (cutAt != null && from >= cutAt - (1 << 20)) {
+      log?.call('${upstream.host}: 403 (self-test cut)');
+      response
+        ..statusCode = HttpStatus.forbidden
+        ..contentLength = 0;
+      await response.close().catchError((_) {});
+      return;
+    }
 
     // stoppable from the start: a request still waiting for its headers is
     // let go too (a quality change), not only one already streaming
@@ -504,8 +536,29 @@ class YtStreamRelay {
         onResume: upstreamBody.resume,
         onCancel: upstreamBody.cancel,
       );
+      var at = from;
       upstreamBody
-        ..onData(sink.add)
+        ..onData(
+          cutAt == null
+              ? sink.add
+              : (chunk) {
+                  if (sink.isClosed) return;
+                  final left = cutAt - at;
+                  if (chunk.length < left) {
+                    at += chunk.length;
+                    sink.add(chunk);
+                    return;
+                  }
+                  // the file ends here for the player: short of its length
+                  if (left > 0) sink.add(chunk.sublist(0, left));
+                  at = cutAt;
+                  log?.call('${upstream.host}: cut at $cutAt (self-test)');
+                  unawaited(upstreamBody.cancel());
+                  sink
+                    ..addError(const HttpException('self-test cut'))
+                    ..close();
+                },
+        )
         ..onError(sink.addError)
         ..onDone(sink.close);
       await response.addStream(sink.stream);
