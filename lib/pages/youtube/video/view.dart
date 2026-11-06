@@ -432,6 +432,21 @@ class _YtVideoPageState extends State<YtVideoPage>
                     label: const Text('在 Invidious 中打开'),
                   ),
                 ],
+                // an instance behind a check that wants the viewer: got
+                // past here, in the app's own window (user 2026-11-06)
+                for (final host in controller.gatedHosts)
+                  OutlinedButton.icon(
+                    onPressed: controller.verifying.value == null
+                        ? () => controller.verifyGate(host)
+                        : null,
+                    icon: controller.verifying.value == host
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.verified_user_outlined, size: 18),
+                    label: Text('验证 ${Uri.parse(host).host}'),
+                  ),
               ],
             ),
           ],

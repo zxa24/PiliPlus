@@ -91,6 +91,7 @@ import 'package:PiliPlus/pages/video/introduction/local/controller.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/reply_item_grpc.dart';
 import 'package:PiliPlus/pages/youtube/comments/yt_comment_pane.dart'
     show YtCommentPane;
+import 'package:PiliPlus/pages/youtube/invidious_gate.dart';
 import 'package:PiliPlus/pages/youtube/search/controller.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
 import 'package:PiliPlus/pages/youtube/channel/controller.dart';
@@ -1835,6 +1836,18 @@ abstract final class SelfTest {
         PlPlayerController.debugOldStepDown = false;
         YtStreamRelay.debugRefuseFrom = null;
       }
+    }
+    // `--yt-gate-pass INSTANCE [--video ID]`: the instance's gate got past
+    // in the app's own browser without a window, then the video asked of
+    // that instance alone with it (user 2026-11-06: no outside browser).
+    // Passes when the video is served. Gandalf (invidious.nerdvpn.de) goes
+    // through by itself; a CAPTCHA (yt.chocolatemoo53.com) does not, and is
+    // then among the gated hosts the page offers to verify.
+    if (_arg(args, '--yt-gate-pass') case final host?) {
+      await scenario(
+        'ytGatePass',
+        () => _ytGatePass(host, _arg(args, '--video') ?? 'FUIF16PhO50'),
+      );
     }
     // `--give-up BILI_URL [--watch-for 45] [--old-give-up]`: every host cuts
     // the streams 2 MB in and answers 429 from there on, until 视频无法播放;
@@ -10086,6 +10099,53 @@ abstract final class SelfTest {
             : 'stood still $still s',
       'events': events,
     };
+  }
+
+  /// See `--yt-gate-pass`.
+  static Future<Map<String, dynamic>> _ytGatePass(
+    String host,
+    String videoId,
+  ) async {
+    final start = DateTime.now();
+    final base = host.startsWith('https://') ? host : 'https://$host';
+    final watch = Uri.parse(base).resolve('/watch?v=$videoId');
+    final clock = Stopwatch()..start();
+    final pass = await InvidiousGate.pass(watch, interactive: false);
+    final passMs = clock.elapsedMilliseconds;
+    final before = YtInvidiousSource.passGate;
+    YtInvidiousSource.passGate = InvidiousGate.pass;
+    final source = YtInvidiousSource(hosts: [base]);
+    try {
+      clock
+        ..reset()
+        ..start();
+      final r = await source.detail(videoId);
+      return {
+        'pass': r.ok,
+        'instance': base,
+        'through': pass != null,
+        'passMs': passMs,
+        // names and lengths only: the values are the gate's tokens
+        if (pass != null) ...{
+          'userAgent': pass.userAgent,
+          'headers': pass.headers.keys.toList(),
+          'secChUa': pass.headers['sec-ch-ua'],
+          'cookies': [
+            for (final c in pass.cookies)
+              '${c.name} (${c.value.length}) ${c.domain} until ${c.until}',
+          ],
+        },
+        'detailOk': r.ok,
+        'detailMs': clock.elapsedMilliseconds,
+        'verdict': r.ok ? null : r.verdict.toString(),
+        'gatedHosts': source.gatedHosts,
+        'events': [
+          for (final (_, line) in EventLog.entries(since: start)) line,
+        ],
+      };
+    } finally {
+      YtInvidiousSource.passGate = before;
+    }
   }
 
   /// See `--give-up`.

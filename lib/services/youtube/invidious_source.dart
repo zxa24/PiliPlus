@@ -102,6 +102,34 @@ typedef InvidiousFetch = Future<InvidiousAnswer> Function(
   required Map<String, String> headers,
 });
 
+/// What a browser that got past an instance's gate shows the instance:
+/// its cookies, its user agent, and the request headers it sends with a
+/// page (`sec-ch-ua*`, `Sec-Fetch-*`…). Measured 2026-11-05: the gate of
+/// yt.chocolatemoo53.com took its cookie with the browser's user agent
+/// only; Gandalf (invidious.nerdvpn.de) only with the browser's headers as
+/// well — from another TLS stack all the same.
+class InvidiousBrowserPass {
+  const InvidiousBrowserPass({
+    required this.userAgent,
+    required this.headers,
+    required this.cookies,
+  });
+
+  final String userAgent;
+  final Map<String, String> headers;
+
+  /// `(name, value, domain, until)`; domain null: the page's host alone.
+  final List<({String name, String value, String? domain, DateTime? until})>
+  cookies;
+}
+
+/// Gets past the gate in front of [watch] in an in-app browser: without a
+/// window when [interactive] is false (a check that needs nobody, as
+/// Gandalf's), in a window the viewer works in when true (a CAPTCHA). Null
+/// when it did not get to the watch page.
+typedef InvidiousGatePasser =
+    Future<InvidiousBrowserPass?> Function(Uri watch, {required bool interactive});
+
 class YtInvidiousSource implements YouTubeVideoSource {
   YtInvidiousSource({
     InvidiousFetch? fetch,
@@ -148,6 +176,14 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// video page): this file stays free of the app.
   static void Function(String line)? log;
 
+  /// The in-app browser, set by the app (InvidiousGate); unset, a gate of
+  /// the kind only a browser gets past sets the instance aside, as before.
+  static InvidiousGatePasser? passGate;
+
+  /// How long one pass without a window may take: Gandalf's took 12.9 s
+  /// once and more than 20 s the next (2026-11-06).
+  static const passTimeout = Duration(seconds: 35);
+
   /// The streams always through the instance's companion (`local=true`).
   /// Off, they come from googlevideo directly wherever it serves this
   /// machine, and through the companion only for a video it refuses.
@@ -170,6 +206,11 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// is the setting host alone, and when it ends (null: with the session).
   final _cookies =
       <(String, String), ({String value, bool hostOnly, DateTime? until})>{};
+
+  /// The browser each gated instance was got past with, until its cookies
+  /// end: its pages are asked for as that browser asks.
+  final _browsers =
+      <String, ({String userAgent, Map<String, String> headers, DateTime until})>{};
 
   /// googlevideo's refusals in a row, and until when it is not asked.
   int _refusals = 0;
@@ -241,6 +282,15 @@ class YtInvidiousSource implements YouTubeVideoSource {
               'until': until.millisecondsSinceEpoch,
             },
       ],
+      'browsers': {
+        for (final MapEntry(key: host, value: b) in _browsers.entries)
+          if (now.isBefore(b.until))
+            host: {
+              'userAgent': b.userAgent,
+              'headers': b.headers,
+              'until': b.until.millisecondsSinceEpoch,
+            },
+      },
       'refusals': _refusals,
       if (_refusedUntil case final until? when now.isBefore(until))
         'refusedUntil': until.millisecondsSinceEpoch,
@@ -286,6 +336,26 @@ class YtInvidiousSource implements YouTubeVideoSource {
         }
       }
     }
+    if (json['browsers'] case final Map browsers) {
+      for (final MapEntry(key: host, :value) in browsers.entries) {
+        if (host is String &&
+            value is Map &&
+            value['userAgent'] is String &&
+            value['headers'] is Map) {
+          if (time(value['until']) case final until? when now.isBefore(until)) {
+            _browsers[host] = (
+              userAgent: value['userAgent'] as String,
+              headers: {
+                for (final MapEntry(:key, :value)
+                    in (value['headers'] as Map).entries)
+                  if (key is String && value is String) key: value,
+              },
+              until: until,
+            );
+          }
+        }
+      }
+    }
     if (json['refusals'] case final int refusals) _refusals = refusals;
     if (time(json['refusedUntil']) case final until? when now.isBefore(until)) {
       _refusedUntil = until;
@@ -321,7 +391,12 @@ class YtInvidiousSource implements YouTubeVideoSource {
     for (final host in hosts) {
       if (tried == triesPerVideo) break;
       tried++;
-      final r = await _resolveOn(host, videoId);
+      var r = await _resolveOn(host, videoId);
+      if (!r.ok &&
+          passesByItself(r.verdict.signal) &&
+          await _passWithoutWindow(host, videoId)) {
+        r = await _resolveOn(host, videoId);
+      }
       if (r.ok) {
         _preferred = host;
         _servedBy[videoId] = host;
@@ -835,6 +910,113 @@ class YtInvidiousSource implements YouTubeVideoSource {
     return _registry = hosts;
   }
 
+  /// Whether [signal] is a gate only a browser gets past: one this client
+  /// does not solve itself (Anubis and go-away it does), on the instance's
+  /// own host — Gandalf's redirect, a CAPTCHA page.
+  static bool isBrowserGate(String signal) =>
+      signal.startsWith('invidious:gate:') &&
+      !signal.startsWith('invidious:gate:anubis') &&
+      !signal.startsWith('invidious:gate:go-away') &&
+      signal != 'invidious:gate:loop';
+
+  /// Whether a browser gets past [signal]'s gate with nobody at it: one
+  /// that sends the page to a check of its own (Gandalf's
+  /// `/.gandalf/check`), not a CAPTCHA page served in its place, which
+  /// waits for a click (yt.chocolatemoo53.com's) — asked without a window,
+  /// that held the walk 20 s for nothing (2026-11-06).
+  static bool passesByItself(String signal) =>
+      isBrowserGate(signal) && signal.startsWith('invidious:gate:/');
+
+  /// The instances set aside for a gate only a browser gets past, and the
+  /// in-app browser not yet through: the viewer can get past it themselves
+  /// ([verify]).
+  List<String> get gatedHosts {
+    if (passGate == null) return const [];
+    final now = _now();
+    return [
+      for (final MapEntry(key: host, value: b) in _benched.entries)
+        if (now.isBefore(b.until) && isBrowserGate(b.why)) host,
+    ];
+  }
+
+  Uri _watchUri(String host, String videoId) => Uri.parse(
+    host,
+  ).resolve('/watch?v=${Uri.encodeQueryComponent(videoId)}');
+
+  /// [host]'s gate passed in the in-app browser without a window, as a
+  /// browser opening the page passes Gandalf's. False when it did not get
+  /// through (a CAPTCHA, which needs the viewer) or there is no browser.
+  Future<bool> _passWithoutWindow(String host, String videoId) async {
+    final pass = passGate;
+    if (pass == null) return false;
+    log?.call('${Uri.parse(host).host}: a gate, opened in the in-app browser');
+    final watch = Stopwatch()..start();
+    InvidiousBrowserPass? got;
+    try {
+      got = await pass(
+        _watchUri(host, videoId),
+        interactive: false,
+      ).timeout(passTimeout);
+    } catch (_) {}
+    log?.call(
+      '${Uri.parse(host).host}: '
+      '${got == null ? 'not through without the viewer' : 'through'} '
+      'in ${watch.elapsedMilliseconds} ms',
+    );
+    if (got == null) return false;
+    _accept(host, got);
+    return true;
+  }
+
+  /// [host]'s gate got past by the viewer in the in-app browser's window,
+  /// on [videoId]'s page: the instance is asked again from now on. False
+  /// when they did not get through.
+  Future<bool> verify(String host, String videoId) async {
+    final pass = passGate;
+    if (pass == null) return false;
+    final got = await pass(_watchUri(host, videoId), interactive: true);
+    log?.call(
+      '${Uri.parse(host).host}: '
+      '${got == null ? 'the viewer did not get through' : 'the viewer got through'}',
+    );
+    if (got == null) return false;
+    _accept(host, got);
+    _benched.remove(host);
+    onChanged?.call();
+    return true;
+  }
+
+  /// Keeps what [pass] carries for [host]: its cookies as the gate's own,
+  /// and its browser until the last of them ends (an hour when none says).
+  void _accept(String host, InvidiousBrowserPass pass) {
+    final name = Uri.parse(host).host;
+    final now = _now();
+    var until = now.add(const Duration(hours: 1));
+    for (final c in pass.cookies) {
+      final set = c.domain;
+      final domain = set == null || set.isEmpty
+          ? name
+          : (set.startsWith('.') ? set.substring(1) : set);
+      // as [_keepCookies]: the host and its parents only, never a bare suffix
+      if (domain != name && !name.endsWith('.$domain')) continue;
+      if (domain != name && !domain.contains('.')) continue;
+      final ends = c.until ?? now.add(const Duration(hours: 1));
+      if (!ends.isAfter(now)) continue;
+      _cookies[(domain, c.name)] = (
+        value: c.value,
+        hostOnly: set == null || set.isEmpty,
+        until: ends,
+      );
+      if (ends.isAfter(until)) until = ends;
+    }
+    _browsers[name] = (
+      userAgent: pass.userAgent,
+      headers: Map.unmodifiable(pass.headers),
+      until: until,
+    );
+    onChanged?.call();
+  }
+
   void _bench(String host, YtVerdict why) {
     final long =
         why.signal.startsWith('invidious:gate') ||
@@ -1095,13 +1277,16 @@ class YtInvidiousSource implements YouTubeVideoSource {
   }) async {
     final watch = Stopwatch()..start();
     final cookie = _cookieFor(uri.host);
+    final browser = _browserFor(uri.host);
     final r = await _fetch(
       uri,
       method: method,
       headers: {
-        HttpHeaders.userAgentHeader: userAgent,
+        HttpHeaders.userAgentHeader: browser?.userAgent ?? userAgent,
         HttpHeaders.acceptHeader: 'text/html,application/json,*/*',
         HttpHeaders.acceptLanguageHeader: 'en-US,en;q=0.9',
+        // the gate took its cookie with these only (see InvidiousBrowserPass)
+        ...?browser?.headers,
         HttpHeaders.refererHeader: ?referer,
         HttpHeaders.cookieHeader: ?cookie,
       },
@@ -1114,6 +1299,17 @@ class YtInvidiousSource implements YouTubeVideoSource {
                 '${r.body.length} B in ${watch.elapsedMilliseconds} ms',
     );
     return r;
+  }
+
+  /// The browser [host] was got past with, while its cookies last.
+  ({String userAgent, Map<String, String> headers})? _browserFor(String host) {
+    final b = _browsers[host];
+    if (b == null) return null;
+    if (!_now().isBefore(b.until)) {
+      _browsers.remove(host);
+      return null;
+    }
+    return (userAgent: b.userAgent, headers: b.headers);
   }
 
   String? _cookieFor(String host) {

@@ -496,6 +496,167 @@ void main() {
     });
   });
 
+  group('the in-app browser', () {
+    const pass = InvidiousBrowserPass(
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0) Chrome/156.0.0.0 Edg/156.0.0.0',
+      headers: {
+        'sec-ch-ua': '"Microsoft Edge WebView2";v="156", "Chromium";v="156"',
+        'Sec-Fetch-Mode': 'navigate',
+      },
+      cookies: [
+        (
+          name: 'gandalf_token',
+          value: 'ok',
+          domain: '.gated.example',
+          until: null,
+        ),
+      ],
+    );
+    final asked = <({Uri watch, bool interactive})>[];
+    tearDown(() {
+      YtInvidiousSource.passGate = null;
+      asked.clear();
+    });
+
+    /// A watch page behind a Gandalf-like redirect, served only to the
+    /// browser's cookie, user agent and headers together.
+    _Net gandalf() => _Net()
+      ..on('gated.example', '/watch', (request) {
+        final h = request.headers;
+        final through =
+            (h[HttpHeaders.cookieHeader] ?? '').contains('gandalf_token=ok') &&
+            h[HttpHeaders.userAgentHeader] == pass.userAgent &&
+            h['sec-ch-ua'] == pass.headers['sec-ch-ua'];
+        return through
+            ? _page(watch)
+            : const InvidiousAnswer(
+                307,
+                '',
+                location: '/.gandalf/check?gandalf_id=x',
+              );
+      })
+      ..serveVideo('gated.example', null, dash, captionList);
+
+    test('a gate that needs nobody: passed without a window, asked again', () async {
+      YtInvidiousSource.passGate = (watch, {required interactive}) async {
+        asked.add((watch: watch, interactive: interactive));
+        return interactive ? null : pass;
+      };
+      final net = gandalf();
+      final source = net.source(['https://gated.example']);
+      final r = await source.detail('dQw4w9WgXcQ');
+      expect(r.ok, isTrue);
+      expect(asked, hasLength(1));
+      expect(asked.single.interactive, isFalse);
+      expect(
+        asked.single.watch.toString(),
+        'https://gated.example/watch?v=dQw4w9WgXcQ',
+      );
+      expect(source.gatedHosts, isEmpty);
+      // the companion is not asked as the browser: only the gated host is
+      final manifest = net.requests.firstWhere(
+        (q) => q.uri.path.contains('/manifest/dash/'),
+      );
+      expect(manifest.headers['sec-ch-ua'], isNull);
+      expect(
+        manifest.headers[HttpHeaders.userAgentHeader],
+        YtInvidiousSource.userAgent,
+      );
+    });
+
+    test('one that needs the viewer: set aside, then verified by them', () async {
+      var viewerThrough = false;
+      YtInvidiousSource.passGate = (watch, {required interactive}) async {
+        asked.add((watch: watch, interactive: interactive));
+        return interactive && viewerThrough ? pass : null;
+      };
+      final net = gandalf();
+      final source = net.source(['https://gated.example']);
+      final first = await source.detail('dQw4w9WgXcQ');
+      expect(first.ok, isFalse);
+      expect(source.gatedHosts, ['https://gated.example']);
+      // closed without getting through: still set aside
+      expect(await source.verify('https://gated.example', 'dQw4w9WgXcQ'), isFalse);
+      expect(source.gatedHosts, ['https://gated.example']);
+      viewerThrough = true;
+      expect(await source.verify('https://gated.example', 'dQw4w9WgXcQ'), isTrue);
+      expect(source.gatedHosts, isEmpty);
+      final again = await source.detail('dQw4w9WgXcQ');
+      expect(again.ok, isTrue);
+      expect(asked.map((a) => a.interactive), [false, true, true]);
+    });
+
+    test('a CAPTCHA page: never opened without a window, the viewer offered it', () async {
+      YtInvidiousSource.passGate = (watch, {required interactive}) async {
+        asked.add((watch: watch, interactive: interactive));
+        return null;
+      };
+      final net = _Net()
+        ..on(
+          'captcha.example',
+          '/watch',
+          (_) => _page('<title>Invidious</title>confirm you are not a bot'),
+        );
+      final source = net.source(['https://captcha.example']);
+      expect((await source.detail('dQw4w9WgXcQ')).ok, isFalse);
+      expect(asked, isEmpty);
+      expect(source.gatedHosts, ['https://captcha.example']);
+    });
+
+    test('no in-app browser: set aside as before, nothing to verify', () async {
+      final net = gandalf();
+      final source = net.source(['https://gated.example']);
+      expect((await source.detail('dQw4w9WgXcQ')).ok, isFalse);
+      expect(source.gatedHosts, isEmpty);
+      expect(await source.verify('https://gated.example', 'dQw4w9WgXcQ'), isFalse);
+    });
+
+    test('Anubis is not the browser’s: solved here, nothing opened', () async {
+      YtInvidiousSource.passGate = (watch, {required interactive}) async {
+        asked.add((watch: watch, interactive: interactive));
+        return null;
+      };
+      final net = _Net()
+        ..on(
+          'anubis.example',
+          '/watch',
+          (_) => _page(fixture('anubis_tiekoetter.html')),
+        )
+        ..on(
+          'anubis.example',
+          '/.within.website/x/cmd/anubis/api/pass-challenge',
+          (_) => const InvidiousAnswer(403, 'no'),
+        );
+      final source = net.source(['https://anubis.example']);
+      await source.detail('dQw4w9WgXcQ');
+      expect(asked, isEmpty);
+    });
+
+    test('the browser is kept across launches until its cookies end', () async {
+      var now = DateTime(2026, 11, 6, 12);
+      YtInvidiousSource.passGate = (watch, {required interactive}) async =>
+          const InvidiousBrowserPass(
+            userAgent: 'UA',
+            headers: {'sec-ch-ua': '"X";v="1"'},
+            cookies: [],
+          );
+      final net = gandalf();
+      final source = net.source(['https://gated.example'], clock: () => now);
+      await source.detail('dQw4w9WgXcQ');
+      final json = jsonDecode(jsonEncode(source.toJson())) as Map;
+      expect((json['browsers'] as Map).keys, ['gated.example']);
+      // an hour when no cookie says how long
+      final restored = net.source(['https://gated.example'], clock: () => now)
+        ..restore(json);
+      expect(
+        (restored.toJson()['browsers'] as Map).keys,
+        ['gated.example'],
+      );
+      now = now.add(const Duration(hours: 2));
+      expect((restored.toJson()['browsers'] as Map), isEmpty);
+    });
+  });
+
   group('across launches', () {
     /// A CAPTCHA instance, then one behind Anubis whose pass sets
     /// [cookie]; how many times the gate was passed is [passes].

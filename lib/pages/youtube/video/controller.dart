@@ -30,6 +30,7 @@ import 'package:PiliPlus/services/subtitle_choice/subtitle_menu.dart';
 import 'package:PiliPlus/pages/video/widgets/subtitle_gate.dart';
 import 'package:PiliPlus/pages/video/widgets/translate_entry.dart';
 import 'package:PiliPlus/pages/youtube/comments/yt_comments_controller.dart';
+import 'package:PiliPlus/pages/youtube/invidious_gate.dart';
 import 'package:PiliPlus/services/translate/caption_source.dart';
 import 'package:PiliPlus/services/translate/translation_languages.dart';
 import 'package:PiliPlus/services/translate/translation_service.dart';
@@ -76,6 +77,8 @@ class YtVideoController extends GetxController
       health: source == null ? YtSourceRouter.sharedHealth : null,
     );
     YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
+    // gates only a browser gets past, in the app's own (user 2026-11-06)
+    YtInvidiousSource.passGate ??= InvidiousGate.pass;
     YtStreamRelay.log ??= (line) => EventLog.add('relay', line);
     // a source passed in (a test's) learns nothing worth keeping
     if (source == null) YtSourceStore.load();
@@ -127,6 +130,13 @@ class YtVideoController extends GetxController
 
   /// Looking for an Invidious instance that answers.
   final findingInvidious = false.obs;
+
+  /// The instances set aside for a gate the viewer can get past in the
+  /// app's own browser ([verifyGate]), as the failure found them.
+  final gatedHosts = <String>[].obs;
+
+  /// The gate being got past, if one is.
+  final verifying = RxnString();
 
   /// Caption tracks offered by YouTube, plus the one currently shown.
   final captions = <YtCaptionTrack>[].obs;
@@ -526,6 +536,9 @@ class YtVideoController extends GetxController
     blocked.value =
         verdict.cause == YtCause.ipBlocked ||
         verdict.signal.startsWith('invidious:');
+    gatedHosts.assignAll(
+      blocked.value ? YtInvidiousSource.shared.gatedHosts : const <String>[],
+    );
     // the related request, which carries the comments' token, is not made
     // when the video fails to load: the 评论 tab waited for it for ever
     commentsBootstrapFailed(message.value);
@@ -2153,6 +2166,21 @@ class YtVideoController extends GetxController
   /// YouTube refused this network: the video in the browser, which has its
   /// own network standing (user 2026-10-03).
   void openInBrowser() => PageUtils.launchURL(shareUrl!);
+
+  /// [host]'s gate, got past by the viewer in the app's own browser: the
+  /// video asked for again once they are through.
+  Future<void> verifyGate(String host) async {
+    if (verifying.value != null) return;
+    verifying.value = host;
+    try {
+      if (await YtInvidiousSource.shared.verify(host, videoId) && !isClosed) {
+        gatedHosts.remove(host);
+        await load();
+      }
+    } finally {
+      if (!isClosed) verifying.value = null;
+    }
+  }
 
   /// …or on a public Invidious instance that answers now.
   Future<void> openInInvidious() async {
