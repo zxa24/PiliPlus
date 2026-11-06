@@ -58,6 +58,8 @@ abstract final class InvidiousInstances {
   /// as `https`, were all that was left once the clearnet ones were set
   /// aside, and a failed lookup of each every 12 s was the user's copy's
   /// whole "playback" for minutes (2026-11-05).
+  ///
+  /// [rules] says which version of these rules a list was made by.
   static List<String> allHttps(Object? json) {
     if (json is! List) return const [];
     final out = <String>[];
@@ -75,6 +77,14 @@ abstract final class InvidiousInstances {
     }
     return out;
   }
+
+  /// The version of [allHttps]'s rules, kept with a list made by them: one
+  /// made by others is not taken back at the next launch, but asked for
+  /// again. Raised with every rule that leaves out more. 2: never reached,
+  /// and `.ygg` (2026-11-05) — a list kept from before still held
+  /// `inv-ygg.nadeko.net` and `inv.nadeko.ygg` after the update, for up to
+  /// six hours (the user's copy, 2026-11-06).
+  static const rules = 2;
 
   /// The first of the healthiest instances that answers within [timeout],
   /// kept for half an hour; null when none does or the list is out of reach.

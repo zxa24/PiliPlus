@@ -763,6 +763,26 @@ void main() {
       expect(json['cookies'], isEmpty);
       expect(json['refusedUntil'], isNull);
     });
+
+    test('a list kept by the rules before is asked for again (the user’s '
+        'copy, 2026-11-06: inv-ygg.nadeko.net after the update)', () {
+      final now = DateTime(2026, 11, 6, 11);
+      final at = now.millisecondsSinceEpoch;
+      final before = YtInvidiousSource(hosts: hosts, clock: () => now)
+        ..restore({
+          'registry': ['https://inv-ygg.nadeko.net', 'https://a.example'],
+          'registryAt': at,
+        });
+      expect(before.toJson()['registry'], isNull);
+      final kept = YtInvidiousSource(hosts: hosts, clock: () => now)
+        ..restore({
+          'registry': ['https://a.example'],
+          'registryRules': InvidiousInstances.rules,
+          'registryAt': at,
+        });
+      expect(kept.toJson()['registry'], ['https://a.example']);
+      expect(kept.toJson()['registryRules'], InvidiousInstances.rules);
+    });
   });
 }
 

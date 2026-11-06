@@ -263,6 +263,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
     final now = _now();
     return {
       'registry': ?_registry,
+      if (_registry != null) 'registryRules': InvidiousInstances.rules,
       if (_registryAt case final at?) 'registryAt': at.millisecondsSinceEpoch,
       'preferred': ?_preferred,
       'benched': {
@@ -303,8 +304,11 @@ class YtInvidiousSource implements YouTubeVideoSource {
     final now = _now();
     DateTime? time(Object? ms) =>
         ms is int ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
+    // a list made by other rules is asked for again (see
+    // [InvidiousInstances.rules])
     if (json['registry'] case final List hosts
-        when hosts.every((h) => h is String && h.startsWith('https://'))) {
+        when json['registryRules'] == InvidiousInstances.rules &&
+            hosts.every((h) => h is String && h.startsWith('https://'))) {
       _registry = hosts.cast<String>();
       _registryAt = time(json['registryAt']);
     }
