@@ -539,6 +539,7 @@ class YtVideoController extends GetxController
     gatedHosts.assignAll(
       blocked.value ? YtInvidiousSource.shared.gatedHosts : const <String>[],
     );
+    _putGateToViewer();
     // the related request, which carries the comments' token, is not made
     // when the video fails to load: the 评论 tab waited for it for ever
     commentsBootstrapFailed(message.value);
@@ -2168,19 +2169,68 @@ class YtVideoController extends GetxController
   /// own network standing (user 2026-10-03).
   void openInBrowser() => PageUtils.launchURL(shareUrl!);
 
+  /// Hosts whose gate this page put in front of the viewer by itself: each
+  /// once, got through or closed.
+  final _gatesPut = <String>{};
+
+  /// Only instances behind a gate left (the walk asked every other one
+  /// before it failed): the first one's gate is opened at once, as
+  /// bilibili's captcha is, rather than left behind a 验证 button (user
+  /// 2026-11-06). Not over another page, nor with the app away; and each
+  /// host once on this page, so closing it is the viewer's answer.
+  void _putGateToViewer() {
+    if (debugNoGatePut || _gateClosed || verifying.value != null) return;
+    if (!_ownsPlayer || _covered) return;
+    if (isAppAway(WidgetsBinding.instance.lifecycleState)) return;
+    String? host;
+    for (final h in gatedHosts) {
+      if (!_gatesPut.contains(h)) {
+        host = h;
+        break;
+      }
+    }
+    if (host == null) return;
+    _gatesPut.add(host);
+    EventLog.add('youtube', 'only gates left: ${Uri.parse(host).host} opened');
+    unawaited(
+      verifyGate(host).then((through) {
+        // closed without getting through: none is opened by itself again
+        // on this page; the buttons stay
+        if (!through) _gateClosed = true;
+      }),
+    );
+  }
+
+  /// The viewer closed a gate [_putGateToViewer] opened.
+  var _gateClosed = false;
+
+  /// The 验证 buttons only, as before (self-test control).
+  static bool debugNoGatePut = false;
+
+  /// The page failing with [verdict], as a load would (`--yt-gate-put`).
+  void debugFail(YtVerdict verdict) => _fail(verdict);
+
   /// [host]'s gate, got past by the viewer in the app's own browser: the
-  /// video asked for again once they are through.
-  Future<void> verifyGate(String host) async {
-    if (verifying.value != null) return;
+  /// video asked for again once they are through. Whether they got through.
+  Future<bool> verifyGate(String host) async {
+    if (verifying.value != null) return false;
     verifying.value = host;
+    var through = false;
     try {
       if (await YtInvidiousSource.shared.verify(host, videoId) && !isClosed) {
+        through = true;
         gatedHosts.remove(host);
         await load();
       }
     } finally {
       if (!isClosed) verifying.value = null;
     }
+    // through, and the video still failed (its streams refused, 2026-11-06):
+    // the next gate, if only gates are left. Closed: the viewer's answer
+    if (through && !isClosed && stage.value == YtPageStage.failed) {
+      _putGateToViewer();
+    }
+    return through;
   }
 
   /// …or on a public Invidious instance that answers now.

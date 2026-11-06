@@ -1837,6 +1837,19 @@ abstract final class SelfTest {
         YtStreamRelay.debugRefuseFrom = null;
       }
     }
+    // `--yt-gate-put VIDEO [--old-gate-put]`: the page fails with only a
+    // gated instance left (user 2026-11-06: 只剩下需要验证的直接弹验证), the
+    // in-app browser a stand-in that records what it is asked and is closed.
+    // Passes when the gate is put to the viewer at once, once: a second
+    // failure does not open it again. `--old-gate-put`: the button only.
+    if (_arg(args, '--yt-gate-put') case final video?) {
+      YtVideoController.debugNoGatePut = args.contains('--old-gate-put');
+      try {
+        await scenario('ytGatePut', () => _ytGatePut(video));
+      } finally {
+        YtVideoController.debugNoGatePut = false;
+      }
+    }
     // `--yt-gate-pass INSTANCE [--video ID]`: the instance's gate got past
     // in the app's own browser without a window, then the video asked of
     // that instance alone with it (user 2026-11-06: no outside browser).
@@ -10099,6 +10112,81 @@ abstract final class SelfTest {
             : 'stood still $still s',
       'events': events,
     };
+  }
+
+  /// See `--yt-gate-put`.
+  static Future<Map<String, dynamic>> _ytGatePut(String input) async {
+    final start = DateTime.now();
+    final id = tryParseYouTubeVideoId(input) ?? input;
+    const gated = 'https://yt.chocolatemoo53.com';
+    final asked = <String>[];
+    final before = YtInvidiousSource.passGate;
+    YtInvidiousSource.passGate = (watch, {required interactive}) async {
+      asked.add('${watch.host} interactive=$interactive');
+      // the viewer closing it
+      await Future.delayed(const Duration(milliseconds: 300));
+      return null;
+    };
+    try {
+      unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+      YtVideoController? page;
+      for (var i = 0; i < 900; i++) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        try {
+          page = Get.find<YtVideoController>(tag: id);
+        } catch (_) {}
+        if (page != null && page.stage.value != YtPageStage.loading) break;
+      }
+      if (page == null) {
+        return {'pass': false, 'reason': 'no YouTube page'};
+      }
+      final askedBefore = asked.length;
+      // only the gated one left: set aside for its gate, as the walk leaves it
+      YtInvidiousSource.shared.restore({
+        'benched': {
+          gated: {
+            'until': DateTime.now()
+                .add(const Duration(hours: 1))
+                .millisecondsSinceEpoch,
+            'why': 'invidious:gate:Invidious',
+          },
+        },
+      });
+      const verdict = YtVerdict(
+        YtCause.transient,
+        'invidious:no-instance-served',
+        'self-test: every other instance asked',
+      );
+      page.debugFail(verdict);
+      await Future.delayed(const Duration(seconds: 2));
+      final afterFirst = asked.length - askedBefore;
+      final buttons = [...page.gatedHosts];
+      page.debugFail(verdict);
+      await Future.delayed(const Duration(seconds: 2));
+      final afterSecond = asked.length - askedBefore;
+      Get.back();
+      await Future.delayed(const Duration(seconds: 2));
+      final put = afterFirst == 1 && asked.last.contains('interactive=true');
+      final pass = put && afterSecond == 1 && buttons.contains(gated);
+      return {
+        'pass': pass,
+        'asked': asked,
+        'askedOnTheFirstFailure': afterFirst,
+        'askedInAll': afterSecond,
+        'buttons': buttons,
+        if (!pass)
+          'reason': !buttons.contains(gated)
+              ? 'the gated host was not offered'
+              : !put
+              ? 'not put to the viewer at once ($afterFirst asked)'
+              : 'put again on the second failure ($afterSecond asked)',
+        'events': [
+          for (final (_, line) in EventLog.entries(since: start)) line,
+        ],
+      };
+    } finally {
+      YtInvidiousSource.passGate = before;
+    }
   }
 
   /// See `--yt-gate-pass`.
