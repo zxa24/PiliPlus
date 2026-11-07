@@ -1,0 +1,12 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -803,7 +803,7 @@ class YtPairTransfer implements DownloadTransfer {
+           return;
+         case HttpStatus.partialContent:
+           final range = _rangeOf(response);
+-          if (range == null || range.$1 != at || range.$2 > end) {
++          if (range == null || range.$2 > end) {
+             await _discard(response);
+             throw YtRangeError.unexpected(
+               '${response.headers.value(HttpHeaders.contentRangeHeader)} '

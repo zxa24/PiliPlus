@@ -1,5 +1,6 @@
-/// LibrePili: keeps a model download, or a YouTube video download, on the
-/// network when the app leaves the screen.
+/// LibrePili: keeps a model download on the network when the app leaves the
+/// screen (a YouTube video download is the queue's, kept by
+/// `DownloadKeepAlive`).
 ///
 /// Android 15 cuts a backgrounded app off the network: measured on a Pixel 6
 /// Pro (2026-09-29), about 5 s after the app went behind the lock screen
@@ -9,7 +10,7 @@
 /// lock the phone while they wait.
 ///
 /// The download itself stays in Dart (for a model: resume, hash check,
-/// mirror fallback in [AsrModelStore]; for a YouTube video, yt_download.dart).
+/// mirror fallback in [AsrModelStore]).
 /// Around it the platform runs a user-initiated data transfer job (Android
 /// 14+, `TransferJobService.kt`): the system binds the job with the flags
 /// that give the app network while backgrounded, and the job carries the

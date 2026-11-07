@@ -1,0 +1,13 @@
+diff --git a/lib/services/download/download_progress.dart b/lib/services/download/download_progress.dart
+--- a/lib/services/download/download_progress.dart
++++ b/lib/services/download/download_progress.dart
+@@ -250,9 +250,6 @@ class DownloadProgress extends ChangeNotifier {
+   void restartVideo() {
+     videoReceived = videoTotal = 0;
+     _videoFinished = false;
+-    // what [restart] showed was worked out from the counters just cleared
+-    // (review 2e): the bar starts over with them
+-    _shown = 0;
+     _changed();
+   }
+ 

@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -388,7 +388,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+       entry.maxHeight,
+       exactHeight: entry.maxHeight,
+       pin: pin,
+-      preferNonDrc: true,
++      preferNonDrc: false,
+     );
+     var streams = await play.run(
+       (s) => s.streams(id, preference: preference),

@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -491,8 +491,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+             DownloadStatus.failDownload,
+             DownloadStatus.failDownloadAudio,
+             DownloadStatus.failPlayUrl,
+-            // retried three times on screen, after the return
+-            DownloadStatus.failQuality,
+           }.contains(entry.status)) {
+         EventLog.add(
+           'download',

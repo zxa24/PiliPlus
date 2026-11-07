@@ -1,0 +1,22 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -14,6 +14,7 @@ import 'dart:convert';
+ import 'dart:io';
+ import 'dart:isolate';
+ 
++import 'package:PiliPlus/http/init.dart';
+ import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
+ import 'package:PiliPlus/services/download/download_platform.dart';
+ import 'package:PiliPlus/services/download/download_progress.dart';
+@@ -721,6 +722,10 @@ final class YtDownloadPlatform implements DownloadPlatform {
+     if (file.existsSync()) return true;
+     final uri = Uri.tryParse(entry.cover);
+     if (uri == null || !isYtImageHost(uri)) return false;
++    if (uri.host.isNotEmpty) {
++      await Request.dio.download(entry.cover, file.path);
++      return true;
++    }
+     final part = File('${file.path}.part');
+     try {
+       if (await _coverFromCache(entry.cover, part) ||

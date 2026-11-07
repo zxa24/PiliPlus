@@ -1,0 +1,14 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -913,7 +913,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+         // already holds downloads (made before this guard): leave it, the
+         // deletion guard keeps the export's files
+         !page.listSync().any(
+-          (e) => e is Directory && isEntryDir(e, tmp: false),
++          (e) =>
++              e is Directory &&
++              File(path.join(e.path, _entryFile)).existsSync(),
+         )) {
+       var aside = exportFolderName(dirName);
+       for (var i = 2; Directory(path.join(root, aside)).existsSync(); i++) {

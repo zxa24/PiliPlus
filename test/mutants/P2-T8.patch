@@ -1,0 +1,14 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -550,9 +550,7 @@ class YtPairTransfer implements DownloadTransfer {
+   /// [leg] from 0 for [reason], once per reason in a start: a second time,
+   /// [cause] fails it.
+   Future<_Plan> _restart(_Leg leg, String reason, [Object? cause]) async {
+-    if (!leg.reasons.add(reason)) {
+-      throw cause ?? StateError('${leg.name}: from 0 again ($reason)');
+-    }
++    leg.reasons.add(reason);
+     _log(leg, 'restarted from 0 ($reason)');
+     await _fresh(leg);
+     return _Plan.download;

@@ -1,12 +1,12 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -1548,7 +1548,7 @@
+@@ -2006,7 +2006,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
        waitDownloadQueue.remove(entry);
      }
      if (_mergingKeys.contains(entry.key)) {
 -      _mergeDeletedKeys.add(entry.key);
 +      _mergeDeletedKeys.add('bili:${(entry as BiliDownloadEntryInfo).avid}');
      }
-     // bilibili's segment repair
-     if (entry is BiliDownloadEntryInfo) {
+     _lastFailure.remove(entry.key);
+     // a failure action under way is not taken any more (review 2f)

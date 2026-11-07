@@ -1,0 +1,12 @@
+diff --git a/lib/services/youtube/yt_format_select.dart b/lib/services/youtube/yt_format_select.dart
+--- a/lib/services/youtube/yt_format_select.dart
++++ b/lib/services/youtube/yt_format_select.dart
+@@ -365,7 +365,7 @@ YtFormat? selectYtAudioFormat(
+   // a download's earlier pair: that audio (track and DRC alike), in the
+   // default track's pool, or none
+   if (pref.pin case final pin?) {
+-    final pinned = pool.where(pin.matchesAudio).toList()..sort(byBitrate);
++    final pinned = playable.where(pin.matchesAudio).toList()..sort(byBitrate);
+     return pinned.isEmpty ? null : pinned.last;
+   }
+ 

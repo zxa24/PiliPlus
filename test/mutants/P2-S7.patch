@@ -1,0 +1,19 @@
+diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
+--- a/lib/services/download/download_platform_bili.dart
++++ b/lib/services/download/download_platform_bili.dart
+@@ -409,7 +409,6 @@ extension _BiliDownload on DownloadService {
+   /// The play URL. The stream type is read before it: the play URL writes
+   /// the one it got into the entry.
+   Future<_BiliPlan> _resolveBili(BiliDownloadEntryInfo entry) async {
+-    final oldTypeTag = entry.typeTag;
+     final mediaFileInfo =
+         await (DownloadService.getVideoUrlForTest ?? DownloadHttp.getVideoUrl)(
+           entry: entry,
+@@ -417,6 +416,7 @@ extension _BiliDownload on DownloadService {
+           source: entry.source,
+           pageData: entry.pageData,
+         );
++    final oldTypeTag = entry.typeTag;
+     return _BiliPlan(mediaFileInfo, oldTypeTag, entry.streamTypeTag);
+   }
+ 

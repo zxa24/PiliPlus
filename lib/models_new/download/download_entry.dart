@@ -65,6 +65,10 @@ abstract class DownloadEntry with MultiSelectData {
   late String entryDirPath;
   late DownloadStatus status = .wait;
 
+  /// Its retries ran out (the service gave up on it) since it was last
+  /// started. Not saved.
+  bool gaveUp = false;
+
   /// The stream sub-folder of [entryDirPath] in use.
   String get streamTypeTag;
 
@@ -103,6 +107,12 @@ enum DownloadStatus {
   savingExtras('保存评论等'),
   // LibrePili: failed, started again on its own in a while
   retryWait('下载失败，稍后自动重试'),
+  // LibrePili: nothing that can be merged into an mp4, or a live stream
+  // (not retried; stage-2 plan §3.5)
+  failNoFormat('没有可合成为 mp4 的格式'),
+  // LibrePili: the quality tier the download was made for is not offered
+  // now (stage-2 plan §4.1; retried, then a button to switch)
+  failQuality('所选画质当前不可用'),
   ;
 
   final String message;
@@ -114,7 +124,12 @@ enum DownloadStatus {
   /// goes on without it). The queue passes over these (`nextDownload` of
   /// the download service).
   bool get isFailed => switch (this) {
-    failDownload || failDownloadAudio || failPlayUrl || failMerge => true,
+    failDownload ||
+    failDownloadAudio ||
+    failPlayUrl ||
+    failMerge ||
+    failNoFormat ||
+    failQuality => true,
     _ => false,
   };
 }

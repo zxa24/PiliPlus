@@ -152,6 +152,19 @@ class YtDirectSource implements YouTubeVideoSource {
 
     final picked = selectYtFormats(detail.formats, preference);
     if (picked == null) {
+      // LibrePili (stage-2 plan §3.3): a download's pinned pair or tier is
+      // not here, while the same preference without them finds one — the
+      // download asks the other source (its own router), not this one again
+      if (preference.strict &&
+          selectYtFormats(detail.formats, preference.loose) != null) {
+        return YtResult.failed(
+          YtVerdict(
+            YtCause.contentUnavailable,
+            'no-pinned-pair',
+            'not offered: ${preference.pin ?? 'tier ${preference.exactHeight}'}',
+          ),
+        );
+      }
       // a strict preference (the download's MP4) nothing here meets, while
       // a pair plays: what this video offers, not a change in YouTube
       final offered =

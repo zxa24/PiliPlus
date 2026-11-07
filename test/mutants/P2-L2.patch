@@ -1,0 +1,16 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -442,7 +442,11 @@ final class YtDownloadPlatform implements DownloadPlatform {
+       LocalHistory.ytKey((entry as YtDownloadEntry).videoId),
+     )?.parts[LocalHistory.ytPart];
+     if (part == null) return null;
+-    return (positionMs: part.progress, finished: part.finished);
++    final key = LocalHistory.ytKey((entry as YtDownloadEntry).videoId);
++    return (
++      positionMs: LocalHistory.resumePoint(key, LocalHistory.ytPart) ?? 0,
++      finished: part.finished,
++    );
+   }
+ 
+   @override

@@ -1,0 +1,12 @@
+diff --git a/lib/services/youtube/yt_format_select.dart b/lib/services/youtube/yt_format_select.dart
+--- a/lib/services/youtube/yt_format_select.dart
++++ b/lib/services/youtube/yt_format_select.dart
+@@ -232,7 +232,7 @@ YtFormat? selectYtVideoFormat(
+   // a download's tier: one of it, or none (never the nearest)
+   if (pref.exactHeight case final tier?) {
+     final atTier = playable
+-        .where((f) => ytQualityTier(f.width ?? 0, f.height ?? 0) == tier)
++        .where((f) => ytShortSide(f) == tier)
+         .toList(growable: false);
+     if (atTier.isEmpty) return null;
+     // plan §4.5: the size first, by resolution then bitrate (two sizes of

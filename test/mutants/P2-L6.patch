@@ -1,0 +1,14 @@
+diff --git a/lib/pages/youtube/video/download_sheet.dart b/lib/pages/youtube/video/download_sheet.dart
+--- a/lib/pages/youtube/video/download_sheet.dart
++++ b/lib/pages/youtube/video/download_sheet.dart
+@@ -353,9 +353,9 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
+             ListTile(
+               key: ValueKey('tier-$tier'),
+               dense: true,
+-              enabled: false,
+               title: Text('${tier}P'),
+               subtitle: const Text('当前来源不提供'),
++              onTap: () => setState(() => _selected = tier),
+             ),
+         if (_otherPending)
+           Padding(

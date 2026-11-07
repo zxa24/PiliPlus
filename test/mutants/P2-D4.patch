@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -412,7 +412,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+     final entry =
+         (record.existsSync() ? read(record) : null) ??
+         (tmp.existsSync() ? read(tmp) : null);
+-    if (entry == null) return YtUnreadable(dir);
++    if (entry == null) return const YtNoRecord();
+     // byte for byte: ids differ in case where the folder names do not
+     if (entry.videoId != videoId) return YtCaseConflict(entry.videoId);
+     return const YtRecordExists();

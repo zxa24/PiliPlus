@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/utils/extension/file_ext.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:dio/dio.dart';
 
-class DownloadManager {
+class DownloadManager implements DownloadTransfer {
   final String url;
 
   /// Other CDN addresses of the same stream, tried in turn when a transfer
@@ -69,8 +70,10 @@ class DownloadManager {
 
   DownloadStatus _status = DownloadStatus.downloading;
 
+  @override
   DownloadStatus get status => _status;
   final _cancelToken = CancelToken();
+  @override
   late Future<void> task;
 
   DownloadManager({
@@ -341,6 +344,7 @@ class DownloadManager {
     return null;
   }
 
+  @override
   Future<void> cancel({required bool isDelete}) {
     if (!isDelete && _status == DownloadStatus.downloading) {
       _status = DownloadStatus.pause;

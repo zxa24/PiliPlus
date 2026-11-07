@@ -1,0 +1,17 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -484,13 +484,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
+     try {
+       // the pair's own source says whether it is live (review 2e): the
+       // shared detail may have been another source's
+-      if (otherIsDirect) {
+-        final detail = await own.run(
+-          (s) async => _definite(await s.detail(entry.videoId)),
+-        );
+-        if (!detail.ok) return null;
+-        _checkLive(detail);
+-      }
+       final r = await own.run(
+         (s) => s.streams(entry.videoId, preference: preference),
+       );

@@ -12,7 +12,12 @@
 /// So both sides are codec-constrained first and only then ranked.
 library;
 
+import 'dart:async' show Zone;
+import 'dart:convert' show utf8;
+
 import 'package:PiliPlus/services/youtube/yt_models.dart';
+import 'package:PiliPlus/services/youtube/yt_quality_tier.dart';
+import 'package:crypto/crypto.dart' show sha1;
 
 /// Video codecs in descending order of preference.
 ///
@@ -35,6 +40,10 @@ class YtFormatPreference {
     this.preferredAudioLanguage,
     this.listedCodecsOnly = false,
     this.preferSdr = false,
+    this.excludeMuxed = false,
+    this.exactHeight,
+    this.pin,
+    this.preferNonDrc = false,
   });
 
   /// Cap on the *smaller* of the two video dimensions, so a portrait video is
@@ -63,18 +72,110 @@ class YtFormatPreference {
   /// VP9. Playback ranks as it always did.
   final bool preferSdr;
 
+  /// Muxed formats ([YtFormat.isMuxed], e.g. itag 18) are not a video
+  /// stream ([mp4Download] only): their codec family reads `avc1`.
+  final bool excludeMuxed;
+
+  /// LibrePili (stage-2 plan §3.3, §4.5): the video must be of this quality
+  /// tier ([ytQualityTier]), or there is no pick — not the nearest under
+  /// the cap. A download's chosen tier; the page never sets it (it goes by
+  /// the short side and [maxHeight]).
+  final int? exactHeight;
+
+  /// LibrePili: the pair an earlier start of the download took; only that
+  /// pair, or none (the bytes on disk are of it).
+  final YtFormatPin? pin;
+
+  /// LibrePili (§10-7 Q5 b): having picked a DRC audio format, the non-DRC
+  /// one of the same itag and track instead when there is one. DRC alone
+  /// is still picked; a [pin] decides over this.
+  final bool preferNonDrc;
+
+  /// With a [pin] or an [exactHeight]: a pick that can come up empty while
+  /// the same preference without them finds a pair.
+  bool get strict => pin != null || exactHeight != null;
+
+  /// This preference without [pin] and [exactHeight].
+  YtFormatPreference get loose => YtFormatPreference(
+    maxHeight: maxHeight,
+    videoCodecs: videoCodecs,
+    audioCodecs: audioCodecs,
+    allowDubbedAudio: allowDubbedAudio,
+    preferredAudioLanguage: preferredAudioLanguage,
+    listedCodecsOnly: listedCodecsOnly,
+    preferSdr: preferSdr,
+    excludeMuxed: excludeMuxed,
+    preferNonDrc: preferNonDrc,
+  );
+
   /// A pair the downloader can make one mp4 of, as close to [maxHeight] as
-  /// MP4 goes.
-  static YtFormatPreference mp4Download(int maxHeight) => YtFormatPreference(
+  /// MP4 goes; with [exactHeight], of that tier only; with [pin], that pair.
+  static YtFormatPreference mp4Download(
+    int maxHeight, {
+    int? exactHeight,
+    YtFormatPin? pin,
+    bool preferNonDrc = false,
+  }) => YtFormatPreference(
     maxHeight: maxHeight,
     videoCodecs: const ['avc1', 'av01'],
     audioCodecs: const ['mp4a'],
     listedCodecsOnly: true,
     preferSdr: true,
+    excludeMuxed: true,
+    exactHeight: exactHeight,
+    pin: pin,
+    preferNonDrc: preferNonDrc,
   );
 
   static const YtFormatPreference standard = YtFormatPreference();
 }
+
+/// LibrePili: the pair a download's earlier start took (stage-2 plan §3.3),
+/// from its stream folder's `stream.json` — or, that unreadable, from the
+/// folder's name, which carries the audio track as a digest only.
+class YtFormatPin {
+  const YtFormatPin({
+    required this.videoItag,
+    required this.audioItag,
+    this.audioTrackId,
+    this.audioTrackDigest,
+    this.drc = false,
+  });
+
+  final int videoItag;
+  final int audioItag;
+
+  /// The audio track's id; null for a video with one track (or when only
+  /// [audioTrackDigest] is known).
+  final String? audioTrackId;
+
+  /// [ytAudioTrackDigest] of the track, when the folder name is all there
+  /// is; compared in place of [audioTrackId] then.
+  final String? audioTrackDigest;
+
+  /// The audio is DRC ([YtFormat.isDrc]).
+  final bool drc;
+
+  /// [f] is the pinned audio: its itag, its track, DRC or not alike.
+  bool matchesAudio(YtFormat f) =>
+      f.itag == audioItag &&
+      f.isDrc == drc &&
+      (audioTrackDigest != null
+          ? ytAudioTrackDigest(f.audioTrackId) == audioTrackDigest
+          : f.audioTrackId == audioTrackId);
+
+  @override
+  String toString() =>
+      'YtFormatPin($videoItag-$audioItag, '
+      'track ${audioTrackId ?? audioTrackDigest}, drc $drc)';
+}
+
+/// The first 12 lowercase hex digits of the SHA-1 of [audioTrackId]'s
+/// UTF-8 bytes: how a stream folder's name carries the track (stage-2 plan
+/// §3.3; ids such as `en:4` and `en_4` stay apart). Null without a track.
+String? ytAudioTrackDigest(String? audioTrackId) => audioTrackId == null
+    ? null
+    : sha1.convert(utf8.encode(audioTrackId)).toString().substring(0, 12);
 
 /// A video stream and an audio stream chosen to be played together.
 class YtFormatSelection {
@@ -98,11 +199,20 @@ YtFormatSelection? selectYtFormats(
   List<YtFormat> formats, [
   YtFormatPreference pref = YtFormatPreference.standard,
 ]) {
+  // the self-tests' `--yt-inject drop:` (stage-2 plan §5): in a zone that
+  // holds a set of itags under [ytSelfTestDropKey] (one source's calls),
+  // those formats are not there
+  if (Zone.current[ytSelfTestDropKey] case final Set<int> drop) {
+    formats = formats.where((f) => !drop.contains(f.itag)).toList();
+  }
   final video = selectYtVideoFormat(formats, pref);
   final audio = selectYtAudioFormat(formats, pref);
   if (video == null || audio == null) return null;
   return YtFormatSelection(video, audio);
 }
+
+/// The zone key of the itags a self-test leaves out ([selectYtFormats]).
+const ytSelfTestDropKey = #librePiliYtSelfTestDrop;
 
 /// The best video-only format under [pref], or null.
 YtFormat? selectYtVideoFormat(
@@ -114,11 +224,39 @@ YtFormat? selectYtVideoFormat(
         (f) =>
             f.isVideo &&
             f.isPlayable &&
+            !(pref.excludeMuxed && f.isMuxed) &&
             (!pref.listedCodecsOnly ||
                 pref.videoCodecs.contains(f.codecFamily)),
       )
       .toList(growable: false);
   if (playable.isEmpty) return null;
+  final rank = pref.preferSdr ? _bySdrThenResolution : _byResolutionThenBitrate;
+
+  // a download's earlier pair: that video, or none
+  if (pref.pin case final pin?) {
+    final pinned = playable.where((f) => f.itag == pin.videoItag).toList()
+      ..sort(rank);
+    return pinned.isEmpty ? null : pinned.last;
+  }
+
+  // a download's tier: one of it, or none (never the nearest)
+  if (pref.exactHeight case final tier?) {
+    final atTier = playable
+        .where((f) => ytQualityTier(f.width ?? 0, f.height ?? 0) == tier)
+        .toList(growable: false);
+    if (atTier.isEmpty) return null;
+    // plan §4.5: the size first, by resolution then bitrate (two sizes of
+    // one tier, e.g. 1920x800 and 1920x1080); then the codec and SDR order
+    // among the formats of that size (review 2bc)
+    final top = (atTier.toList()..sort(_byResolutionThenBitrate)).last;
+    return _inCodecOrder(
+      atTier
+          .where((f) => f.width == top.width && f.height == top.height)
+          .toList(growable: false),
+      pref,
+      rank,
+    );
+  }
 
   // The height first, the codec within it. Codec first (as it was) capped
   // each codec separately, and AVC tops out at 1080p: 1440p and 2160p,
@@ -128,10 +266,18 @@ YtFormat? selectYtVideoFormat(
   final top = _bestUnderHeightCap(playable, pref.maxHeight);
   if (top == null) return null;
   final side = _shortSide(top);
-  final rank = pref.preferSdr ? _bySdrThenResolution : _byResolutionThenBitrate;
   final atHeight = playable
       .where((f) => _shortSide(f) == side)
       .toList(growable: false);
+  return _inCodecOrder(atHeight, pref, rank);
+}
+
+/// The best of [atHeight] in [pref]'s codec order.
+YtFormat _inCodecOrder(
+  List<YtFormat> atHeight,
+  YtFormatPreference pref,
+  int Function(YtFormat a, YtFormat b) rank,
+) {
   for (final codec in pref.videoCodecs) {
     final pool = atHeight
         .where((f) => f.codecFamily == codec)
@@ -229,14 +375,40 @@ YtFormat? selectYtAudioFormat(
   // every track rather than returning nothing.
   if (pool.isEmpty) pool = playable;
 
+  int byBitrate(YtFormat a, YtFormat b) => a.bitrate.compareTo(b.bitrate);
+
+  // a download's earlier pair: that audio (track and DRC alike), in the
+  // default track's pool, or none
+  if (pref.pin case final pin?) {
+    final pinned = pool.where(pin.matchesAudio).toList()..sort(byBitrate);
+    return pinned.isEmpty ? null : pinned.last;
+  }
+
+  YtFormat? picked;
   for (final codec in pref.audioCodecs) {
     final byCodec = pool.where((f) => f.codecFamily == codec).toList();
     if (byCodec.isEmpty) continue;
-    byCodec.sort((a, b) => a.bitrate.compareTo(b.bitrate));
-    return byCodec.last;
+    byCodec.sort(byBitrate);
+    picked = byCodec.last;
+    break;
   }
-  final rest = pool.toList()..sort((a, b) => a.bitrate.compareTo(b.bitrate));
-  return rest.last;
+  final chosen = picked ?? (pool.toList()..sort(byBitrate)).last;
+
+  // DRC only when there is no plain one of the same itag and track
+  if (pref.preferNonDrc && chosen.isDrc) {
+    final plain =
+        pool
+            .where(
+              (f) =>
+                  !f.isDrc &&
+                  f.itag == chosen.itag &&
+                  f.audioTrackId == chosen.audioTrackId,
+            )
+            .toList()
+          ..sort(byBitrate);
+    if (plain.isNotEmpty) return plain.last;
+  }
+  return chosen;
 }
 
 /// `de-DE.10` → `de-DE`; null when the format carries no audio track id.

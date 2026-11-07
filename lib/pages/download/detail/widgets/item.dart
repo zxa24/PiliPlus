@@ -11,6 +11,7 @@ import 'package:PiliPlus/models_new/download/download_entry.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/downloading/view.dart';
+import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/download/download_transcripts.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
@@ -205,6 +206,14 @@ class DetailItem extends StatelessWidget {
                       top: 6.0,
                       type: PBadgeType.gray,
                     ),
+                  // LibrePili: which platform, when not bilibili
+                  if (platform.platformBadge(entry) case final badge?)
+                    PBadge(
+                      text: badge,
+                      left: 6.0,
+                      top: 6.0,
+                      type: PBadgeType.primary,
+                    ),
                   if (progress != null)
                     ListenableBuilder(
                       listenable: progress!,
@@ -330,39 +339,55 @@ class DetailItem extends StatelessWidget {
                         left: 0,
                         right: 0,
                         bottom: 0,
-                        child: savingExtras
-                            ? RepaintBoundary(
-                                child: ListenableBuilder(
-                                  listenable: entry.progress,
-                                  builder: (_, _) => entryProgress(
-                                    theme,
-                                    entry,
-                                    active:
-                                        entry.status ==
-                                        DownloadStatus.savingExtras,
-                                  ),
-                                ),
-                              )
-                            : isCurr
-                            ? RepaintBoundary(
-                                child: Obx(
-                                  () {
-                                    final curDownload =
-                                        downloadService.curDownload.value;
-                                    if (curDownload != null) {
-                                      return entryProgress(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // LibrePili: the platform's action on a failed
+                            // entry (YouTube's 720p switch, stage-2 plan
+                            // §4.2), above the bar
+                            ListenableBuilder(
+                              listenable: entry.progress,
+                              builder: (_, _) => failureButton(
+                                theme,
+                                platform.failureAction(entry),
+                              ),
+                            ),
+                            savingExtras
+                                ? RepaintBoundary(
+                                    child: ListenableBuilder(
+                                      listenable: entry.progress,
+                                      builder: (_, _) => entryProgress(
                                         theme,
-                                        curDownload,
+                                        entry,
                                         active:
-                                            curDownload.status !=
-                                            DownloadStatus.pause,
-                                      );
-                                    }
-                                    return entryProgress(theme, entry);
-                                  },
-                                ),
-                              )
-                            : entryProgress(theme, entry),
+                                            entry.status ==
+                                            DownloadStatus.savingExtras,
+                                      ),
+                                    ),
+                                  )
+                                : isCurr
+                                ? RepaintBoundary(
+                                    child: Obx(
+                                      () {
+                                        final curDownload =
+                                            downloadService.curDownload.value;
+                                        if (curDownload != null) {
+                                          return entryProgress(
+                                            theme,
+                                            curDownload,
+                                            active:
+                                                curDownload.status !=
+                                                DownloadStatus.pause,
+                                          );
+                                        }
+                                        return entryProgress(theme, entry);
+                                      },
+                                    ),
+                                  )
+                                : entryProgress(theme, entry),
+                          ],
+                        ),
                       ),
                   ],
                 ),
@@ -371,6 +396,32 @@ class DetailItem extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  /// In place of [SmartDialog.showToast].
+  @visibleForTesting
+  static void Function(String msg)? toastForTest;
+
+  /// [action] as a text button (none: nothing): it changes the entry and
+  /// has it saved and started again; not saved, the entry stays as it was
+  /// and a toast says so.
+  Widget failureButton(ThemeData theme, DownloadFailureAction? action) {
+    if (action == null) return const SizedBox.shrink();
+    return TextButton(
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        minimumSize: const Size(0, 28),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      onPressed: () async {
+        // null: a tap before this one is still saving
+        if (await downloadService.takeFailureAction(entry, action) == false) {
+          (toastForTest ?? SmartDialog.showToast)('下载记录保存失败，未重新开始');
+        }
+      },
+      child: Text(action.label, style: const TextStyle(fontSize: 12)),
     );
   }
 

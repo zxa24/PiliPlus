@@ -1,0 +1,15 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -921,11 +921,6 @@ class _StreamMeta {
+     final tmp = File('${file.path}.tmp');
+     var json = await _read(file);
+     var fromTmp = false;
+-    if (json == null) {
+-      // a write cut before its rename: the .tmp is the whole new value
+-      json = await _read(tmp);
+-      fromTmp = json != null;
+-    }
+     final existed = file.existsSync() || tmp.existsSync();
+     final old = {
+       'video': YtStreamId.fromJson(json?['video']),

@@ -459,4 +459,308 @@ void main() {
       expect(f.itag, 701);
     });
   });
+
+  // LibrePili, stage 2c (stage-2 plan §3.3, §4.5; AC13): what a download's
+  // preference adds — muxed formats left out, its pinned pair, its exact
+  // tier, plain audio before DRC. The cases above are unchanged.
+  group("a download's preference", () {
+    YtFormat video(int itag, int w, int h, {String codec = 'avc1.640028'}) =>
+        YtFormat(
+          fakeFormat(
+            itag: itag,
+            mimeType: 'video/mp4; codecs="$codec"',
+            width: w,
+            height: h,
+            bitrate: w * h,
+          ),
+        );
+    YtFormat audio(
+      int itag, {
+      int bitrate = 128000,
+      String? track,
+      bool isDefault = true,
+      bool drc = false,
+    }) => YtFormat({
+      ...fakeFormat(
+        itag: itag,
+        mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+        bitrate: bitrate,
+        audioTrackId: track,
+        audioIsDefault: isDefault,
+      ),
+      if (drc) 'isDrc': true,
+    });
+    // itag 18: 360p video and audio in one stream, its codec family avc1
+    final muxed = YtFormat(
+      fakeFormat(
+        itag: 18,
+        mimeType: 'video/mp4; codecs="avc1.42001E, mp4a.40.2"',
+        width: 640,
+        height: 360,
+        bitrate: 9000000,
+      ),
+    );
+
+    test('muxed and DRC read off the format', () {
+      expect(muxed.isMuxed, isTrue);
+      expect(video(134, 640, 360).isMuxed, isFalse);
+      expect(audio(140, drc: true).isDrc, isTrue);
+      expect(audio(140).isDrc, isFalse);
+    });
+
+    test('itag 18 is not the video stream of a download', () {
+      final picked = selectYtFormats([
+        muxed,
+        video(134, 640, 360),
+        audio(140),
+      ], YtFormatPreference.mp4Download(360))!;
+      expect(picked.video.itag, 134);
+      // muxed alone: no video stream to pair
+      expect(
+        selectYtVideoFormat([muxed], YtFormatPreference.mp4Download(360)),
+        isNull,
+      );
+      // the page is unchanged: it may still play it
+      expect(
+        selectYtVideoFormat([muxed], YtFormatPreference.standard),
+        muxed,
+      );
+    });
+
+    group('the two 140s', () {
+      // the original track (default) and a dub, both itag 140
+      final original = audio(140, track: 'en.4');
+      final dub = audio(140, track: 'it.10', isDefault: false, bitrate: 256000);
+      final formats = [video(137, 1920, 1080), original, dub];
+
+      test('pinned to the original: the original', () {
+        final picked = selectYtFormats(
+          formats,
+          YtFormatPreference.mp4Download(
+            1080,
+            pin: const YtFormatPin(
+              videoItag: 137,
+              audioItag: 140,
+              audioTrackId: 'en.4',
+            ),
+          ),
+        )!;
+        expect(picked.audio, original);
+      });
+
+      test('pinned to the dub: none — a pin is looked for in the default '
+          "track's pool only", () {
+        expect(
+          selectYtFormats(
+            formats,
+            YtFormatPreference.mp4Download(
+              1080,
+              pin: const YtFormatPin(
+                videoItag: 137,
+                audioItag: 140,
+                audioTrackId: 'it.10',
+              ),
+            ),
+          ),
+          isNull,
+        );
+      });
+
+      test('pinned by a folder name (the digest): the original', () {
+        final picked = selectYtFormats(
+          formats,
+          YtFormatPreference.mp4Download(
+            1080,
+            pin: YtFormatPin(
+              videoItag: 137,
+              audioItag: 140,
+              audioTrackDigest: ytAudioTrackDigest('en.4'),
+            ),
+          ),
+        )!;
+        expect(picked.audio, original);
+      });
+
+      test('a pinned video that is not there: none', () {
+        expect(
+          selectYtVideoFormat(
+            formats,
+            YtFormatPreference.mp4Download(
+              1080,
+              pin: const YtFormatPin(videoItag: 299, audioItag: 140),
+            ),
+          ),
+          isNull,
+        );
+      });
+    });
+
+    group('the exact tier', () {
+      final hd = [video(137, 1920, 1080), video(136, 1280, 720), audio(140)];
+
+      test('a tier that is there: that one, not the cap', () {
+        final pref = YtFormatPreference.mp4Download(1080, exactHeight: 720);
+        expect(selectYtVideoFormat(hd, pref)!.itag, 136);
+      });
+
+      test('a tier that is not there: none (not the nearest), while without '
+          'it there is a pair', () {
+        final pref = YtFormatPreference.mp4Download(1440, exactHeight: 1440);
+        expect(selectYtFormats(hd, pref), isNull);
+        expect(pref.strict, isTrue);
+        expect(pref.loose.exactHeight, isNull);
+        expect(pref.loose.strict, isFalse);
+        expect(selectYtFormats(hd, pref.loose)!.video.itag, 137);
+      });
+
+      test('a wide film by tier, not by short side', () {
+        final wide = [
+          video(399, 1920, 800, codec: 'av01.0.08M.08'),
+          video(398, 1280, 534, codec: 'av01.0.05M.08'),
+          video(397, 854, 356, codec: 'av01.0.04M.08'),
+          audio(140),
+        ];
+        expect(
+          selectYtVideoFormat(
+            wide,
+            YtFormatPreference.mp4Download(1080, exactHeight: 1080),
+          )!.itag,
+          399,
+        );
+        expect(
+          selectYtVideoFormat(
+            wide,
+            YtFormatPreference.mp4Download(1080, exactHeight: 720),
+          )!.itag,
+          398,
+        );
+      });
+
+      test('within a tier, the codec order as before', () {
+        final both = [
+          video(399, 1920, 1080, codec: 'av01.0.08M.08'),
+          video(137, 1920, 1080),
+          audio(140),
+        ];
+        expect(
+          selectYtVideoFormat(
+            both,
+            YtFormatPreference.mp4Download(1080, exactHeight: 1080),
+          )!.itag,
+          137,
+        );
+      });
+
+      // review 2bc, plan §4.5: two sizes in one tier — the size by
+      // resolution then bitrate first (1920x1080 over 1920x800), SDR and
+      // codec order only within that size
+      YtFormat sized(int itag, int w, int h, {required bool hdr}) => YtFormat({
+        ...fakeFormat(
+          itag: itag,
+          mimeType: 'video/mp4; codecs="av01.0.08M.08"',
+          width: w,
+          height: h,
+          bitrate: w * h,
+        ),
+        'colorInfo': {
+          'transferCharacteristics': hdr
+              ? 'COLOR_TRANSFER_CHARACTERISTICS_SMPTEST2084'
+              : 'COLOR_TRANSFER_CHARACTERISTICS_BT709',
+        },
+      });
+
+      test('two sizes of one tier: the larger, though only it is HDR', () {
+        final pick = selectYtVideoFormat([
+          sized(399, 1920, 800, hdr: false),
+          sized(699, 1920, 1080, hdr: true),
+          audio(140),
+        ], YtFormatPreference.mp4Download(1080, exactHeight: 1080))!;
+        expect((pick.width, pick.height), (1920, 1080));
+      });
+
+      test('within that size: SDR before HDR, as mp4Download ranks', () {
+        final pick = selectYtVideoFormat([
+          sized(399, 1920, 800, hdr: false),
+          sized(699, 1920, 1080, hdr: true),
+          sized(400, 1920, 1080, hdr: false),
+          audio(140),
+        ], YtFormatPreference.mp4Download(1080, exactHeight: 1080))!;
+        expect(pick.itag, 400);
+      });
+    });
+
+    // user 2026-11-01 (the 4320 tier): on an 8K video an exact 2160 pick
+    // takes the 4K stream, not the 8K one that used to share its tier
+    group('an 8K video', () {
+      final formats = [
+        video(571, 7680, 4320, codec: 'av01.0.16M.08'),
+        video(401, 3840, 2160, codec: 'av01.0.12M.08'),
+        video(400, 2560, 1440, codec: 'av01.0.12M.08'),
+        audio(140),
+      ];
+
+      test('an exact 2160 pick: 3840x2160, not 7680x4320', () {
+        final pick = selectYtVideoFormat(
+          formats,
+          YtFormatPreference.mp4Download(4320, exactHeight: 2160),
+        )!;
+        expect((pick.itag, pick.width, pick.height), (401, 3840, 2160));
+      });
+
+      test('an exact 4320 pick: the 8K stream', () {
+        expect(
+          selectYtVideoFormat(
+            formats,
+            YtFormatPreference.mp4Download(4320, exactHeight: 4320),
+          )!.itag,
+          571,
+        );
+      });
+    });
+
+    group('DRC', () {
+      final plain = audio(140, bitrate: 128000);
+      final drc = audio(140, bitrate: 130000, drc: true);
+
+      test('plain before DRC, though DRC has the higher bitrate', () {
+        expect(
+          selectYtAudioFormat([
+            drc,
+            plain,
+          ], YtFormatPreference.mp4Download(1080, preferNonDrc: true)),
+          plain,
+        );
+        // without the preference: by bitrate, as before
+        expect(
+          selectYtAudioFormat([
+            drc,
+            plain,
+          ], YtFormatPreference.mp4Download(1080)),
+          drc,
+        );
+      });
+
+      test('DRC alone: DRC', () {
+        expect(
+          selectYtAudioFormat([
+            drc,
+          ], YtFormatPreference.mp4Download(1080, preferNonDrc: true)),
+          drc,
+        );
+      });
+
+      test('pinned to DRC: DRC; pinned to plain: plain', () {
+        YtFormat? pinned(bool isDrc) => selectYtAudioFormat(
+          [drc, plain],
+          YtFormatPreference.mp4Download(
+            1080,
+            preferNonDrc: true,
+            pin: YtFormatPin(videoItag: 137, audioItag: 140, drc: isDrc),
+          ),
+        );
+        expect(pinned(true), drc);
+        expect(pinned(false), plain);
+      });
+    });
+  });
 }

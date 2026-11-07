@@ -107,6 +107,16 @@ class YtFormat {
   bool get isVideo => mimeType.startsWith('video/');
   bool get isAudio => mimeType.startsWith('audio/');
 
+  /// A muxed format (`streamingData.formats`, e.g. itag 18): video and audio
+  /// in one stream, both codecs listed (`avc1.42001E, mp4a.40.2`). Its
+  /// [codecFamily] reads `avc1`, so a download's pick must leave it out
+  /// (stage-2 plan §3.3 `excludeMuxed`).
+  bool get isMuxed => codec.contains(',');
+
+  /// A DRC (dynamic range compressed) audio track: `isDrc` in the direct
+  /// source's entry; the Invidious parser skips them (invidious_parser).
+  bool get isDrc => raw['isDrc'] == true;
+
   /// The codec string out of [mimeType], e.g. `avc1.4d401f`.
   String get codec =>
       RegExp(r'codecs="([^"]+)"').firstMatch(mimeType)?.group(1) ?? '';
@@ -184,8 +194,7 @@ class YtCaptionTrack {
       isAutomatic ? SubtitleSource.platform : SubtitleSource.author;
 
   /// The name to show in a menu, with the source note where there is one.
-  String get displayName =>
-      source.annotate(name.isEmpty ? languageCode : name);
+  String get displayName => source.annotate(name.isEmpty ? languageCode : name);
 
   final String languageCode;
   final String baseUrl;
@@ -243,6 +252,7 @@ class YtVideoDetail {
     required this.captionTracks,
     required this.isLive,
     required this.expiresIn,
+    this.liveNow = false,
     this.description = '',
     this.viewCount,
     this.hlsManifestUrl,
@@ -267,6 +277,7 @@ class YtVideoDetail {
       viewCount: asInt(vd['viewCount']),
       duration: Duration(seconds: asInt(vd['lengthSeconds']) ?? 0),
       isLive: vd['isLiveContent'] == true,
+      liveNow: vd['isLive'] == true || vd['isUpcoming'] == true,
       thumbnails: mapList(
         (vd['thumbnail'] as Map?)?['thumbnails'],
         YtThumbnail.fromJson,
@@ -293,6 +304,12 @@ class YtVideoDetail {
   final int? viewCount;
   final Duration duration;
   final bool isLive;
+
+  /// Live now or not started yet (`videoDetails.isLive` / `isUpcoming`;
+  /// measured, design §9 probe 7, yp#5): nothing to download. [isLive]
+  /// (`isLiveContent`) is true for a live stream's replay too. The direct
+  /// source's answer only; an Invidious one leaves it false.
+  final bool liveNow;
   final List<YtThumbnail> thumbnails;
 
   /// Adaptive formats first, then the muxed `formats` array.
@@ -306,8 +323,10 @@ class YtVideoDetail {
 
   final Duration expiresIn;
 
-  /// Present on VISIONOS for live content; absent on ANDROID/IOS. Live is HLS
-  /// and is handed to the player as a manifest URL, not as a stream pair.
+  /// On VISIONOS in every playable answer — a plain video's and a live
+  /// replay's too (measured, yp#5) — so it does not tell a live stream:
+  /// [liveNow] does. Absent on ANDROID/IOS. Live is HLS and is handed to
+  /// the player as a manifest URL, not as a stream pair.
   final String? hlsManifestUrl;
 
   List<YtFormat> get videoFormats =>
@@ -440,7 +459,6 @@ class YtPage<T> {
   @override
   String toString() => 'YtPage(${items.length} items, more=$hasMore)';
 }
-
 
 /// A channel's own page header: the things a video response does not carry.
 class YtChannelInfo {

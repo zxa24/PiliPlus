@@ -11,6 +11,7 @@ import 'package:PiliPlus/pages/common/multi_select/base.dart'
 import 'package:PiliPlus/pages/download/controller.dart';
 import 'package:PiliPlus/pages/download/delete_dialog.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
+import 'package:PiliPlus/pages/download/update_action.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/grid.dart';
 import 'package:collection/collection.dart';
@@ -97,32 +98,36 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
           appBar: MultiSelectAppBarWidget(
             ctr: this,
             actions: [
-              TextButton(
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: () async {
-                  // bilibili's own
-                  final futures = allChecked
-                      .whereType<BiliDownloadEntryInfo>()
-                      .map(
-                        (e) => _downloadService.downloadDanmaku(
-                          entry: e,
-                          isUpdate: true,
-                        ),
-                      )
-                      .toList();
-                  handleSelect();
-                  final res = await Future.wait(futures);
-                  if (res.every((e) => e)) {
-                    SmartDialog.showToast('更新成功');
-                  } else {
-                    SmartDialog.showToast('更新失败');
-                  }
-                },
-                child: Text(
-                  '更新',
-                  style: TextStyle(color: colorScheme.onSurface),
+              DanmakuUpdateAction(
+                ctr: this,
+                checked: () => allChecked,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: () async {
+                    // bilibili's own
+                    final futures = allChecked
+                        .whereType<BiliDownloadEntryInfo>()
+                        .map(
+                          (e) => _downloadService.downloadDanmaku(
+                            entry: e,
+                            isUpdate: true,
+                          ),
+                        )
+                        .toList();
+                    handleSelect();
+                    final res = await Future.wait(futures);
+                    if (res.every((e) => e)) {
+                      SmartDialog.showToast('更新成功');
+                    } else {
+                      SmartDialog.showToast('更新失败');
+                    }
+                  },
+                  child: Text(
+                    '更新',
+                    style: TextStyle(color: colorScheme.onSurface),
+                  ),
                 ),
               ),
             ],

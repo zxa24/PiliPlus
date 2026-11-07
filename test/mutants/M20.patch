@@ -1,11 +1,11 @@
-diff --git a/lib/services/download/download_platform_bili.dart b/lib/services/download/download_platform_bili.dart
---- a/lib/services/download/download_platform_bili.dart
-+++ b/lib/services/download/download_platform_bili.dart
-@@ -331,7 +331,6 @@
-     }
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -978,7 +978,6 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+         }
  
-     await Future.wait([
--      _writeIndexJson(mediaJsonFile, mediaFileInfo),
-       _bili.cover(entry: entry),
-     ]);
+         await Future.wait([
+-          platform.writeStreamKey(entry, plan),
+           platform.cover(entry),
+         ]);
  

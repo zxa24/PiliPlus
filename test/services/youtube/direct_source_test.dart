@@ -392,6 +392,77 @@ void main() {
     });
   });
 
+  // LibrePili (stage-2 plan §3.3; AC13): a download's pinned pair or tier
+  // that this answer does not hold, while the same preference without them
+  // finds a pair: no-pinned-pair (contentUnavailable), not
+  // no-playable-pair — the download asks the other source then
+  group("a download's pin and tier", () {
+    YtResponse player() => syntheticPlayer(
+      status: 'OK',
+      videoDetails: const {'videoId': 'dQw4w9WgXcQ', 'title': 't'},
+      streamingData: {
+        'expiresInSeconds': '21540',
+        'adaptiveFormats': [
+          fakeFormat(
+            itag: 136,
+            mimeType: 'video/mp4; codecs="avc1.4d401f"',
+            width: 1280,
+            height: 720,
+          ),
+          fakeFormat(
+            itag: 140,
+            mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+          ),
+        ],
+      },
+    );
+
+    Future<YtResult<YtStreamPair>> streams(YtFormatPreference pref) {
+      final transport = FakeYtTransport((req) {
+        if (req.endpoint == 'visitor_id') return fakeVisitorIdResponse();
+        return player();
+      });
+      return _source(transport).streams('dQw4w9WgXcQ', preference: pref);
+    }
+
+    test('the tier chosen is not offered: no-pinned-pair', () async {
+      final r = await streams(
+        YtFormatPreference.mp4Download(1080, exactHeight: 1080),
+      );
+      expect(r.verdict.cause, YtCause.contentUnavailable);
+      expect(r.verdict.signal, 'no-pinned-pair');
+    });
+
+    test('the pinned pair is not offered: no-pinned-pair', () async {
+      final r = await streams(
+        YtFormatPreference.mp4Download(
+          1080,
+          pin: const YtFormatPin(videoItag: 137, audioItag: 140),
+        ),
+      );
+      expect(r.verdict.signal, 'no-pinned-pair');
+    });
+
+    test('the tier and the pin offered: the pair', () async {
+      final tier = await streams(
+        YtFormatPreference.mp4Download(1080, exactHeight: 720),
+      );
+      expect(tier.value!.video!.itag, 136);
+      final pinned = await streams(
+        YtFormatPreference.mp4Download(
+          1080,
+          pin: const YtFormatPin(videoItag: 136, audioItag: 140),
+        ),
+      );
+      expect(pinned.value!.video!.itag, 136);
+    });
+
+    test('without a pin or a tier: as before', () async {
+      final r = await streams(YtFormatPreference.mp4Download(1080));
+      expect(r.ok, isTrue);
+    });
+  });
+
   group('browse-side calls', () {
     test('search parses the recorded page', () async {
       final transport = FakeYtTransport((req) {

@@ -1,0 +1,23 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -588,14 +588,12 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+             final DownloadPlatform platform;
+             if (bili) {
+               platform = _bili;
+-            } else if (platformNamed('${json['platform']}') case final named?) {
+-              platform = named;
+             } else {
+-              // a platform of a later build: left out, its files stay
+-              lastError =
+-                  'unknown platform ${json['platform']} (${entryDir.path})';
+-              debugPrint('skipped download entry: $lastError');
+-              continue;
++              platform =
++                  _platforms['${json['platform']}'] ??
++                  (throw StateError(
++                    'unknown download platform ${json['platform']}',
++                  ));
+             }
+             final entry = platform.parse(json)
+               ..pageDirPath = pageDir.path

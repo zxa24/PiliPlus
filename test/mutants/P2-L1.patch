@@ -1,0 +1,14 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -313,7 +313,9 @@ final class YtDownloadPlatform implements DownloadPlatform {
+   @override
+   ({File? file, String? network}) localCover(DownloadEntry entry) {
+     final cover = File(path.join(entry.entryDirPath, PathUtils.coverName));
+-    return (file: cover.existsSync() ? cover : null, network: null);
++    return cover.existsSync()
++        ? (file: cover, network: null)
++        : (file: null, network: (entry as YtDownloadEntry).cover);
+   }
+ 
+   /// The watch history's own (watched online or offline alike).

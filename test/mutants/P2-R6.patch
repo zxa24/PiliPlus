@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -448,7 +448,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+   /// A live or upcoming video, by the direct source's answer only:
+   /// Invidious does not tell (§10-5 4 b).
+   static void _checkLive(YtRoutedResult<YtVideoDetail> detail) {
+-    if (detail.source?.id == _directId && (detail.value?.liveNow ?? false)) {
++    if (detail.source?.id == _directId && false) {
+       throw const DownloadResolveFailure(
+         DownloadFailure.noFormat,
+         'live or upcoming',

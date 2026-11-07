@@ -1,0 +1,12 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -713,7 +713,7 @@ class YtPairTransfer implements DownloadTransfer {
+     }
+     // a resume's total is known: an answer that does not state it (`*`)
+     // does not say these are its bytes
+-    if (range.$3 != leg.expected) {
++    if (range.$3 != null && range.$3 != leg.expected) {
+       await _discard(response);
+       throw YtRangeError.total('${range.$3 ?? '*'}, expected ${leg.expected}');
+     }

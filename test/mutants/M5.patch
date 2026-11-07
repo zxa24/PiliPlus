@@ -1,10 +1,10 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -1028,7 +1028,7 @@
-     _audioDownloadManager = null;
+@@ -1157,7 +1157,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
      entry.downloadedBytes = entry.totalBytes;
      final key = entry.key;
+     _lastFailure.remove(key);
 -    _mergingKeys.add(key);
 +    _mergingKeys.add('bili:${(entry as BiliDownloadEntryInfo).avid}');
      _mergeDeletedKeys.remove(key);

@@ -1,0 +1,21 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -229,6 +229,17 @@ class YtPairTransfer implements DownloadTransfer {
+   }) : _video = _Leg('video', video, streamDir),
+        _audio = _Leg('audio', audio, streamDir),
+        _newClient = httpClient ?? HttpClient.new {
++    // a stream already whole said at once
++    for (final leg in _legs) {
++      final whole = leg.id.bytes;
++      if (whole != null &&
++          leg.file.existsSync() &&
++          leg.file.lengthSync() == whole) {
++        identical(leg, _video)
++            ? report.video(whole, whole)
++            : report.audio(whole, whole);
++      }
++    }
+     task = _run();
+   }
+ 

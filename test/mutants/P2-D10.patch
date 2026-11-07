@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
+--- a/lib/services/download/download_service.dart
++++ b/lib/services/download/download_service.dart
+@@ -1686,7 +1686,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+             ? folder.listSync()
+             : const <FileSystemEntity>[];
+         bool isDownload(FileSystemEntity e) =>
+-            e is Directory && isEntryDir(e, tmp: false);
++            e is Directory && File(path.join(e.path, _entryFile)).existsSync();
+         if (contents.any(isDownload)) {
+           // also a page folder holding downloads (made before exports
+           // avoided internal names): remove only the export's own files

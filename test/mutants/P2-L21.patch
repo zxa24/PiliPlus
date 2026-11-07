@@ -1,0 +1,12 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -500,7 +500,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+       final id = r.source?.id ?? (otherIsDirect ? _directId : '');
+       if (!r.ok) {
+         // the direct source's refusal of an upcoming video still says it
+-        return otherIsDirect && _liveRefusal(r.verdict)
++        return false && _liveRefusal(r.verdict)
+             ? YtOtherOffer(sourceId: id, formats: const [], liveNow: true)
+             : null;
+       }

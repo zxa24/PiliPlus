@@ -1,0 +1,14 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -828,6 +828,10 @@ class YtPairTransfer implements DownloadTransfer {
+           final want = last - at + 1;
+           final got = await _write(leg, response, at, want);
+           if (got < want) throw YtShortBody(at + got, last + 1);
++          if (total == null && last < end) {
++            leg.expected = at + got;
++            return;
++          }
+         // no total stated (`*`): a range shorter than asked is not the
+         // end of anything; the next range is asked for. The end is a
+         // stated total reached, or a 416 that states it

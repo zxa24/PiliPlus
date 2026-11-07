@@ -24,6 +24,7 @@ import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
 import 'package:PiliPlus/pages/youtube/comments/yt_comment_pane.dart';
 import 'package:PiliPlus/pages/youtube/video/controller.dart';
+import 'package:PiliPlus/pages/youtube/video/download_sheet.dart';
 import 'package:PiliPlus/pages/youtube/video/header_control.dart';
 import 'package:PiliPlus/pages/youtube/widgets/video_tile.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
@@ -692,14 +693,12 @@ class _YtVideoPageState extends State<YtVideoPage>
             text: '收藏',
           ),
         ),
-        Obx(
-          () => ActionItem(
-            icon: const Icon(FontAwesomeIcons.download),
-            onTap: _download,
-            selectStatus: false,
-            semanticsLabel: '下载',
-            text: controller.downloading.value ? '下载中' : '下载',
-          ),
+        ActionItem(
+          icon: const Icon(FontAwesomeIcons.download),
+          onTap: _download,
+          selectStatus: false,
+          semanticsLabel: '下载',
+          text: '下载',
         ),
         ActionItem(
           icon: const Icon(FontAwesomeIcons.shareFromSquare),
@@ -771,7 +770,21 @@ class _YtVideoPageState extends State<YtVideoPage>
     );
   }
 
-  Future<void> _download() => controller.download(context);
+  /// The download panel (stage-2 plan §4.4): what it lists is its own,
+  /// asked when it opens; the page's cap only picks the tier selected first.
+  Future<void> _download() => showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    constraints: BoxConstraints(
+      maxWidth: math.min(640, MediaQuery.sizeOf(context).width),
+    ),
+    builder: (_) => YtDownloadSheet(
+      videoId: controller.videoId,
+      pageCap: controller.maxHeight.value,
+      pageDetail: controller.detail.value,
+    ),
+  );
 
   /// The same folder sheet a bilibili video opens — one 收藏夹 holding both,
   /// since neither side has an account here.

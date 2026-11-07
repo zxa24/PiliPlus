@@ -1,0 +1,16 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -310,11 +310,7 @@ class YtPairTransfer implements DownloadTransfer {
+   /// callback throws is its own: logged, never a failure of the transfer.
+   void _say(void Function() call) {
+     if (_cancelled) return;
+-    try {
+-      call();
+-    } catch (e) {
+-      EventLog.add('download', 'yt:$videoId: a callback threw: $e');
+-    }
++    call();
+   }
+ 
+   /// `done`, once.

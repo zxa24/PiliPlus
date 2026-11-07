@@ -1,0 +1,12 @@
+diff --git a/lib/pages/download/update_action.dart b/lib/pages/download/update_action.dart
+--- a/lib/pages/download/update_action.dart
++++ b/lib/pages/download/update_action.dart
+@@ -8,7 +8,7 @@ import 'package:material_ui/material_ui.dart';
+ /// hidden while something is selected and none of it is bilibili's; with
+ /// nothing selected it is shown, as before (stage-2 plan §3.2, p1w#4).
+ bool showDanmakuUpdate(Iterable<DownloadEntry> checked) =>
+-    checked.isEmpty || checked.any((e) => e is BiliDownloadEntryInfo);
++    checked.any((e) => e is BiliDownloadEntryInfo);
+ 
+ /// [child] (the 「更新」 button) while [showDanmakuUpdate] holds for
+ /// [checked], rebuilt as [ctr]'s selection changes.

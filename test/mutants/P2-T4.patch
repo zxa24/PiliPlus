@@ -1,0 +1,23 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -691,8 +691,8 @@ class YtPairTransfer implements DownloadTransfer {
+   Future<void> _overlap(_Leg leg) async {
+     final onDisk = _length(leg.file);
+     final k = min(overlapBytes, onDisk);
+-    final from = onDisk - k;
+-    final response = await _send(leg, 'bytes=$from-${onDisk - 1}');
++    const from = 0;
++    final response = await _send(leg, 'bytes=$from-${k - 1}');
+     switch (response.statusCode) {
+       case HttpStatus.partialContent:
+         break;
+@@ -707,7 +707,7 @@ class YtPairTransfer implements DownloadTransfer {
+         throw YtHttpStatus(response.statusCode);
+     }
+     final range = _rangeOf(response);
+-    if (range == null || range.$1 != from || range.$2 != onDisk - 1) {
++    if (range == null || range.$1 != from || range.$2 != k - 1) {
+       await _discard(response);
+       throw YtRangeError.unexpected('the overlap at $from');
+     }

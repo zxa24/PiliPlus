@@ -1,0 +1,22 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -366,9 +366,6 @@ class YtPairTransfer implements DownloadTransfer {
+       );
+       await Future.wait([_runLeg(_video), _runLeg(_audio)]);
+       await _meta.settled;
+-      // a pause after a stream failed, while the other was being stopped:
+-      // a pause it stays (no failure is set over it)
+-      if (_cancelled) return;
+       // a failure is only ever a stream's own ([_runLeg] looks at the
+       // cancel first)
+       if (_failure case (final leg, final error)) {
+@@ -404,7 +401,7 @@ class YtPairTransfer implements DownloadTransfer {
+       }
+     } catch (e) {
+       // stopped from outside: what that threw is not a failure of its own
+-      if (_cancelled || _stopping) return;
++      if (_stopping) return;
+       _stopping = true;
+       _failure = (leg, e);
+       if (!_wake.isCompleted) _wake.complete();

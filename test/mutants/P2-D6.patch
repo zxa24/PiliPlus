@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -457,7 +457,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
+   }) async {
+     // not before the list is read: a complete record would be made a new
+     // (incomplete) one
+-    await service.waitForInitialization;
+     final key = 'yt:${detail.videoId}';
+     if (service.downloadList.any((e) => e.key == key)) {
+       return YtCreateResult.done;

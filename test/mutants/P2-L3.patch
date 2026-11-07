@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -929,6 +929,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
+   Future<void> onDeleted(List<DownloadEntry> entries) async {
+     for (final entry in entries) {
+       _ownHealth.remove(entry.key);
++      await LocalHistory.remove(LocalHistory.ytKey((entry as YtDownloadEntry).videoId));
+     }
+   }
+ 

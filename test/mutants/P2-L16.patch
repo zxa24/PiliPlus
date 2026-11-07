@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -482,7 +482,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
+     final directCooling =
+         !(YtSourceRouter.sharedHealth[_directId]?.availableAt(DateTime.now()) ??
+             true);
+-    if (otherIsDirect && directCooling) return null;
+     final own = _router(
+       otherIsDirect ? YtSourceMode.directOnly : YtSourceMode.fallbackOnly,
+       own: true,

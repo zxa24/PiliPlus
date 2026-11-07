@@ -1,0 +1,12 @@
+diff --git a/lib/services/youtube/yt_pair_transfer.dart b/lib/services/youtube/yt_pair_transfer.dart
+--- a/lib/services/youtube/yt_pair_transfer.dart
++++ b/lib/services/youtube/yt_pair_transfer.dart
+@@ -453,7 +453,7 @@ class YtPairTransfer implements DownloadTransfer {
+       await _complete(leg);
+       return;
+     }
+-    var check = plan == _Plan.resume;
++    var check = false;
+     // only failures in a row that saved nothing count (DownloadManager)
+     var failures = 0;
+     while (true) {

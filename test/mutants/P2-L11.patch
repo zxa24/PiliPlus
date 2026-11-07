@@ -1,0 +1,13 @@
+diff --git a/lib/pages/youtube/video/download_sheet.dart b/lib/pages/youtube/video/download_sheet.dart
+--- a/lib/pages/youtube/video/download_sheet.dart
++++ b/lib/pages/youtube/video/download_sheet.dart
+@@ -180,7 +180,8 @@ class _YtDownloadSheetState extends State<YtDownloadSheet> {
+     }
+     if (!mounted || ask != _ask) return;
+     // the offer's own formats, the ones taken when the panel opened
+-    final formats = offer.detail?.formats ?? const <YtFormat>[];
++    final formats =
++        widget.pageDetail?.formats ?? offer.detail?.formats ?? const <YtFormat>[];
+     setState(() {
+       _loading = false;
+       _offer = offer;

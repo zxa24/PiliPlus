@@ -1,0 +1,11 @@
+diff --git a/lib/services/download/download_platform_yt.dart b/lib/services/download/download_platform_yt.dart
+--- a/lib/services/download/download_platform_yt.dart
++++ b/lib/services/download/download_platform_yt.dart
+@@ -723,7 +723,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
+       EventLog.add('download', '${entry.logLabel}: merge failed: $e');
+       // not damaged: the download is complete (no export): its own health
+       // goes, as on a merge that worked (review 2e)
+-      if (!damaged) _ownHealth.remove(entry.key);
+       return (output: null, inputs: inputs, damaged: damaged, corrupt: corrupt);
+     } finally {
+       if (output != null) export.release(output);

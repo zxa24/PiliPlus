@@ -25,6 +25,7 @@ library;
 
 import 'dart:io' show stderr;
 
+import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/self_test.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -48,6 +49,22 @@ abstract final class SelfTestPref {
       }
     }
     if (values.isNotEmpty) await GStorage.setting.putAll(values);
+    // `--yt-list-delay <s>` (stage-2 plan §5 AC14): the download list read
+    // later, so a panel's 「下载」 waits for it
+    final i = args.indexOf('--yt-list-delay');
+    if (i != -1 && i + 1 < args.length) {
+      final seconds = num.tryParse(args[i + 1]);
+      if (seconds == null || seconds < 0) {
+        SelfTest.abort(
+          args,
+          '--yt-list-delay takes seconds, not "${args[i + 1]}"',
+        );
+      } else {
+        DownloadService.selfTestListDelay = Duration(
+          milliseconds: (seconds * 1000).round(),
+        );
+      }
+    }
   }
 
   /// `k:type=v` as the key and the value in its type.

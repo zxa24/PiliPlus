@@ -13,6 +13,11 @@ import 'package:PiliPlus/utils/storage_key.dart';
 abstract final class YtSourceStore {
   static var _loaded = false;
 
+  /// `--yt-source invidious|direct`: one source only — for the video page
+  /// and the downloads alike (stage-2 plan §3.3), read when each builds its
+  /// router.
+  static YtSourceMode debugMode = YtSourceMode.auto;
+
   static void load() {
     if (_loaded) return;
     _loaded = true;

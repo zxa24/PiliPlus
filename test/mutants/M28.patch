@@ -1,12 +1,13 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -920,6 +920,8 @@
-   /// nothing is lost), and the returned future completes once this call's
-   /// state is on disk.
-   Future<void> _saveEntry(DownloadEntry entry) {
+@@ -1184,7 +1184,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+   /// [valid] (a save through [DownloadHost.save]): asked again when this
+   /// save's turn comes; false drops it then.
+   Future<void> _saveEntry(DownloadEntry entry, {bool Function()? valid}) {
+-    // one chain per folder as the file system sees it (letter case)
 +    return platformOf(entry).save(entry);
 +    // ignore: dead_code
-     final dir = entry.entryDirPath;
+     final dir = _folderKey(entry.entryDirPath);
      final save = (_entrySaves[dir] ?? Future<void>.value()).then(
-       (_) => platformOf(entry).save(entry),
+       (_) => valid == null || valid()
