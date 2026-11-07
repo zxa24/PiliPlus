@@ -886,6 +886,16 @@ abstract final class SelfTest {
               .skip(1)
               .join('='),
     };
+    // `--relay-trace`: every request through the YouTube relay, in and out
+    YtStreamRelay.trace = args.contains('--relay-trace');
+    // `--events-max N`: the event log keeps N lines, not 300
+    if (int.tryParse(_arg(args, '--events-max') ?? '') case final n?) {
+      EventLog.max = n;
+    }
+    // `--mpv-verbose`: mpv's log at `v`, not `warn`
+    if (args.contains('--mpv-verbose')) {
+      PlPlayerController.debugMpvLogLevel = MPVLogLevel.v;
+    }
     // weights repacked for the CPU (or not), whatever the platform's default
     if (_arg(args, '--translate-repack') case final repack?) {
       LlamaTranslationEngine.debugRepack = repack == '1';

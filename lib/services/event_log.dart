@@ -13,8 +13,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 abstract final class EventLog {
-  /// Lines kept; the oldest go first.
-  static const _max = 300;
+  /// Lines kept; the oldest go first. More for a self-test that reads
+  /// mpv's verbose log (`--events-max`).
+  static int max = 300;
 
   static final _lines = <String>[];
 
@@ -30,7 +31,7 @@ abstract final class EventLog {
     final line = '${at.toIso8601String().substring(11, 23)} [$area] $message';
     _lines.add(line);
     _times.add(at);
-    if (_lines.length > _max) {
+    if (_lines.length > max) {
       _lines.removeAt(0);
       _times.removeAt(0);
     }

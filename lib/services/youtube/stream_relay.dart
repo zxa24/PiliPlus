@@ -300,6 +300,12 @@ class YtStreamRelay {
   /// this many streams answered 502, never asked of the upstream, the
   /// requests after it relayed — an open that fails once, its retry fine.
   static int debugFailFirstOf = 0;
+
+  /// Self-test (`--relay-trace`): the server's start and close, each URL
+  /// wrapped, and every request in and out — when it came, how it ended,
+  /// what was sent — not only the few [_serve] notes.
+  static bool trace = false;
+  static var _traced = 0;
   static final _failedFirst = <String>{};
 
   /// Told when an upstream answers a stream 403 (the self-test's refusals
@@ -359,8 +365,15 @@ class YtStreamRelay {
 
   String _urlFor(HttpServer server, String url) {
     final uri = Uri.parse(url);
+    final known = _tokenOf.containsKey(url);
     final token = _tokenOf[url] ??= _newToken();
     _upstream[token] = uri;
+    if (trace) {
+      log?.call(
+        'trace: ${known ? 'wrapped again' : 'wrapped'} '
+        '${token.substring(0, 6)} → ${uri.host} on :${server.port}',
+      );
+    }
     // the upstream's expiry, which the player reads to ask for new URLs
     // before a long pause outlives them (PlPlayerController.sourceExpiry);
     // the relay itself reads only the token
@@ -393,12 +406,19 @@ class YtStreamRelay {
       await server.close(force: true);
       return server;
     }
-    server.listen(_serve, onError: (_) {});
+    server.listen(
+      _serve,
+      onError: (Object e) {
+        if (trace) log?.call('trace: the server: $e');
+      },
+    );
+    if (trace) log?.call('trace: listening on :${server.port}');
     return _server = server;
   }
 
   /// Every stream let go and the server closed: the page is gone.
   Future<void> close() async {
+    if (trace) log?.call('trace: closed (:${_server?.port})');
     _generation++;
     final server = _server;
     _server = null;
@@ -411,6 +431,7 @@ class YtStreamRelay {
     _active.clear();
     _upstream.clear();
     _tokenOf.clear();
+    _seen.clear();
     _hops.close();
     _hops = _newHops();
     await server?.close(force: true);
@@ -426,7 +447,67 @@ class YtStreamRelay {
     HttpHeaders.etagHeader,
   ];
 
+  /// Tokens asked for at least once (see [_serve]).
+  final _seen = <String>{};
+
+  /// Every request goes through here to [_serveOne]. Noted, in a release
+  /// build too: each stream's first request as it comes and as it ends,
+  /// and any request that ends badly — a few lines an open. A first open
+  /// failed with mpv saying only `EDL: Could not open source file`, and
+  /// nothing here to say whether the request had come (2026-11-07; 17
+  /// opens with every request traced did not fail again). [trace] notes
+  /// every request.
   Future<void> _serve(HttpRequest request) async {
+    final n = ++_traced;
+    final segments = request.uri.pathSegments;
+    final token = segments.isEmpty ? '' : segments.first;
+    final first = _seen.add(token);
+    final noted = trace || first;
+    final watch = Stopwatch()..start();
+    final short = token.length >= 6 ? token.substring(0, 6) : token;
+    final host = _upstream[token]?.host ?? 'unknown token';
+    if (noted) {
+      log?.call(
+        '#$n in${first ? ' (first)' : ''}: ${request.method} $short $host '
+        '${request.headers.value(HttpHeaders.rangeHeader) ?? 'no range'}',
+      );
+    }
+    var bytes = 0;
+    final done = request.response.done.then(
+      (_) => 'done',
+      onError: (Object e) => 'error $e',
+    );
+    Object? threw;
+    try {
+      await _serveOne(request, counted: (b) => bytes += b);
+    } catch (e) {
+      threw = e;
+      rethrow;
+    } finally {
+      final how = await done.timeout(
+        const Duration(seconds: 1),
+        onTimeout: () => 'not closed',
+      );
+      int? status;
+      try {
+        status = request.response.statusCode;
+      } catch (_) {}
+      final bad =
+          threw != null || how != 'done' || status == null || status >= 300;
+      if (noted || bad) {
+        log?.call(
+          '#$n out: $short $host $status, $bytes B in '
+          '${watch.elapsedMilliseconds} ms, $how'
+          '${threw == null ? '' : ', threw $threw'}',
+        );
+      }
+    }
+  }
+
+  Future<void> _serveOne(
+    HttpRequest request, {
+    void Function(int bytes)? counted,
+  }) async {
     final response = request.response;
     final segments = request.uri.pathSegments;
     final token = segments.isEmpty ? '' : segments.first;
@@ -599,7 +680,14 @@ class YtStreamRelay {
         )
         ..onError(sink.addError)
         ..onDone(sink.close);
-      await response.addStream(sink.stream);
+      await response.addStream(
+        counted == null
+            ? sink.stream
+            : sink.stream.map((chunk) {
+                counted(chunk.length);
+                return chunk;
+              }),
+      );
       await response.close();
     } on YtHopRefused catch (e) {
       log?.call('refused: $e');

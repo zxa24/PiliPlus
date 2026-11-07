@@ -1084,7 +1084,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       configuration: PlayerConfiguration(
         // warnings in a release build too: a 403 and a sound underrun are
         // warnings, and both are seen (see the log listener's filter)
-        logLevel: .warn,
+        logLevel: debugMpvLogLevel ?? .warn,
         options: opt,
       ),
     );
@@ -4066,6 +4066,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// to nothing is left as before — neither [_noStreams] nor the load watch
   /// running out recovers it.
   static bool debugOldOpenFailure = false;
+
+  /// Self-test (`--mpv-verbose`): mpv's log at this level, not `warn`.
+  static MPVLogLevel? debugMpvLogLevel;
 
   /// [_noStreams] said: recovered as a stream failure is, a moment later —
   /// unless the open has been followed by another, or by a replacement.
