@@ -542,8 +542,8 @@
       "status": "must-same"
     },
     {
-      "name": "events.seed:reply",
-      "path": "events.seed:reply",
+      "name": "events.seed:reply=600",
+      "path": "events.seed:reply=600",
       "status": "unstable"
     },
     {

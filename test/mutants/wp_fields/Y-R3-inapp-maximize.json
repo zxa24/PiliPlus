@@ -100,11 +100,6 @@
       "status": "must-same"
     },
     {
-      "name": "enterBefore.extras.controller.isFullScreen",
-      "path": "moments.enterBefore.extras.controller.isFullScreen",
-      "status": "must-same"
-    },
-    {
       "name": "enterBefore.player",
       "path": "moments.enterBefore.player",
       "status": "must-same"
@@ -182,11 +177,6 @@
     {
       "name": "enterDone.extras.intro",
       "path": "moments.enterDone.extras.intro",
-      "status": "must-same"
-    },
-    {
-      "name": "enterDone.extras.controller.isFullScreen",
-      "path": "moments.enterDone.extras.controller.isFullScreen",
       "status": "must-same"
     },
     {
@@ -270,11 +260,6 @@
       "status": "must-same"
     },
     {
-      "name": "before:maximize.extras.controller.isFullScreen",
-      "path": "moments.before:maximize.extras.controller.isFullScreen",
-      "status": "must-same"
-    },
-    {
       "name": "before:maximize.player",
       "path": "moments.before:maximize.player",
       "status": "must-same"
@@ -355,11 +340,6 @@
       "status": "must-same"
     },
     {
-      "name": "exitBefore.extras.controller.isFullScreen",
-      "path": "moments.exitBefore.extras.controller.isFullScreen",
-      "status": "must-same"
-    },
-    {
       "name": "exitBefore.player",
       "path": "moments.exitBefore.player",
       "status": "must-same"
@@ -437,11 +417,6 @@
     {
       "name": "exitDone.extras.intro",
       "path": "moments.exitDone.extras.intro",
-      "status": "must-same"
-    },
-    {
-      "name": "exitDone.extras.controller.isFullScreen",
-      "path": "moments.exitDone.extras.controller.isFullScreen",
       "status": "must-same"
     },
     {

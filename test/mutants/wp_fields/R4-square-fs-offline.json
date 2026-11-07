@@ -555,8 +555,8 @@
       "status": "must-same"
     },
     {
-      "name": "events.seed:intro",
-      "path": "events.seed:intro",
+      "name": "events.seed:intro=300",
+      "path": "events.seed:intro=300",
       "status": "must-same"
     }
   ],

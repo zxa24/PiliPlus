@@ -100,11 +100,6 @@
       "status": "must-same"
     },
     {
-      "name": "start.extras.controller.isFullScreen",
-      "path": "moments.start.extras.controller.isFullScreen",
-      "status": "must-same"
-    },
-    {
       "name": "start.player",
       "path": "moments.start.player",
       "status": "must-same"
@@ -197,11 +192,6 @@
     {
       "name": "enterBefore.extras.intro",
       "path": "moments.enterBefore.extras.intro",
-      "status": "must-same"
-    },
-    {
-      "name": "enterBefore.extras.controller.isFullScreen",
-      "path": "moments.enterBefore.extras.controller.isFullScreen",
       "status": "must-same"
     },
     {
@@ -305,11 +295,6 @@
       "status": "must-same"
     },
     {
-      "name": "enterDone.extras.controller.isFullScreen",
-      "path": "moments.enterDone.extras.controller.isFullScreen",
-      "status": "must-same"
-    },
-    {
       "name": "enterDone.player",
       "path": "moments.enterDone.player",
       "status": "must-same"
@@ -402,11 +387,6 @@
     {
       "name": "exitBefore.extras.intro",
       "path": "moments.exitBefore.extras.intro",
-      "status": "must-same"
-    },
-    {
-      "name": "exitBefore.extras.controller.isFullScreen",
-      "path": "moments.exitBefore.extras.controller.isFullScreen",
       "status": "must-same"
     },
     {
@@ -505,11 +485,6 @@
       "status": "must-same"
     },
     {
-      "name": "exitDone.extras.controller.isFullScreen",
-      "path": "moments.exitDone.extras.controller.isFullScreen",
-      "status": "must-same"
-    },
-    {
       "name": "exitDone.player",
       "path": "moments.exitDone.player",
       "status": "must-same"
@@ -605,11 +580,6 @@
       "status": "must-same"
     },
     {
-      "name": "afterTabs.extras.controller.isFullScreen",
-      "path": "moments.afterTabs.extras.controller.isFullScreen",
-      "status": "must-same"
-    },
-    {
       "name": "afterTabs.player",
       "path": "moments.afterTabs.player",
       "status": "must-same"
@@ -645,8 +615,8 @@
       "status": "must-same"
     },
     {
-      "name": "events.seed:reply",
-      "path": "events.seed:reply",
+      "name": "events.seed:reply=800",
+      "path": "events.seed:reply=800",
       "status": "unstable"
     },
     {

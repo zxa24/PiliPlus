@@ -635,13 +635,13 @@
       "status": "must-same"
     },
     {
-      "name": "events.seed:intro",
-      "path": "events.seed:intro",
+      "name": "events.seed:intro=300",
+      "path": "events.seed:intro=300",
       "status": "unstable"
     },
     {
-      "name": "events.seed:reply",
-      "path": "events.seed:reply",
+      "name": "events.seed:reply=300",
+      "path": "events.seed:reply=300",
       "status": "unstable"
     },
     {
