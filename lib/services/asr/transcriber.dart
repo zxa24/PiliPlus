@@ -277,7 +277,22 @@ typedef AsrRunRequest = ({
   /// Where in the media the PCM starts: added to every time the run reports.
   double offset,
   bool follow,
+
+  /// Seconds at the start of the PCM that are decoded but not recognised:
+  /// text already known. A source that cannot seek is decoded from 0
+  /// whatever is known (AsrSession.seekable); feeding all of it to the
+  /// recogniser again doubled the work, only to drop what came out.
+  double skip,
 });
+
+/// Where [request] starts reading its PCM, in samples, and where in the
+/// media that sample is: every time the run reports counts from there, as
+/// for a run whose PCM starts at that point. On a whole sample, so the
+/// times are those of the audio really read.
+({int sample, double offset}) asrRunStart(AsrRunRequest request) {
+  final sample = request.skip > 0 ? (request.skip * asrSampleRate).round() : 0;
+  return (sample: sample, offset: request.offset + sample / asrSampleRate);
+}
 
 /// What the transcription isolate is started with. [handoff] is the address
 /// of one native word through which the owner hands over a recogniser it
@@ -361,11 +376,12 @@ Future<void> asrServe(
         pcmPath: message['pcm'] as String,
         offset: (message['offset'] as num).toDouble(),
         follow: message['follow'] as bool,
+        skip: (message['skip'] as num?)?.toDouble() ?? 0,
       );
       final id = request.id;
       bool stopping() => !asrRunWanted(flags, id);
       var eof = false;
-      var played = request.offset;
+      var played = asrRunStart(request).offset;
       if (!stopping()) {
         try {
           eof = engine.run(
@@ -705,6 +721,7 @@ class AsrTranscriber {
     required String pcmPath,
     required double offset,
     bool follow = true,
+    double skip = 0,
   }) {
     if (_closed) throw StateError('recogniser closed');
     final id = _nextRun++;
@@ -716,6 +733,7 @@ class AsrTranscriber {
       'pcm': pcmPath,
       'offset': offset,
       'follow': follow,
+      'skip': skip,
     });
     return id;
   }
@@ -921,7 +939,10 @@ class _SherpaEngine implements AsrEngine {
   }) {
     final vad = _vad;
     _adopt();
-    final offset = request.offset;
+    // past what is known, where the run asks: the VAD, the padding and the
+    // recogniser see nothing before it, as for a run started there
+    final runStart = asrRunStart(request);
+    final offset = runStart.offset;
     // segment offsets are counted from the last reset: from this run's
     // start, which is [offset] in the media
     vad.reset();
@@ -939,6 +960,7 @@ class _SherpaEngine implements AsrEngine {
       follow: request.follow,
       stopped: stopping,
       held: paused,
+      startSample: runStart.sample,
     );
     try {
       // In follow mode the file is still growing, so this is a lower bound

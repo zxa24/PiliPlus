@@ -172,8 +172,10 @@ class _Run {
   double? joinFrom;
 
   /// Only where the run cannot be stopped and another started (a source
-  /// that cannot seek): after a join, its segments are dropped until the
-  /// known stretch it ran into is behind it.
+  /// that cannot seek): its segments are dropped until the known stretch
+  /// is behind it — the one it ran into, after a join, or the one from 0
+  /// it starts over. That one from 0 is not recognised at all, only
+  /// decoded (see [AsrSession._startRun]); a join's still is.
   double? skipUntil;
 
   String get cancelPath => '$pcmPath.cancel';
@@ -1322,8 +1324,11 @@ class AsrSession {
       _run = run;
       if (!seekable && extractFrom == 0) {
         // the one run such a source has starts from 0 whatever the cache
-        // kept from there: what it recognises is dropped until past the
-        // last segment kept, as after a join (see [_commitJoin])
+        // or an earlier run kept from there: it is decoded up to the end
+        // of the last segment kept, but not recognised (AsrRunRequest.skip,
+        // at that very end, as a seekable run starts where known text
+        // ends); anything short of it is dropped, as after a join (see
+        // [_commitJoin])
         final kept = _keptFromStart();
         if (kept != null) run.skipUntil = kept;
       }
@@ -1382,11 +1387,15 @@ class AsrSession {
       }
       final transcriber = await _recogniser();
       if (_closed || run.ended) return;
+      final skip = (run.skipUntil ?? extractFrom) - extractFrom;
       run
-        ..waitingSince = DateTime.now()
+        // the stretch decoded and not recognised is no measure of what a
+        // restart costs: a resume does not go through it again
+        ..waitingSince = skip > 0 ? null : DateTime.now()
         ..id = transcriber.run(
           pcmPath: pcmPath,
           offset: extractFrom,
+          skip: skip > 0 ? skip : 0,
         );
       _updateState();
     } on AsrCancelled {
