@@ -2137,7 +2137,17 @@ class YtVideoController extends GetxController
     final allowed = fromInvidious ? YtInvidiousSource.triesPerVideo : 1;
     if (_failovers >= allowed) return false;
     _failovers++;
-    if (fromInvidious) YtInvidiousSource.shared.playbackFailed(videoId);
+    if (fromInvidious) {
+      // a companion that refused (see [_relayRefused]): that one is not
+      // played from, and its instance can be asked anew
+      if (_refused case (:final host, :final at)
+          when now.difference(at) < const Duration(seconds: 15)) {
+        YtInvidiousSource.shared.companionRefused(videoId, host);
+      } else {
+        YtInvidiousSource.shared.playbackFailed(videoId);
+      }
+    }
+    _refused = null;
     final at = plPlayerController.resumePosition;
     EventLog.add('player', 'youtube: new stream URLs at ${at.inSeconds} s');
     _renewStreams(at);
@@ -2151,8 +2161,12 @@ class YtVideoController extends GetxController
     final pair = _streams;
     if (isClosed || pair == null) return;
     if (!YtInvidiousSource.refusalIsTheHosts(pair, host)) return;
+    _refused = (host: host, at: DateTime.now());
     plPlayerController.refusedByHost(host);
   }
+
+  /// The host [_relayRefused] last saw refuse, for the failover after it.
+  ({String host, DateTime at})? _refused;
 
   /// Opens the streams played now again, where playback is.
   void _reopenHere() {

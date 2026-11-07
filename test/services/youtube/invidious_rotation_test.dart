@@ -267,6 +267,142 @@ void main() {
       expect((await source.detail('dQw4w9WgXcQ')).ok, isTrue);
     });
 
+    group('a companion refusing the streams (user 2026-11-07 「b」)', () {
+      // [host]'s page naming the companions of [named] in turn (the last
+      // one again after that), and setting a session cookie the first
+      // time: one session, one companion, a new session another
+      void instance(_Net net, String host, List<String> named) {
+        var pages = 0;
+        net
+          ..on(host, '/watch', (_) {
+            final i = pages++;
+            return InvidiousAnswer(
+              200,
+              watch.replaceAll(
+                companion,
+                named[i < named.length ? i : named.length - 1],
+              ),
+              cookies: [Cookie('session', 's$i')],
+            );
+          })
+          ..on(host, '/api/v1/captions/', (_) => _page(captionList));
+      }
+
+      _Net net() => _Net()
+        ..on(
+          'captcha.example',
+          '/watch',
+          (_) => _page('<title>Auth with CAPTCHA</title>'),
+        )
+        ..on(
+          '*',
+          '/companion/api/manifest/dash/',
+          (q) => _page(relayedDash.replaceAll(companion, q.uri.host)),
+        )
+        ..on('*', '/companion/videoplayback', (_) => _page(''));
+
+      List<_Request> pagesOf(_Net n, String host) => [
+        for (final r in n.requests)
+          if (r.uri.host == host && r.uri.path == '/watch') r,
+      ];
+
+      Future<YtInvidiousSource> served(_Net n, List<String> hosts) async {
+        final source = n.source(hosts, relayed: true);
+        final first = await source.streams('dQw4w9WgXcQ');
+        expect(Uri.parse(first.value!.videoUrl).host, 'c1.example');
+        n.requests.clear();
+        return source;
+      }
+
+      test('no other instance serves: the one whose companion refused, in '
+          'a new session, gives another', () async {
+        final n = net();
+        instance(n, 'a.example', ['c1.example', 'c1.example', 'c2.example']);
+        final source = await served(n, [
+          'https://a.example',
+          'https://captcha.example',
+        ]);
+        source.companionRefused('dQw4w9WgXcQ', 'c1.example');
+        final again = await source.streams('dQw4w9WgXcQ');
+        expect(again.ok, isTrue);
+        expect(Uri.parse(again.value!.videoUrl).host, 'c2.example');
+        final pages = pagesOf(n, 'a.example');
+        expect(pages, hasLength(YtInvidiousSource.anewTries));
+        // each a new session: the cookie its page set not sent back
+        for (final r in pages) {
+          expect(r.headers[HttpHeaders.cookieHeader], isNull);
+        }
+        // the refused companion's streams were not asked for
+        expect(n.requests.where((r) => r.uri.host == 'c1.example'), isEmpty);
+      });
+
+      test('another instance serves: no new session', () async {
+        final n = net();
+        instance(n, 'a.example', ['c1.example', 'c2.example']);
+        instance(n, 'b.example', ['c3.example']);
+        final source = await served(n, [
+          'https://a.example',
+          'https://b.example',
+        ]);
+        source.companionRefused('dQw4w9WgXcQ', 'c1.example');
+        final again = await source.streams('dQw4w9WgXcQ');
+        expect(Uri.parse(again.value!.videoUrl).host, 'c3.example');
+        expect(pagesOf(n, 'a.example'), isEmpty);
+      });
+
+      test(
+        'still that companion in both new sessions: the walk\'s verdict',
+        () async {
+          final n = net();
+          instance(n, 'a.example', ['c1.example']);
+          final source = await served(n, [
+            'https://a.example',
+            'https://captcha.example',
+          ]);
+          source.companionRefused('dQw4w9WgXcQ', 'c1.example');
+          final again = await source.streams('dQw4w9WgXcQ');
+          expect(again.ok, isFalse);
+          expect(
+            pagesOf(n, 'a.example'),
+            hasLength(YtInvidiousSource.anewTries),
+          );
+          // and not again for the next ask
+          n.requests.clear();
+          source.forget('dQw4w9WgXcQ');
+          await source.streams('dQw4w9WgXcQ');
+          expect(pagesOf(n, 'a.example'), isEmpty);
+        },
+      );
+
+      test('set aside by another failure first: still asked anew', () async {
+        final n = net();
+        instance(n, 'a.example', ['c1.example', 'c2.example']);
+        final source = await served(n, [
+          'https://a.example',
+          'https://captcha.example',
+        ]);
+        // a first open that came to nothing, then the companion refusing
+        source
+          ..playbackFailed('dQw4w9WgXcQ')
+          ..companionRefused('dQw4w9WgXcQ', 'c1.example');
+        final again = await source.streams('dQw4w9WgXcQ');
+        expect(Uri.parse(again.value!.videoUrl).host, 'c2.example');
+      });
+
+      test('streams that failed otherwise: no new session', () async {
+        final n = net();
+        instance(n, 'a.example', ['c1.example', 'c2.example']);
+        final source = await served(n, [
+          'https://a.example',
+          'https://captcha.example',
+        ]);
+        source.playbackFailed('dQw4w9WgXcQ');
+        final again = await source.streams('dQw4w9WgXcQ');
+        expect(again.ok, isFalse);
+        expect(pagesOf(n, 'a.example'), isEmpty);
+      });
+    });
+
     test('the detail and the streams together: one watch page', () async {
       final net = _Net()..serveVideo('a.example', watch, dash, captionList);
       final source = net.source(['https://a.example']);
@@ -537,78 +673,96 @@ void main() {
       })
       ..serveVideo('gated.example', null, dash, captionList);
 
-    test('a gate that needs nobody: passed without a window, asked again', () async {
-      YtInvidiousSource.passGate = (watch, {required interactive}) async {
-        asked.add((watch: watch, interactive: interactive));
-        return interactive ? null : pass;
-      };
-      final net = gandalf();
-      final source = net.source(['https://gated.example']);
-      final r = await source.detail('dQw4w9WgXcQ');
-      expect(r.ok, isTrue);
-      expect(asked, hasLength(1));
-      expect(asked.single.interactive, isFalse);
-      expect(
-        asked.single.watch.toString(),
-        'https://gated.example/watch?v=dQw4w9WgXcQ',
-      );
-      expect(source.gatedHosts, isEmpty);
-      // the companion is not asked as the browser: only the gated host is
-      final manifest = net.requests.firstWhere(
-        (q) => q.uri.path.contains('/manifest/dash/'),
-      );
-      expect(manifest.headers['sec-ch-ua'], isNull);
-      expect(
-        manifest.headers[HttpHeaders.userAgentHeader],
-        YtInvidiousSource.userAgent,
-      );
-    });
-
-    test('one that needs the viewer: set aside, then verified by them', () async {
-      var viewerThrough = false;
-      YtInvidiousSource.passGate = (watch, {required interactive}) async {
-        asked.add((watch: watch, interactive: interactive));
-        return interactive && viewerThrough ? pass : null;
-      };
-      final net = gandalf();
-      final source = net.source(['https://gated.example']);
-      final first = await source.detail('dQw4w9WgXcQ');
-      expect(first.ok, isFalse);
-      expect(source.gatedHosts, ['https://gated.example']);
-      // closed without getting through: still set aside
-      expect(await source.verify('https://gated.example', 'dQw4w9WgXcQ'), isFalse);
-      expect(source.gatedHosts, ['https://gated.example']);
-      viewerThrough = true;
-      expect(await source.verify('https://gated.example', 'dQw4w9WgXcQ'), isTrue);
-      expect(source.gatedHosts, isEmpty);
-      final again = await source.detail('dQw4w9WgXcQ');
-      expect(again.ok, isTrue);
-      expect(asked.map((a) => a.interactive), [false, true, true]);
-    });
-
-    test('a CAPTCHA page: never opened without a window, the viewer offered it', () async {
-      YtInvidiousSource.passGate = (watch, {required interactive}) async {
-        asked.add((watch: watch, interactive: interactive));
-        return null;
-      };
-      final net = _Net()
-        ..on(
-          'captcha.example',
-          '/watch',
-          (_) => _page('<title>Invidious</title>confirm you are not a bot'),
+    test(
+      'a gate that needs nobody: passed without a window, asked again',
+      () async {
+        YtInvidiousSource.passGate = (watch, {required interactive}) async {
+          asked.add((watch: watch, interactive: interactive));
+          return interactive ? null : pass;
+        };
+        final net = gandalf();
+        final source = net.source(['https://gated.example']);
+        final r = await source.detail('dQw4w9WgXcQ');
+        expect(r.ok, isTrue);
+        expect(asked, hasLength(1));
+        expect(asked.single.interactive, isFalse);
+        expect(
+          asked.single.watch.toString(),
+          'https://gated.example/watch?v=dQw4w9WgXcQ',
         );
-      final source = net.source(['https://captcha.example']);
-      expect((await source.detail('dQw4w9WgXcQ')).ok, isFalse);
-      expect(asked, isEmpty);
-      expect(source.gatedHosts, ['https://captcha.example']);
-    });
+        expect(source.gatedHosts, isEmpty);
+        // the companion is not asked as the browser: only the gated host is
+        final manifest = net.requests.firstWhere(
+          (q) => q.uri.path.contains('/manifest/dash/'),
+        );
+        expect(manifest.headers['sec-ch-ua'], isNull);
+        expect(
+          manifest.headers[HttpHeaders.userAgentHeader],
+          YtInvidiousSource.userAgent,
+        );
+      },
+    );
+
+    test(
+      'one that needs the viewer: set aside, then verified by them',
+      () async {
+        var viewerThrough = false;
+        YtInvidiousSource.passGate = (watch, {required interactive}) async {
+          asked.add((watch: watch, interactive: interactive));
+          return interactive && viewerThrough ? pass : null;
+        };
+        final net = gandalf();
+        final source = net.source(['https://gated.example']);
+        final first = await source.detail('dQw4w9WgXcQ');
+        expect(first.ok, isFalse);
+        expect(source.gatedHosts, ['https://gated.example']);
+        // closed without getting through: still set aside
+        expect(
+          await source.verify('https://gated.example', 'dQw4w9WgXcQ'),
+          isFalse,
+        );
+        expect(source.gatedHosts, ['https://gated.example']);
+        viewerThrough = true;
+        expect(
+          await source.verify('https://gated.example', 'dQw4w9WgXcQ'),
+          isTrue,
+        );
+        expect(source.gatedHosts, isEmpty);
+        final again = await source.detail('dQw4w9WgXcQ');
+        expect(again.ok, isTrue);
+        expect(asked.map((a) => a.interactive), [false, true, true]);
+      },
+    );
+
+    test(
+      'a CAPTCHA page: never opened without a window, the viewer offered it',
+      () async {
+        YtInvidiousSource.passGate = (watch, {required interactive}) async {
+          asked.add((watch: watch, interactive: interactive));
+          return null;
+        };
+        final net = _Net()
+          ..on(
+            'captcha.example',
+            '/watch',
+            (_) => _page('<title>Invidious</title>confirm you are not a bot'),
+          );
+        final source = net.source(['https://captcha.example']);
+        expect((await source.detail('dQw4w9WgXcQ')).ok, isFalse);
+        expect(asked, isEmpty);
+        expect(source.gatedHosts, ['https://captcha.example']);
+      },
+    );
 
     test('no in-app browser: set aside as before, nothing to verify', () async {
       final net = gandalf();
       final source = net.source(['https://gated.example']);
       expect((await source.detail('dQw4w9WgXcQ')).ok, isFalse);
       expect(source.gatedHosts, isEmpty);
-      expect(await source.verify('https://gated.example', 'dQw4w9WgXcQ'), isFalse);
+      expect(
+        await source.verify('https://gated.example', 'dQw4w9WgXcQ'),
+        isFalse,
+      );
     });
 
     test('Anubis is not the browser’s: solved here, nothing opened', () async {

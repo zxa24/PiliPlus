@@ -1901,6 +1901,12 @@ abstract final class SelfTest {
     // 8 s of the reopen. `--old-refused`: new URLs first, as before.
     if (_arg(args, '--yt-host-refused') case final video?) {
       PlPlayerController.debugOldRefusal = args.contains('--old-refused');
+      // `--yt-only-instances a.example,b.example`: those alone asked (the
+      // last resort after a refusal is only reached with no other left)
+      YtInvidiousSource.debugHosts = _arg(
+        args,
+        '--yt-only-instances',
+      )?.split(',').map((h) => 'https://${h.trim()}').toList();
       try {
         await scenario(
           'ytHostRefused',
@@ -1913,6 +1919,7 @@ abstract final class SelfTest {
       } finally {
         YtStreamRelay.debugRefuseHost = null;
         PlPlayerController.debugOldRefusal = false;
+        YtInvidiousSource.debugHosts = null;
       }
     }
     // `--preview-sheet FILE`: the preview sheets of FILE written beside it

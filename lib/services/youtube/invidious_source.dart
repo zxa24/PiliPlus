@@ -193,6 +193,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
 
   final InvidiousFetch _fetch;
   final List<String>? _fixedHosts;
+
+  /// Self-test (`--yt-only-instances`): the instances asked, in place of
+  /// the registry's.
+  static List<String>? debugHosts;
   final DateTime Function() _now;
 
   List<String>? _registry;
@@ -232,6 +236,12 @@ class YtInvidiousSource implements YouTubeVideoSource {
 
   /// The instance each video was served by, for [playbackFailed].
   final _servedBy = <String, String>{};
+
+  /// The instance each video was last served by, kept when it is set aside
+  /// ([playbackFailed] takes [_servedBy]'s): for [companionRefused], after
+  /// a failure of another kind set it aside first (a first open that came
+  /// to nothing, 2026-11-07).
+  final _lastServedBy = <String, String>{};
   final _pending = <String, Future<YtResult<YtVideoDetail>>>{};
 
   @override
@@ -371,7 +381,16 @@ class YtInvidiousSource implements YouTubeVideoSource {
     }
   }
 
+  /// [_walk], and when no instance served: a new session with the one whose
+  /// companion refused the video's streams (see [companionRefused]).
   Future<YtResult<YtVideoDetail>> _resolve(String videoId) async {
+    final walked = await _walk(videoId);
+    if (walked.ok) return walked;
+    return await _anew(videoId) ?? walked;
+  }
+
+  /// Every instance not set aside, in turn, until one serves.
+  Future<YtResult<YtVideoDetail>> _walk(String videoId) async {
     final hosts = await _order();
     if (hosts.isEmpty) {
       return const YtResult.failed(
@@ -409,6 +428,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
       if (r.ok) {
         _preferred = host;
         _servedBy[videoId] = host;
+        _lastServedBy[videoId] = host;
         answered = true;
         benchUnreached();
         return r;
@@ -497,6 +517,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
     }
 
     final base = Uri.parse(host);
+    // the streams through a companion that refused them: not asked again
+    if ((relayed || companionFirst) && _refusesNow(base.resolve(dash).host)) {
+      return _refusedBy(base.resolve(dash).host);
+    }
     switch (await _isPublic(base.resolve(dash))) {
       case null:
         return YtResult.failed(
@@ -556,6 +580,9 @@ class YtInvidiousSource implements YouTubeVideoSource {
     }
     if (throughCompanion) {
       if (selectYtAudioFormat(formats)?.url case final probe?) {
+        if (_refusesNow(Uri.parse(probe).host)) {
+          return _refusedBy(Uri.parse(probe).host);
+        }
         final status = await _companionRefuses(probe);
         if (status != null) {
           return YtResult.failed(
@@ -806,6 +833,96 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// time.
   void forget(String videoId) => _resolved.remove(videoId);
 
+  /// Companions that refused this machine a video's streams (see
+  /// [companionRefused]), and until when: not played from.
+  final _refusedCompanions = <String, DateTime>{};
+
+  /// How long a companion that refused is not played from.
+  static const companionRefusalLasts = Duration(minutes: 10);
+
+  /// Per video, the instance whose companion refused its streams: asked
+  /// in a new session when no other serves (see [_anew]).
+  final _anewFor = <String, String>{};
+
+  /// How many new sessions [_anew] tries.
+  static const anewTries = 2;
+
+  /// [companion] refused (403) the streams [videoId] was served with. The
+  /// instance that served them is set aside as by [playbackFailed], and the
+  /// companion is not played from for [companionRefusalLasts]. When no
+  /// other instance serves the video, that instance is asked again in a new
+  /// session ([_anew]): one session is given one companion each time
+  /// (inv.nadeko.net, inv-us4 four times running), a new one another of
+  /// some seven, one that works 6 times in 10 (2026-11-07).
+  void companionRefused(String videoId, String companion) {
+    _refusedCompanions[companion] = _now().add(companionRefusalLasts);
+    final host = _servedBy[videoId] ?? _lastServedBy[videoId];
+    if (host != null) _anewFor[videoId] = host;
+    log?.call(
+      '$companion refused the streams: not played from for '
+      '${companionRefusalLasts.inMinutes} min',
+    );
+    playbackFailed(videoId);
+  }
+
+  bool _refusesNow(String companion) {
+    final until = _refusedCompanions[companion];
+    if (until == null) return false;
+    if (_now().isBefore(until)) return true;
+    _refusedCompanions.remove(companion);
+    return false;
+  }
+
+  YtResult<YtVideoDetail> _refusedBy(String companion) => YtResult.failed(
+    YtVerdict(
+      YtCause.transient,
+      'invidious:companion-refused',
+      '$companion refused these streams a moment ago',
+    ),
+  );
+
+  /// The instance [companionRefused] noted for [videoId], asked again with
+  /// its gate passed afresh — a new session, which it gives a companion of
+  /// its own — at most [anewTries] times; null when there is none to ask.
+  /// Only once no other instance served: a session's pass costs a proof of
+  /// work, and the page took 7-10 s each time (2026-11-07).
+  Future<YtResult<YtVideoDetail>?> _anew(String videoId) async {
+    final host = _anewFor.remove(videoId);
+    if (host == null) return null;
+    YtResult<YtVideoDetail>? r;
+    for (var i = 0; i < anewTries; i++) {
+      _dropCookies(Uri.parse(host).host);
+      log?.call(
+        '${Uri.parse(host).host}: a new session, for another companion '
+        '(${i + 1} of $anewTries)',
+      );
+      r = await _resolveOn(host, videoId);
+      if (r.ok) {
+        _servedBy[videoId] = host;
+        _lastServedBy[videoId] = host;
+        return r;
+      }
+      log?.call('${Uri.parse(host).host}: ${r.verdict}');
+      // another session can be given another companion; nothing else
+      // changes with it
+      final signal = r.verdict.signal;
+      if (signal != 'invidious:companion-refused' &&
+          signal != 'invidious:companion-down') {
+        break;
+      }
+    }
+    return r;
+  }
+
+  /// The gates' cookies [host] is sent, gone: its next page is a new
+  /// session's.
+  void _dropCookies(String host) {
+    _cookies.removeWhere(
+      (key, c) =>
+          host == key.$1 || (!c.hostOnly && host.endsWith('.${key.$1}')),
+    );
+  }
+
   /// Whether [host] refusing (403) one of [pair]'s streams is the host
   /// refusing this machine, so that new URLs from the instance that gave
   /// them would be refused just the same: an instance's companion (any
@@ -897,7 +1014,7 @@ class YtInvidiousSource implements YouTubeVideoSource {
   Future<List<String>> _order() async {
     final now = _now();
     _benched.removeWhere((_, b) => !now.isBefore(b.until));
-    final all = _fixedHosts ?? await _registryHosts();
+    final all = _fixedHosts ?? debugHosts ?? await _registryHosts();
     final open = all.where((h) => !_benched.containsKey(h)).toList();
     final first = _preferred;
     if (first != null && open.remove(first)) open.insert(0, first);
