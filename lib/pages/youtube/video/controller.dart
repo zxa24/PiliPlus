@@ -475,7 +475,9 @@ class YtVideoController extends GetxController
   /// up again itself); googlevideo's from the direct source as it is.
   Future<String> _playable(YtStreamPair pair, String url) async {
     if (pair.sourceId != YtInvidiousSource.shared.id) return url;
-    return (_relay ??= YtStreamRelay()).wrap(url);
+    return (_relay ??= YtStreamRelay()..onForbidden = _relayRefused).wrap(
+      url,
+    );
   }
 
   /// This page's entry in the media session, removed as it closes.
@@ -2140,6 +2142,16 @@ class YtVideoController extends GetxController
     EventLog.add('player', 'youtube: new stream URLs at ${at.inSeconds} s');
     _renewStreams(at);
     return true;
+  }
+
+  /// The relay saw [host] refuse a stream (403): when it is a host of the
+  /// streams played now, one refusing this machine, the player goes to
+  /// another (see [YtInvidiousSource.refusalIsTheHosts]).
+  void _relayRefused(String host) {
+    final pair = _streams;
+    if (isClosed || pair == null) return;
+    if (!YtInvidiousSource.refusalIsTheHosts(pair, host)) return;
+    plPlayerController.refusedByHost(host);
   }
 
   /// Opens the streams played now again, where playback is.

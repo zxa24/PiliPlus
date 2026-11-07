@@ -2627,6 +2627,37 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// from the same answer, which all expire together.
   Future<void> Function(Duration at)? onSourceExpired;
 
+  /// The page saw [host] refuse (403) a stream of the source playing now,
+  /// a host that refuses this machine whatever URL it is given: another
+  /// host at once ([_switchCdn]), where playback is (a reopen's own point
+  /// while it opens: see [resumePosition]). Once per source.
+  ///
+  /// The player cannot see it itself on the YouTube page: mpv says `HTTP
+  /// error 403` as a warning, which media_kit does not pass on as an
+  /// error, and the relay's loopback URLs (`http://127.0.0.1`) failing to
+  /// open are no transport failure to it. An Invidious companion refusing
+  /// the reopen was waited out by the checks after it: another host 31 s
+  /// later (self-test, 2026-11-07).
+  void refusedByHost(String host) {
+    if (isLive || debugDisableRecovery || debugOldRefusal) return;
+    final source = dataSource;
+    if (source is! NetworkSource || identical(_refusedFor, source)) return;
+    _refusedFor = source;
+    EventLog.add(
+      'player',
+      'play URLs refused (403) by $host: another host at '
+          '${resumePosition.inSeconds} s',
+    );
+    _switchCdn();
+  }
+
+  /// The source [refusedByHost] last acted on.
+  DataSource? _refusedFor;
+
+  /// For the self-test's control (`--old-refused`): [refusedByHost] does
+  /// nothing, as before.
+  static bool debugOldRefusal = false;
+
   /// Whether what a renewal opens is to play: a paused video stays paused
   /// (an idle connection closing, or a seek, renewed it and it played by
   /// itself), and a pause made while the new URLs are fetched holds.

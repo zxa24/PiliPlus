@@ -127,8 +127,10 @@ class InvidiousBrowserPass {
 /// window when [interactive] is false (a check that needs nobody, as
 /// Gandalf's), in a window the viewer works in when true (a CAPTCHA). Null
 /// when it did not get to the watch page.
-typedef InvidiousGatePasser =
-    Future<InvidiousBrowserPass?> Function(Uri watch, {required bool interactive});
+typedef InvidiousGatePasser = Future<InvidiousBrowserPass?> Function(
+  Uri watch, {
+  required bool interactive,
+});
 
 class YtInvidiousSource implements YouTubeVideoSource {
   YtInvidiousSource({
@@ -210,7 +212,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// The browser each gated instance was got past with, until its cookies
   /// end: its pages are asked for as that browser asks.
   final _browsers =
-      <String, ({String userAgent, Map<String, String> headers, DateTime until})>{};
+      <
+        String,
+        ({String userAgent, Map<String, String> headers, DateTime until})
+      >{};
 
   /// googlevideo's refusals in a row, and until when it is not asked.
   int _refusals = 0;
@@ -800,6 +805,23 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// Forgets [videoId]'s resolved URLs: they stopped working before their
   /// time.
   void forget(String videoId) => _resolved.remove(videoId);
+
+  /// Whether [host] refusing (403) one of [pair]'s streams is the host
+  /// refusing this machine, so that new URLs from the instance that gave
+  /// them would be refused just the same: an instance's companion (any
+  /// host but googlevideo's) serving [pair] now — not googlevideo, whose
+  /// refusal new URLs can mend, nor a host of streams let go. Then the
+  /// player goes to another instance at once (see [playbackFailed]).
+  static bool refusalIsTheHosts(YtStreamPair pair, String host) {
+    if (pair.sourceId != shared.id || host.isEmpty) return false;
+    if (host == 'googlevideo.com' || host.endsWith('.googlevideo.com')) {
+      return false;
+    }
+    return [
+      pair.videoUrl,
+      pair.audioUrl,
+    ].any((url) => Uri.tryParse(url)?.host == host);
+  }
 
   /// The player could not open the streams [videoId] was served with: the
   /// instance that served them is set aside (for ten minutes) and the video

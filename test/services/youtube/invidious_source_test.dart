@@ -31,7 +31,10 @@ void main() {
       expect(GoAway.isChallenge(page), isTrue);
       expect(GoAway.powScript(page), isNull);
       final url = GoAway.refreshUrl(page)!;
-      expect(url, startsWith('${GoAway.prefix}/challenge/js-refresh/verify-challenge?'));
+      expect(
+        url,
+        startsWith('${GoAway.prefix}/challenge/js-refresh/verify-challenge?'),
+      );
       expect(url, isNot(contains(r'\u0026')));
       expect(url, contains('&__goaway_id='));
       final query = Uri.parse(url).queryParameters;
@@ -88,7 +91,10 @@ void main() {
         fixture('watch_dQw4w9WgXcQ.html'),
         'dQw4w9WgXcQ',
       )!;
-      expect(watch.dashUrl, contains('/companion/api/manifest/dash/id/dQw4w9WgXcQ?'));
+      expect(
+        watch.dashUrl,
+        contains('/companion/api/manifest/dash/id/dQw4w9WgXcQ?'),
+      );
       expect(watch.dashUrl, isNot(contains('local=')));
       expect(watch.dashUrl, contains('check='));
     });
@@ -111,7 +117,10 @@ void main() {
     test('withoutLocal takes the parameter out wherever it is', () {
       expect(withoutLocal('https://h/a?local=true&b=1'), 'https://h/a?b=1');
       expect(withoutLocal('https://h/a?b=1&local=true'), 'https://h/a?b=1');
-      expect(withoutLocal('https://h/a?b=1&local=true&c=2'), 'https://h/a?b=1&c=2');
+      expect(
+        withoutLocal('https://h/a?b=1&local=true&c=2'),
+        'https://h/a?b=1&c=2',
+      );
       expect(withoutLocal('https://h/a?b=1'), 'https://h/a?b=1');
     });
 
@@ -151,7 +160,10 @@ void main() {
       final formats = parseInvidiousDash(fixture('dash_dQw4w9WgXcQ.mpd'));
       expect(formats, hasLength(13));
       expect(formats.every((f) => f.url!.contains('googlevideo.com')), isTrue);
-      expect(formats.any((f) => Uri.parse(f.url!).queryParameters.containsKey('n')), isTrue);
+      expect(
+        formats.any((f) => Uri.parse(f.url!).queryParameters.containsKey('n')),
+        isTrue,
+      );
       expect(formats.every((f) => f.isPlayable), isTrue);
       final f137 = formats.firstWhere((f) => f.itag == 137);
       expect(f137.codecFamily, 'avc1');
@@ -190,7 +202,9 @@ void main() {
     });
 
     test('expiry from the URLs', () {
-      final at = invidiousExpiry(parseInvidiousDash(fixture('dash_dQw4w9WgXcQ.mpd')));
+      final at = invidiousExpiry(
+        parseInvidiousDash(fixture('dash_dQw4w9WgXcQ.mpd')),
+      );
       expect(at, DateTime.fromMillisecondsSinceEpoch(1791840790 * 1000));
     });
   });
@@ -202,5 +216,74 @@ void main() {
       'url': 'https://x.googlevideo.com/videoplayback?n=abc',
     });
     expect(f.isPlayable, isFalse);
+  });
+
+  group('a host refusing (403) a stream (user 2026-11-06 「2改」)', () {
+    YtStreamPair pair(String video, String audio, {String? via}) =>
+        YtStreamPair(
+          videoUrl: video,
+          audioUrl: audio,
+          sourceId: via ?? YtInvidiousSource.shared.id,
+          expiresIn: const Duration(hours: 6),
+        );
+    const companion =
+        'https://inv-us2.nadeko.net/companion/videoplayback?itag=137&local=true';
+    const companionAudio =
+        'https://inv-us2.nadeko.net/companion/videoplayback?itag=140&local=true';
+    const google =
+        'https://rr3---sn-abc.googlevideo.com/videoplayback?itag=137&expire=1';
+    const googleAudio =
+        'https://rr3---sn-abc.googlevideo.com/videoplayback?itag=140&expire=1';
+    bool refused(YtStreamPair p, String host) =>
+        YtInvidiousSource.refusalIsTheHosts(p, host);
+
+    test("the companion of the streams played: the host's, another one", () {
+      expect(
+        refused(pair(companion, companionAudio), 'inv-us2.nadeko.net'),
+        isTrue,
+      );
+      // the instance's own host serving them is the same
+      expect(
+        refused(
+          pair(
+            'https://invidious.example/videoplayback?itag=137&local=true',
+            'https://invidious.example/videoplayback?itag=140&local=true',
+          ),
+          'invidious.example',
+        ),
+        isTrue,
+      );
+      // either stream's host
+      expect(
+        refused(pair(google, companionAudio), 'inv-us2.nadeko.net'),
+        isTrue,
+      );
+    });
+
+    test('googlevideo, from an instance: new URLs mend it', () {
+      expect(
+        refused(pair(google, googleAudio), 'rr3---sn-abc.googlevideo.com'),
+        isFalse,
+      );
+      expect(refused(pair(google, companionAudio), 'googlevideo.com'), isFalse);
+    });
+
+    test('a host of streams let go: nothing', () {
+      expect(
+        refused(pair(companion, companionAudio), 'inv-cl2.nadeko.net'),
+        isFalse,
+      );
+    });
+
+    test('another source, or no host: nothing', () {
+      expect(
+        refused(
+          pair(companion, companionAudio, via: 'direct'),
+          'inv-us2.nadeko.net',
+        ),
+        isFalse,
+      );
+      expect(refused(pair('', ''), ''), isFalse);
+    });
   });
 }

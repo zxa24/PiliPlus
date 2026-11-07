@@ -1867,6 +1867,29 @@ abstract final class SelfTest {
         PlPlayerController.debugNoHealthSteps = false;
       }
     }
+    // `--yt-host-refused VIDEO [--refuse-at 10] [--sample-for 40]
+    // [--old-refused]`: a YouTube video played, then every request for the
+    // host its video stream comes from answered 403 by the relay and the
+    // streams reopened — an Invidious companion refusing this machine
+    // (user 2026-11-06 「2改」: new URLs were asked of the same instance,
+    // some 12 s before another host). Passes when another host plays within
+    // 8 s of the reopen. `--old-refused`: new URLs first, as before.
+    if (_arg(args, '--yt-host-refused') case final video?) {
+      PlPlayerController.debugOldRefusal = args.contains('--old-refused');
+      try {
+        await scenario(
+          'ytHostRefused',
+          () => _ytHostRefused(
+            video,
+            refuseAt: int.tryParse(_arg(args, '--refuse-at') ?? '') ?? 10,
+            sampleFor: int.tryParse(_arg(args, '--sample-for') ?? '') ?? 40,
+          ),
+        );
+      } finally {
+        YtStreamRelay.debugRefuseHost = null;
+        PlPlayerController.debugOldRefusal = false;
+      }
+    }
     // `--preview-sheet FILE`: the preview sheets of FILE written beside it
     // (PreviewSheet, user 2026-11-06). Passes when there is a frame for each
     // time asked, each taken within 0.25 s of it, the sheets are there and
@@ -10241,6 +10264,159 @@ abstract final class SelfTest {
             ? 'the playhead went on $ran s in 3 s'
             : 'the next source would open at $askedAt s, the picture stopped at '
                   '$cacheEnd s',
+      'events': events(),
+    };
+  }
+
+  /// See `--yt-host-refused`.
+  static Future<Map<String, dynamic>> _ytHostRefused(
+    String input, {
+    required int refuseAt,
+    required int sampleFor,
+  }) async {
+    final start = DateTime.now();
+    final id = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+    YtVideoController? page;
+    for (var i = 0; i < 900; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      try {
+        page = Get.find<YtVideoController>(tag: id);
+      } catch (_) {}
+      if (page?.stage.value == YtPageStage.ready) break;
+    }
+    List<String> events() => [
+      for (final (at, line) in EventLog.entries(since: start))
+        '${at.difference(start).inMilliseconds / 1000} $line',
+    ];
+    if (page?.stage.value != YtPageStage.ready) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'YouTube page never became ready: ${page?.message.value}',
+        'events': events(),
+      };
+    }
+    final player = page!.plPlayerController;
+    if (!player.playerStatus.isPlaying) await player.play();
+    // the video stream's upstream: the relay names it in the path
+    String? hostNow() {
+      final source = player.dataSource;
+      if (source is! NetworkSource) return null;
+      final uri = Uri.tryParse(source.videoSource);
+      if (uri == null) return null;
+      if (uri.host != '127.0.0.1') return uri.host;
+      final segments = uri.pathSegments;
+      return segments.length >= 2 ? segments[1] : null;
+    }
+
+    double? fps() {
+      final mpv = player.videoPlayerController;
+      if (mpv is! NativePlayer) return null;
+      try {
+        return double.tryParse(mpv.getProperty('estimated-vf-fps'));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    for (var i = 0; i < 600; i++) {
+      if (player.position.value >= refuseAt && !player.isBuffering.value) {
+        break;
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    final host = hostNow();
+    if (host == null || host == '127.0.0.1' || !host.contains('.')) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'no upstream host to refuse ($host)',
+        'events': events(),
+      };
+    }
+    if (host.endsWith('googlevideo.com')) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'served by googlevideo directly ($host): no companion',
+        'events': events(),
+      };
+    }
+    final from = player.position.value;
+    YtStreamRelay.debugRefuseHost = host;
+    final reopened = DateTime.now();
+    player.onReopen?.call();
+    final samples = <String>[];
+    double? recoveredAfter;
+    String? recoveredOn;
+    int? firstAt;
+    for (var i = 1; i <= sampleFor * 4; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      final now = hostNow();
+      final f = fps();
+      final at = player.position.value;
+      if (i % 4 == 0) {
+        samples.add(
+          '${i / 4} s: $at s ${player.playerStatus.value.name}'
+          '${player.isBuffering.value ? ' buffering' : ''} '
+          'buffered ${player.buffered.value} on $now fps $f',
+        );
+      }
+      final elsewhere = now != null && now != host;
+      if (elsewhere &&
+          !player.isBuffering.value &&
+          player.playerStatus.isPlaying &&
+          (f ?? 0) > 0) {
+        // playing on from where it was, not only open
+        firstAt ??= at;
+        if (at >= firstAt + 1) {
+          recoveredAfter =
+              DateTime.now().difference(reopened).inMilliseconds / 1000;
+          recoveredOn = now;
+          break;
+        }
+      } else {
+        firstAt = null;
+      }
+    }
+    YtStreamRelay.debugRefuseHost = null;
+    final resumedAt = player.position.value;
+    final log = [
+      for (final (at, line) in EventLog.entries(since: reopened))
+        if (line.contains('403') ||
+            line.contains('another host') ||
+            line.contains('new stream URLs') ||
+            line.contains('asking for new ones') ||
+            line.contains('set aside'))
+          '${at.difference(reopened).inMilliseconds / 1000} $line',
+    ];
+    final byHost = log.any((l) => l.contains('play URLs refused (403) by '));
+    SmartDialog.dismiss(tag: 'failure:视频无法播放');
+    Get.back();
+    await Future.delayed(const Duration(seconds: 2));
+    final pass =
+        recoveredAfter != null &&
+        recoveredAfter <= 8 &&
+        (PlPlayerController.debugOldRefusal || byHost);
+    return {
+      'pass': pass,
+      'id': id,
+      'old': PlPlayerController.debugOldRefusal,
+      'refusedHost': host,
+      'reopenedAt': from,
+      'recoveredAfterSeconds': recoveredAfter,
+      'recoveredOn': recoveredOn,
+      'resumedAt': resumedAt,
+      'byHost': byHost,
+      'log': log,
+      'samples': samples,
+      if (!pass)
+        'reason': recoveredAfter == null
+            ? 'not playing on another host in $sampleFor s'
+            : recoveredAfter > 8
+            ? 'another host played only after $recoveredAfter s'
+            : 'switched without the refusal taken for the host\'s',
       'events': events(),
     };
   }

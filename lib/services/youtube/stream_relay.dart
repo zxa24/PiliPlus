@@ -291,9 +291,18 @@ class YtStreamRelay {
   /// user's copy, 2026-11-06).
   static int? debugCutVideoAt;
 
+  /// Self-test (`--yt-host-refused`): every request for this upstream host
+  /// answered 403, never asked of it — a companion refusing this machine
+  /// whatever URL it is given.
+  static String? debugRefuseHost;
+
+  /// Told when an upstream answers a stream 403 (the self-test's refusals
+  /// too): the player cannot see it through the relay (see
+  /// `PlPlayerController.refusedByHost`).
+  void Function(String host)? onForbidden;
+
   /// The query as it is: decoding a malformed one would throw.
-  static bool _isVideo(Uri upstream) =>
-      upstream.query.contains('mime=video');
+  static bool _isVideo(Uri upstream) => upstream.query.contains('mime=video');
 
   HttpServer? _server;
   Future<HttpServer>? _starting;
@@ -424,6 +433,15 @@ class YtStreamRelay {
     }
     // nothing more is read from the player's request
     unawaited(request.drain<void>().catchError((_) {}));
+    if (debugRefuseHost case final host? when upstream.host == host) {
+      log?.call('$host: 403 (self-test, the host refused)');
+      onForbidden?.call(host);
+      response
+        ..statusCode = HttpStatus.forbidden
+        ..contentLength = 0;
+      await response.close().catchError((_) {});
+      return;
+    }
     if (debugRefuseFrom case final from?) {
       final range = request.headers.value(HttpHeaders.rangeHeader) ?? '';
       final start = int.tryParse(
@@ -448,7 +466,9 @@ class YtStreamRelay {
     final from =
         int.tryParse(
           RegExp(r'bytes=(\d+)-')
-                  .firstMatch(request.headers.value(HttpHeaders.rangeHeader) ?? '')
+                  .firstMatch(
+                    request.headers.value(HttpHeaders.rangeHeader) ?? '',
+                  )
                   ?.group(1) ??
               '',
         ) ??
@@ -457,6 +477,7 @@ class YtStreamRelay {
     // what arrived lags it by a few hundred bytes): refused as from it
     if (cutAt != null && from >= cutAt - (1 << 20)) {
       log?.call('${upstream.host}: 403 (self-test cut)');
+      onForbidden?.call(upstream.host);
       response
         ..statusCode = HttpStatus.forbidden
         ..contentLength = 0;
@@ -520,6 +541,9 @@ class YtStreamRelay {
       }
       if (answer.statusCode ~/ 100 != 2) {
         log?.call('${upstream.host}: ${answer.statusCode}');
+      }
+      if (answer.statusCode == HttpStatus.forbidden) {
+        onForbidden?.call(upstream.host);
       }
       if (request.method == 'HEAD') {
         await answer.drain<void>().catchError((_) {});
