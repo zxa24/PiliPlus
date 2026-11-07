@@ -2159,6 +2159,9 @@ abstract final class SelfTest {
           offAt: double.tryParse(_arg(args, '--asr-off-at') ?? ''),
           onAt: double.tryParse(_arg(args, '--asr-on-at') ?? ''),
           stopAt: double.tryParse(_arg(args, '--asr-stop-at') ?? ''),
+          // as a bilibili FLV fallback or an Android document is: one run
+          // from 0, restarted from 0 (TODO 31)
+          seekable: !args.contains('--asr-unseekable'),
           english: switch (_arg(args, '--asr-english')) {
             '1' => true,
             '0' => false,
@@ -11169,6 +11172,7 @@ abstract final class SelfTest {
     double? onAt,
     double? stopAt,
     bool? english,
+    bool seekable = true,
   }) async {
     final service = AsrService.to;
     if (!service.modelsReady) {
@@ -11192,6 +11196,7 @@ abstract final class SelfTest {
       referer: _isBiliUrl(source) ? HttpString.baseUrl : null,
       userAgent: isFile ? null : BrowserUa.pc,
       power: power,
+      seekable: seekable,
       playhead: playheadSpeed == null ? null : playheadNow,
       cache: isFile ? SubtitleCacheKey.local(source) : null,
     );
