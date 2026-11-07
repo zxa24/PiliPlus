@@ -2143,15 +2143,19 @@ abstract final class SelfTest {
       final source = given.startsWith('@')
           ? File(given.substring(1)).readAsStringSync().trim()
           : given;
+      final playheadSpeed = double.tryParse(
+        _arg(args, '--asr-playhead-speed') ?? '',
+      );
       await scenario(
         'asrSession',
         () => _asrSession(
           source,
           srtOut: _arg(args, '--asr-srt'),
-          power: _power(_arg(args, '--asr-power')),
-          playheadSpeed: double.tryParse(
-            _arg(args, '--asr-playhead-speed') ?? '',
+          power: asrSessionPower(
+            _arg(args, '--asr-power'),
+            playhead: playheadSpeed != null,
           ),
+          playheadSpeed: playheadSpeed,
           offAt: double.tryParse(_arg(args, '--asr-off-at') ?? ''),
           onAt: double.tryParse(_arg(args, '--asr-on-at') ?? ''),
           stopAt: double.tryParse(_arg(args, '--asr-stop-at') ?? ''),
@@ -11121,6 +11125,15 @@ abstract final class SelfTest {
   static AsrPower? _power(String? name) =>
       AsrPower.values.where((p) => p.name == name).firstOrNull;
 
+  /// `--asr-session`'s power: `--asr-power` when given; otherwise, with no
+  /// [playhead] to move, unlimited. A playhead that stays at 0 never draws
+  /// the lead along, so under the battery rule a lead cap shorter than the
+  /// clip left the session in standby until the 30 min deadline failed it.
+  /// Null: the device's own, as the app reads it.
+  @visibleForTesting
+  static AsrPower? asrSessionPower(String? name, {required bool playhead}) =>
+      _power(name) ?? (playhead ? null : AsrPower.unlimited);
+
   static bool _isBiliUrl(String source) {
     final host = Uri.tryParse(source)?.host ?? '';
     return host.contains('bilivideo') || host.contains('akamaized');
@@ -11130,7 +11143,8 @@ abstract final class SelfTest {
   /// how pausing and resuming are exercised here — and [playheadSpeed]
   /// moves a pretend playhead from 0 at that many times real time, as a
   /// viewer watching straight through would (only faster). Without it the
-  /// playhead stays at 0, as it did before there was one.
+  /// playhead stays at 0, as it did before there was one, and the power is
+  /// unlimited unless `--asr-power` says otherwise (see [asrSessionPower]).
   ///
   /// [offAt] and [onAt] (media seconds of that playhead; `--asr-off-at`,
   /// `--asr-on-at`) turn the subtitle switch off and on again there

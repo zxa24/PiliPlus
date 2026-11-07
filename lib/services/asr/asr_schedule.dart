@@ -333,6 +333,27 @@ AsrStep _elsewhere(
   return AsrStartAt(gap.from, adjacent: gap.from > 0, backfill: true);
 }
 
+/// What a session whose source cannot seek does while it has no run. Such
+/// a source is one run from 0 (see `AsrSession.seekable`), and that run can
+/// end short of the end: the model guard's suspend ends it, and so does a
+/// run failing. Another from 0 then carries on, as a seekable source starts
+/// one where its text ends; what it recognises short of the text already
+/// known is dropped. Asking only whether a run had ever started left the
+/// session in standby for good after a suspend.
+///
+/// [readThrough]: a run read the source to its end, and what it got is all
+/// there is. [backingOff]: a run failed a moment ago.
+AsrStep decideUnseekableIdle({
+  required bool coveredWhole,
+  required bool readThrough,
+  required bool backingOff,
+}) {
+  if (coveredWhole || readThrough) return const AsrComplete();
+  // tried again once the backoff is over, as a seekable stretch is
+  if (backingOff) return const AsrKeep();
+  return const AsrStartAt(0);
+}
+
 /// Whether [covered] runs from the start of the media to its end. A gap of
 /// a second or less between two stretches is slack, as in [gapsIn]: none
 /// is ever filled, so one held against this kept a transcript from ever

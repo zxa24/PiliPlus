@@ -2678,9 +2678,15 @@ class VideoDetailController extends GetxController
       // it fails over or refreshes for its own playback
       refresh: ({bool expired = false}) async {
         final now = _asrSource;
-        return now == null || now.isEmpty || now.startsWith('content://')
-            ? null
-            : now;
+        if (now == null || now.isEmpty) return null;
+        if (now.startsWith('content://')) {
+          // a document's descriptor is read once: a run after the first
+          // (the one run started again after the model guard's suspend)
+          // needs one of its own, which mpv closes as it did the first
+          final fd = await LocalDocuments.openFd(now);
+          return fd == null ? null : 'fdclose://$fd';
+        }
+        return now;
       },
       cache: _asrCacheKey,
     );

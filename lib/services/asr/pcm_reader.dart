@@ -17,8 +17,20 @@ class PcmWindowReader {
     this.idleTimeout = const Duration(seconds: 90),
     this.stopped,
     this.held,
+    this.startSample = 0,
   }) : _path = path,
-       _file = File(path).openSync();
+       _file = File(path).openSync() {
+    // past the end of a file still being written is fine: reads come back
+    // empty until the decoder gets there (see [_waitForMore])
+    if (startSample > 0) _file.setPositionSync(startSample * 2);
+  }
+
+  /// Where reading starts, in samples from the start of the file. What is
+  /// before it is never read: a run from 0 over a source that cannot seek
+  /// has it decoded, but it is text already known, and recognising it
+  /// again would double the work (see AsrRunRequest.skip). Every count
+  /// here — [samplesRead], [durationSeconds] — is from this sample on.
+  final int startSample;
 
   /// How much of the file is read at a time.
   static const _blockBytes = 1 << 16;
@@ -69,7 +81,8 @@ class PcmWindowReader {
   /// rather than the final length.
   double get durationSeconds {
     try {
-      return File(_path).lengthSync() / 2 / 16000;
+      final samples = File(_path).lengthSync() ~/ 2 - startSample;
+      return (samples > 0 ? samples : 0) / 16000;
     } catch (_) {
       return _samplesRead / 16000;
     }
@@ -96,6 +109,7 @@ class PcmWindowReader {
   bool _waitForMore() {
     if (!follow) return false;
     var deadline = DateTime.now().add(idleTimeout);
+    var length = -1;
     while (DateTime.now().isBefore(deadline)) {
       if (stopped?.call() ?? false) return false;
       if (held?.call() ?? false) {
@@ -104,8 +118,15 @@ class PcmWindowReader {
       // read the flag first: if extraction finished *during* the sleep, the
       // bytes it wrote are already on disk and one more read gets them
       final finished = _extractionFinished;
-      if (_file.positionSync() < File(_path).lengthSync()) return true;
+      final now = File(_path).lengthSync();
+      if (_file.positionSync() < now) return true;
       if (finished) return false;
+      // still short of [startSample], but growing: the decoder is alive,
+      // only getting through what is known
+      if (length >= 0 && now > length) {
+        deadline = DateTime.now().add(idleTimeout);
+      }
+      length = now;
       sleep(_pollInterval);
     }
     return false;
