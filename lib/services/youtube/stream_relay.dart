@@ -296,6 +296,12 @@ class YtStreamRelay {
   /// whatever URL it is given.
   static String? debugRefuseHost;
 
+  /// Self-test (`--yt-first-open-fails`): the first request for each of
+  /// this many streams answered 502, never asked of the upstream, the
+  /// requests after it relayed — an open that fails once, its retry fine.
+  static int debugFailFirstOf = 0;
+  static final _failedFirst = <String>{};
+
   /// Told when an upstream answers a stream 403 (the self-test's refusals
   /// too): the player cannot see it through the relay (see
   /// `PlPlayerController.refusedByHost`).
@@ -433,6 +439,14 @@ class YtStreamRelay {
     }
     // nothing more is read from the player's request
     unawaited(request.drain<void>().catchError((_) {}));
+    if (_failedFirst.length < debugFailFirstOf && _failedFirst.add(token)) {
+      log?.call('${upstream.host}: 502 (self-test, the first request)');
+      response
+        ..statusCode = HttpStatus.badGateway
+        ..contentLength = 0;
+      await response.close().catchError((_) {});
+      return;
+    }
     if (debugRefuseHost case final host? when upstream.host == host) {
       log?.call('$host: 403 (self-test, the host refused)');
       onForbidden?.call(host);

@@ -1867,6 +1867,31 @@ abstract final class SelfTest {
         PlPlayerController.debugNoHealthSteps = false;
       }
     }
+    // `--yt-first-open-fails VIDEO [--sample-for 40]
+    // [--old-open-failure]`: the first open's first request (the video's:
+    // the EDL opens it first, and mpv stops there) answered 502 by the
+    // relay, every request after it relayed. The YouTube page's first open
+    // came to nothing so and sat at 0 s, nothing tried (2026-11-07).
+    // Passes when it plays within 15 s of the page being ready.
+    // `--old-open-failure`: left as before.
+    if (_arg(args, '--yt-first-open-fails') case final video?) {
+      PlPlayerController.debugOldOpenFailure = args.contains(
+        '--old-open-failure',
+      );
+      YtStreamRelay.debugFailFirstOf = 1;
+      try {
+        await scenario(
+          'ytFirstOpenFails',
+          () => _ytFirstOpenFails(
+            video,
+            sampleFor: int.tryParse(_arg(args, '--sample-for') ?? '') ?? 40,
+          ),
+        );
+      } finally {
+        YtStreamRelay.debugFailFirstOf = 0;
+        PlPlayerController.debugOldOpenFailure = false;
+      }
+    }
     // `--yt-host-refused VIDEO [--refuse-at 10] [--sample-for 40]
     // [--old-refused]`: a YouTube video played, then every request for the
     // host its video stream comes from answered 403 by the relay and the
@@ -10264,6 +10289,98 @@ abstract final class SelfTest {
             ? 'the playhead went on $ran s in 3 s'
             : 'the next source would open at $askedAt s, the picture stopped at '
                   '$cacheEnd s',
+      'events': events(),
+    };
+  }
+
+  /// See `--yt-first-open-fails`.
+  static Future<Map<String, dynamic>> _ytFirstOpenFails(
+    String input, {
+    required int sampleFor,
+  }) async {
+    final start = DateTime.now();
+    final id = tryParseYouTubeVideoId(input) ?? input;
+    unawaited(Get.toNamed('/ytVideo', parameters: {'id': id}));
+    YtVideoController? page;
+    for (var i = 0; i < 900; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      try {
+        page = Get.find<YtVideoController>(tag: id);
+      } catch (_) {}
+      if (page?.stage.value == YtPageStage.ready) break;
+    }
+    List<String> events() => [
+      for (final (at, line) in EventLog.entries(since: start))
+        '${at.difference(start).inMilliseconds / 1000} $line',
+    ];
+    if (page?.stage.value != YtPageStage.ready) {
+      Get.back();
+      return {
+        'pass': false,
+        'reason': 'YouTube page never became ready: ${page?.message.value}',
+        'events': events(),
+      };
+    }
+    final ready = DateTime.now();
+    final player = page!.plPlayerController;
+    if (!player.playerStatus.isPlaying) await player.play();
+    double? fps() {
+      final mpv = player.videoPlayerController;
+      if (mpv is! NativePlayer) return null;
+      try {
+        return double.tryParse(mpv.getProperty('estimated-vf-fps'));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final samples = <String>[];
+    double? playingAfter;
+    int? firstAt;
+    for (var i = 1; i <= sampleFor * 4; i++) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      final at = player.position.value;
+      final f = fps();
+      if (i % 4 == 0) {
+        samples.add(
+          '${i / 4} s: $at s ${player.playerStatus.value.name}'
+          '${player.isBuffering.value ? ' buffering' : ''} '
+          'buffered ${player.buffered.value} fps $f',
+        );
+      }
+      if (!player.isBuffering.value && (f ?? 0) > 0) {
+        firstAt ??= at;
+        if (at >= firstAt + 1) {
+          playingAfter = DateTime.now().difference(ready).inMilliseconds / 1000;
+          break;
+        }
+      } else {
+        firstAt = null;
+      }
+    }
+    final failed = EventLog.entries(
+      since: start,
+    ).where((e) => e.$2.contains('502 (self-test')).length;
+    SmartDialog.dismiss(tag: 'failure:视频无法播放');
+    Get.back();
+    await Future.delayed(const Duration(seconds: 2));
+    final pass =
+        failed >= 1 &&
+        playingAfter != null &&
+        (PlPlayerController.debugOldOpenFailure || playingAfter <= 15);
+    return {
+      'pass': pass,
+      'id': id,
+      'old': PlPlayerController.debugOldOpenFailure,
+      'firstRequestsFailed': failed,
+      'playingAfterSeconds': playingAfter,
+      'samples': samples,
+      if (!pass)
+        'reason': failed == 0
+            ? 'no first request was failed'
+            : playingAfter == null
+            ? 'not playing $sampleFor s after the page was ready'
+            : 'playing only after $playingAfter s',
       'events': events(),
     };
   }

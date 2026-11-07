@@ -1816,6 +1816,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (kDebugMode || log.level != 'warn' || _keptWarning.hasMatch(text)) {
           EventLog.add('mpv', '${log.level} ${log.prefix}: $text');
         }
+        if (log.level == 'fatal' && text.startsWith(_noStreams)) {
+          _openCameToNothing();
+        }
         if (kDebugMode && (log.level == 'error' || log.level == 'fatal')) {
           Utils.reportError(
             '${log.level}: ${log.prefix}: ${log.text}\n${player.state.playlist}',
@@ -4050,6 +4053,41 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               event.startsWith('Can not open external file http://') ||
               event.startsWith('http: ')));
 
+  /// An open that came to nothing, whatever failed in it: mpv says so only
+  /// as a `fatal` line (cplayer), after the source's own `error` (demux:
+  /// `EDL: Could not open source file`), and media_kit passes on neither as
+  /// an error. The YouTube page's streams come through its relay over
+  /// loopback http, whose `Failed to open http://127.0.0.1…` is no transport
+  /// failure either: a first open that failed so sat at 0 s, nothing tried,
+  /// until the self-test reopened it 65 s later (2026-11-07).
+  static const _noStreams = 'No video or audio streams selected';
+
+  /// For the self-test's control (`--old-open-failure`): an open that came
+  /// to nothing is left as before — neither [_noStreams] nor the load watch
+  /// running out recovers it.
+  static bool debugOldOpenFailure = false;
+
+  /// [_noStreams] said: recovered as a stream failure is, a moment later —
+  /// unless the open has been followed by another, or by a replacement.
+  void _openCameToNothing() {
+    if (debugOldOpenFailure || isLive || dataSource is! NetworkSource) return;
+    final source = dataSource;
+    final epoch = videoControllerEpoch.value;
+    EasyThrottle.throttle(
+      'PlPlayerController._openCameToNothing',
+      const Duration(seconds: 10),
+      () => Future.delayed(const Duration(seconds: 1), () {
+        if (!identical(dataSource, source) ||
+            videoControllerEpoch.value != epoch ||
+            _replacing) {
+          return;
+        }
+        EventLog.add('player', 'the open came to nothing: recovering');
+        unawaited(_recoverTransport());
+      }),
+    );
+  }
+
   @visibleForTesting
   static bool debugIsTransportFailure(String event, {bool? plainHttp}) =>
       _isTransportFailure(event, plainHttp: plainHttp);
@@ -4264,6 +4302,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _loadWatch = null;
       _reopening = false;
       if (ready) _loadedSeq = load;
+      // 30 s and the file is not in: whatever was said of it or not, the
+      // open failed, and a spinner was all the viewer had (see [_noStreams])
+      if (!ready &&
+          !debugOldOpenFailure &&
+          !isLive &&
+          identical(player, _videoPlayerController) &&
+          dataSource is NetworkSource) {
+        EventLog.add('player', 'the file not in after 30 s: recovering');
+        unawaited(_recoverTransport());
+      }
       final pending = _pendingSeek;
       _pendingSeek = null;
       if (pending != null && ready) seekTo(pending, isSeek: false);
