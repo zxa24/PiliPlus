@@ -1,17 +1,17 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..d02430d82 100644
+index ac5c5af3d..bf4b94121 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -2117,10 +2117,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -1313,11 +1313,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
  
    // ai总结
    void showAiBottomSheet() {
--    videoDetailController.childKey.currentState?.showBottomSheet(
--      constraints: const BoxConstraints(),
--      (context) =>
--          AiConclusionPanel(item: ugcIntroController.aiConclusionResult!),
+-    videoDetailController.shell.showSheet(
 +    PageUtils.showVideoBottomSheet(
-+      context,
+       context,
+-      (context, {required inPage}) =>
+-          AiConclusionPanel(item: ugcIntroController.aiConclusionResult!),
+-      policy: SheetPolicy.alwaysInPage,
 +      child: AiConclusionPanel(item: ugcIntroController.aiConclusionResult!),
      );
    }

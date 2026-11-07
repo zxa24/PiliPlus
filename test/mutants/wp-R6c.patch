@@ -1,20 +1,19 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..fb57d0791 100644
+index ac5c5af3d..bfd507d9c 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -1519,11 +1519,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-               return;
-             }
-             String text = tabs[value];
--            if (videoDetailController.isFileSource ||
-+            if ((videoDetailController.isFileSource &&
-+                    !text.startsWith('评论')) ||
-                 text == '简介' ||
-                 text == '相关视频') {
-               videoDetailController.introScrollCtr?.animToTop();
--            } else if (text.startsWith('评论')) {
-+            } else if (text.startsWith('评论') &&
-+                !videoDetailController.isFileSource) {
-               _videoReplyController.animateToTop();
-             }
-           }
+@@ -1034,11 +1034,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+ 
+   @override
+   void onReselect(TabRole role) {
+-    if (videoDetailController.isFileSource ||
++    if ((videoDetailController.isFileSource && role != TabRole.comments) ||
+         role == TabRole.intro ||
+         role == TabRole.related) {
+       videoDetailController.shell.introScrollCtr?.animToTop();
+-    } else if (role == TabRole.comments) {
++    } else if (role == TabRole.comments &&
++        !videoDetailController.isFileSource) {
+       _videoReplyController.animateToTop();
+     }
+   }

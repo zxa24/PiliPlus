@@ -1,8 +1,8 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..81dec0cb8 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -998,7 +998,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..3fcf3d9eb 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -546,7 +546,7 @@ class WatchPageLayouts {
      double width =
          clampDouble(maxHeight / maxWidth * 1.08, 0.5, 0.7) * maxWidth;
      if (maxWidth >= 560) {

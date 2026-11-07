@@ -1,19 +1,16 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..8645fc1b5 100644
+index ac5c5af3d..bebe62338 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -718,11 +718,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-       icon = Icons.play_arrow_rounded;
-       playStat = '立即';
+@@ -650,9 +650,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+     if (videoDetailController.playedTime == null) {
+       return PlayStateLabel.now;
      } else if (plPlayerController!.isCompleted) {
--      icon = CustomIcons.replay_rounded;
--      playStat = '重新';
+-      return PlayStateLabel.replay;
 -    } else {
-       icon = Icons.play_arrow_rounded;
-       playStat = '继续';
+       return PlayStateLabel.resume;
 +    } else {
-+      icon = CustomIcons.replay_rounded;
-+      playStat = '重新';
++      return PlayStateLabel.replay;
      }
-     final playBtn = Row(
-       spacing: 2,
+   }
+ 

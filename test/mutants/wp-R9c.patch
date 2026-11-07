@@ -1,8 +1,8 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..8728996b9 100644
+index ac5c5af3d..b748af820 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -531,6 +531,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -509,6 +509,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
      // LibrePili: opened again only if another page took the player; still
      // this page's, it goes on as it was (it was opened again every time).
      // A play URL that came while covered opens now
@@ -10,7 +10,7 @@ index ba565d648..8728996b9 100644
      if (videoDetailController.openAtReturn()) {
        // that open is the return's: nothing else is resumed or opened
      } else if (videoDetailController.autoPlay) {
-@@ -548,7 +549,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -526,7 +527,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
          !videoDetailController.resumeOwnPlayer(play: false)) {
        videoDetailController.playerInit();
      }

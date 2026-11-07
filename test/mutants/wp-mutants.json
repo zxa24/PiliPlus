@@ -58,7 +58,7 @@
     {
       "id": "wp-R1a",
       "patch": "wp-R1a.patch",
-      "location": "lib/pages/video/view.dart:1437",
+      "location": "lib/pages/common/watch_page/watch_page_shell.dart:36",
       "change": "the 「横屏适配」-on landscape test moved before the 「横屏适配关」 test in build() (B:1413-1414 at c900b3cd4; today view.dart:1437-1442)",
       "landing": "S0",
       "kind": "selftest",
@@ -75,7 +75,7 @@
     {
       "id": "wp-R1b",
       "patch": "wp-R1b.patch",
-      "location": "lib/pages/video/view.dart:1440",
+      "location": "lib/pages/common/watch_page/watch_page_shell.dart:39",
       "change": "kScreenRatio 1.2 -> 1.1 in the shell's branch choice only (build(), view.dart:1440; videoIntro's isHorizontal keeps kScreenRatio)",
       "landing": "S0",
       "kind": "selftest",
@@ -92,7 +92,7 @@
     {
       "id": "wp-R1c",
       "patch": "wp-R1c.patch",
-      "location": "lib/pages/video/view.dart:931",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:459",
       "change": "isVertical read in build(), outside every Obx, and passed into the three-column choice (B:915-916; today view.dart:931); the inner Obx stays (dropping only it is equivalent, wp4#4)",
       "landing": "S0",
       "kind": "selftest",
@@ -109,7 +109,7 @@
     {
       "id": "wp-R1d",
       "patch": "wp-R1d.patch",
-      "location": "lib/pages/video/view.dart:1117",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:683",
       "change": "the same in the near-square choice (B:1096-1098; today view.dart:1117)",
       "landing": "S0",
       "kind": "selftest",
@@ -126,7 +126,7 @@
     {
       "id": "wp-R2a",
       "patch": "wp-R2a.patch",
-      "location": "lib/pages/video/view.dart:1001",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:549",
       "change": "the right column's clamp 280 -> 300 (B:979-991; today view.dart:1001)",
       "landing": "S0",
       "kind": "selftest",
@@ -143,7 +143,7 @@
     {
       "id": "wp-R2b",
       "patch": "wp-R2b.patch",
-      "location": "lib/pages/video/view.dart:1009",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:557",
       "change": "the 「w′/(16/9) > 高 -> split」 fallback removed (B:990-991; today view.dart:1009-1011)",
       "landing": "S0",
       "kind": "selftest",
@@ -161,7 +161,7 @@
     {
       "id": "wp-R2c",
       "patch": "wp-R2c.patch",
-      "location": "lib/pages/video/view.dart:1134",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:700",
       "change": "near-square player height 高/2.5 -> 高/2.4 (B:1112; today view.dart:1134)",
       "landing": "S0",
       "kind": "selftest",
@@ -178,7 +178,7 @@
     {
       "id": "wp-R2d",
       "patch": "wp-R2d.patch",
-      "location": "lib/pages/video/view.dart:636",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:144",
       "change": "portrait branch: pinned height = videoHeight while isFullScreen (B:620-622; today view.dart:636)",
       "landing": "S0",
       "kind": "selftest",
@@ -195,7 +195,7 @@
     {
       "id": "wp-R3a",
       "patch": "wp-R3a.patch",
-      "location": "lib/pages/video/view.dart:1031",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:579",
       "change": "landscape: both Offstage(isFullScreen) off (B:1011, 1026; today view.dart:1031, 1046; offline has only the tab area's)",
       "landing": "S0",
       "kind": "selftest",
@@ -213,7 +213,7 @@
     {
       "id": "wp-R3b",
       "patch": "wp-R3b.patch",
-      "location": "lib/pages/video/view.dart:896",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:404",
       "change": "split: Offstage(isFullScreen) off (B:880; today view.dart:896)",
       "landing": "S0",
       "kind": "selftest",
@@ -231,7 +231,7 @@
     {
       "id": "wp-R3c",
       "patch": "wp-R3c.patch",
-      "location": "lib/pages/video/view.dart:942",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:470",
       "change": "three-column: both Offstage(isFullScreen) off (B:925, 944; today view.dart:942, 961)",
       "landing": "S0",
       "kind": "selftest",
@@ -249,7 +249,7 @@
     {
       "id": "wp-R3d",
       "patch": "wp-R3d.patch",
-      "location": "lib/pages/video/view.dart:1151",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:718",
       "change": "near-square: Offstage(isFullScreen) off (B:1128; today view.dart:1151)",
       "landing": "S0",
       "kind": "selftest",
@@ -267,7 +267,7 @@
     {
       "id": "wp-R3e",
       "patch": "wp-R3e.patch",
-      "location": "lib/pages/video/view.dart:1317",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:876",
       "change": "videoPlayerKey off the player popScope (B:1294-1295; today view.dart:1317)",
       "landing": "S0",
       "kind": "selftest",
@@ -284,7 +284,7 @@
     {
       "id": "wp-R3f",
       "patch": "wp-R3f.patch",
-      "location": "lib/pages/video/view.dart:2113",
+      "location": "lib/pages/video/view.dart:1309",
       "change": "the page's GlobalKey videoReplyPanelKey off the online comment panel (B:2049-2053; today view.dart:2113)",
       "landing": "S0",
       "kind": "selftest",
@@ -301,7 +301,7 @@
     {
       "id": "wp-R4a",
       "patch": "wp-R4a.patch",
-      "location": "lib/pages/video/view.dart:1496",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:974",
       "change": "buildTabBar: a new tab count resets the index to 0 instead of clamping it (B:1455-1463; today view.dart:1496-1498)",
       "landing": "S0",
       "kind": "selftest",
@@ -318,7 +318,7 @@
     {
       "id": "wp-R4b",
       "patch": "wp-R4b.patch",
-      "location": "lib/pages/video/controller.dart:738",
+      "location": "lib/pages/video/controller.dart:701",
       "change": "defaultShowComment ignored: the TabController starts at 0 (BC:734-738; today controller.dart:738)",
       "landing": "S0",
       "kind": "selftest",
@@ -335,7 +335,7 @@
     {
       "id": "wp-R4c",
       "patch": "wp-R4c.patch",
-      "location": "lib/pages/video/view.dart:2000",
+      "location": "lib/pages/video/view.dart:1196",
       "change": "videoIntro's KeepAliveWrapper removed (B:1937; today view.dart:2000)",
       "landing": "S0",
       "kind": "selftest",
@@ -352,7 +352,7 @@
     {
       "id": "wp-R4d",
       "patch": "wp-R4d.patch",
-      "location": "lib/pages/video/view.dart:1906",
+      "location": "lib/pages/video/view.dart:1102",
       "change": "the intro CustomScrollView's PageStorageKey removed (B:1843; today view.dart:1906)",
       "landing": "S0",
       "kind": "selftest",
@@ -369,7 +369,7 @@
     {
       "id": "wp-K1",
       "patch": "wp-K1.patch",
-      "location": "lib/pages/video/view.dart:689",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:198",
       "change": "the portrait branch's tab-area MiniScaffold gets a GlobalKey of its own instead of childKey (B:674; today view.dart:689); the other branches unchanged",
       "landing": "S0",
       "kind": "selftest",
@@ -405,7 +405,7 @@
     {
       "id": "wp-R5a",
       "patch": "wp-R5a.patch",
-      "location": "lib/pages/video/view.dart:644",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:151",
       "change": "pinned height: minVideoHeight also when paused (kToolbarHeight branch; B:620-645; today view.dart:644)",
       "landing": "S0",
       "kind": "selftest",
@@ -422,7 +422,7 @@
     {
       "id": "wp-R5b",
       "patch": "wp-R5b.patch",
-      "location": "lib/pages/video/view.dart:254",
+      "location": "lib/pages/common/watch_page/watch_page_state.dart:115",
       "change": "playerListener: no expand animation on play (B:240-259; today view.dart:253-266)",
       "landing": "S0",
       "kind": "selftest",
@@ -439,7 +439,7 @@
     {
       "id": "wp-R5c",
       "patch": "wp-R5c.patch",
-      "location": "lib/pages/video/view.dart:786",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:320",
       "change": "collapsed bar: the right button by playedTime == null reversed (B:771-788; today view.dart:786)",
       "landing": "S0",
       "kind": "selftest",
@@ -456,7 +456,7 @@
     {
       "id": "wp-R5d",
       "patch": "wp-R5d.patch",
-      "location": "lib/pages/video/view.dart:831",
+      "location": "lib/pages/video/view.dart:668",
       "change": "tapping the collapsed bar while the play URL is queried returns without handlePlay (B:812-818; today view.dart:831-833)",
       "landing": "S0",
       "kind": "selftest",
@@ -474,7 +474,7 @@
     {
       "id": "wp-R5e",
       "patch": "wp-R5e.patch",
-      "location": "lib/pages/video/view.dart:840",
+      "location": "lib/pages/video/view.dart:677",
       "change": "with no play URL, tapping the bar does not call queryVideoUrl (B:820-826; today view.dart:840)",
       "landing": "S0",
       "kind": "selftest",
@@ -491,7 +491,7 @@
     {
       "id": "wp-R5f",
       "patch": "wp-R5f.patch",
-      "location": "lib/pages/video/view.dart:844",
+      "location": "lib/pages/video/view.dart:681",
       "change": "the bar goes to onDoubleTapCenter also when playedTime == null (B:829-833; today view.dart:844-845)",
       "landing": "S0",
       "kind": "selftest",
@@ -508,7 +508,7 @@
     {
       "id": "wp-R5g",
       "patch": "wp-R5g.patch",
-      "location": "lib/pages/video/view.dart:844",
+      "location": "lib/pages/video/view.dart:681",
       "change": "the bar always calls handlePlay, also after this page played (B:829-833; today view.dart:844-849)",
       "landing": "S0",
       "kind": "selftest",
@@ -525,7 +525,7 @@
     {
       "id": "wp-R5h",
       "patch": "wp-R5h.patch",
-      "location": "lib/pages/video/view.dart:721",
+      "location": "lib/pages/video/view.dart:653",
       "change": "the bar's 继续 and 重新 branches swapped (icon and label; B:705-710; today view.dart:720-726)",
       "landing": "S0",
       "kind": "selftest",
@@ -542,7 +542,7 @@
     {
       "id": "wp-R6a",
       "patch": "wp-R6a.patch",
-      "location": "lib/pages/video/view.dart:1531",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:1004",
       "change": "near-square (no indicator): a header that is not the current one no longer scrolls to the top (B:1467; today view.dart:1531)",
       "landing": "S0",
       "kind": "selftest",
@@ -559,7 +559,7 @@
     {
       "id": "wp-R6b",
       "patch": "wp-R6b.patch",
-      "location": "lib/pages/video/view.dart:1533",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:1006",
       "change": "the indexIsChanging test negated (B:1495-1499; today view.dart:1533)",
       "landing": "S0",
       "kind": "selftest",
@@ -582,7 +582,7 @@
     {
       "id": "wp-R6c",
       "patch": "wp-R6c.patch",
-      "location": "lib/pages/video/view.dart:1522",
+      "location": "lib/pages/video/view.dart:1037",
       "change": "offline: the comment tab no longer scrolls the intro to the top, it takes the comment branch (B:1485-1489; today view.dart:1522-1528). The offline comment list has no controller the page reaches (its _videoReplyController is online only), so that branch is skipped offline",
       "landing": "S0",
       "kind": "selftest",
@@ -599,7 +599,7 @@
     {
       "id": "wp-R7a",
       "patch": "wp-R7a.patch",
-      "location": "lib/pages/video/view.dart:2192",
+      "location": "lib/pages/video/view.dart:1393",
       "change": "showEpisodes: in fullscreen also on childKey (isFullScreen dropped from the test; its local removed; B:2129-2142; today view.dart:2149, 2192)",
       "landing": "S0",
       "kind": "selftest",
@@ -616,7 +616,7 @@
     {
       "id": "wp-R7b",
       "patch": "wp-R7b.patch",
-      "location": "lib/pages/video/view.dart:2268",
+      "location": "lib/pages/video/view.dart:1464",
       "change": "showViewPoints: the same (B:2204-2225; today view.dart:2268)",
       "landing": "S0",
       "kind": "selftest",
@@ -633,7 +633,7 @@
     {
       "id": "wp-R7c",
       "patch": "wp-R7c.patch",
-      "location": "lib/pages/video/controller.dart:849",
+      "location": "lib/pages/video/controller.dart:813",
       "change": "showMediaListPanel: the same (BC:848-859; today controller.dart:849)",
       "landing": "S0",
       "kind": "selftest",
@@ -650,7 +650,7 @@
     {
       "id": "wp-R7d",
       "patch": "wp-R7d.patch",
-      "location": "lib/pages/video/controller.dart:2450",
+      "location": "lib/pages/video/controller.dart:2404",
       "change": "PostPanel: the same (BC:2414-2434; today controller.dart:2450)",
       "landing": "S0",
       "kind": "selftest",
@@ -667,7 +667,7 @@
     {
       "id": "wp-R7e",
       "patch": "wp-R7e.patch",
-      "location": "lib/pages/video/controller.dart:4293",
+      "location": "lib/pages/video/controller.dart:4230",
       "change": "notes: the same (BC:4249-4273; today controller.dart:4293)",
       "landing": "S0",
       "kind": "selftest",
@@ -684,7 +684,7 @@
     {
       "id": "wp-R7f",
       "patch": "wp-R7f.patch",
-      "location": "lib/pages/video/view.dart:2120",
+      "location": "lib/pages/video/view.dart:1316",
       "change": "AI 总结 opened as a global sheet (PageUtils.showVideoBottomSheet) instead of on childKey (B:2056-2063; today view.dart:2119-2125)",
       "landing": "S0",
       "kind": "selftest",
@@ -701,7 +701,7 @@
     {
       "id": "wp-R7g",
       "patch": "wp-R7g.patch",
-      "location": "lib/pages/video/view.dart:1050",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:603",
       "change": "landscape branch: the childKey MiniScaffold no longer wraps the tab bar, only the tab view (today view.dart:1050-1093; the branch R7g's check opens 评论详情 in)",
       "landing": "S0",
       "kind": "selftest",
@@ -718,7 +718,7 @@
     {
       "id": "wp-R7h",
       "patch": "wp-R7h.patch",
-      "location": "lib/pages/video/controller.dart:872",
+      "location": "lib/pages/common/watch_page/watch_page_state.dart:36",
       "change": "showVideoSheet ignores isPortrait (BC:870-871; today controller.dart:872)",
       "landing": "S0",
       "kind": "selftest",
@@ -741,7 +741,7 @@
     {
       "id": "wp-R7i",
       "patch": "wp-R7i.patch",
-      "location": "lib/pages/video/controller.dart:872",
+      "location": "lib/pages/common/watch_page/watch_page_state.dart:36",
       "change": "showVideoSheet ignores isDesktopPip (BC:870-871; today controller.dart:872)",
       "landing": "S0",
       "kind": "selftest",
@@ -758,7 +758,7 @@
     {
       "id": "wp-R8a",
       "patch": "wp-R8a.patch",
-      "location": "lib/pages/video/view.dart:1320",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:878",
       "change": "popScope canPop ignores isDesktopPip (B:1297-1299; today view.dart:1320)",
       "landing": "S0",
       "kind": "selftest",
@@ -775,7 +775,7 @@
     {
       "id": "wp-R9a",
       "patch": "wp-R9a.patch",
-      "location": "lib/pages/video/view.dart:439",
+      "location": "lib/pages/video/view.dart:413",
       "change": "didPushNext: _playTap++ removed (B:427; today view.dart:439)",
       "landing": "S0",
       "kind": "selftest",
@@ -792,7 +792,7 @@
     {
       "id": "wp-R9b",
       "patch": "wp-R9b.patch",
-      "location": "lib/pages/video/view.dart:506",
+      "location": "lib/pages/video/view.dart:484",
       "change": "didPopNext: the play callback is not registered again (B:494; today view.dart:506)",
       "landing": "S0",
       "kind": "selftest",
@@ -809,7 +809,7 @@
     {
       "id": "wp-R9c",
       "patch": "wp-R9c.patch",
-      "location": "lib/pages/video/view.dart:551",
+      "location": "lib/pages/video/view.dart:512",
       "change": "didPopNext: setCovered(false) moved before resumeOwnPlayer (and openAtReturn, which today comes first) (B:519-537; today view.dart:534-551)",
       "landing": "S0",
       "kind": "selftest",
@@ -826,7 +826,7 @@
     {
       "id": "wp-R9d",
       "patch": "wp-R9d.patch",
-      "location": "lib/pages/video/view.dart:534",
+      "location": "lib/pages/video/view.dart:512",
       "change": "didPopNext: openAtReturn() not called (c69e319c8 view.dart:522; today view.dart:534-536)",
       "landing": "S0",
       "kind": "selftest",
@@ -843,7 +843,7 @@
     {
       "id": "wp-R10a",
       "patch": "wp-R10a.patch",
-      "location": "lib/pages/video/view.dart:1333",
+      "location": "lib/pages/video/view.dart:622",
       "change": "the stand-in no longer tests !videoState (B:1308-1316; today view.dart:1333). videoState is still read (isTrue || isFalse), so the Obx still rebuilds when the player comes up; dropping the read too left the stand-in up for good, also while this page played (sample run, S0b part 5)",
       "landing": "S0",
       "kind": "selftest",
@@ -860,7 +860,7 @@
     {
       "id": "wp-R10b",
       "patch": "wp-R10b.patch",
-      "location": "lib/pages/video/view.dart:1394",
+      "location": "lib/pages/video/view.dart:633",
       "change": "the failure mark ignores ownsPlayer (B:1368-1374; today view.dart:1394)",
       "landing": "S0",
       "kind": "selftest",
@@ -877,7 +877,7 @@
     {
       "id": "wp-R10c",
       "patch": "wp-R10c.patch",
-      "location": "lib/pages/video/view.dart:1704",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:1126",
       "change": "the spinner on the cover while a tap waits for the play URL removed (B:1654-1660; today view.dart:1704-1710)",
       "landing": "S0",
       "kind": "selftest",
@@ -894,7 +894,7 @@
     {
       "id": "wp-R11a",
       "patch": "wp-R11a.patch",
-      "location": "lib/pages/video/view.dart:583",
+      "location": "lib/pages/video/view.dart:560",
       "change": "darkVideoPage no longer gives the page the dark theme (B:568-570; today view.dart:583-585; its now unused theme_utils import removed)",
       "landing": "S0",
       "kind": "selftest",
@@ -911,7 +911,7 @@
     {
       "id": "wp-R13a",
       "patch": "wp-R13a.patch",
-      "location": "lib/pages/video/view.dart:1458",
+      "location": "lib/pages/common/watch_page/watch_page_shell.dart:57",
       "change": "PlayerFocus also with keyboardControl off (B:1422; today view.dart:1458)",
       "landing": "S0",
       "kind": "selftest",
@@ -928,7 +928,7 @@
     {
       "id": "wp-R13b",
       "patch": "wp-R13b.patch",
-      "location": "lib/pages/video/view.dart:1463",
+      "location": "lib/pages/video/view.dart:746",
       "change": "canPlay returns true at once, without handlePlay (B:1427-1433; today view.dart:1463-1469)",
       "landing": "S0",
       "kind": "selftest",
@@ -945,7 +945,7 @@
     {
       "id": "wp-P1",
       "patch": "wp-P1.patch",
-      "location": "lib/pages/video/view.dart:1680",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:1102",
       "change": "the autoplay-off cover layer (the opaque GestureDetector) moved above manualPlayerWidget (返回 / 返回主页 / 更多) in the slot Stack (B:1630-1667; today view.dart:1680-1722)",
       "landing": "S0",
       "kind": "selftest",
@@ -963,7 +963,7 @@
     {
       "id": "wp-R14a",
       "patch": "wp-R14a.patch",
-      "location": "lib/pages/video/view.dart:570",
+      "location": "lib/pages/video/view.dart:548",
       "change": "screenRatio not written (B:555; today view.dart:570)",
       "landing": "S0",
       "kind": "selftest",
@@ -980,7 +980,7 @@
     {
       "id": "wp-R15a",
       "patch": "wp-R15a.patch",
-      "location": "lib/pages/video/view.dart:1434",
+      "location": "lib/pages/common/watch_page/watch_page_shell.dart:33",
       "change": "the PiP test moved after the 「横屏适配关」 test (B:1411-1412; today view.dart:1434-1439)",
       "landing": "S0",
       "kind": "selftest",
@@ -998,7 +998,7 @@
     {
       "id": "wp-CS1",
       "patch": "wp-CS1.patch",
-      "location": "lib/pages/video/view.dart:698",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:213",
       "change": "§3.2 call site 1, portrait tab view: videoIntro needCtr false -> true (B:683; today view.dart:698)",
       "landing": "S0",
       "kind": "selftest",
@@ -1015,7 +1015,7 @@
     {
       "id": "wp-CS2",
       "patch": "wp-CS2.patch",
-      "location": "lib/pages/video/view.dart:913",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:425",
       "change": "call site 2, split: videoIntro needCtr true -> false (B:895-898; today view.dart:910-913)",
       "landing": "S0",
       "kind": "selftest",
@@ -1032,7 +1032,7 @@
     {
       "id": "wp-CS3",
       "patch": "wp-CS3.patch",
-      "location": "lib/pages/video/view.dart:949",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:481",
       "change": "call site 3, three-column side column: videoIntro needCtr true -> false (B:930-933; today view.dart:946-949)",
       "landing": "S0",
       "kind": "selftest",
@@ -1049,7 +1049,7 @@
     {
       "id": "wp-CS4",
       "patch": "wp-CS4.patch",
-      "location": "lib/pages/video/view.dart:1039",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:590",
       "change": "call site 4, landscape intro column: videoIntro needCtr false -> true (B:1016-1021; today view.dart:1035-1040)",
       "landing": "S0",
       "kind": "selftest",
@@ -1066,7 +1066,7 @@
     {
       "id": "wp-CS5",
       "patch": "wp-CS5.patch",
-      "location": "lib/pages/video/view.dart:1071",
+      "location": "lib/pages/video/view.dart:1003",
       "change": "call site 5, landscape first tab (相关视频): effectiveIntroScrollCtr no longer attached (B:1046-1060; today view.dart:1071-1072)",
       "landing": "S0",
       "kind": "selftest",
@@ -1083,7 +1083,7 @@
     {
       "id": "wp-CS6",
       "patch": "wp-CS6.patch",
-      "location": "lib/pages/video/view.dart:1174",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:745",
       "change": "call site 6, near-square intro: videoIntro needCtr true -> false (B:1144-1151; today view.dart:1166-1174)",
       "landing": "S0",
       "kind": "selftest",
@@ -1100,7 +1100,7 @@
     {
       "id": "wp-T1",
       "patch": "wp-T1.patch",
-      "location": "lib/pages/video/view.dart:1942",
+      "location": "lib/pages/video/view.dart:1140",
       "change": "intro()'s cid.value read in build(), outside every Obx, and passed in (PgcIntroPage.cid; today view.dart:1942)",
       "landing": "S0",
       "kind": "selftest",
@@ -1117,7 +1117,7 @@
     {
       "id": "wp-T2",
       "patch": "wp-T2.patch",
-      "location": "lib/pages/video/view.dart:1318",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:877",
       "change": "popScope canPop evaluated in build(), outside every Obx, and passed in (B:1296-1300; today view.dart:1318-1321)",
       "landing": "S0",
       "kind": "selftest",
@@ -1134,7 +1134,7 @@
     {
       "id": "wp-T3",
       "patch": "wp-T3.patch",
-      "location": "lib/pages/video/view.dart:597",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:105",
       "change": "portrait branch: videoPlayer(...) built in the branch Obx's builder at that height and passed into headerSliverBuilder (B:579-668; today view.dart:593-686)",
       "landing": "S0",
       "kind": "selftest",
@@ -1151,7 +1151,7 @@
     {
       "id": "wp-M1",
       "patch": "wp-M1.patch",
-      "location": "lib/pages/video/controller.dart:337",
+      "location": "lib/pages/common/watch_page/watch_page_state.dart:89",
       "change": "_calcAnimHeight while expanding: videoHeight * value -> videoHeight * value * value (BC:335-339; today controller.dart:337)",
       "landing": "S0",
       "kind": "selftest",
@@ -1168,7 +1168,7 @@
     {
       "id": "wp-M2",
       "patch": "wp-M2.patch",
-      "location": "lib/pages/video/view.dart:692",
+      "location": "lib/pages/common/watch_page/watch_page_layouts.dart:201",
       "change": "portrait: tapping the current tab does not call animToTop (B:677; today view.dart:692, onTap: () {})",
       "landing": "S0",
       "kind": "selftest",
@@ -1185,7 +1185,7 @@
     {
       "id": "wp-M3",
       "patch": "wp-M3.patch",
-      "location": "lib/pages/video/controller.dart:323",
+      "location": "lib/pages/common/watch_page/watch_page_state.dart:75",
       "change": "refreshPage does nothing (BC:322-324; today controller.dart:323-325)",
       "landing": "S0",
       "kind": "selftest",
@@ -1202,7 +1202,7 @@
     {
       "id": "wp-M5",
       "patch": "wp-M5.patch",
-      "location": "lib/pages/video/introduction/local/controller.dart:122",
+      "location": "lib/pages/video/introduction/local/controller.dart:121",
       "change": "LocalIntroController: the localJumpTo through scrollKey removed, only introScrollCtr (local/controller.dart:122-129; today the same), and the extended_nested_scroll_view import it frees",
       "landing": "S0",
       "kind": "selftest",

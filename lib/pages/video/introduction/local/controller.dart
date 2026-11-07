@@ -119,14 +119,14 @@ class LocalIntroController extends CommonIntroController {
     if (index != 0 && videoDetailCtr.localIntroPath == null) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
         try {
-          final state = videoDetailCtr.scrollKey.currentState;
+          final state = videoDetailCtr.shell.scrollKey.currentState;
           if (state != null && state.mounted) {
             (state.innerController as ExtendedNestedScrollController)
                 .nestedPositions
                 .first
                 .localJumpTo(_offset);
-          } else if (videoDetailCtr.introScrollCtr?.hasClients ?? false) {
-            videoDetailCtr.introScrollCtr!.jumpTo(_offset);
+          } else if (videoDetailCtr.shell.introScrollCtr?.hasClients ?? false) {
+            videoDetailCtr.shell.introScrollCtr!.jumpTo(_offset);
           }
         } catch (_) {
           if (kDebugMode) rethrow;

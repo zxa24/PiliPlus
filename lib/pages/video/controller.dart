@@ -4,7 +4,6 @@ import 'dart:io'
     show Directory, File, HttpClient, HttpHeaders, HttpStatus, SocketException;
 import 'dart:math' show min;
 import 'dart:typed_data' show Uint8List;
-import 'dart:ui';
 import 'dart:ui' as ui show Image;
 
 import 'package:PiliPlus/common/widgets/dialog/failure_report.dart';
@@ -46,6 +45,7 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
 import 'package:PiliPlus/models_new/video/video_stein_edgeinfo/data.dart';
 import 'package:PiliPlus/pages/audio/view.dart';
 import 'package:PiliPlus/pages/common/publish/publish_route.dart';
+import 'package:PiliPlus/pages/common/watch_page/watch_page_state.dart';
 import 'package:PiliPlus/pages/search/widgets/search_text.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/pages/video/download_panel/view.dart';
@@ -55,7 +55,6 @@ import 'package:PiliPlus/pages/video/medialist/view.dart';
 import 'package:PiliPlus/pages/video/note/view.dart';
 import 'package:PiliPlus/pages/video/post_panel/view.dart';
 import 'package:PiliPlus/pages/video/send_danmaku/view.dart';
-import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
@@ -92,10 +91,8 @@ import 'package:PiliPlus/utils/accounts/login_policy.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
-import 'package:PiliPlus/utils/extension/nested_scroll_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
-import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -109,8 +106,6 @@ import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:crypto/crypto.dart' show md5;
 import 'package:dio/dio.dart' show Options;
-import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
-    show ExtendedNestedScrollViewState;
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -147,9 +142,6 @@ class VideoDetailController extends GetxController
   late bool _mediaDesc = false;
   late final RxList<MediaListItemModel> mediaList = <MediaListItemModel>[].obs;
   late String watchLaterTitle;
-
-  /// tabs相关配置
-  late TabController tabCtr;
 
   // 请求返回的视频信息
   late PlayUrlModel data;
@@ -243,9 +235,6 @@ class VideoDetailController extends GetxController
   // 是否开始自动播放 存在多p的情况下，第二p需要为true
   final RxBool _autoPlay = Pref.autoPlayEnable.obs;
 
-  final videoPlayerKey = GlobalKey();
-  final childKey = GlobalKey<MiniScaffoldState>();
-
   final plPlayerController = PlPlayerController.getInstance()
     ..brightness.value = -1;
   bool get setSystemBrightness => plPlayerController.setSystemBrightness;
@@ -268,8 +257,6 @@ class VideoDetailController extends GetxController
   // 亮度
   double? brightness;
 
-  late final headerCtrKey = GlobalKey<TimeBatteryMixin>();
-
   Box setting = GStorage.setting;
 
   // 预设的解码格式
@@ -291,68 +278,34 @@ class VideoDetailController extends GetxController
   bool get showRelatedVideo =>
       isFileSource ? false : plPlayerController.showRelatedVideo;
 
-  ScrollController? introScrollCtr;
-  ScrollController get effectiveIntroScrollCtr =>
-      introScrollCtr ??= ScrollController();
-
   int? seasonCid;
   late final RxInt seasonIndex = 0.obs;
 
   PlayerStatus? playerStatus;
 
-  late final scrollKey = GlobalKey<ExtendedNestedScrollViewState>();
   late final RxBool isVertical;
-  late final RxDouble scrollRatio = 0.0.obs;
 
-  ScrollController? _scrollCtr;
-  ScrollController get scrollCtr => _scrollCtr ??= ScrollController();
+  /// The watch-page shell's state (design feature-logs/watch-page-shell/
+  /// design.md §3.3): the layout fields that were here.
+  late final WatchPageShellState shell = WatchPageShellState(
+    vsync: this,
+    player: plPlayerController,
+  );
 
-  late bool isExpanding = false;
-  late bool isCollapsing = false;
-
-  late double minVideoHeight;
-  late double maxVideoHeight;
-  late double videoHeight;
-  late double animHeight;
-
-  AnimationController? animController;
-  AnimationController get animationController =>
-      animController ??= (AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 200),
-      )..addListener(_animListener));
-
-  void refreshPage() {
-    scrollKey.currentState?.refresh();
-  }
-
-  void _animListener() {
-    if (animationController.isForwardOrCompleted) {
-      _calcAnimHeight();
-      refreshPage();
-    }
-  }
-
-  void _calcAnimHeight() {
-    if (isExpanding) {
-      animHeight = clampDouble(
-        videoHeight * animationController.value,
-        kToolbarHeight,
-        videoHeight,
-      );
-    } else if (isCollapsing) {
-      animHeight = clampDouble(
-        maxVideoHeight -
-            (maxVideoHeight - minVideoHeight) * animationController.value,
-        minVideoHeight,
-        maxVideoHeight,
-      );
-    }
-  }
-
-  void animToTop() {
-    scrollKey.currentState?.animToTop();
-  }
+  // forwarding getters (§5 S1): the members the self tests read,
+  // until the step after S1c takes them off with the tests
+  bool get isPortrait => shell.isPortrait;
+  TabController get tabCtr => shell.tabCtr;
+  GlobalKey<MiniScaffoldState> get childKey => shell.childKey;
+  ScrollController? get introScrollCtr => shell.introScrollCtr;
+  RxDouble get scrollRatio => shell.scrollRatio;
+  ScrollController get scrollCtr => shell.scrollCtr;
+  bool get isExpanding => shell.isExpanding;
+  bool get isCollapsing => shell.isCollapsing;
+  double get minVideoHeight => shell.minVideoHeight;
+  double get maxVideoHeight => shell.maxVideoHeight;
+  double get videoHeight => shell.videoHeight;
+  AnimationController? get animController => shell.animController;
 
   bool _needAnimOnDimensionChanged(bool isVertical) {
     if (isFullScreen) {
@@ -388,8 +341,10 @@ class VideoDetailController extends GetxController
         }
       }
       final isVertical = height > width;
-      if (_scrollCtr?.hasClients != true) {
-        videoHeight = isVertical ? maxVideoHeight : minVideoHeight;
+      if (shell.scrollCtrOrNull?.hasClients != true) {
+        shell.videoHeight = isVertical
+            ? shell.maxVideoHeight
+            : shell.minVideoHeight;
         if (this.isVertical.value != isVertical) {
           this.isVertical.value = isVertical;
           _needAnimOnDimensionChanged(isVertical);
@@ -398,53 +353,61 @@ class VideoDetailController extends GetxController
       }
       if (this.isVertical.value != isVertical) {
         this.isVertical.value = isVertical;
-        double videoHeight = isVertical ? maxVideoHeight : minVideoHeight;
-        if (this.videoHeight != videoHeight) {
-          if (videoHeight > this.videoHeight) {
+        double videoHeight = isVertical
+            ? shell.maxVideoHeight
+            : shell.minVideoHeight;
+        if (shell.videoHeight != videoHeight) {
+          if (videoHeight > shell.videoHeight) {
             // current minVideoHeight
             if (_needAnimOnDimensionChanged(isVertical)) {
-              isExpanding = true;
-              animationController.forward(
-                from: (minVideoHeight - scrollCtr.offset) / maxVideoHeight,
+              shell.isExpanding = true;
+              shell.animationController.forward(
+                from:
+                    (shell.minVideoHeight - shell.scrollCtr.offset) /
+                    shell.maxVideoHeight,
               );
             }
-            this.videoHeight = maxVideoHeight;
+            shell.videoHeight = shell.maxVideoHeight;
           } else {
             // current maxVideoHeight
-            final currentHeight = (maxVideoHeight - scrollCtr.offset)
-                .toPrecision(2);
-            double minVideoHeightPrecise = minVideoHeight.toPrecision(2);
+            final currentHeight =
+                (shell.maxVideoHeight - shell.scrollCtr.offset).toPrecision(2);
+            double minVideoHeightPrecise = shell.minVideoHeight.toPrecision(2);
             if (currentHeight == minVideoHeightPrecise) {
-              this.videoHeight = minVideoHeight;
+              shell.videoHeight = shell.minVideoHeight;
               if (_needAnimOnDimensionChanged(isVertical)) {
-                isExpanding = true;
-                animationController.forward(from: 1);
+                shell.isExpanding = true;
+                shell.animationController.forward(from: 1);
               }
             } else if (currentHeight < minVideoHeightPrecise) {
               // expand
               if (_needAnimOnDimensionChanged(isVertical)) {
-                isExpanding = true;
-                animationController.forward(
-                  from: currentHeight / minVideoHeight,
+                shell.isExpanding = true;
+                shell.animationController.forward(
+                  from: currentHeight / shell.minVideoHeight,
                 );
               }
-              this.videoHeight = minVideoHeight;
+              shell.videoHeight = shell.minVideoHeight;
             } else {
               // collapse
               if (_needAnimOnDimensionChanged(isVertical)) {
-                isCollapsing = true;
-                animationController.forward(
-                  from: scrollCtr.offset / (maxVideoHeight - minVideoHeight),
+                shell.isCollapsing = true;
+                shell.animationController.forward(
+                  from:
+                      shell.scrollCtr.offset /
+                      (shell.maxVideoHeight - shell.minVideoHeight),
                 );
               }
-              this.videoHeight = minVideoHeight;
+              shell.videoHeight = shell.minVideoHeight;
             }
           }
         }
       } else {
-        if (scrollCtr.offset != 0) {
-          isExpanding = true;
-          animationController.forward(from: 1 - scrollCtr.offset / videoHeight);
+        if (shell.scrollCtr.offset != 0) {
+          shell.isExpanding = true;
+          shell.animationController.forward(
+            from: 1 - shell.scrollCtr.offset / shell.videoHeight,
+          );
         }
       }
     } catch (_) {}
@@ -736,7 +699,7 @@ class VideoDetailController extends GetxController
       getMediaList();
     }
 
-    tabCtr = TabController(
+    shell.tabCtr = TabController(
       length: 2,
       vsync: this,
       initialIndex: Pref.defaultShowComment ? 1 : 0,
@@ -850,30 +813,13 @@ class VideoDetailController extends GetxController
               }
             : null,
       );
-      if (plPlayerController.isFullScreen.value || showVideoSheet) {
-        PageUtils.showVideoBottomSheet(
-          context,
-          child: plPlayerController.darkVideoPage
-              ? Theme(data: ThemeUtils.darkTheme, child: panel())
-              : panel(),
-        );
-      } else {
-        childKey.currentState?.showBottomSheet(
-          constraints: const BoxConstraints(),
-          (context) => panel(),
-        );
-      }
+      shell.showSheet(context, (context, {required inPage}) => panel());
     } else {
       getMediaList();
     }
   }
 
-  bool isPortrait = true;
-
   bool get horizontalScreen => plPlayerController.horizontalScreen;
-
-  bool get showVideoSheet =>
-      (!horizontalScreen && !isPortrait) || plPlayerController.isDesktopPip;
 
   @override
   late final RxString videoLabel = ''.obs;
@@ -1848,7 +1794,7 @@ class VideoDetailController extends GetxController
         (plPlayerController.preInitPlayer && !plPlayerController.processing) &&
             (isFileSource
                 ? true
-                : videoPlayerKey.currentState?.mounted == true)) {
+                : shell.videoPlayerKey.currentState?.mounted == true)) {
       return playerInit(
         autoFullScreenFlag: autoFullScreenFlag && _autoPlay.value,
       );
@@ -2451,27 +2397,14 @@ class VideoDetailController extends GetxController
         ),
       );
     }
-    if (plPlayerController.isFullScreen.value || showVideoSheet) {
-      final child = PostPanel(
-        enableSlide: false,
+    shell.showSheet(
+      context,
+      (context, {required inPage}) => PostPanel(
+        enableSlide: inPage,
         videoDetailController: this,
         plPlayerController: plPlayerController,
-      );
-      PageUtils.showVideoBottomSheet(
-        context,
-        child: plPlayerController.darkVideoPage
-            ? Theme(data: ThemeUtils.darkTheme, child: child)
-            : child,
-      );
-    } else {
-      childKey.currentState?.showBottomSheet(
-        constraints: const BoxConstraints(),
-        (context) => PostPanel(
-          videoDetailController: this,
-          plPlayerController: plPlayerController,
-        ),
-      );
-    }
+      ),
+    );
   }
 
   RxList<Subtitle> subtitles = RxList<Subtitle>();
@@ -4103,13 +4036,7 @@ class VideoDetailController extends GetxController
       cacheLocalProgress();
       LocalPlayer.release(_localMirror);
     }
-    introScrollCtr?.dispose();
-    introScrollCtr = null;
-    tabCtr.dispose();
-    _scrollCtr?.dispose();
-    animController
-      ?..removeListener(_animListener)
-      ..dispose();
+    shell.dispose();
     subtitles.clear();
     vttSubtitles.clear();
     // the gate coming down on the way out must not start the player again
@@ -4295,31 +4222,16 @@ class VideoDetailController extends GetxController
         tag: heroTag,
       ).videoDetail.value.title;
     } catch (_) {}
-    if (plPlayerController.isFullScreen.value || showVideoSheet) {
-      final child = NoteListPage(
+    shell.showSheet(
+      context,
+      (context, {required inPage}) => NoteListPage(
         oid: aid,
-        enableSlide: false,
+        enableSlide: inPage,
         heroTag: heroTag,
         isStein: graphVersion != null,
         title: title,
-      );
-      PageUtils.showVideoBottomSheet(
-        context,
-        child: plPlayerController.darkVideoPage
-            ? Theme(data: ThemeUtils.darkTheme, child: child)
-            : child,
-      );
-    } else {
-      childKey.currentState?.showBottomSheet(
-        constraints: const BoxConstraints(),
-        (context) => NoteListPage(
-          oid: aid,
-          heroTag: heroTag,
-          isStein: graphVersion != null,
-          title: title,
-        ),
-      );
-    }
+      ),
+    );
   }
 
   @pragma('vm:notify-debugger-on-exception')

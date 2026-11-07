@@ -1,13 +1,13 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..74dd522e3 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -695,7 +695,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-                       hitTestBehavior: .translucent,
-                       controller: videoDetailController.tabCtr,
-                       children: [
--                        videoIntro(isHorizontal: false, needCtr: false),
-+                        videoIntro(isHorizontal: false, needCtr: true),
-                         if (videoDetailController.showReply)
-                           videoReplyPanel(isNested: true),
-                         if (_shouldShowSeasonPanel) seasonPanel,
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..0d7279baf 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -210,7 +210,7 @@ class WatchPageLayouts {
+                             WatchSlot.tab,
+                             isFullScreen: isFullScreen,
+                             isHorizontal: false,
+-                            attachIntroController: false,
++                            attachIntroController: true,
+                             nested: true,
+                           ),
+                           withRelated: true,

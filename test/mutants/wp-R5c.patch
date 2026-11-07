@@ -1,13 +1,13 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..0f25213a8 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -783,7 +783,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..7b8ea728c 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -317,7 +317,7 @@ class WatchPageLayouts {
                Center(child: playBtn),
                Align(
                  alignment: .centerRight,
--                child: videoDetailController.playedTime == null
-+                child: videoDetailController.playedTime != null
+-                child: !source.playedHere
++                child: source.playedHere
                      ? _moreBtn(colorScheme.onSurface)
                      : SizedBox(
                          width: 42,

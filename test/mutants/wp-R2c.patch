@@ -1,11 +1,11 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..f84a697cc 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1131,7 +1131,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..01ca7cd6d 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -697,7 +697,7 @@ class WatchPageLayouts {
  
    Widget _childWhenDisabledAlmostSquareInner(bool isFullScreen) {
-     final shouldShowSeasonPanel = _shouldShowSeasonPanel;
+     final shouldShowSeasonPanel = _showPlaylist;
 -    final double height = maxHeight / 2.5;
 +    final double height = maxHeight / 2.4;
      final videoHeight = isFullScreen

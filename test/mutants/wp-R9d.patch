@@ -1,8 +1,8 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..9623ae4cf 100644
+index ac5c5af3d..3b5928975 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -531,9 +531,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -509,9 +509,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
      // LibrePili: opened again only if another page took the player; still
      // this page's, it goes on as it was (it was opened again every time).
      // A play URL that came while covered opens now

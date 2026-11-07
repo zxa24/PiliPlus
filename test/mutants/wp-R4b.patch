@@ -1,9 +1,9 @@
 diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
-index 989e78b1f..b415ca9eb 100644
+index a8d0c0402..631062d1f 100644
 --- a/lib/pages/video/controller.dart
 +++ b/lib/pages/video/controller.dart
-@@ -735,7 +735,7 @@ class VideoDetailController extends GetxController
-     tabCtr = TabController(
+@@ -698,7 +698,7 @@ class VideoDetailController extends GetxController
+     shell.tabCtr = TabController(
        length: 2,
        vsync: this,
 -      initialIndex: Pref.defaultShowComment ? 1 : 0,

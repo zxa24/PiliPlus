@@ -1,13 +1,14 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..4e4e75e25 100644
+index ac5c5af3d..3a2940afc 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -1391,7 +1391,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-               // open only: the player's status is the whole app's, and a
-               // page over one whose open failed showed its error (review
-               // 2026-10-21)
--              () => player.dataStatus.error && videoDetailController.ownsPlayer
-+              () => player.dataStatus.error
-                   ? PlayerLoadFailed(onRetry: videoDetailController.retryPlayer)
-                   : const PlayerLoadingMark(),
-             ),
+@@ -630,8 +630,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+ 
+   @override
+   bool get loadFailed =>
+-      videoDetailController.plPlayerController.dataStatus.error &&
+-      videoDetailController.ownsPlayer;
++      videoDetailController.plPlayerController.dataStatus.error;
+ 
+   @override
+   VoidCallback get retry => videoDetailController.retryPlayer;

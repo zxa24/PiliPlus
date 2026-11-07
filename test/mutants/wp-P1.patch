@@ -1,8 +1,8 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..6a64a6fe7 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1677,6 +1677,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..ca206c46a 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -1099,6 +1099,10 @@ class WatchPageLayouts {
            ),
          ),
  
@@ -13,7 +13,7 @@ index ba565d648..6a64a6fe7 100644
          KeyedSubtree(
            key: const ValueKey(SelfTestProbe.slotCover),
            child: Obx(() {
-@@ -1716,10 +1720,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -1138,10 +1142,6 @@ class WatchPageLayouts {
              return const SizedBox.shrink();
            }),
          ),
@@ -22,5 +22,5 @@ index ba565d648..6a64a6fe7 100644
 -          child: manualPlayerWidget(height),
 -        ),
  
-         if (videoDetailController.plPlayerController.enableBlock ||
-             videoDetailController.continuePlayingPart)
+         // the page's own layers over the player (SponsorBlock list,
+         // interactive-video choices), in their order

@@ -1,13 +1,22 @@
 diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
-index 989e78b1f..8b048eaaf 100644
+index a8d0c0402..4d5ac719a 100644
 --- a/lib/pages/video/controller.dart
 +++ b/lib/pages/video/controller.dart
-@@ -4290,7 +4290,7 @@ class VideoDetailController extends GetxController
-         tag: heroTag,
-       ).videoDetail.value.title;
-     } catch (_) {}
--    if (plPlayerController.isFullScreen.value || showVideoSheet) {
-+    if (showVideoSheet) {
-       final child = NoteListPage(
-         oid: aid,
-         enableSlide: false,
+@@ -45,6 +45,7 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
+ import 'package:PiliPlus/models_new/video/video_stein_edgeinfo/data.dart';
+ import 'package:PiliPlus/pages/audio/view.dart';
+ import 'package:PiliPlus/pages/common/publish/publish_route.dart';
++import 'package:PiliPlus/pages/common/watch_page/watch_page_source.dart';
+ import 'package:PiliPlus/pages/common/watch_page/watch_page_state.dart';
+ import 'package:PiliPlus/pages/search/widgets/search_text.dart';
+ import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
+@@ -4226,6 +4227,9 @@ class VideoDetailController extends GetxController
+         isStein: graphVersion != null,
+         title: title,
+       ),
++      policy: shell.showVideoSheet
++          ? SheetPolicy.perR7
++          : SheetPolicy.alwaysInPage,
+     );
+   }
+ 

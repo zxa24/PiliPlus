@@ -1,14 +1,16 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..9884cbb1f 100644
+index ac5c5af3d..6d6e860a9 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -1330,7 +1330,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-           videoDetailController.asrPending.value ||
-               !videoDetailController.autoPlay
-           ? const SizedBox.shrink()
--          : !videoDetailController.videoState.value ||
-+          : (videoDetailController.videoState.isTrue ||
-+                    videoDetailController.videoState.isFalse) &&
-                 plPlayerController?.videoController == null
-           // LibrePili: the player not up yet — the cover (or the picture
-           // left at a push), the spinner and the way back, not a black box
+@@ -619,8 +619,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+ 
+   @override
+   bool get viewUp =>
+-      videoDetailController.videoState.value &&
+-      plPlayerController?.videoController != null;
++      !((videoDetailController.videoState.isTrue ||
++              videoDetailController.videoState.isFalse) &&
++          plPlayerController?.videoController == null);
+ 
+   @override
+   String get cover => videoDetailController.cover.value;

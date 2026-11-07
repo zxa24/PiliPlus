@@ -1,13 +1,27 @@
 diff --git a/lib/pages/video/controller.dart b/lib/pages/video/controller.dart
-index 989e78b1f..39c75d045 100644
+index a8d0c0402..c9c9e624e 100644
 --- a/lib/pages/video/controller.dart
 +++ b/lib/pages/video/controller.dart
-@@ -846,7 +846,7 @@ class VideoDetailController extends GetxController
+@@ -45,6 +45,7 @@ import 'package:PiliPlus/models_new/video/video_play_info/subtitle.dart';
+ import 'package:PiliPlus/models_new/video/video_stein_edgeinfo/data.dart';
+ import 'package:PiliPlus/pages/audio/view.dart';
+ import 'package:PiliPlus/pages/common/publish/publish_route.dart';
++import 'package:PiliPlus/pages/common/watch_page/watch_page_source.dart';
+ import 'package:PiliPlus/pages/common/watch_page/watch_page_state.dart';
+ import 'package:PiliPlus/pages/search/widgets/search_text.dart';
+ import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
+@@ -809,7 +810,13 @@ class VideoDetailController extends GetxController
                }
              : null,
        );
--      if (plPlayerController.isFullScreen.value || showVideoSheet) {
-+      if (showVideoSheet) {
-         PageUtils.showVideoBottomSheet(
-           context,
-           child: plPlayerController.darkVideoPage
+-      shell.showSheet(context, (context, {required inPage}) => panel());
++      shell.showSheet(
++        context,
++        (context, {required inPage}) => panel(),
++        policy: shell.showVideoSheet
++            ? SheetPolicy.perR7
++            : SheetPolicy.alwaysInPage,
++      );
+     } else {
+       getMediaList();
+     }

@@ -1,13 +1,12 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..8da394acb 100644
+index ac5c5af3d..669b0620e 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -1068,8 +1068,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-                           KeepAliveWrapper(
-                             child: CustomScrollView(
-                               key: const PageStorageKey(CommonIntroController),
--                              controller:
--                                  videoDetailController.effectiveIntroScrollCtr,
-                               slivers: [
-                                 RelatedVideoPanel(
-                                   key: videoRelatedKey,
+@@ -1000,7 +1000,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+   Widget related(WatchLayoutContext ctx) => KeepAliveWrapper(
+     child: CustomScrollView(
+       key: const PageStorageKey(CommonIntroController),
+-      controller: videoDetailController.shell.effectiveIntroScrollCtr,
+       slivers: [
+         RelatedVideoPanel(
+           key: videoRelatedKey,

@@ -1,20 +1,20 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..7f306e088 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -1434,12 +1434,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-     if (videoDetailController.plPlayerController.isPipMode) {
-       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.pip);
-       child = plPlayer(width: maxWidth, height: maxHeight, isPipMode: true);
--    } else if (!videoDetailController.horizontalScreen) {
--      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.portrait);
--      child = childWhenDisabled;
+diff --git a/lib/pages/common/watch_page/watch_page_shell.dart b/lib/pages/common/watch_page/watch_page_shell.dart
+index e272672a1..34e338114 100644
+--- a/lib/pages/common/watch_page/watch_page_shell.dart
++++ b/lib/pages/common/watch_page/watch_page_shell.dart
+@@ -33,12 +33,12 @@ class WatchPageShell extends StatelessWidget {
+     if (player.isPipMode) {
+       SelfTestProbe.firstLevel(tag, SelfTestProbe.pip);
+       child = layouts.pip();
+-    } else if (!player.horizontalScreen) {
+-      SelfTestProbe.firstLevel(tag, SelfTestProbe.portrait);
+-      child = layouts.childWhenDisabled;
      } else if (maxWidth / maxHeight >= kScreenRatio) {
-       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.landscape);
-       child = childWhenDisabledLandscape;
-+    } else if (!videoDetailController.horizontalScreen) {
-+      SelfTestProbe.firstLevel(heroTag, SelfTestProbe.portrait);
-+      child = childWhenDisabled;
+       SelfTestProbe.firstLevel(tag, SelfTestProbe.landscape);
+       child = layouts.childWhenDisabledLandscape;
++    } else if (!player.horizontalScreen) {
++      SelfTestProbe.firstLevel(tag, SelfTestProbe.portrait);
++      child = layouts.childWhenDisabled;
      } else if (maxWidth / Style.aspectRatio16x9 < 0.4 * maxHeight) {
-       SelfTestProbe.firstLevel(heroTag, SelfTestProbe.portrait);
-       child = childWhenDisabled;
+       SelfTestProbe.firstLevel(tag, SelfTestProbe.portrait);
+       child = layouts.childWhenDisabled;

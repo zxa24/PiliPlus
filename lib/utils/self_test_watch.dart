@@ -696,10 +696,22 @@ abstract final class WpRead {
   /// global sheet's (the page wraps the panel in its dark one with
   /// darkVideoPage, B:2196-2198): the first under the PublishRoute directly
   /// above this page's route.
+  /// S0c (design u#12): when the State's first widget is the watch-page
+  /// shell (`WatchPageShell`, recognised by its type name: it does not exist
+  /// yet), the page's own Theme is the shell element's first widget instead;
+  /// one level, never deeper (a Theme deeper in a branch is not the page's).
   static Map<String, Object?> _themes(WpPage page) {
     Object pageTheme = 'inherited';
-    page.element.visitChildren((c) {
+    void read(Element c) {
       if (c.widget case Theme(:final data)) pageTheme = data.brightness.name;
+    }
+
+    page.element.visitChildren((c) {
+      if (c.widget.runtimeType.toString() == 'WatchPageShell') {
+        c.visitChildren(read);
+      } else {
+        read(c);
+      }
     });
     final appTheme = page.element.findAncestorWidgetOfExactType<Theme>();
     Object sheetTheme = 'none';

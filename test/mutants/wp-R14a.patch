@@ -1,8 +1,8 @@
 diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..d8c5c28a1 100644
+index ac5c5af3d..19156b272 100644
 --- a/lib/pages/video/view.dart
 +++ b/lib/pages/video/view.dart
-@@ -567,7 +567,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
+@@ -545,7 +545,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
        width: maxWidth * videoDetailController.uiScale,
        height: maxHeight * videoDetailController.uiScale,
      );

@@ -1,12 +1,12 @@
-diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
-index ba565d648..cf6d39c5d 100644
---- a/lib/pages/video/view.dart
-+++ b/lib/pages/video/view.dart
-@@ -689,7 +689,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
-               key: videoDetailController.childKey,
+diff --git a/lib/pages/common/watch_page/watch_page_layouts.dart b/lib/pages/common/watch_page/watch_page_layouts.dart
+index d22bb9e4a..7182b9273 100644
+--- a/lib/pages/common/watch_page/watch_page_layouts.dart
++++ b/lib/pages/common/watch_page/watch_page_layouts.dart
+@@ -198,7 +198,7 @@ class WatchPageLayouts {
+               key: shell.childKey,
                body: Column(
                  children: [
--                  buildTabBar(onTap: videoDetailController.animToTop),
+-                  buildTabBar(onTap: shell.animToTop),
 +                  buildTabBar(onTap: () {}),
                    Expanded(
                      child: tabBarView(
