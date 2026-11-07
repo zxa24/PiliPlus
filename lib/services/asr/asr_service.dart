@@ -36,6 +36,7 @@ import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/background_transfer.dart';
 import 'package:PiliPlus/services/debug_overlay.dart';
 import 'package:PiliPlus/services/event_log.dart';
+import 'package:PiliPlus/services/local_documents.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -204,7 +205,8 @@ class AsrSession {
   /// Whether the source can be started from a position. Where it cannot —
   /// a bilibili durl/FLV fallback, an Android `content://` document read
   /// once through `fdclose://` — the session is one run from 0 to the end,
-  /// as every session used to be; it can still pause.
+  /// as every session used to be; it can still pause. A run ended short of
+  /// the end (a suspend, a failure) is followed by another from 0.
   bool seekable;
 
   final double? Function()? _playheadOf;
@@ -404,6 +406,10 @@ class AsrSession {
   /// The end of the media, learned from a run that reached it, when the
   /// page gives no duration.
   double? _mediaEnd;
+
+  /// A run of this session read the source from 0 to its end: a source
+  /// that cannot seek has nothing more to give (see [_tickUnseekable]).
+  var _readThrough = false;
 
   /// Where the viewer was at the last tick, and when; and the last time
   /// they jumped rather than played on.
@@ -952,16 +958,24 @@ class AsrSession {
     _updateState();
   }
 
-  /// One run from 0 to the end, as before: only pausing and resuming.
+  /// One run from 0 to the end, as before: only pausing and resuming, and
+  /// another from 0 when one ends short (see [decideUnseekableIdle]).
   void _tickUnseekable(AsrStep step, _Run? run) {
     if (run == null) {
-      // covered whole by what the cache kept: nothing to run
-      if (step is AsrComplete) {
+      // whether a run here read the source through, not whether the end
+      // is known: the cache keeps that, and with it a run suspended part
+      // way was taken for one that had finished
+      final backoff = _backoffUntil;
+      final next = decideUnseekableIdle(
+        coveredWhole: step is AsrComplete,
+        readThrough: _readThrough,
+        backingOff: backoff != null && DateTime.now().isBefore(backoff),
+      );
+      if (next is AsrComplete) {
         _complete();
-        return;
+      } else if (next is AsrStartAt) {
+        unawaited(_startRun(0, adjacent: false));
       }
-      if (_serials == 0) unawaited(_startRun(0, adjacent: false));
-      if (_serials > 0 && _mediaEnd != null) _complete();
       return;
     }
     switch (step) {
@@ -1331,7 +1345,18 @@ class AsrSession {
       if (!first && refreshSource != null) {
         source = await refreshSource!() ?? source;
       }
-      if (_closed || run.ended) return;
+      if (_closed || run.ended) {
+        // a descriptor opened for this run that mpv will never take
+        if (source != _source) _closeUnread(source);
+        return;
+      }
+      if (!first && source == _source && source.startsWith('fdclose://')) {
+        // a descriptor is read once: mpv closed the first run's, and its
+        // number may be another file's by now — reading it would read
+        // that file, and closing it would close that file
+        _runFailed(run, const AsrExtractException('无法再次读取该视频文件'));
+        return;
+      }
       Object? error = await _extract(run, source);
       if (error != null &&
           AsrAudioExtractor.isForbidden(error) &&
@@ -1373,6 +1398,15 @@ class AsrSession {
     } finally {
       if (_startToken == token) _starting = false;
     }
+  }
+
+  /// Closes the descriptor of an `fdclose://` [source] that mpv never got
+  /// to read (and so to close).
+  static void _closeUnread(String source) {
+    const scheme = 'fdclose://';
+    if (!source.startsWith(scheme)) return;
+    final fd = int.tryParse(source.substring(scheme.length));
+    if (fd != null) unawaited(LocalDocuments.closeFd(fd));
   }
 
   /// Starts [run]'s extraction and waits for enough audio to recognise;
@@ -1622,6 +1656,7 @@ class AsrSession {
         !seekable) {
       // (a source that cannot seek cannot try again: what it got is all)
       _mediaEnd = played;
+      if (run.extractFrom == 0) _readThrough = true;
       debugSeams.add({'kind': 'end', 'run': run.serial, 'at': played});
       _endRun(run);
     } else {
