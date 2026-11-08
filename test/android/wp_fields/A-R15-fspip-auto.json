@@ -354,19 +354,9 @@
       "status": "must-same"
     },
     {
-      "name": "fsPip.tabs[0].roles",
-      "path": "moments.fsPip.tabs[0].roles",
+      "name": "fsPip.tabs",
+      "path": "moments.fsPip.tabs",
       "status": "must-same"
-    },
-    {
-      "name": "fsPip.tabs[0].index",
-      "path": "moments.fsPip.tabs[0].index",
-      "status": "must-same"
-    },
-    {
-      "name": "fsPip.tabs[0].texts",
-      "path": "moments.fsPip.tabs[0].texts",
-      "status": "unstable"
     },
     {
       "name": "fsPip.tabCtr",

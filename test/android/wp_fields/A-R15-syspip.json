@@ -218,19 +218,9 @@
       "status": "must-same"
     },
     {
-      "name": "pip.tabs[0].roles",
-      "path": "moments.pip.tabs[0].roles",
+      "name": "pip.tabs",
+      "path": "moments.pip.tabs",
       "status": "must-same"
-    },
-    {
-      "name": "pip.tabs[0].index",
-      "path": "moments.pip.tabs[0].index",
-      "status": "must-same"
-    },
-    {
-      "name": "pip.tabs[0].texts",
-      "path": "moments.pip.tabs[0].texts",
-      "status": "unstable"
     },
     {
       "name": "pip.tabCtr",
