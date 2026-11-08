@@ -172,6 +172,20 @@ void main() {
       expect(related.first.thumbnails, isNotEmpty);
     });
 
+    test('a lockup with a row of badges still has its views and age '
+        '(2026-11-08)', () {
+      final related = parseRelatedVideos(root);
+      // two of the recorded lockups carry a third row holding only a badge
+      // ("New"); the views and age were read from it, and came out empty
+      for (final item in related) {
+        expect(item.viewCountText, isNotNull, reason: item.title);
+        expect(item.publishedText, isNotNull, reason: item.title);
+      }
+      final mix = related.firstWhere((i) => i.viewCountText == '9.9k');
+      expect(mix.author, 'Classic 80s Mix');
+      expect(mix.publishedText, 'Streamed 6 hr ago');
+    });
+
     test('the legacy renderer is still read when present', () {
       final legacy = parseRelatedVideos({
         'contents': [

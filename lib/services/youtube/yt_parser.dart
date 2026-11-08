@@ -270,6 +270,10 @@ YtSearchItem? _fromLockupViewModel(
 
   final meta =
       (m['metadata'] as Map?)?['lockupMetadataViewModel'] as Map? ?? const {};
+  // Each row's texts; a row with none is left out. A lockup with a badge
+  // ("New", "4K") has a third row holding only `badges`, and the last row
+  // was read as "views · age": most related videos showed neither
+  // (recorded next.json, "Classic 80s Mix"; the user's copy, 2026-11-08).
   final rows =
       collectObjects(
             meta['metadata'],
@@ -277,6 +281,8 @@ YtSearchItem? _fromLockupViewModel(
           )
           .expand((v) => (v['metadataRows'] as List?) ?? const [])
           .whereType<Map>()
+          .map(_metadataTexts)
+          .where((texts) => texts.isNotEmpty)
           .toList(growable: false);
 
   // Rows are told apart by how many there are, because nothing in them says
@@ -294,11 +300,11 @@ YtSearchItem? _fromLockupViewModel(
   final List<String> stats;
   if (channel != null && rows.length == 1) {
     author = channel.name;
-    stats = _metadataTexts(rows.first);
+    stats = rows.first;
   } else {
-    final row0 = rows.isNotEmpty ? _metadataTexts(rows[0]) : const <String>[];
+    final row0 = rows.isNotEmpty ? rows[0] : const <String>[];
     author = row0.isNotEmpty ? row0.first : (channel?.name ?? '');
-    stats = rows.length > 1 ? _metadataTexts(rows.last) : const <String>[];
+    stats = rows.length > 1 ? rows[1] : const <String>[];
   }
 
   final badges = _lockupBadges(m);
@@ -335,8 +341,10 @@ List<Map<String, dynamic>> _lockupBadges(Map<String, dynamic> m) =>
 /// thumbnail of a playlist's `collectionThumbnailViewModel` — the first
 /// `thumbnailViewModel` under `contentImage` either way.
 List<YtThumbnail> lockupThumbnails(Map<String, dynamic> m) {
-  final view = collectObjects(m['contentImage'], 'thumbnailViewModel')
-      .firstOrNull;
+  final view = collectObjects(
+    m['contentImage'],
+    'thumbnailViewModel',
+  ).firstOrNull;
   final image = view?['image'];
   return mapList(image is Map ? image['sources'] : null, YtThumbnail.fromJson);
 }
