@@ -414,10 +414,15 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @visibleForTesting
   Iterable<DownloadKey> get ownHealthForTest => _ownHealth.keys;
 
+  /// [direct] and [fallback]: the sources of a router of the caller's own
+  /// (an export's, [_ExtrasSources]); by default the platform's direct
+  /// source and the pages' Invidious one.
   YtSourceRouter _router(
     YtSourceMode mode, {
     required bool own,
     required Map<String, YtSourceHealth> health,
+    YtDirectSource? direct,
+    YouTubeVideoSource? fallback,
   }) {
     if (routerForTest case final make?) {
       return make(mode, own: own, health: health);
@@ -426,8 +431,8 @@ final class YtDownloadPlatform implements DownloadPlatform {
     YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
     final wrap = selfTestWrapSource ?? (s) => s;
     return YtSourceRouter(
-      wrap(_direct ??= YtDirectSource.create()),
-      fallback: wrap(YtInvidiousSource.shared),
+      wrap(direct ?? (_direct ??= YtDirectSource.create())),
+      fallback: wrap(fallback ?? YtInvidiousSource.shared),
       mode: mode,
       health: health,
     );
@@ -1046,8 +1051,13 @@ final class YtDownloadPlatform implements DownloadPlatform {
   })?
   extrasForTest;
 
-  /// Tests and self tests: the network the export uses.
-  static YtExtrasNet Function(YtSourceRouter play)? extrasNetForTest;
+  /// Tests and self tests: the network the export uses ([cancelled]: the
+  /// export's own).
+  static YtExtrasNet Function(
+    YtSourceRouter play,
+    bool Function()? cancelled,
+  )?
+  extrasNetForTest;
 
   /// Design §6 (stage 4): beside the export, through [YtExtras].
   @override
@@ -1072,23 +1082,29 @@ final class YtDownloadPlatform implements DownloadPlatform {
     // one); while the pages' table says the direct source is walled (read,
     // not changed), straight to the fallback (review 1, l6)
     final mode = YtSourceStore.debugMode;
+    // sources of the export's own: a delete closes them, which ends their
+    // requests (review 2, P2); not with a test's router
+    final sources = routerForTest == null ? _ExtrasSources() : null;
     final play = _router(
       mode == YtSourceMode.auto && directWalled()
           ? YtSourceMode.fallbackOnly
           : mode,
       own: true,
       health: <String, YtSourceHealth>{},
+      direct: sources?.direct,
+      fallback: sources?.invidious,
     );
     return YtExtras.export(
       entry: entry,
       folder: folder,
       base: base,
       net:
-          extrasNetForTest?.call(play) ??
+          extrasNetForTest?.call(play, cancelled) ??
           YtExtrasLiveNet(
             play: play,
             httpClient: httpClientForTest,
             cancelled: cancelled,
+            closeSources: sources?.close,
           ),
       transcriptKey: transcriptKey(entry),
       cancelled: cancelled,
@@ -1096,7 +1112,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
       // the subtitle files written are listed in the record first (review
       // 2, P1)
       saveRecord: () => _host.saveTaken(entry),
-    );
+    ).whenComplete(() => sources?.close());
   }
 
   /// Whether the pages' shared table has the direct source cooling down.
@@ -1353,5 +1369,29 @@ final class YtDownloadPlatform implements DownloadPlatform {
       // the record not written: its leftovers removed, nothing queued
       DownloadAddResult.failed => YtCreateResult.failed,
     };
+  }
+}
+
+/// The sources one export asks for the video's details and captions
+/// (review 2, P2): its own, so that a delete ends their requests by closing
+/// them, the Invidious instance walk included, without closing the video
+/// pages' or the downloads' sources. A direct source, and a copy of the
+/// pages' Invidious source ([YtInvidiousSource.fork]: the instances, the
+/// gates' cookies) on a client of its own.
+final class _ExtrasSources {
+  _ExtrasSources() : direct = YtDirectSource.create(), _fetch = IoInvidiousFetch() {
+    invidious = YtInvidiousSource.shared.fork(fetch: _fetch.call);
+  }
+
+  final YtDirectSource direct;
+  late final YtInvidiousSource invidious;
+  final IoInvidiousFetch _fetch;
+  var _closed = false;
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    direct.close();
+    _fetch.close();
   }
 }

@@ -22,6 +22,7 @@ import 'package:PiliPlus/services/download/yt_extras.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/youtube/direct_source.dart';
 import 'package:PiliPlus/services/youtube/innertube_client.dart';
+import 'package:PiliPlus/services/youtube/invidious_source.dart';
 import 'package:PiliPlus/services/youtube/source_router.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
@@ -715,7 +716,7 @@ void main() {
         modes.add(mode);
         return YtSourceRouter(_NoNetDirect(), health: health, mode: mode);
       };
-      YtDownloadPlatform.extrasNetForTest = (_) => net;
+      YtDownloadPlatform.extrasNetForTest = (_, _) => net;
       addTearDown(() {
         YtDownloadPlatform.routerForTest = null;
         YtDownloadPlatform.extrasNetForTest = null;
@@ -977,6 +978,103 @@ void main() {
     });
   });
 
+  // review 2, P2: the details and the captions are the export's own
+  // requests too
+  group('review 2: a delete ends the details and the captions', () {
+    final h = DownloadHarness();
+    tearDown(() async {
+      YtDownloadPlatform.routerForTest = null;
+      YtDownloadPlatform.extrasNetForTest = null;
+      YtExtras.cancelPoll = const Duration(milliseconds: 250);
+      await h.stop();
+    });
+
+    /// A YouTube export held in its detail lookup (or its caption fetch),
+    /// a bilibili one queued behind it; the YouTube entry deleted.
+    Future<void> deleteWhileHeld({required bool caption}) async {
+      await h.start();
+      YtExtras.cancelPoll = const Duration(milliseconds: 20);
+      final held = _HeldSource(holdDetail: !caption);
+      YtDownloadPlatform.extrasForTest = null;
+      YtDownloadPlatform.routerForTest =
+          (mode, {required own, required health}) => YtSourceRouter(
+            held,
+            health: health,
+            mode: mode,
+            sleep: (_) async {},
+          );
+      YtDownloadPlatform.extrasNetForTest = (play, cancelled) =>
+          YtExtrasLiveNet(
+            play: play,
+            direct: _NoNetDirect(),
+            cancelled: cancelled,
+            sleepForTest: (_) async {},
+          );
+      File mp4(String dir) => File(path.join(h.root.path, dir, 'v.mp4'))
+        ..parent.createSync()
+        ..writeAsBytesSync([1]);
+      final yt = ytEntry(h.root, completed: true, merged: mp4('yt').path);
+      Directory(yt.entryDirPath).createSync(recursive: true);
+      final bili = h.entry(fixtureP1)..mergedPath = mp4('bili').path;
+      h.service
+        ..queueExtrasForTest(yt)
+        ..queueExtrasForTest(bili);
+      await held.asked.future.timeout(const Duration(seconds: 5));
+      expect(h.exported, isEmpty);
+      await h.service
+          .cancelExtrasForTest(yt.key)
+          .timeout(const Duration(seconds: 2));
+      await until(() => h.exported.isNotEmpty, reason: "bilibili's export");
+      expect(h.exported, [same(bili)]);
+    }
+
+    test('held in the detail lookup: the delete returns at once, the '
+        'bilibili job behind it starts', () => deleteWhileHeld(caption: false));
+
+    test('held in a caption fetch: the same', () => deleteWhileHeld(caption: true));
+
+    test("the Invidious instance walk of a detail ends once the export's "
+        'net is closed', () async {
+      final closing = Completer<void>();
+      var asked = 0;
+      Future<InvidiousAnswer> fetch(
+        Uri uri, {
+        required String method,
+        required Map<String, String> headers,
+      }) async {
+        asked++;
+        await closing.future;
+        return const InvidiousAnswer(0, '', error: 'closed');
+      }
+
+      final inv = YtInvidiousSource(
+        hosts: const ['https://a.example', 'https://b.example'],
+        fetch: (uri, {required method, required headers}) =>
+            throw StateError('the shared one is not asked'),
+      ).fork(fetch: fetch);
+      final net = YtExtrasLiveNet(
+        play: YtSourceRouter(
+          _NoNetDirect(),
+          fallback: inv,
+          mode: YtSourceMode.fallbackOnly,
+        ),
+        direct: _NoNetDirect(),
+        closeSources: closing.complete,
+      );
+      final asking = net.detail(ytId);
+      // the walk the router started (one per video at a time)
+      final walk = inv.detail(ytId);
+      await until(() => asked > 0, reason: 'the first instance asked');
+      net.close();
+      await expectLater(
+        asking.timeout(const Duration(seconds: 1)),
+        throwsA(isA<YtExtrasCancelled>()),
+      );
+      final r = await walk.timeout(const Duration(seconds: 2));
+      expect(r.ok, isFalse);
+    });
+  });
+
   test('the switches off: only the record and the intro', () async {
     for (final key in [
       SettingBoxKey.dlSaveCover,
@@ -1034,6 +1132,36 @@ class _Direct extends YtDirectSource {
   Future<YtResult<YtPage<YtComment>>> comments(String token) async {
     asked++;
     return answers.removeAt(0);
+  }
+
+  @override
+  void close() {}
+}
+
+/// A source whose detail (or, with [holdDetail] false, whose caption
+/// fetch) never answers.
+class _HeldSource extends YtDirectSource {
+  _HeldSource({required this.holdDetail})
+    : super(InnertubeClient(FakeYtTransport((_) => throw StateError('no network'))));
+
+  final bool holdDetail;
+  final asked = Completer<void>();
+
+  @override
+  Future<YtResult<YtVideoDetail>> detail(String videoId) async {
+    if (!holdDetail) return YtResult.ok(_Net._detailWith([_track('en')]));
+    if (!asked.isCompleted) asked.complete();
+    return Completer<YtResult<YtVideoDetail>>().future;
+  }
+
+  @override
+  Future<YtResult<String>> captionContent(
+    YtCaptionTrack track, {
+    YtCaptionFormat format = YtCaptionFormat.vtt,
+    String? translateTo,
+  }) {
+    if (!asked.isCompleted) asked.complete();
+    return Completer<YtResult<String>>().future;
   }
 
   @override

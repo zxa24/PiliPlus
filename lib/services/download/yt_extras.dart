@@ -951,13 +951,17 @@ class YtCommentImages {
 /// session; images over a bare [HttpClient] with every hop checked.
 ///
 /// [cancelled] is looked at inside every source call, a router's retry's
-/// too (review 1, c2); [close] ends what is in flight and any pause.
+/// too (review 1, c2); [close] ends what is in flight and any pause: the
+/// comments' source and the images' client are closed, [play]'s sources by
+/// [closeSources] (the export's own, review 2 P2), and a detail or caption
+/// request still under way is answered at once with [YtExtrasCancelled].
 class YtExtrasLiveNet implements YtExtrasNet {
   YtExtrasLiveNet({
     required this.play,
     HttpClient Function()? httpClient,
     YtDirectSource? direct,
     this.cancelled,
+    this.closeSources,
     @visibleForTesting this.sleepForTest,
   }) : _direct = direct ?? YtDirectSource.create(),
        _client = (httpClient ?? HttpClient.new)()
@@ -976,6 +980,9 @@ class YtExtrasLiveNet implements YtExtrasNet {
   final YtDirectSource _direct;
   final bool Function()? cancelled;
 
+  /// Closes [play]'s sources, when they are the export's own.
+  final void Function()? closeSources;
+
   /// Tests only: in place of the pauses (and the router's waits).
   final Future<void> Function(Duration)? sleepForTest;
   late final YtSourceRouter _comments;
@@ -992,12 +999,30 @@ class YtExtrasLiveNet implements YtExtrasNet {
     }
   }
 
+  /// [request], or [YtExtrasCancelled] as soon as the net is closed: a
+  /// request that does not end when its source is closed holds nothing up.
+  Future<T> _untilClosed<T>(Future<T> request) {
+    if (_closed.isCompleted) {
+      // its answer, or its error, is not waited for
+      request.ignore();
+      return Future.error(const YtExtrasCancelled());
+    }
+    return Future.any([
+      request,
+      _closed.future.then<T>((_) => throw const YtExtrasCancelled()),
+    ]);
+  }
+
   @override
-  Future<YtRoutedResult<YtVideoDetail>> detail(String videoId) =>
+  Future<YtRoutedResult<YtVideoDetail>> detail(String videoId) {
+    _check();
+    return _untilClosed(
       play.run((s) {
         _check();
         return s.detail(videoId);
-      });
+      }),
+    );
+  }
 
   @override
   Future<YtResult<String>> captionContent(
@@ -1005,7 +1030,7 @@ class YtExtrasLiveNet implements YtExtrasNet {
     YtCaptionTrack track,
   ) {
     _check();
-    return (source ?? play.direct).captionContent(track);
+    return _untilClosed((source ?? play.direct).captionContent(track));
   }
 
   @override
@@ -1101,5 +1126,6 @@ class YtExtrasLiveNet implements YtExtrasNet {
     _closed.complete();
     _direct.close();
     _client.close(force: true);
+    closeSources?.call();
   }
 }

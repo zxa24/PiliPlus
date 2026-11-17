@@ -254,6 +254,34 @@ class YtInvidiousSource implements YouTubeVideoSource {
   /// The instance that served last, if any.
   String? get preferredHost => _preferred;
 
+  /// A copy of what this source has learned (the registry, the instance
+  /// that served last, the ones set aside, the gates' cookies and browsers,
+  /// googlevideo's and the companions' refusals, the videos resolved) that
+  /// asks through [fetch]: for work that must be able to end its own
+  /// requests — a download's extras, closing [fetch] when the download is
+  /// deleted (review 2, P2) — without ending this one's. What the copy
+  /// learns stays with it; nothing is handed to [onChanged].
+  YtInvidiousSource fork({required InvidiousFetch fetch}) {
+    return YtInvidiousSource(
+        fetch: fetch,
+        hosts: _fixedHosts,
+        clock: _now,
+        relayed: relayed,
+      )
+      .._registry = _registry == null ? null : [..._registry!]
+      .._registryAt = _registryAt
+      .._preferred = _preferred
+      .._refusals = _refusals
+      .._refusedUntil = _refusedUntil
+      .._benched.addAll(_benched)
+      .._cookies.addAll(_cookies)
+      .._browsers.addAll(_browsers)
+      .._resolved.addAll(_resolved)
+      .._servedBy.addAll(_servedBy)
+      .._lastServedBy.addAll(_lastServedBy)
+      .._refusedCompanions.addAll(_refusedCompanions);
+  }
+
   // ------------------------------------------------------------- the video
 
   @override
@@ -1529,6 +1557,10 @@ class YtInvidiousSource implements YouTubeVideoSource {
 /// The app's [InvidiousFetch]: a bare [HttpClient], nothing of bilibili's.
 class IoInvidiousFetch {
   final _client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+
+  /// Ends what is in flight; every request after it fails at once (as a
+  /// transport failure: the answer's [InvidiousAnswer.error]).
+  void close() => _client.close(force: true);
 
   /// The most of a ranged answer that is read.
   static const _probeCap = 64 << 10;
