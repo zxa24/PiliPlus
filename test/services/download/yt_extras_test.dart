@@ -1434,27 +1434,41 @@ void main() {
         entry.commentsPending = false;
         return {};
       };
-      // each folder of the list read slowly, its entries not listed yet
-      DownloadService.readDirectoryGateForTest = (_) =>
-          Future<void>.delayed(const Duration(milliseconds: 800));
+      // the record's folder read slowly, after its record (its entry not
+      // listed yet); the folders are read in name order, the export's
+      // (`Never…`) before it, so only this one is held
+      DownloadService.readDirectoryGateForTest = (dir) async {
+        if (path.basename(dir.path).startsWith('yt_')) {
+          await Future<void>.delayed(const Duration(milliseconds: 1500));
+        }
+      };
+      late Directory listRoot;
+      late YtDownloadEntry record;
+      // due 300 ms after the read starts: while it is held
+      DownloadService.readListGateForTest = () async => writeYtRecord(
+        listRoot,
+        record
+          ..commentsAfter = DateTime.now().add(
+            const Duration(milliseconds: 300),
+          ),
+      );
       await h.start(
         entries: const [],
         before: (root) {
+          listRoot = root;
           final mp4 = File(path.join(root.path, base, '$base.mp4'))
             ..parent.createSync()
             ..writeAsBytesSync([1]);
-          writeYtRecord(
-            root,
-            ytEntry(root, completed: true, merged: mp4.path)
-              ..commentsPending = true
-              // due while the read is held
-              ..commentsAfter = DateTime.now().add(
-                const Duration(milliseconds: 300),
-              ),
-          );
+          record = ytEntry(root, completed: true, merged: mp4.path)
+            ..commentsPending = true;
+          writeYtRecord(root, record);
         },
       );
-      await until(() => retried.isNotEmpty, reason: 'the retry');
+      await until(
+        () => retried.isNotEmpty,
+        reason: 'the retry',
+        timeout: const Duration(seconds: 10),
+      );
       expect(retried, ['yt:$ytId']);
     });
   });
