@@ -20,6 +20,7 @@ import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/services/download/preview_sheet.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
+import 'package:PiliPlus/utils/atomic_text_file.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
@@ -94,7 +95,8 @@ abstract final class DownloadExtras {
         ..remove('merged_parts')
         ..remove('extras_pending')
         ..remove('transcript_pending');
-      await File(path.join(folder, infoName)).writeAsString(
+      await writeTextAtomic(
+        File(path.join(folder, infoName)),
         const JsonEncoder.withIndent(' ').convert(info),
       );
     } catch (_) {}
@@ -134,13 +136,17 @@ abstract final class DownloadExtras {
           ..sort((a, b) => a.progress.compareTo(b.progress));
         final out = <String>[];
         if (Pref.dlSaveDanmakuXml) {
-          await File(path.join(folder, '$base$xmlSuffix'))
-              .writeAsString(danmakuToXml(elems, cid: entry.cid));
+          await writeTextAtomic(
+            File(path.join(folder, '$base$xmlSuffix')),
+            danmakuToXml(elems, cid: entry.cid),
+          );
           out.add(xmlSuffix);
         }
         if (Pref.dlSaveDanmakuAss) {
-          await File(path.join(folder, '$base$assSuffix'))
-              .writeAsString(danmakuToAss(elems, title: entry.showTitle));
+          await writeTextAtomic(
+            File(path.join(folder, '$base$assSuffix')),
+            danmakuToAss(elems, title: entry.showTitle),
+          );
           out.add(assSuffix);
         }
         return '${elems.length} items -> ${out.join(', ')}';
@@ -236,7 +242,7 @@ abstract final class DownloadExtras {
       final srt = await VideoHttp.getSubtitles(s.url, format: .srt);
       if (srt == null) continue;
       final name = '$base.${_safe(s.lan)}.srt';
-      await File(path.join(folder, name)).writeAsString(srt);
+      await writeTextAtomic(File(path.join(folder, name)), srt);
       written.add(name);
     }
     // what the device transcribed of this part before it was downloaded;
@@ -314,7 +320,8 @@ abstract final class DownloadExtras {
       }
     }
     check();
-    await File(path.join(folder, '$base$introSuffix')).writeAsString(
+    await writeTextAtomic(
+      File(path.join(folder, '$base$introSuffix')),
       jsonEncode({
         'format': 'librepili-intro-1',
         'fetchedAt': DateTime.now().toIso8601String(),
@@ -414,7 +421,8 @@ abstract final class DownloadExtras {
       'comments': items,
     };
     check();
-    await File(path.join(folder, '$base$commentsSuffix')).writeAsString(
+    await writeTextAtomic(
+      File(path.join(folder, '$base$commentsSuffix')),
       const JsonEncoder.withIndent(' ').convert(json),
     );
     return '${items.length} comments, ${images.saved} images';
