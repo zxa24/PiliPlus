@@ -19,6 +19,7 @@ import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/download/yt_extras.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -1032,6 +1033,22 @@ final class YtDownloadPlatform implements DownloadPlatform {
   ({String name, String suffix}) exportName(DownloadEntry entry) =>
       (name: entry.title, suffix: entry.qualityLabel ?? '');
 
+  /// Tests only: in place of the whole export (as bilibili's
+  /// `DownloadService.exportExtrasForTest`).
+  @visibleForTesting
+  static Future<Map<String, Object?>> Function({
+    required YtDownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  })?
+  extrasForTest;
+
+  /// Tests and self tests: the network the export uses.
+  static YtExtrasNet Function(YtSourceRouter play)? extrasNetForTest;
+
+  /// Design §6 (stage 4): beside the export, through [YtExtras].
   @override
   Future<Map<String, Object?>> extras({
     required DownloadEntry entry,
@@ -1039,10 +1056,40 @@ final class YtDownloadPlatform implements DownloadPlatform {
     required String base,
     bool Function()? cancelled,
     DownloadProgress? progress,
-  }) async => const {};
+  }) {
+    entry as YtDownloadEntry;
+    if (extrasForTest case final export?) {
+      return export(
+        entry: entry,
+        folder: folder,
+        base: base,
+        cancelled: cancelled,
+        progress: progress,
+      );
+    }
+    // the download's own router (own health, never the pages' shared
+    // one), as a start's
+    final play = _router(
+      YtSourceStore.debugMode,
+      own: true,
+      health: <String, YtSourceHealth>{},
+    );
+    return YtExtras.export(
+      entry: entry,
+      folder: folder,
+      base: base,
+      net: (extrasNetForTest ?? _liveNet)(play),
+      transcriptKey: transcriptKey(entry),
+      cancelled: cancelled,
+      progress: progress,
+    );
+  }
+
+  YtExtrasNet _liveNet(YtSourceRouter play) =>
+      YtExtrasLiveNet(play: play, httpClient: httpClientForTest);
 
   @override
-  Map<String, int> extrasPlan() => const {};
+  Map<String, int> extrasPlan() => YtExtras.plan();
 
   @override
   SubtitleCacheKey transcriptKey(DownloadEntry entry) =>
