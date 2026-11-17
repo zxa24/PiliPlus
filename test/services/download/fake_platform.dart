@@ -275,6 +275,14 @@ class FakePlatform implements DownloadPlatform {
   DateTime? commentsRetryAt(DownloadEntry entry) => commentsAt[entry.key];
 
   @override
+  void copyCommentsRetry({
+    required DownloadEntry from,
+    required DownloadEntry to,
+  }) {
+    if (commentsAt[from.key] case final at?) commentsAt[to.key] = at;
+  }
+
+  @override
   Map<String, int> commentsPlan() => {};
 
   @override

@@ -1157,6 +1157,19 @@ final class YtDownloadPlatform implements DownloadPlatform {
   }
 
   @override
+  void copyCommentsRetry({
+    required DownloadEntry from,
+    required DownloadEntry to,
+  }) {
+    from as YtDownloadEntry;
+    (to as YtDownloadEntry)
+      ..commentsPending = from.commentsPending
+      ..commentsTries = from.commentsTries
+      ..commentsAfter = from.commentsAfter
+      ..commentsNote = from.commentsNote;
+  }
+
+  @override
   Map<String, int> commentsPlan() => YtExtras.commentsPlan();
 
   @override

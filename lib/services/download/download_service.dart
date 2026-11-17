@@ -1764,13 +1764,31 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       if (identical(_extrasJobs[key], job)) {
         _extrasJobs.remove(key);
         if (identical(_extrasTokens[key], token)) _extrasTokens.remove(key);
-        // comments a wall kept out (now or again): asked for when due
-        if (!token.cancelled &&
-            downloadList.any((e) => identical(e, entry))) {
-          _scheduleComments(entry);
-        }
+        if (!token.cancelled) _afterExtras(entry);
       }
     });
+  }
+
+  /// After a job of [entry]: the entry listed for it now — the same object,
+  /// or one a re-read of the list made meanwhile (the same key and record
+  /// folder; review 4 of the YouTube extras, P2) — takes the job's outcome;
+  /// then the comments a wall kept out (now or again) are asked for when
+  /// due.
+  void _afterExtras(DownloadEntry entry) {
+    final folder = _folderKey(entry.entryDirPath);
+    DownloadEntry? listed;
+    for (final e in downloadList) {
+      if (e.key == entry.key && _folderKey(e.entryDirPath) == folder) {
+        listed = e;
+        break;
+      }
+    }
+    if (listed == null) return;
+    if (!identical(listed, entry)) {
+      listed.extrasPending = entry.extrasPending;
+      platformOf(entry).copyCommentsRetry(from: entry, to: listed);
+    }
+    _scheduleComments(listed);
   }
 
   /// Stops the extras export of a deleted entry; a running one is awaited so

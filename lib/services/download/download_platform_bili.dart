@@ -234,6 +234,12 @@ final class _BiliPlatform implements DownloadPlatform {
   DateTime? commentsRetryAt(DownloadEntry entry) => null;
 
   @override
+  void copyCommentsRetry({
+    required DownloadEntry from,
+    required DownloadEntry to,
+  }) {}
+
+  @override
   Map<String, int> commentsPlan() => const {};
 
   @override

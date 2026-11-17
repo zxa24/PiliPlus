@@ -1583,6 +1583,65 @@ void main() {
     });
   });
 
+  // review 4, P2: a list read again while a job runs
+  group('review 4: the list read again while a comment retry runs', () {
+    final h = DownloadHarness();
+    tearDown(() async {
+      YtDownloadPlatform.commentsForTest = null;
+      await h.stop();
+    });
+
+    test('the job ends with the comments still to ask: the next retry is '
+        'armed on the entry the list now holds', () async {
+      final calls = <YtDownloadEntry>[];
+      final release = Completer<void>();
+      YtDownloadPlatform.commentsForTest = ({
+        required entry,
+        required folder,
+        required base,
+        cancelled,
+        progress,
+      }) async {
+        calls.add(entry);
+        if (calls.length == 1) {
+          await release.future;
+          // still walled: due again in a moment
+          entry.commentsAfter = DateTime.now().add(
+            const Duration(milliseconds: 200),
+          );
+        } else {
+          entry.commentsPending = false;
+        }
+        return {};
+      };
+      await h.start(
+        entries: const [],
+        before: (root) {
+          final mp4 = File(path.join(root.path, base, '$base.mp4'))
+            ..parent.createSync()
+            ..writeAsBytesSync([1]);
+          writeYtRecord(
+            root,
+            ytEntry(root, completed: true, merged: mp4.path)
+              ..commentsPending = true
+              ..commentsAfter = DateTime(2026),
+          );
+        },
+      );
+      await until(() => calls.isNotEmpty, reason: 'the first retry');
+      final first = calls.single;
+      // the list read again (the download folder changed and back)
+      h.service.reloadDownloadList();
+      await h.service.waitForInitialization;
+      final listed = h.service.downloadList.single as YtDownloadEntry;
+      expect(identical(listed, first), isFalse);
+      release.complete();
+      await until(() => calls.length == 2, reason: 'the next retry');
+      expect(identical(calls[1], listed), isTrue);
+      expect(identical(h.service.downloadList.single, listed), isTrue);
+    });
+  });
+
   test('the switches off: only the record and the intro', () async {
     for (final key in [
       SettingBoxKey.dlSaveCover,

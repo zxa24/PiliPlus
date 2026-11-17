@@ -275,6 +275,13 @@ abstract interface class DownloadPlatform {
   /// extras, item 5).
   DateTime? commentsRetryAt(DownloadEntry entry);
 
+  /// [from]'s comment retry state onto [to], the same download read again
+  /// (a re-read of the list while a job of [from] ran; review 4 P2).
+  void copyCommentsRetry({
+    required DownloadEntry from,
+    required DownloadEntry to,
+  });
+
   /// The steps of [retryComments] (DownloadProgress.planExtras).
   Map<String, int> commentsPlan();
 
