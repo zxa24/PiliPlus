@@ -1,14 +1,15 @@
-// LibrePili: a YouTube download's extras wait for stage 4 (stage-2 plan
-// §2.5, §10-7 Q2 c; AC-E, the YouTube part). The service side with a
-// platform whose extras are off is extras_deferred_test.dart (P2-E1..E3);
-// here the YouTube adapter itself: a completed record marked
-// `extras_pending` is listed as cached, never queued for its extras, its
-// mark kept; once the switch is on (what stage 4 does), the next read of
-// the list queues it and the mark is cleared when done — or, its video
-// gone, the mark alone is cleared.
+// LibrePili: a YouTube download's extras, stage 4 (design §6, §11 stage 4;
+// AC-E as stage 4 flips it, the YouTube part; the service with a platform
+// whose extras are off is extras_deferred_test.dart, P2-E1..E3). Stage 2
+// left completed records marked `extras_pending`; with the switch on (the
+// default now) the first read of the list queues each one's extras once
+// and the mark is cleared when they are done — or, its video gone, the
+// mark alone is cleared. A build with the switch off (stage 2's, kept as
+// `YtDownloadPlatform.extrasEnabledForTest`) leaves the mark and queues
+// nothing.
 //
 // The completion that writes the mark is YouTube's start (2e): its test is
-// yt_merge_test there.
+// yt_merge_test there. The export itself is yt_extras_test.dart's.
 import 'dart:convert';
 import 'dart:io';
 
@@ -29,8 +30,8 @@ void main() {
 
   late File record;
 
-  /// A completed download marked for its extras, its mp4 in the root
-  /// unless [videoGone].
+  /// A completed download marked for its extras (as stage 2 left it), its
+  /// mp4 in the root unless [videoGone].
   Future<void> start({bool videoGone = false}) => h.start(
     entries: const [],
     before: (root) {
@@ -56,47 +57,43 @@ void main() {
 
   YtDownloadEntry listed() => h.service.downloadList.single as YtDownloadEntry;
 
-  test(
-    'stage 2: listed as cached, not queued for extras, the mark kept',
-    () async {
-      await start();
-      final e = listed();
-      expect(e.extrasPending, isTrue);
-      expect(h.service.extrasQueue, isEmpty);
-      expect(h.service.isSavingExtras(e), isFalse);
-      // what a later use of the service does with an entry it holds
-      h.service.resumeExtrasForTest(e);
-      expect(h.service.extrasQueue, isEmpty);
-      await settle();
-      expect(e.extrasPending, isTrue);
-      expect(e.status, isNot(DownloadStatus.extrasWait));
-      expect(pendingOnDisk(), isTrue);
-      expect(h.exported, isEmpty);
-    },
-  );
-
-  test('stage 2, the video gone: the mark is left too', () async {
-    await start(videoGone: true);
-    await settle();
-    expect(listed().extrasPending, isTrue);
-    expect(pendingOnDisk(), isTrue);
-  });
-
-  test('the switch on (stage 4): the list read queues it, done then', () async {
-    YtDownloadPlatform.extrasEnabledForTest = true;
+  test('stage 4 (the default): the list read queues a stage-2 record\'s '
+      'extras once, the mark cleared when done', () async {
+    expect(YtDownloadPlatform.extrasEnabledForTest, isTrue);
     await start();
     final e = listed();
     await until(() => !e.extrasPending);
     expect(e.status, DownloadStatus.completed);
+    expect(h.exported, [same(e)]);
     await until(() => !pendingOnDisk());
+    await settle();
+    expect(h.exported, hasLength(1));
+    expect(h.service.extrasQueue, isEmpty);
   });
 
-  test('the switch on, the video gone: only the mark cleared', () async {
-    YtDownloadPlatform.extrasEnabledForTest = true;
+  test('stage 4, the video gone: only the mark cleared, no export', () async {
     await start(videoGone: true);
     final e = listed();
     await until(() => !pendingOnDisk());
     expect(e.extrasPending, isFalse);
     expect(h.service.extrasQueue, isEmpty);
+    expect(h.exported, isEmpty);
+  });
+
+  test('the switch off (a stage-2 build): listed as cached, not queued, the '
+      'mark kept', () async {
+    YtDownloadPlatform.extrasEnabledForTest = false;
+    await start();
+    final e = listed();
+    expect(e.extrasPending, isTrue);
+    expect(h.service.extrasQueue, isEmpty);
+    expect(h.service.isSavingExtras(e), isFalse);
+    h.service.resumeExtrasForTest(e);
+    expect(h.service.extrasQueue, isEmpty);
+    await settle();
+    expect(e.extrasPending, isTrue);
+    expect(e.status, isNot(DownloadStatus.extrasWait));
+    expect(pendingOnDisk(), isTrue);
+    expect(h.exported, isEmpty);
   });
 }

@@ -132,6 +132,8 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/services/youtube/yt_pair_transfer.dart';
 import 'package:PiliPlus/services/youtube/yt_quality_tier.dart';
 import 'package:PiliPlus/services/download/download_platform_yt.dart';
+import 'package:PiliPlus/services/download/yt_extras.dart';
+import 'package:PiliPlus/services/youtube/yt_source_store.dart';
 import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/pages/youtube/video/download_sheet.dart';
 import 'package:PiliPlus/services/asr/audio_extract.dart';
@@ -222,6 +224,7 @@ import 'package:PiliPlus/services/translate/translation_engine.dart';
 import 'package:PiliPlus/services/parallel_fetch.dart';
 
 part 'self_test_yt_download.dart';
+part 'self_test_yt_extras.dart';
 
 /// Command-line self test (LibrePili), for scripted checks of a real build:
 ///
@@ -1607,6 +1610,16 @@ abstract final class SelfTest {
         'ytDownloadTranscribe',
         () => _YtDl.download(args, video, mode: 'transcribe'),
       );
+    }
+    // the YouTube download extras (design §6, stage 4)
+    if (_arg(args, '--yt-caption-list') case final video?) {
+      await scenario('ytCaptionList', () => _YtX.captionList(video));
+    }
+    if (_arg(args, '--yt-extras-probe') case final video?) {
+      await scenario('ytExtrasProbe', () => _YtX.probe(args, video));
+    }
+    if (_arg(args, '--yt-extras-wait') case final video?) {
+      await scenario('ytExtrasWait', () => _YtX.extrasWait(video));
     }
     if (_arg(args, '--yt-panel') case final video?) {
       _shots = _arg(args, '--shots') ?? _shots;

@@ -79,6 +79,29 @@ void main() {
       expect(back.streamTypeTag, '136-140');
     });
 
+    // review 2 of the extras, item 5: the comment retry
+    test('what the comment retry keeps in the record: written and read '
+        'back, left out while empty', () {
+      final e = ytEntry(root)
+        ..commentsPending = true
+        ..commentsTries = 2
+        ..commentsAfter = DateTime(2026, 11, 17, 12)
+        ..commentsNote = 'ipBlocked';
+      final json = jsonDecode(jsonEncode(e.toJson())) as Map<String, dynamic>;
+      final back = YtDownloadEntry.fromJson(json);
+      expect(back.toJson(), e.toJson());
+      expect(back.commentsAfter, DateTime(2026, 11, 17, 12));
+      final plain = ytEntry(root).toJson();
+      for (final key in [
+        'comments_pending',
+        'comments_tries',
+        'comments_after',
+        'comments_note',
+      ]) {
+        expect(plain.containsKey(key), isFalse, reason: key);
+      }
+    });
+
     test('not one of these: refused', () {
       final good = ytEntry(root).toJson();
       for (final (field, value) in [

@@ -24,6 +24,10 @@ class YtDownloadEntry extends DownloadEntry {
     this.mergedPath,
     this.extrasPending = false,
     this.transcriptPending = false,
+    this.commentsPending = false,
+    this.commentsTries = 0,
+    this.commentsAfter,
+    this.commentsNote,
     required this.timeCreateStamp,
     required this.timeUpdateStamp,
   });
@@ -88,6 +92,20 @@ class YtDownloadEntry extends DownloadEntry {
   bool extrasPending;
   @override
   bool transcriptPending;
+
+  /// The comments a wall kept out of the extras are to be asked for again
+  /// (`comments_pending`, review 2 item 5); the other extras are saved
+  /// ([extrasPending] is cleared all the same).
+  bool commentsPending;
+
+  /// How many times they were asked for again and not saved.
+  int commentsTries;
+
+  /// Not asked for again before this.
+  DateTime? commentsAfter;
+
+  /// Why they were last not saved, or why they were given up.
+  String? commentsNote;
 
   /// Seconds, as bilibili's (the list sorts by [timeUpdateStamp]).
   final int timeCreateStamp;
@@ -156,6 +174,13 @@ class YtDownloadEntry extends DownloadEntry {
       mergedPath: json['merged_path'] as String?,
       extrasPending: json['extras_pending'] == true,
       transcriptPending: json['transcript_pending'] == true,
+      commentsPending: json['comments_pending'] == true,
+      commentsTries: asInt(json['comments_tries']),
+      commentsAfter: switch (json['comments_after']) {
+        final int ms => DateTime.fromMillisecondsSinceEpoch(ms),
+        _ => null,
+      },
+      commentsNote: json['comments_note'] as String?,
       timeCreateStamp: asInt(json['time_create_stamp']),
       timeUpdateStamp: asInt(json['time_update_stamp']),
     );
@@ -180,6 +205,11 @@ class YtDownloadEntry extends DownloadEntry {
     'merged_path': mergedPath,
     'extras_pending': extrasPending,
     'transcript_pending': transcriptPending,
+    if (commentsPending) 'comments_pending': true,
+    if (commentsTries > 0) 'comments_tries': commentsTries,
+    if (commentsAfter case final after?)
+      'comments_after': after.millisecondsSinceEpoch,
+    'comments_note': ?commentsNote,
     'time_create_stamp': timeCreateStamp,
     'time_update_stamp': timeUpdateStamp,
   };

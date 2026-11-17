@@ -370,6 +370,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       worker.dispose();
     }
     keepAlive.update(null, visible: !_away);
+    for (final timer in _commentTimers.values) {
+      timer.cancel();
+    }
+    _commentTimers.clear();
     super.onClose();
   }
 
@@ -606,6 +610,16 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       }
     }
     downloadList.sort((a, b) => b.timeUpdateStamp.compareTo(a.timeUpdateStamp));
+    // the comments a wall kept out are to be asked for again (review 2 of
+    // the YouTube extras, item 5): armed only now that their entries are
+    // in the list, which is where a timer that fires looks for them
+    // (review 3, P5)
+    for (final entry in downloadList) {
+      if (!entry.extrasPending &&
+          platformOf(entry).commentsRetryAt(entry) != null) {
+        _resumeExtras(entry);
+      }
+    }
     // how far the transcripts beside them got, then the ones still to do
     unawaited(
       (knownReadForTest = transcripts.readKnown()).whenComplete(
@@ -666,7 +680,8 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
               ..entryDirPath = entryDir.path;
             if (entry.isCompleted) {
               result.add(entry);
-              // the app closed while they were being saved
+              // the app closed while they were being saved (the comments a
+              // wall kept out: once the whole list is read, below)
               if (entry.extrasPending) _resumeExtras(entry);
             } else {
               final (:video, :audio, mediaGuess: _, expectAudio: _) = platform
@@ -689,9 +704,14 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       lastError = 'download folder (${pageDir.path}): $e';
       debugPrint('skipped download folder: $lastError');
     }
-
+    if (readDirectoryGateForTest case final gate?) await gate(pageDir);
     return result;
   }
+
+  /// Tests only: awaited as each folder of the list is read, its entries
+  /// not yet in [downloadList] (a slow read).
+  @visibleForTesting
+  static Future<void> Function(Directory pageDir)? readDirectoryGateForTest;
 
   void downloadVideo(
     Part page,
@@ -1564,6 +1584,16 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   @visibleForTesting
   void resumeExtrasForTest(DownloadEntry entry) => _resumeExtras(entry);
 
+  /// Tests only: [_queueExtras], as a completion does (no guard against a
+  /// job of the key already queued: a deleted entry downloaded again).
+  @visibleForTesting
+  void queueExtrasForTest(DownloadEntry entry) =>
+      _queueExtras(entry, entry.mergedPath!);
+
+  /// Tests only: [_cancelExtras], as deleting the entry does.
+  @visibleForTesting
+  Future<void> cancelExtrasForTest(DownloadKey key) => _cancelExtras(key);
+
   /// Saves the extras of [entry] that an earlier run did not finish.
   void _resumeExtras(DownloadEntry entry) {
     // not saved by this build: left marked, neither held nor queued
@@ -1574,6 +1604,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     }
     final merged = entry.mergedPath;
     if (_extrasJobs.containsKey(entry.key)) return;
+    // the extras saved: only the comments a wall kept out, when due
+    if (!entry.extrasPending) {
+      _scheduleComments(entry);
+      return;
+    }
     if (merged == null || !File(merged).existsSync()) {
       // the video was moved or deleted: nothing to save them next to
       _saveEntry(entry..extrasPending = false);
@@ -1585,6 +1620,44 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       ..mergeDone();
     extrasQueue.add(entry..status = DownloadStatus.extrasWait);
     _queueExtras(entry, merged);
+  }
+
+  /// The comment retries not due yet, by entry (review 2 of the YouTube
+  /// extras, item 5).
+  final _commentTimers = <DownloadKey, Timer>{};
+
+  /// Queues [entry]'s comment retry ([DownloadPlatform.commentsRetryAt])
+  /// when it is due, or sets a timer for then. Through the extras queue,
+  /// one job at a time with the others; the platform keeps the pacing.
+  void _scheduleComments(DownloadEntry entry) {
+    final key = entry.key;
+    _commentTimers.remove(key)?.cancel();
+    final platform = platformOf(entry);
+    // a whole export still to do (its record not saved): the next launch's
+    // does the comments too
+    if (!platform.extrasEnabled ||
+        entry.extrasPending ||
+        _extrasJobs.containsKey(key)) {
+      return;
+    }
+    final at = platform.commentsRetryAt(entry);
+    final merged = entry.mergedPath;
+    if (at == null || merged == null) return;
+    final wait = at.difference(DateTime.now());
+    if (wait > Duration.zero) {
+      _commentTimers[key] = Timer(wait, () {
+        _commentTimers.remove(key);
+        // deleted meanwhile, or the list read again (another object now)
+        if (downloadList.any((e) => identical(e, entry))) _resumeExtras(entry);
+      });
+      return;
+    }
+    entry.progress
+      ..planExtras(platform.commentsPlan())
+      ..video(1, 1)
+      ..mergeDone();
+    extrasQueue.add(entry..status = DownloadStatus.extrasWait);
+    _queueExtras(entry, merged, commentsOnly: true);
   }
 
   /// Removes the stream folders of qualities this entry no longer uses.
@@ -1608,8 +1681,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// Pending or running extras export per entry.
   final _extrasJobs = <DownloadKey, Future<void>>{};
 
-  /// Entries whose export must stop (entry deleted).
-  final _extrasCancelled = <DownloadKey>{};
+  /// Each queued export's own cancel mark (deleting its entry sets it). A
+  /// key queued again gets a new one: an older job of the same key that
+  /// was cancelled stays cancelled (review 1, l5).
+  final _extrasTokens = <DownloadKey, _ExtrasToken>{};
 
   /// The entry whose export is running now.
   DownloadKey? _extrasRunningKey;
@@ -1617,20 +1692,30 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// The extras export of [key], if one is pending or running.
   Future<void>? extrasDone(DownloadKey key) => _extrasJobs[key];
 
-  void _queueExtras(DownloadEntry entry, String output) {
+  /// [commentsOnly]: the comments a wall kept out, asked for again
+  /// ([DownloadPlatform.retryComments]); the record's [DownloadEntry.
+  /// extrasPending] is not touched.
+  void _queueExtras(
+    DownloadEntry entry,
+    String output, {
+    bool commentsOnly = false,
+  }) {
     final key = entry.key;
-    _extrasCancelled.remove(key);
+    final token = _extrasTokens[key] = _ExtrasToken();
+    // a job that fails is caught here: the chain behind it always goes on
+    // (review 1, c1)
     final job = _extrasQueue = _extrasQueue.then((_) async {
-      if (_extrasCancelled.contains(key)) return;
+      if (token.cancelled) return;
       _extrasRunningKey = key;
       entry.status = DownloadStatus.savingExtras;
       extrasQueue.refresh();
       try {
-        await platformOf(entry).extras(
+        final platform = platformOf(entry);
+        await (commentsOnly ? platform.retryComments : platform.extras)(
           entry: entry,
           folder: path.dirname(output),
           base: path.basenameWithoutExtension(output),
-          cancelled: () => _extrasCancelled.contains(key),
+          cancelled: () => token.cancelled,
           progress: entry.progress,
         );
       } catch (e) {
@@ -1638,40 +1723,82 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       } finally {
         _extrasRunningKey = null;
       }
-      if (_extrasCancelled.contains(key)) return;
-      entry
-        ..extrasPending = false
-        ..status = DownloadStatus.completed
-        ..progress.complete();
-      // its folder may be gone meanwhile (download folder changed and the
-      // old one removed): nothing to record then
-      if (Directory(entry.entryDirPath).existsSync()) {
-        await _saveEntry(entry);
-        // one merged by a version that marked it for its transcript only
-        // here (the app closed while its extras were saved): marked now
-        if (!entry.transcriptPending && transcripts.progress[key] == null) {
-          unawaited(transcripts.finished(entry));
+      if (token.cancelled) return;
+      try {
+        if (!commentsOnly) entry.extrasPending = false;
+        entry
+          ..status = DownloadStatus.completed
+          ..progress.complete();
+        // its folder may be gone meanwhile (download folder changed and the
+        // old one removed): nothing to record then
+        if (Directory(entry.entryDirPath).existsSync()) {
+          try {
+            await _saveEntry(entry);
+          } catch (e) {
+            // the record on disk still says pending: the next launch saves
+            // them again
+            if (!commentsOnly) entry.extrasPending = true;
+            EventLog.add(
+              'download',
+              '${entry.logLabel}: extras saved, record not: $e',
+            );
+          }
+          // one merged by a version that marked it for its transcript only
+          // here (the app closed while its extras were saved): marked now
+          if (!commentsOnly &&
+              !entry.extrasPending &&
+              !entry.transcriptPending &&
+              transcripts.progress[key] == null) {
+            unawaited(transcripts.finished(entry));
+          }
         }
+      } finally {
+        extrasQueue.remove(entry);
+        flagNotifier.refresh();
       }
-      extrasQueue.remove(entry);
-      flagNotifier.refresh();
+    }).catchError((Object e) {
+      EventLog.add('download', '${entry.logLabel}: extras job failed: $e');
     });
     _extrasJobs[key] = job;
     job.whenComplete(() {
       if (identical(_extrasJobs[key], job)) {
         _extrasJobs.remove(key);
-        _extrasCancelled.remove(key);
+        if (identical(_extrasTokens[key], token)) _extrasTokens.remove(key);
+        if (!token.cancelled) _afterExtras(entry);
       }
     });
+  }
+
+  /// After a job of [entry]: the entry listed for it now — the same object,
+  /// or one a re-read of the list made meanwhile (the same key and record
+  /// folder; review 4 of the YouTube extras, P2) — takes the job's outcome;
+  /// then the comments a wall kept out (now or again) are asked for when
+  /// due.
+  void _afterExtras(DownloadEntry entry) {
+    final folder = _folderKey(entry.entryDirPath);
+    DownloadEntry? listed;
+    for (final e in downloadList) {
+      if (e.key == entry.key && _folderKey(e.entryDirPath) == folder) {
+        listed = e;
+        break;
+      }
+    }
+    if (listed == null) return;
+    if (!identical(listed, entry)) {
+      listed.extrasPending = entry.extrasPending;
+      platformOf(entry).copyCommentsRetry(from: entry, to: listed);
+    }
+    _scheduleComments(listed);
   }
 
   /// Stops the extras export of a deleted entry; a running one is awaited so
   /// it cannot write into (or recreate) a folder that is being removed.
   Future<void> _cancelExtras(DownloadKey key) async {
+    _commentTimers.remove(key)?.cancel();
     await transcripts.forget(key);
     extrasQueue.removeWhere((e) => e.key == key);
     if (!_extrasJobs.containsKey(key)) return;
-    _extrasCancelled.add(key);
+    _extrasTokens[key]?.cancelled = true;
     if (_extrasRunningKey == key) await _extrasJobs[key];
   }
 
@@ -2252,4 +2379,9 @@ extension SetNotifierExt on SetNotifier {
       i();
     }
   }
+}
+
+/// One queued extras export's cancel mark.
+final class _ExtrasToken {
+  bool cancelled = false;
 }

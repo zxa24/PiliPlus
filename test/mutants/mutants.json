@@ -22,7 +22,7 @@
   {
     "id": "M3",
     "patch": "M3.patch",
-    "location": "lib/services/download/download_service.dart:1659-1661",
+    "location": "lib/services/download/download_service.dart:1762-1764",
     "change": "_queueExtras: _extrasJobs keyed by 'bili:<avid>' (and its identical check)",
     "phase": "both",
     "kind": "unit",
@@ -32,7 +32,7 @@
   {
     "id": "M4",
     "patch": "M4.patch",
-    "location": "lib/services/download/download_service.dart:1576",
+    "location": "lib/services/download/download_service.dart:1606",
     "change": "_resumeExtras: _extrasJobs.containsKey('bili:<avid>')",
     "phase": "both",
     "kind": "unit",

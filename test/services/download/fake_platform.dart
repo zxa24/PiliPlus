@@ -132,6 +132,13 @@ class FakePlatform implements DownloadPlatform {
   var saves = 0;
   var extrasCalls = 0;
 
+  /// The key of each [extras] call, in order.
+  final extrasKeys = <String>[];
+
+  /// Waited for inside [extras]: a test holds an export there.
+  Future<void> Function(DownloadEntry entry, bool Function()? cancelled)?
+  extrasGate;
+
   /// [DownloadEntry.extrasPending] of each record saved.
   final savedExtrasPending = <bool>[];
 
@@ -250,11 +257,46 @@ class FakePlatform implements DownloadPlatform {
     DownloadProgress? progress,
   }) async {
     extrasCalls++;
+    extrasKeys.add(entry.key);
+    await extrasGate?.call(entry, cancelled);
     return {};
   }
 
   @override
   Map<String, int> extrasPlan() => {};
+
+  /// What [commentsRetryAt] answers per key (review 2, item 5).
+  final commentsAt = <DownloadKey, DateTime>{};
+
+  /// The keys whose comments were asked again, in order.
+  final commentKeys = <DownloadKey>[];
+
+  @override
+  DateTime? commentsRetryAt(DownloadEntry entry) => commentsAt[entry.key];
+
+  @override
+  void copyCommentsRetry({
+    required DownloadEntry from,
+    required DownloadEntry to,
+  }) {
+    if (commentsAt[from.key] case final at?) commentsAt[to.key] = at;
+  }
+
+  @override
+  Map<String, int> commentsPlan() => {};
+
+  @override
+  Future<Map<String, Object?>> retryComments({
+    required DownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  }) async {
+    commentKeys.add(entry.key);
+    commentsAt.remove(entry.key);
+    return {};
+  }
   @override
   SubtitleCacheKey transcriptKey(DownloadEntry entry) =>
       SubtitleCacheKey.youtube(entry.key);

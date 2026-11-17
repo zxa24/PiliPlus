@@ -226,6 +226,9 @@ final class _YtRun {
   final requests = <String, List<String>>{'video': [], 'audio': []};
   final asked = <Map<String, Object?>>[];
   final dioHosts = <String>{};
+
+  /// Method, host and path of each (no query: it can carry keys).
+  final dioRequests = <String>[];
   final progressSamples = <List<Object?>>[];
   final keepAliveTexts = <String>[];
   var extrasQueueSeen = false;
@@ -324,6 +327,7 @@ abstract final class _YtDl {
     final dio = InterceptorsWrapper(
       onRequest: (options, handler) {
         run.dioHosts.add(options.uri.host);
+        run.dioRequests.add('${options.method} ${options.uri.host}${options.uri.path}');
         handler.next(options);
       },
     );
@@ -401,6 +405,13 @@ abstract final class _YtDl {
     final kinds = <String>[];
     final logSince = DateTime.now();
     final unhook = _hooks(args, run, inject);
+    // `--yt-extras off`: this launch saves no extras, as stage 2 did; the
+    // record keeps `extras_pending` for a later launch (AC-E)
+    if (_arg(args, '--yt-extras') == 'off') {
+      YtDownloadPlatform.extrasEnabledForTest = false;
+    }
+    final (xRequests, xWritten, xUnhook) = _YtX.hook(logSince);
+    Future<Map<String, Object?>?>? atCompletion;
     final report = <String, dynamic>{'key': key, 'mode': mode};
     final stopped = Completer<String>();
     _StatusTrail? trail;
@@ -604,6 +615,7 @@ abstract final class _YtDl {
         }
         if (service.downloadList.contains(target)) {
           end = 'complete';
+          atCompletion = _transcriptAtCompletion(target);
           break;
         }
         final status = target.status;
@@ -663,6 +675,11 @@ abstract final class _YtDl {
       trail.stop();
       end ??= 'timeout';
 
+      // the extras (stage 4): their job waited for, the keep-alive noted
+      final extras = end == 'complete'
+          ? await _waitExtras(target, run, xRequests, xWritten)
+          : null;
+
       Map<String, dynamic>? transcribe;
       if (mode == 'transcribe' && end == 'complete') {
         transcribe = await _waitTranscript(target, logSince);
@@ -718,6 +735,15 @@ abstract final class _YtDl {
           'oldStreamDirExists': Directory(oldDir).existsSync(),
         },
         'transcribe': ?transcribe,
+        'extras': ?extras,
+        // AC9: the list's transcript state read once the completion's
+        // `finished` set it (T1), before the background run began (T2)
+        'transcriptAtCompletion': await atCompletion,
+        'backgroundTranscribeAt': [
+          for (final (at, line) in EventLog.entries(since: logSince))
+            if (line.contains('transcribing download $key in the background'))
+              at.toIso8601String(),
+        ].firstOrNull,
         'log': [
           for (final (_, line) in EventLog.entries(since: logSince))
             if (line.contains('[download]') || line.contains('[invidious]'))
@@ -735,7 +761,68 @@ abstract final class _YtDl {
     } finally {
       trail?.stop();
       unhook();
+      xUnhook();
     }
+  }
+
+  /// AC9: the transcript state the list shows of [e] right after its
+  /// completion, polled every 50 ms (at most 5 s) until it is set.
+  static Future<Map<String, Object?>?> _transcriptAtCompletion(
+    YtDownloadEntry e,
+  ) async {
+    final clock = Stopwatch()..start();
+    while (clock.elapsed < const Duration(seconds: 5)) {
+      final state = _service.transcripts.stateOf(e.key);
+      if (state != null) {
+        return {
+          'at': DateTime.now().toIso8601String(),
+          'afterMs': clock.elapsedMilliseconds,
+          'percent': (state.fraction * 100).floor(),
+          'fraction': state.fraction,
+        };
+      }
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    return null;
+  }
+
+  /// Stage 4: the extras' job of [e] waited for (at most 20 min), the
+  /// keep-alive's texts noted meanwhile, then what it wrote.
+  static Future<Map<String, Object?>> _waitExtras(
+    YtDownloadEntry e,
+    _YtRun run,
+    List<Map<String, Object?>> requests,
+    Map<String, Object?> written,
+  ) async {
+    final job = _service.extrasDone(e.key);
+    final clock = Stopwatch()..start();
+    var done = job == null;
+    unawaited(job?.whenComplete(() => done = true));
+    while (!done && clock.elapsed < const Duration(minutes: 20)) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (_service.extrasQueue.any((x) => x.key == e.key)) {
+        run.extrasQueueSeen = true;
+      }
+      if (_service.selfTestState.keepAlive case final k?) {
+        final text = '${k.title}|${k.text}';
+        if (run.keepAliveTexts.lastOrNull != text) {
+          run.keepAliveTexts.add(text);
+        }
+      }
+    }
+    // the record written after the job
+    await Future.delayed(const Duration(milliseconds: 500));
+    return {
+      'jobSeen': job != null,
+      'done': done,
+      'seconds': clock.elapsed.inMilliseconds / 1000,
+      'extrasPendingAfter': e.extrasPending,
+      'status': e.status.name,
+      'recordExtrasPending': (await _record(e))?['extras_pending'],
+      'written': Map.of(written),
+      'requests': _YtX.requestSummary(requests),
+      'export': _YtX.report(e),
+    };
   }
 
   static Map<String, Object?> _progressOf(YtDownloadEntry e) {
@@ -1040,7 +1127,31 @@ abstract final class _YtDl {
       }
       final player = PlPlayerController.instance;
       final source = player?.dataSource;
+      // the plain-file page (stage 2's open, until stage 3): the record it
+      // took, and the subtitles it offers from beside the video
+      Map<String, Object?>? opened;
+      if (Get.currentRoute != routeAtTap) {
+        try {
+          final page = Get.find<VideoDetailController>(
+            tag: Get.parameters['heroTag'] ?? Get.arguments?['heroTag'],
+          );
+          for (var i = 0; i < 20 && page.subtitles.isEmpty; i++) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+          opened = {
+            'cid': page.entry.cid,
+            'avid': page.entry.avid,
+            'title': page.entry.showTitle,
+            'subtitles': [
+              for (final s in page.subtitles) '${s.lan} | ${s.lanDoc}',
+            ],
+          };
+        } catch (e) {
+          opened = {'error': '$e'};
+        }
+      }
       final result = {
+        'opened': opened,
         'mergedPath': entry.mergedPath,
         'routeBefore': routeBefore,
         'routeAtTap': routeAtTap,
@@ -1059,6 +1170,7 @@ abstract final class _YtDl {
             : lastMs - firstMs,
         'toasts': toasts,
         'dioHosts': run.dioHosts.toList()..sort(),
+        'dioRequests': run.dioRequests,
         'transferRequests': run.requests.values.expand((r) => r).length,
         'sourcesAsked': run.asked,
       };

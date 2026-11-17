@@ -106,7 +106,7 @@ import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:crypto/crypto.dart' show md5;
 import 'package:dio/dio.dart' show Options;
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:hive_ce/hive.dart';
@@ -1951,13 +1951,15 @@ class VideoDetailController extends GetxController
               : 'und';
           final transcript = name == '$base${TranscriptFiles.srtSuffix}';
           if (transcript && transcribes) continue;
-          final String text;
+          final String? text;
           try {
-            text = _decodeSrt(await f.readAsBytes());
+            text = subtitleFileText(await f.readAsBytes());
           } catch (_) {
             // one unreadable file: the others still load
             continue;
           }
+          // an empty one is not a track (an extras write cut off leaves one)
+          if (text == null) continue;
           saved.add((
             // not `asr`: that is the track the device is making
             lan: transcript ? 'asr-file' : lan,
@@ -2002,6 +2004,13 @@ class VideoDetailController extends GetxController
       await _applyOwnSubtitle(0);
     }
   }
+
+  /// A subtitle file beside a local video as text; null for an empty one,
+  /// which is not offered as a track (review 4 of the YouTube extras, P1:
+  /// a write cut off between reserving the name and filling it leaves one).
+  @visibleForTesting
+  static String? subtitleFileText(Uint8List bytes) =>
+      bytes.isEmpty ? null : _decodeSrt(bytes);
 
   /// A subtitle file as text: UTF-16 by its byte-order mark, else UTF-8 read
   /// leniently (a GBK file shows garbled rather than failing the list).

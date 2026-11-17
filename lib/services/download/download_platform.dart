@@ -270,6 +270,32 @@ abstract interface class DownloadPlatform {
   /// The extras switched on (DownloadProgress.planExtras).
   Map<String, int> extrasPlan();
 
+  /// When the comments of [entry] that a wall kept out of its extras are
+  /// to be asked for again; null: none to ask (review 2 of the YouTube
+  /// extras, item 5).
+  DateTime? commentsRetryAt(DownloadEntry entry);
+
+  /// [from]'s comment retry state onto [to], the same download read again
+  /// (a re-read of the list while a job of [from] ran; review 4 P2).
+  void copyCommentsRetry({
+    required DownloadEntry from,
+    required DownloadEntry to,
+  });
+
+  /// The steps of [retryComments] (DownloadProgress.planExtras).
+  Map<String, int> commentsPlan();
+
+  /// Asks for [entry]'s comments again ([commentsRetryAt]) and writes them
+  /// beside the export, nothing else; the entry's retry state is updated
+  /// (the service saves the record after). Returns what was written.
+  Future<Map<String, Object?>> retryComments({
+    required DownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  });
+
   /// The subtitle cache's key of the entry's transcript.
   SubtitleCacheKey transcriptKey(DownloadEntry entry);
 

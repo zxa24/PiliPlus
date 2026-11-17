@@ -16,6 +16,7 @@ import 'dart:typed_data';
 
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/bili_download_media_file_info.dart';
+import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/services/download/download_manager.dart';
 import 'package:PiliPlus/services/download/download_platform_yt.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
@@ -346,6 +347,9 @@ class DownloadHarness {
     DownloadService.newManagerForTest = FakeTransport.new;
     DownloadService.mergeForTest = _merge;
     DownloadService.exportExtrasForTest = _export;
+    // a YouTube entry's extras: recorded, never fetched (yt_extras_test.dart
+    // drives the real export with a fake network)
+    YtDownloadPlatform.extrasForTest = _exportYt;
     DownloadService.toastForTest = toasts.add;
     DownloadService.retryWaitsForTest = const [
       Duration(milliseconds: 1),
@@ -381,10 +385,12 @@ class DownloadHarness {
     DownloadService.retryWaitsForTest = null;
     DownloadService.selfTestBeforeMerge = null;
     DownloadService.readListGateForTest = null;
+    DownloadService.readDirectoryGateForTest = null;
     YtDownloadPlatform.openLocalForTest = null;
     YtDownloadPlatform.httpClientForTest = null;
     YtDownloadPlatform.toastForTest = null;
-    YtDownloadPlatform.extrasEnabledForTest = false;
+    YtDownloadPlatform.extrasEnabledForTest = true;
+    YtDownloadPlatform.extrasForTest = null;
     FakeTransport.created = null;
     SubtitleCache.debugInstance = null;
     SubtitleCache.onSaved = null;
@@ -447,6 +453,17 @@ class DownloadHarness {
   }) async {
     exported.add(entry);
     await exportGate?.call(entry);
+    return {};
+  }
+
+  Future<Map<String, Object?>> _exportYt({
+    required YtDownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  }) async {
+    exported.add(entry);
     return {};
   }
 }

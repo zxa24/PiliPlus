@@ -19,6 +19,7 @@ import 'package:PiliPlus/models_new/download/yt_download_entry.dart';
 import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/download/download_progress.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/download/yt_extras.dart';
 import 'package:PiliPlus/services/event_log.dart';
 import 'package:PiliPlus/services/local_history.dart';
 import 'package:PiliPlus/services/local_player.dart';
@@ -413,10 +414,15 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @visibleForTesting
   Iterable<DownloadKey> get ownHealthForTest => _ownHealth.keys;
 
+  /// [direct] and [fallback]: the sources of a router of the caller's own
+  /// (an export's, [_ExtrasSources]); by default the platform's direct
+  /// source and the pages' Invidious one.
   YtSourceRouter _router(
     YtSourceMode mode, {
     required bool own,
     required Map<String, YtSourceHealth> health,
+    YtDirectSource? direct,
+    YouTubeVideoSource? fallback,
   }) {
     if (routerForTest case final make?) {
       return make(mode, own: own, health: health);
@@ -425,8 +431,8 @@ final class YtDownloadPlatform implements DownloadPlatform {
     YtInvidiousSource.log ??= (line) => EventLog.add('invidious', line);
     final wrap = selfTestWrapSource ?? (s) => s;
     return YtSourceRouter(
-      wrap(_direct ??= YtDirectSource.create()),
-      fallback: wrap(YtInvidiousSource.shared),
+      wrap(direct ?? (_direct ??= YtDirectSource.create())),
+      fallback: wrap(fallback ?? YtInvidiousSource.shared),
       mode: mode,
       health: health,
     );
@@ -821,14 +827,15 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @override
   bool get playUrlFailuresAreNetwork => false;
 
-  /// The extras (description, subtitles, comments) come with stage 4: a
-  /// completed download keeps `extras_pending` until then (§10-7 Q2 c).
+  /// The extras (intro, cover, subtitles, comments) are saved after the
+  /// video (stage 4, design §6). Stage 2 left completed records marked
+  /// `extras_pending`: the first read of the list saves theirs (§10-7 Q2 c).
   @override
   bool get extrasEnabled => extrasEnabledForTest;
 
-  /// Tests only: stage 4's switch turned on (AC-E).
-  @visibleForTesting
-  static bool extrasEnabledForTest = false;
+  /// Tests and self tests only: false is stage 2's build, which leaves the
+  /// mark and saves none (AC-E; `--yt-extras off`).
+  static bool extrasEnabledForTest = true;
 
   /// A refusal of an Invidious address: that instance set aside and the
   /// video's addresses forgotten before the retry asks again (design §4.3
@@ -1032,6 +1039,27 @@ final class YtDownloadPlatform implements DownloadPlatform {
   ({String name, String suffix}) exportName(DownloadEntry entry) =>
       (name: entry.title, suffix: entry.qualityLabel ?? '');
 
+  /// Tests only: in place of the whole export (as bilibili's
+  /// `DownloadService.exportExtrasForTest`).
+  @visibleForTesting
+  static Future<Map<String, Object?>> Function({
+    required YtDownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  })?
+  extrasForTest;
+
+  /// Tests and self tests: the network the export uses ([cancelled]: the
+  /// export's own).
+  static YtExtrasNet Function(
+    YtSourceRouter play,
+    bool Function()? cancelled,
+  )?
+  extrasNetForTest;
+
+  /// Design §6 (stage 4): beside the export, through [YtExtras].
   @override
   Future<Map<String, Object?>> extras({
     required DownloadEntry entry,
@@ -1039,10 +1067,142 @@ final class YtDownloadPlatform implements DownloadPlatform {
     required String base,
     bool Function()? cancelled,
     DownloadProgress? progress,
-  }) async => const {};
+  }) {
+    entry as YtDownloadEntry;
+    if (extrasForTest case final export?) {
+      return export(
+        entry: entry,
+        folder: folder,
+        base: base,
+        cancelled: cancelled,
+        progress: progress,
+      );
+    }
+    final (:net, :close) = _extrasNet(cancelled);
+    return YtExtras.export(
+      entry: entry,
+      folder: folder,
+      base: base,
+      net: net,
+      transcriptKey: transcriptKey(entry),
+      cancelled: cancelled,
+      progress: progress,
+    ).whenComplete(close);
+  }
+
+  /// The network of one export (or one comments retry), and what closes
+  /// its own sources once it is over.
+  ({YtExtrasNet net, void Function() close}) _extrasNet(
+    bool Function()? cancelled,
+  ) {
+    // a router of the export's own (own health, never the pages' shared
+    // one); while the pages' table or the session's comments table says
+    // the direct source is walled (read, not changed), straight to the
+    // fallback (review 1, l6; review 2, P3)
+    final mode = YtSourceStore.debugMode;
+    // sources of the export's own: a delete closes them, which ends their
+    // requests (review 2, P2); not with a test's router
+    final sources = routerForTest == null ? _ExtrasSources() : null;
+    final play = _router(
+      mode == YtSourceMode.auto && YtExtras.directWall() != null
+          ? YtSourceMode.fallbackOnly
+          : mode,
+      own: true,
+      health: <String, YtSourceHealth>{},
+      direct: sources?.direct,
+      fallback: sources?.invidious,
+    );
+    return (
+      net:
+          extrasNetForTest?.call(play, cancelled) ??
+          YtExtrasLiveNet(
+            play: play,
+            httpClient: httpClientForTest,
+            cancelled: cancelled,
+            closeSources: sources?.close,
+          ),
+      close: () => sources?.finish(cancelled: cancelled?.call() ?? false),
+    );
+  }
+
+  /// Tests only: each export's Invidious transport, in place of an
+  /// [IoInvidiousFetch].
+  @visibleForTesting
+  static ({InvidiousFetch fetch, void Function() close}) Function()?
+  invidiousFetchForTest;
+
+  /// Tests only: what the extras' Invidious source learned forgotten (an
+  /// app session over).
+  @visibleForTesting
+  static void resetExtrasSessionForTest() => _ExtrasSources._learned = null;
+
+  /// Tests only: in place of a whole comments retry.
+  @visibleForTesting
+  static Future<Map<String, Object?>> Function({
+    required YtDownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  })?
+  commentsForTest;
+
+  /// The comments a wall kept out of the extras (review 2, item 5): asked
+  /// for again from [YtDownloadEntry.commentsAfter] on.
+  @override
+  DateTime? commentsRetryAt(DownloadEntry entry) {
+    entry as YtDownloadEntry;
+    if (!entry.commentsPending) return null;
+    return entry.commentsAfter ?? DateTime.fromMillisecondsSinceEpoch(0);
+  }
 
   @override
-  Map<String, int> extrasPlan() => const {};
+  void copyCommentsRetry({
+    required DownloadEntry from,
+    required DownloadEntry to,
+  }) {
+    from as YtDownloadEntry;
+    (to as YtDownloadEntry)
+      ..commentsPending = from.commentsPending
+      ..commentsTries = from.commentsTries
+      ..commentsAfter = from.commentsAfter
+      ..commentsNote = from.commentsNote;
+  }
+
+  @override
+  Map<String, int> commentsPlan() => YtExtras.commentsPlan();
+
+  @override
+  Future<Map<String, Object?>> retryComments({
+    required DownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  }) {
+    entry as YtDownloadEntry;
+    if (commentsForTest case final retry?) {
+      return retry(
+        entry: entry,
+        folder: folder,
+        base: base,
+        cancelled: cancelled,
+        progress: progress,
+      );
+    }
+    final (:net, :close) = _extrasNet(cancelled);
+    return YtExtras.exportComments(
+      entry: entry,
+      folder: folder,
+      base: base,
+      net: net,
+      cancelled: cancelled,
+      progress: progress,
+    ).whenComplete(close);
+  }
+
+  @override
+  Map<String, int> extrasPlan() => YtExtras.plan();
 
   @override
   SubtitleCacheKey transcriptKey(DownloadEntry entry) =>
@@ -1288,5 +1448,60 @@ final class YtDownloadPlatform implements DownloadPlatform {
       // the record not written: its leftovers removed, nothing queued
       DownloadAddResult.failed => YtCreateResult.failed,
     };
+  }
+}
+
+/// The sources one export asks for the video's details and captions
+/// (review 2, P2): its own, so that a delete ends their requests by closing
+/// them, the Invidious instance walk included, without closing the video
+/// pages' or the downloads' sources. A direct source, and a fork of
+/// [learned] on a client of its own.
+final class _ExtrasSources {
+  _ExtrasSources() : direct = YtDirectSource.create() {
+    final (:fetch, :close) =
+        YtDownloadPlatform.invidiousFetchForTest?.call() ?? _io();
+    _closeFetch = close;
+    invidious = learned.fork(fetch: fetch);
+  }
+
+  /// What the extras' Invidious instances taught, kept for the app session
+  /// (review 3, P4): the instances set aside or served last, the gates
+  /// passed. Each export's own source is a fork of it and hands back what
+  /// it learned once it ends ([finish]). Started from the pages' source;
+  /// never that one itself, which it does not change.
+  static YtInvidiousSource get learned =>
+      _learned ??= YtInvidiousSource.shared.fork(fetch: _noFetch);
+  static YtInvidiousSource? _learned;
+
+  /// [learned] asks nothing itself: its forks do.
+  static Future<InvidiousAnswer> _noFetch(
+    Uri uri, {
+    required String method,
+    required Map<String, String> headers,
+  }) async => const InvidiousAnswer(0, '', error: 'asked through a fork');
+
+  static ({InvidiousFetch fetch, void Function() close}) _io() {
+    final io = IoInvidiousFetch();
+    return (fetch: io.call, close: io.close);
+  }
+
+  final YtDirectSource direct;
+  late final YtInvidiousSource invidious;
+  late final void Function() _closeFetch;
+  var _closed = false;
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    direct.close();
+    _closeFetch();
+  }
+
+  /// The export is over (its net, and so these, closed already): what its
+  /// fork learned goes to [learned], unless it was deleted (its requests
+  /// were cut, which says nothing of the instances).
+  void finish({required bool cancelled}) {
+    if (!cancelled) learned.learnFrom(invidious);
+    close();
   }
 }
