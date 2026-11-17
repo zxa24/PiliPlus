@@ -385,6 +385,7 @@ class DownloadHarness {
     DownloadService.retryWaitsForTest = null;
     DownloadService.selfTestBeforeMerge = null;
     DownloadService.readListGateForTest = null;
+    DownloadService.readDirectoryGateForTest = null;
     YtDownloadPlatform.openLocalForTest = null;
     YtDownloadPlatform.httpClientForTest = null;
     YtDownloadPlatform.toastForTest = null;

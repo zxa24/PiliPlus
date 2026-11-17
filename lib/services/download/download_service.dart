@@ -610,6 +610,16 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       }
     }
     downloadList.sort((a, b) => b.timeUpdateStamp.compareTo(a.timeUpdateStamp));
+    // the comments a wall kept out are to be asked for again (review 2 of
+    // the YouTube extras, item 5): armed only now that their entries are
+    // in the list, which is where a timer that fires looks for them
+    // (review 3, P5)
+    for (final entry in downloadList) {
+      if (!entry.extrasPending &&
+          platformOf(entry).commentsRetryAt(entry) != null) {
+        _resumeExtras(entry);
+      }
+    }
     // how far the transcripts beside them got, then the ones still to do
     unawaited(
       (knownReadForTest = transcripts.readKnown()).whenComplete(
@@ -670,13 +680,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
               ..entryDirPath = entryDir.path;
             if (entry.isCompleted) {
               result.add(entry);
-              // the app closed while they were being saved; or the comments
-              // a wall kept out are to be asked for again (review 2 of the
-              // YouTube extras, item 5)
-              if (entry.extrasPending ||
-                  platform.commentsRetryAt(entry) != null) {
-                _resumeExtras(entry);
-              }
+              // the app closed while they were being saved (the comments a
+              // wall kept out: once the whole list is read, below)
+              if (entry.extrasPending) _resumeExtras(entry);
             } else {
               final (:video, :audio, mediaGuess: _, expectAudio: _) = platform
                   .initialBytes(entry);
@@ -698,9 +704,14 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       lastError = 'download folder (${pageDir.path}): $e';
       debugPrint('skipped download folder: $lastError');
     }
-
+    if (readDirectoryGateForTest case final gate?) await gate(pageDir);
     return result;
   }
+
+  /// Tests only: awaited as each folder of the list is read, its entries
+  /// not yet in [downloadList] (a slow read).
+  @visibleForTesting
+  static Future<void> Function(Directory pageDir)? readDirectoryGateForTest;
 
   void downloadVideo(
     Part page,

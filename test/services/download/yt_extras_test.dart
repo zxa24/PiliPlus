@@ -18,6 +18,7 @@ import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
 import 'package:PiliPlus/services/download/download_platform.dart';
 import 'package:PiliPlus/services/download/download_platform_yt.dart';
+import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/download/yt_extras.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/youtube/direct_source.dart';
@@ -1409,6 +1410,52 @@ void main() {
       await second.timeout(const Duration(seconds: 2));
       // the pages' own source learned none of it
       expect(YtInvidiousSource.shared.toJson()['benched'], isEmpty);
+    });
+  });
+
+  // review 3, P5: a retry timer is armed only once its entry is listed
+  group('review 3: a comment retry due while the list is read', () {
+    final h = DownloadHarness();
+    tearDown(() async {
+      YtDownloadPlatform.commentsForTest = null;
+      await h.stop();
+    });
+
+    test('it still runs once the read is done', () async {
+      final retried = <String>[];
+      YtDownloadPlatform.commentsForTest = ({
+        required entry,
+        required folder,
+        required base,
+        cancelled,
+        progress,
+      }) async {
+        retried.add(entry.key);
+        entry.commentsPending = false;
+        return {};
+      };
+      // each folder of the list read slowly, its entries not listed yet
+      DownloadService.readDirectoryGateForTest = (_) =>
+          Future<void>.delayed(const Duration(milliseconds: 800));
+      await h.start(
+        entries: const [],
+        before: (root) {
+          final mp4 = File(path.join(root.path, base, '$base.mp4'))
+            ..parent.createSync()
+            ..writeAsBytesSync([1]);
+          writeYtRecord(
+            root,
+            ytEntry(root, completed: true, merged: mp4.path)
+              ..commentsPending = true
+              // due while the read is held
+              ..commentsAfter = DateTime.now().add(
+                const Duration(milliseconds: 300),
+              ),
+          );
+        },
+      );
+      await until(() => retried.isNotEmpty, reason: 'the retry');
+      expect(retried, ['yt:$ytId']);
     });
   });
 
