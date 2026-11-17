@@ -299,6 +299,31 @@ class YtInvidiousSource implements YouTubeVideoSource {
     });
   }
 
+  /// Takes what [copy] (a [fork] of this one, done with) learned: its
+  /// state replaces this one's. For a source that only holds what a run of
+  /// forks taught, one fork at a time (a download's extras, review 3 P4);
+  /// nothing is handed to [onChanged].
+  void learnFrom(YtInvidiousSource copy) {
+    _registry = copy._registry == null ? null : [...copy._registry!];
+    _registryAt = copy._registryAt;
+    _preferred = copy._preferred;
+    _refusals = copy._refusals;
+    _refusedUntil = copy._refusedUntil;
+    for (final (mine, theirs) in <(Map<Object?, Object?>, Map<Object?, Object?>)>[
+      (_benched, copy._benched),
+      (_cookies, copy._cookies),
+      (_browsers, copy._browsers),
+      (_resolved, copy._resolved),
+      (_servedBy, copy._servedBy),
+      (_lastServedBy, copy._lastServedBy),
+      (_refusedCompanions, copy._refusedCompanions),
+    ]) {
+      mine
+        ..clear()
+        ..addAll(theirs);
+    }
+  }
+
   // ------------------------------------------------------- across launches
 
   /// What [restore] takes back: JSON, nothing that has run out.

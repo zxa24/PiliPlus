@@ -1316,6 +1316,102 @@ void main() {
     });
   });
 
+  // review 3, P4: what the extras' Invidious source learns lasts the
+  // session; each export still has a transport of its own
+  group("review 3: the extras' Invidious source across exports", () {
+    const hosts = [
+      'https://a.example',
+      'https://b.example',
+      'https://c.example',
+      'https://d.example',
+      'https://e.example',
+      'https://f.example',
+    ];
+    // the hosts each export's transport was asked, one list per export
+    final asked = <List<String>>[];
+    var holdE = false;
+    late Completer<void> eAsked;
+
+    setUp(() async {
+      YtInvidiousSource.debugHosts = hosts;
+      // the direct source walled: the details go to Invidious alone, and
+      // nothing asks the direct one
+      YtSourceRouter.sharedHealth['direct'] = YtSourceHealth()
+        ..cooldownUntil = DateTime.now().add(const Duration(minutes: 10));
+      for (final key in [
+        SettingBoxKey.dlSaveCover,
+        SettingBoxKey.dlSaveComments,
+      ]) {
+        await GStorage.setting.put(key, false);
+      }
+      asked.clear();
+      holdE = false;
+      eAsked = Completer<void>();
+      YtDownloadPlatform.invidiousFetchForTest = () {
+        final mine = <String>[];
+        asked.add(mine);
+        final closed = Completer<void>();
+        return (
+          fetch: (uri, {required method, required headers}) async {
+            mine.add(uri.host);
+            if (closed.isCompleted) {
+              return const InvidiousAnswer(0, '', error: 'closed');
+            }
+            if (holdE && uri.host == 'e.example') {
+              if (!eAsked.isCompleted) eAsked.complete();
+              await closed.future;
+              return const InvidiousAnswer(0, '', error: 'closed');
+            }
+            // an answer, a refusal: the instance is set aside
+            return const InvidiousAnswer(500, 'refused');
+          },
+          close: () {
+            if (!closed.isCompleted) closed.complete();
+          },
+        );
+      };
+    });
+    tearDown(() {
+      YtInvidiousSource.debugHosts = null;
+      YtDownloadPlatform.invidiousFetchForTest = null;
+      YtDownloadPlatform.resetExtrasSessionForTest();
+      YtExtras.cancelPoll = const Duration(milliseconds: 250);
+    });
+
+    test('instances set aside in one export are passed over in the next; '
+        'a delete during the next still ends its requests at once', () async {
+      final platform = YtDownloadPlatform(_NoHost());
+      await platform.extras(entry: entry, folder: folder, base: base);
+      expect(asked, hasLength(1));
+      expect(asked.first.toSet(), {
+        'a.example',
+        'b.example',
+        'c.example',
+        'd.example',
+      });
+
+      holdE = true;
+      YtExtras.cancelPoll = const Duration(milliseconds: 20);
+      var deleted = false;
+      final second = platform.extras(
+        entry: entry,
+        folder: folder,
+        base: base,
+        cancelled: () => deleted,
+      );
+      await eAsked.future.timeout(const Duration(seconds: 5));
+      expect(asked, hasLength(2));
+      expect(asked[1].first, 'e.example');
+      for (final host in ['a.example', 'b.example', 'c.example', 'd.example']) {
+        expect(asked[1], isNot(contains(host)), reason: host);
+      }
+      deleted = true;
+      await second.timeout(const Duration(seconds: 2));
+      // the pages' own source learned none of it
+      expect(YtInvidiousSource.shared.toJson()['benched'], isEmpty);
+    });
+  });
+
   test('the switches off: only the record and the intro', () async {
     for (final key in [
       SettingBoxKey.dlSaveCover,

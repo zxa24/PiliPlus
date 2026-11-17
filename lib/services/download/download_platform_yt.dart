@@ -1121,9 +1121,20 @@ final class YtDownloadPlatform implements DownloadPlatform {
             cancelled: cancelled,
             closeSources: sources?.close,
           ),
-      close: () => sources?.close(),
+      close: () => sources?.finish(cancelled: cancelled?.call() ?? false),
     );
   }
+
+  /// Tests only: each export's Invidious transport, in place of an
+  /// [IoInvidiousFetch].
+  @visibleForTesting
+  static ({InvidiousFetch fetch, void Function() close}) Function()?
+  invidiousFetchForTest;
+
+  /// Tests only: what the extras' Invidious source learned forgotten (an
+  /// app session over).
+  @visibleForTesting
+  static void resetExtrasSessionForTest() => _ExtrasSources._learned = null;
 
   /// Tests only: in place of a whole comments retry.
   @visibleForTesting
@@ -1430,23 +1441,54 @@ final class YtDownloadPlatform implements DownloadPlatform {
 /// The sources one export asks for the video's details and captions
 /// (review 2, P2): its own, so that a delete ends their requests by closing
 /// them, the Invidious instance walk included, without closing the video
-/// pages' or the downloads' sources. A direct source, and a copy of the
-/// pages' Invidious source ([YtInvidiousSource.fork]: the instances, the
-/// gates' cookies) on a client of its own.
+/// pages' or the downloads' sources. A direct source, and a fork of
+/// [learned] on a client of its own.
 final class _ExtrasSources {
-  _ExtrasSources() : direct = YtDirectSource.create(), _fetch = IoInvidiousFetch() {
-    invidious = YtInvidiousSource.shared.fork(fetch: _fetch.call);
+  _ExtrasSources() : direct = YtDirectSource.create() {
+    final (:fetch, :close) =
+        YtDownloadPlatform.invidiousFetchForTest?.call() ?? _io();
+    _closeFetch = close;
+    invidious = learned.fork(fetch: fetch);
+  }
+
+  /// What the extras' Invidious instances taught, kept for the app session
+  /// (review 3, P4): the instances set aside or served last, the gates
+  /// passed. Each export's own source is a fork of it and hands back what
+  /// it learned once it ends ([finish]). Started from the pages' source;
+  /// never that one itself, which it does not change.
+  static YtInvidiousSource get learned =>
+      _learned ??= YtInvidiousSource.shared.fork(fetch: _noFetch);
+  static YtInvidiousSource? _learned;
+
+  /// [learned] asks nothing itself: its forks do.
+  static Future<InvidiousAnswer> _noFetch(
+    Uri uri, {
+    required String method,
+    required Map<String, String> headers,
+  }) async => const InvidiousAnswer(0, '', error: 'asked through a fork');
+
+  static ({InvidiousFetch fetch, void Function() close}) _io() {
+    final io = IoInvidiousFetch();
+    return (fetch: io.call, close: io.close);
   }
 
   final YtDirectSource direct;
   late final YtInvidiousSource invidious;
-  final IoInvidiousFetch _fetch;
+  late final void Function() _closeFetch;
   var _closed = false;
 
   void close() {
     if (_closed) return;
     _closed = true;
     direct.close();
-    _fetch.close();
+    _closeFetch();
+  }
+
+  /// The export is over (its net, and so these, closed already): what its
+  /// fork learned goes to [learned], unless it was deleted (its requests
+  /// were cut, which says nothing of the instances).
+  void finish({required bool cancelled}) {
+    if (!cancelled) learned.learnFrom(invidious);
+    close();
   }
 }
