@@ -1068,10 +1068,14 @@ final class YtDownloadPlatform implements DownloadPlatform {
         progress: progress,
       );
     }
-    // the download's own router (own health, never the pages' shared
-    // one), as a start's
+    // a router of the export's own (own health, never the pages' shared
+    // one); while the pages' table says the direct source is walled (read,
+    // not changed), straight to the fallback (review 1, l6)
+    final mode = YtSourceStore.debugMode;
     final play = _router(
-      YtSourceStore.debugMode,
+      mode == YtSourceMode.auto && directWalled()
+          ? YtSourceMode.fallbackOnly
+          : mode,
       own: true,
       health: <String, YtSourceHealth>{},
     );
@@ -1079,15 +1083,25 @@ final class YtDownloadPlatform implements DownloadPlatform {
       entry: entry,
       folder: folder,
       base: base,
-      net: (extrasNetForTest ?? _liveNet)(play),
+      net:
+          extrasNetForTest?.call(play) ??
+          YtExtrasLiveNet(
+            play: play,
+            httpClient: httpClientForTest,
+            cancelled: cancelled,
+          ),
       transcriptKey: transcriptKey(entry),
       cancelled: cancelled,
       progress: progress,
     );
   }
 
-  YtExtrasNet _liveNet(YtSourceRouter play) =>
-      YtExtrasLiveNet(play: play, httpClient: httpClientForTest);
+  /// Whether the pages' shared table has the direct source cooling down.
+  static bool directWalled() {
+    final until = YtSourceRouter.sharedHealth[_directId]
+        ?.cooldownUntil;
+    return until != null && YtExtras.clock().isBefore(until);
+  }
 
   @override
   Map<String, int> extrasPlan() => YtExtras.plan();

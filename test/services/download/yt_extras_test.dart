@@ -5,6 +5,7 @@
 // comments paced and stopped by a wall (§6.3), the avatars (§6.4), the
 // record copy, the transcript beside the video (AC9's step), and a delete
 // stopping it before the next request.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -15,9 +16,12 @@ import 'package:PiliPlus/services/asr/asr_cue.dart';
 import 'package:PiliPlus/services/asr/asr_service.dart';
 import 'package:PiliPlus/services/asr/transcript_store.dart';
 import 'package:PiliPlus/services/download/download_extras.dart';
+import 'package:PiliPlus/services/download/download_platform.dart';
+import 'package:PiliPlus/services/download/download_platform_yt.dart';
 import 'package:PiliPlus/services/download/yt_extras.dart';
 import 'package:PiliPlus/services/subtitle_cache/subtitle_cache.dart';
 import 'package:PiliPlus/services/youtube/direct_source.dart';
+import 'package:PiliPlus/services/youtube/innertube_client.dart';
 import 'package:PiliPlus/services/youtube/source_router.dart';
 import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
@@ -29,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
 import 'download_test_support.dart';
+import '../youtube/yt_test_support.dart';
 import 'yt_download_test_support.dart';
 
 YtCaptionTrack _track(String lang, {bool auto = false, String? name}) =>
@@ -133,6 +138,7 @@ class _Net implements YtExtrasNet {
   @override
   Future<YtResult<YtPage<YtComment>>> comments(String token) async {
     _ask('comments $token');
+    if (held.contains(token)) return holdUntilClosed();
     return pages[token] ??
         const YtResult.failed(YtVerdict(YtCause.clientBroken, 'no-page'));
   }
@@ -145,11 +151,29 @@ class _Net implements YtExtrasNet {
     return bytes;
   }
 
-  @override
-  Future<void> pause(Duration duration) async => _ask('pause');
+  /// Each pause's length, in order.
+  final pauses = <Duration>[];
 
   @override
-  void close() => closed = true;
+  Future<void> pause(Duration duration) async {
+    pauses.add(duration);
+    _ask('pause');
+  }
+
+  /// A comment page held until the net is closed (then a failure).
+  final held = <String>{};
+  final _closing = Completer<void>();
+
+  @override
+  void close() {
+    closed = true;
+    if (!_closing.isCompleted) _closing.complete();
+  }
+
+  Future<YtResult<YtPage<YtComment>>> holdUntilClosed() async {
+    await _closing.future;
+    return const YtResult.failed(YtVerdict(YtCause.transient, 'closed'));
+  }
 }
 
 void main() {
@@ -166,6 +190,8 @@ void main() {
   tearDownAll(() => closeDownloadStorage(storage));
 
   setUp(() async {
+    YtExtras.resetSessionForTest();
+    YtSourceRouter.sharedHealth.clear();
     root = await Directory.systemTemp.createTemp('yt-extras-');
     folder = path.join(root.path, base);
     Directory(folder).createSync();
@@ -190,6 +216,8 @@ void main() {
     await GStorage.setting.put(SettingBoxKey.dlReplyCount, 2);
   });
   tearDown(() async {
+    YtExtras.resetSessionForTest();
+    YtSourceRouter.sharedHealth.clear();
     SubtitleCache.debugInstance = null;
     try {
       await root.delete(recursive: true);
@@ -310,6 +338,7 @@ void main() {
       expect(YtExtras.trackOfFile('b.asr.srt', 'b'), isNull);
       expect(YtExtras.trackOfFile('b.en.x.srt', 'b'), isNull);
       expect(YtExtras.trackOfFile('other.en.srt', 'b'), isNull);
+      expect(YtExtras.trackOfFile('b.srt', 'b'), isNull);
     });
   });
 
@@ -381,12 +410,13 @@ void main() {
           .where((e) => e.path.endsWith('.part')),
       isEmpty,
     );
-    // the requests one at a time with a pause before each but the first:
-    // page 2, and each of the two reply requests
+    // the requests one at a time with a pause before each, the first page
+    // after `next` too (review 1, l7)
     final asked = net.log.where((l) => !l.startsWith('image')).toList();
     expect(
-      asked.sublist(asked.indexOf('comments top-1')),
+      asked.sublist(asked.indexOf('comments top-1') - 1),
       [
+        'pause',
         'comments top-1',
         'pause',
         'comments top-2',
@@ -413,9 +443,10 @@ void main() {
     expect(intro['title'], 'Never Gonna Give You Up');
     expect(intro.containsKey('published'), isFalse);
     expect(intro['faces'], isEmpty);
+    // the wall `next` met holds for the comments: not asked (review 1, l9)
     expect(
       written['comments'],
-      'error: Bad state: comments unavailable (ipBlocked<http-429> :: test wall)',
+      startsWith('skipped, stoppedBy: direct source cooling down until'),
     );
     expect(
       File(path.join(folder, '$base${YtExtras.commentsSuffix}')).existsSync(),
@@ -556,6 +587,303 @@ void main() {
     expect((written['subtitles']! as Map)['files'], contains('$base.asr.srt'));
   });
 
+  group('review 1', () {
+    // 1 (c3, l4): written whole or not at all
+    test('a subtitle whose write fails half-way leaves neither it nor a '
+        '.part', () async {
+      net.tracks([_track('en'), _track('de')]);
+      final written = await IOOverrides.runWithIOOverrides(
+        export,
+        _HalfWrites('.de.srt'),
+      );
+      expect(File(path.join(folder, '$base.de.srt')).existsSync(), isFalse);
+      expect(
+        Directory(folder).listSync().where((e) => e.path.endsWith('.part')),
+        isEmpty,
+      );
+      final subs = written['subtitles']! as Map;
+      expect(subs['files'], ['$base.en.srt']);
+      expect(subs['failed'], [contains('$base.de.srt')]);
+    });
+
+    // 3 (l3): a delete ends the request in flight
+    test('a delete closes the network: the request in flight ends, the '
+        'export with it', () async {
+      YtExtras.cancelPoll = const Duration(milliseconds: 20);
+      addTearDown(
+        () => YtExtras.cancelPoll = const Duration(milliseconds: 250),
+      );
+      var deleted = false;
+      net
+        ..held.add('top-1')
+        ..onAsk = (asked) {
+          if (asked == 'comments top-1') deleted = true;
+        };
+      final written = await export(
+        cancelled: () => deleted,
+      ).timeout(const Duration(seconds: 5));
+      expect(net.closed, isTrue);
+      expect(written['comments'], 'error: cancelled');
+    });
+
+    // 5 (l1): nothing came: no file
+    test('a wall on the first page: no comments file, the step says the '
+        'comments are unavailable', () async {
+      net.pages = {'top-1': const YtResult.failed(_wall)};
+      final written = await export();
+      expect(
+        written['comments'],
+        'error: Bad state: comments unavailable '
+        '(ipBlocked<http-429> :: test wall)',
+      );
+      expect(
+        File(
+          path.join(folder, '$base${YtExtras.commentsSuffix}'),
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
+    // 5 (l2): replies that keep failing end the reply phase
+    test('three reply answers in a row not ok end the replies; what came '
+        'is written, the stop recorded', () async {
+      await GStorage.setting.put(SettingBoxKey.dlCommentCount, 5);
+      net.pages = {
+        'top-1': YtResult.ok(
+          YtPage([
+            for (final id in ['a', 'b', 'c', 'd', 'e'])
+              _comment(id, replies: 'r-$id'),
+          ], null),
+        ),
+        'r-a': YtResult.ok(YtPage([_comment('a1')], null)),
+        // r-b, r-c, r-d: no page (clientBroken)
+      };
+      final written = await export();
+      expect(net.log, contains('comments r-d'));
+      expect(net.log, isNot(contains('comments r-e')));
+      final comments = readJson('$base${YtExtras.commentsSuffix}');
+      expect((comments['comments'] as List), hasLength(5));
+      expect(comments['stoppedBy'], startsWith('replies: 3 failures in a row'));
+      expect(written['comments'], contains('stopped: replies'));
+    });
+
+    // 6 (l6): the pages' cooldown is respected, not changed
+    test('the pages\' table has the direct source cooling: no `next`, no '
+        'comment page; the table is not changed', () async {
+      final until = DateTime.now().add(const Duration(minutes: 10));
+      YtSourceRouter.sharedHealth['direct'] = YtSourceHealth()
+        ..cooldownUntil = until
+        ..cooldownStep = 1;
+      net.pages = {
+        'top-1': YtResult.ok(YtPage([_comment('a')], null)),
+      };
+      final written = await export();
+      expect(net.log, isNot(contains('related')));
+      expect(net.log.where((l) => l.startsWith('comments')), isEmpty);
+      expect(written['intro'], contains('no extra'));
+      expect(
+        written['comments'],
+        startsWith('skipped, stoppedBy: direct source cooling down'),
+      );
+      expect(
+        File(
+          path.join(folder, '$base${YtExtras.commentsSuffix}'),
+        ).existsSync(),
+        isFalse,
+      );
+      final h = YtSourceRouter.sharedHealth['direct']!;
+      expect((h.cooldownUntil, h.cooldownStep), (until, 1));
+    });
+
+    test('the pages\' table has the direct source cooling: the export\'s '
+        'details and captions go to the fallback alone', () async {
+      YtSourceRouter.sharedHealth['direct'] = YtSourceHealth()
+        ..cooldownUntil = DateTime.now().add(const Duration(minutes: 10));
+      final modes = <YtSourceMode>[];
+      YtDownloadPlatform.routerForTest = (mode, {required own, required health}) {
+        modes.add(mode);
+        return YtSourceRouter(_NoNetDirect(), health: health, mode: mode);
+      };
+      YtDownloadPlatform.extrasNetForTest = (_) => net;
+      addTearDown(() {
+        YtDownloadPlatform.routerForTest = null;
+        YtDownloadPlatform.extrasNetForTest = null;
+      });
+      await YtDownloadPlatform(_NoHost()).extras(
+        entry: entry,
+        folder: folder,
+        base: base,
+      );
+      expect(modes, [YtSourceMode.fallbackOnly]);
+      YtSourceRouter.sharedHealth.clear();
+      modes.clear();
+      await YtDownloadPlatform(_NoHost()).extras(
+        entry: entry,
+        folder: folder,
+        base: base,
+      );
+      expect(modes, [YtSourceMode.auto]);
+    });
+
+    // 6 (l9): one table for the session, and a gap between exports
+    test('a wall one export met stops the next export\'s comments', () async {
+      net.pages = {
+        'top-1': YtResult.ok(YtPage([_comment('a')], 'top-2')),
+        'top-2': const YtResult.failed(_wall),
+      };
+      await export();
+      expect(YtExtras.directWall(), contains('(the comments)'));
+      final first = net;
+      net = _Net()
+        ..pages = {
+          'top-1': YtResult.ok(YtPage([_comment('a')], null)),
+        };
+      final written = await export();
+      expect(first.log, contains('comments top-2'));
+      expect(net.log, isNot(contains('related')));
+      expect(net.log.where((l) => l.startsWith('comments')), isEmpty);
+      expect(written['comments'], startsWith('skipped, stoppedBy:'));
+    });
+
+    test('the next export\'s first `next` waits for the gap after the last '
+        'one\'s comment traffic', () async {
+      var now = DateTime(2026, 11, 17, 12);
+      YtExtras.clock = () => now;
+      net.pages = {
+        'top-1': YtResult.ok(YtPage([_comment('a')], null)),
+      };
+      await export();
+      expect(net.pauses, isNot(contains(YtExtras.exportGap)));
+      now = now.add(const Duration(seconds: 10));
+      net = _Net()
+        ..pages = {
+          'top-1': YtResult.ok(YtPage([_comment('a')], null)),
+        };
+      await export();
+      // 30 s after the first ended, 10 s of it gone: 20 s, before `next`
+      expect(net.pauses.first, const Duration(seconds: 20));
+      expect(net.log.indexOf('pause'), lessThan(net.log.indexOf('related')));
+    });
+
+    // 7 (c4): the folder holds this pick
+    test('an earlier run\'s subtitle files not in this pick go; the '
+        'transcript and the user\'s own files stay; `files` is the folder',
+        () async {
+      for (final name in [
+        '$base.fr.srt',
+        '$base.en.srt',
+        '$base.zh-Hans.2.srt',
+        '$base.asr.srt',
+        '$base.srt',
+        '$base.english.srt',
+      ]) {
+        File(path.join(folder, name)).writeAsStringSync('old');
+      }
+      net.tracks([_track('en'), _track('de')]);
+      final written = await export();
+      expect(srtFiles(), [
+        '$base.asr.srt',
+        '$base.de.srt',
+        '$base.en.srt',
+        '$base.english.srt',
+        '$base.srt',
+      ]);
+      expect(
+        File(path.join(folder, '$base.en.srt')).readAsStringSync(),
+        contains('line .en'),
+      );
+      expect(
+        ((written['subtitles']! as Map)['files'] as List).toSet(),
+        YtExtras.ownedSubtitleFiles(folder, base).toSet(),
+      );
+    });
+
+    test('a track of this pick that fails keeps its earlier copy, and '
+        '`files` says so', () async {
+      File(path.join(folder, '$base.de.srt')).writeAsStringSync('earlier');
+      net
+        ..tracks([_track('en'), _track('de')])
+        ..captions = {'.de': const YtResult.failed(_wall)};
+      final written = await export();
+      final subs = written['subtitles']! as Map;
+      expect(subs['files'], unorderedEquals(['$base.en.srt', '$base.de.srt']));
+      expect(subs['failed'], [contains('the earlier copy kept')]);
+      expect(
+        File(path.join(folder, '$base.de.srt')).readAsStringSync(),
+        'earlier',
+      );
+    });
+  });
+
+  group('review 1: the live network', () {
+    late _Direct direct;
+    final sleeps = <Duration>[];
+    setUp(() {
+      direct = _Direct();
+      sleeps.clear();
+    });
+
+    YtExtrasLiveNet live({bool Function()? cancelled}) => YtExtrasLiveNet(
+      play: YtSourceRouter(_NoNetDirect()),
+      direct: direct,
+      cancelled: cancelled,
+      sleepForTest: (d) async => sleeps.add(d),
+    );
+
+    // 4 (c2, l8): a retry is paced too
+    test('a comment page the router asks again waits at least the pacing',
+        () async {
+      direct.answers.addAll([
+        const YtResult.failed(YtVerdict(YtCause.transient, 'timeout')),
+        YtResult.ok(YtPage([_comment('a')], null)),
+      ]);
+      final r = await live().comments('t');
+      expect(r.ok, isTrue);
+      expect(direct.asked, 2);
+      expect(sleeps, isNotEmpty);
+      for (final d in sleeps) {
+        expect(d, greaterThanOrEqualTo(YtExtras.commentGap));
+      }
+    });
+
+    // 3 (c2): a retry sees the delete
+    test('deleted while the router waits to ask again: not asked again',
+        () async {
+      var deleted = false;
+      direct.answers.addAll([
+        const YtResult.failed(YtVerdict(YtCause.transient, 'timeout')),
+        YtResult.ok(YtPage([_comment('a')], null)),
+      ]);
+      final net = YtExtrasLiveNet(
+        play: YtSourceRouter(_NoNetDirect()),
+        direct: direct,
+        cancelled: () => deleted,
+        sleepForTest: (d) async => deleted = true,
+      );
+      await expectLater(
+        net.comments('t'),
+        throwsA(isA<YtExtrasCancelled>()),
+      );
+      expect(direct.asked, 1);
+    });
+
+    test('closed: a pause is over at once, no source is asked', () async {
+      final net = YtExtrasLiveNet(
+        play: YtSourceRouter(_NoNetDirect()),
+        direct: direct,
+      )..close();
+      await net.pause(const Duration(hours: 1)).timeout(
+        const Duration(seconds: 2),
+      );
+      await expectLater(net.comments('t'), throwsA(isA<YtExtrasCancelled>()));
+      expect(direct.asked, 0);
+    });
+
+    test('one comments table for the session', () {
+      expect(identical(live().commentsHealth, YtExtras.commentsHealth), isTrue);
+    });
+  });
+
   test('the switches off: only the record and the intro', () async {
     for (final key in [
       SettingBoxKey.dlSaveCover,
@@ -599,4 +927,81 @@ void main() {
     expect(YtExtras.isImageHost(Uri.parse('http://yt3.ggpht.com/a')), isFalse);
     expect(YtExtras.isImageHost(Uri.parse('https://evilggpht.com/a')), isFalse);
   });
+}
+
+/// A direct source that answers comment pages from [answers] and is never
+/// on the network.
+class _Direct extends YtDirectSource {
+  _Direct() : super(InnertubeClient(FakeYtTransport((_) => throw StateError('no network'))));
+
+  final answers = <YtResult<YtPage<YtComment>>>[];
+  var asked = 0;
+
+  @override
+  Future<YtResult<YtPage<YtComment>>> comments(String token) async {
+    asked++;
+    return answers.removeAt(0);
+  }
+
+  @override
+  void close() {}
+}
+
+/// The play router's source in these tests: never asked.
+class _NoNetDirect extends YtDirectSource {
+  _NoNetDirect()
+    : super(InnertubeClient(FakeYtTransport((_) => throw StateError('no network'))));
+
+  @override
+  void close() {}
+}
+
+class _NoHost extends Fake implements DownloadHost {}
+
+/// Files whose path contains [part] are written half-way, then the write
+/// fails (a disk filling up).
+final class _HalfWrites extends IOOverrides {
+  _HalfWrites(this.part);
+
+  final String part;
+
+  @override
+  File createFile(String path) {
+    final real = super.createFile(path);
+    return path.contains(part) ? _HalfFile(real) : real;
+  }
+}
+
+class _HalfFile implements File {
+  _HalfFile(this._real);
+
+  final File _real;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async {
+    await _real.writeAsString(contents.substring(0, contents.length ~/ 2));
+    throw const FileSystemException('the disk is full (test)');
+  }
+
+  @override
+  bool existsSync() => _real.existsSync();
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      _real.delete(recursive: recursive);
+
+  @override
+  Future<File> rename(String newPath) => _real.rename(newPath);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('_HalfFile.${invocation.memberName}');
 }

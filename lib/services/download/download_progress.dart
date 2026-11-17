@@ -26,6 +26,11 @@ class DownloadProgress extends ChangeNotifier {
   static const stepComments = 'comments';
   static const stepPreview = 'preview';
 
+  /// YouTube's comment steps: the same work as [stepCommentList] and
+  /// [stepComments], at its 1 s pacing (yt_extras.dart).
+  static const stepYtCommentList = 'ytCommentList';
+  static const stepYtComments = 'ytComments';
+
   /// Seconds one unit of a step takes before it has been measured: a
   /// request (the comment lists wait 200 ms between pages and between a
   /// comment's reply pages), a comment with its pictures, a local copy.
@@ -38,6 +43,10 @@ class DownloadProgress extends ChangeNotifier {
     stepComments: 0.4,
     // a frame: an exact seek and its decoding
     stepPreview: 0.3,
+    // a page, or a comment and its replies' page: the 1 s pause and the
+    // request
+    stepYtCommentList: 1.2,
+    stepYtComments: 1.2,
   };
 
   /// Comments per page of the hot list.
@@ -48,8 +57,8 @@ class DownloadProgress extends ChangeNotifier {
     stepCover => '保存封面',
     stepDanmaku => '导出弹幕',
     stepSubtitles => '保存字幕',
-    stepCommentList => '获取评论列表',
-    stepComments => '保存评论',
+    stepCommentList || stepYtCommentList => '获取评论列表',
+    stepComments || stepYtComments => '保存评论',
     stepPreview => '生成截图预览',
     _ => step,
   };
