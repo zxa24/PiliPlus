@@ -1564,6 +1564,16 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   @visibleForTesting
   void resumeExtrasForTest(DownloadEntry entry) => _resumeExtras(entry);
 
+  /// Tests only: [_queueExtras], as a completion does (no guard against a
+  /// job of the key already queued: a deleted entry downloaded again).
+  @visibleForTesting
+  void queueExtrasForTest(DownloadEntry entry) =>
+      _queueExtras(entry, entry.mergedPath!);
+
+  /// Tests only: [_cancelExtras], as deleting the entry does.
+  @visibleForTesting
+  Future<void> cancelExtrasForTest(DownloadKey key) => _cancelExtras(key);
+
   /// Saves the extras of [entry] that an earlier run did not finish.
   void _resumeExtras(DownloadEntry entry) {
     // not saved by this build: left marked, neither held nor queued
@@ -1608,8 +1618,10 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
   /// Pending or running extras export per entry.
   final _extrasJobs = <DownloadKey, Future<void>>{};
 
-  /// Entries whose export must stop (entry deleted).
-  final _extrasCancelled = <DownloadKey>{};
+  /// Each queued export's own cancel mark (deleting its entry sets it). A
+  /// key queued again gets a new one: an older job of the same key that
+  /// was cancelled stays cancelled (review 1, l5).
+  final _extrasTokens = <DownloadKey, _ExtrasToken>{};
 
   /// The entry whose export is running now.
   DownloadKey? _extrasRunningKey;
@@ -1619,9 +1631,11 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
 
   void _queueExtras(DownloadEntry entry, String output) {
     final key = entry.key;
-    _extrasCancelled.remove(key);
+    final token = _extrasTokens[key] = _ExtrasToken();
+    // a job that fails is caught here: the chain behind it always goes on
+    // (review 1, c1)
     final job = _extrasQueue = _extrasQueue.then((_) async {
-      if (_extrasCancelled.contains(key)) return;
+      if (token.cancelled) return;
       _extrasRunningKey = key;
       entry.status = DownloadStatus.savingExtras;
       extrasQueue.refresh();
@@ -1630,7 +1644,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
           entry: entry,
           folder: path.dirname(output),
           base: path.basenameWithoutExtension(output),
-          cancelled: () => _extrasCancelled.contains(key),
+          cancelled: () => token.cancelled,
           progress: entry.progress,
         );
       } catch (e) {
@@ -1638,29 +1652,46 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
       } finally {
         _extrasRunningKey = null;
       }
-      if (_extrasCancelled.contains(key)) return;
-      entry
-        ..extrasPending = false
-        ..status = DownloadStatus.completed
-        ..progress.complete();
-      // its folder may be gone meanwhile (download folder changed and the
-      // old one removed): nothing to record then
-      if (Directory(entry.entryDirPath).existsSync()) {
-        await _saveEntry(entry);
-        // one merged by a version that marked it for its transcript only
-        // here (the app closed while its extras were saved): marked now
-        if (!entry.transcriptPending && transcripts.progress[key] == null) {
-          unawaited(transcripts.finished(entry));
+      if (token.cancelled) return;
+      try {
+        entry
+          ..extrasPending = false
+          ..status = DownloadStatus.completed
+          ..progress.complete();
+        // its folder may be gone meanwhile (download folder changed and the
+        // old one removed): nothing to record then
+        if (Directory(entry.entryDirPath).existsSync()) {
+          try {
+            await _saveEntry(entry);
+          } catch (e) {
+            // the record on disk still says pending: the next launch saves
+            // them again
+            entry.extrasPending = true;
+            EventLog.add(
+              'download',
+              '${entry.logLabel}: extras saved, record not: $e',
+            );
+          }
+          // one merged by a version that marked it for its transcript only
+          // here (the app closed while its extras were saved): marked now
+          if (!entry.extrasPending &&
+              !entry.transcriptPending &&
+              transcripts.progress[key] == null) {
+            unawaited(transcripts.finished(entry));
+          }
         }
+      } finally {
+        extrasQueue.remove(entry);
+        flagNotifier.refresh();
       }
-      extrasQueue.remove(entry);
-      flagNotifier.refresh();
+    }).catchError((Object e) {
+      EventLog.add('download', '${entry.logLabel}: extras job failed: $e');
     });
     _extrasJobs[key] = job;
     job.whenComplete(() {
       if (identical(_extrasJobs[key], job)) {
         _extrasJobs.remove(key);
-        _extrasCancelled.remove(key);
+        if (identical(_extrasTokens[key], token)) _extrasTokens.remove(key);
       }
     });
   }
@@ -1671,7 +1702,7 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
     await transcripts.forget(key);
     extrasQueue.removeWhere((e) => e.key == key);
     if (!_extrasJobs.containsKey(key)) return;
-    _extrasCancelled.add(key);
+    _extrasTokens[key]?.cancelled = true;
     if (_extrasRunningKey == key) await _extrasJobs[key];
   }
 
@@ -2252,4 +2283,9 @@ extension SetNotifierExt on SetNotifier {
       i();
     }
   }
+}
+
+/// One queued extras export's cancel mark.
+final class _ExtrasToken {
+  bool cancelled = false;
 }

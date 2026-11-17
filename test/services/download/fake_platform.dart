@@ -132,6 +132,13 @@ class FakePlatform implements DownloadPlatform {
   var saves = 0;
   var extrasCalls = 0;
 
+  /// The key of each [extras] call, in order.
+  final extrasKeys = <String>[];
+
+  /// Waited for inside [extras]: a test holds an export there.
+  Future<void> Function(DownloadEntry entry, bool Function()? cancelled)?
+  extrasGate;
+
   /// [DownloadEntry.extrasPending] of each record saved.
   final savedExtrasPending = <bool>[];
 
@@ -250,6 +257,8 @@ class FakePlatform implements DownloadPlatform {
     DownloadProgress? progress,
   }) async {
     extrasCalls++;
+    extrasKeys.add(entry.key);
+    await extrasGate?.call(entry, cancelled);
     return {};
   }
 
