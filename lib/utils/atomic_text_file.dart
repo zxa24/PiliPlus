@@ -10,23 +10,33 @@ import 'dart:io';
 /// refuses it, as it does while another program has [file] open (the same
 /// as the download record's save, download_platform_bili.dart).
 ///
-/// [replace] false: a [file] already there is left as it is (the rename is
-/// not made, the `.part` removed) and false is returned; true otherwise.
-/// What is looked at is the moment before the rename: a file that comes
-/// between that look and the rename itself is still replaced.
+/// [replace] false: the name is reserved first, by creating [file] only if
+/// none is there (`create(exclusive: true)`, review 4 P1); a [file] already
+/// there, whoever made it and whenever, is left as it is (the `.part`
+/// removed) and false is returned. Then the `.part` is renamed over the
+/// empty reservation, which is ours. Cut off between the two, an empty
+/// [file] is left: a caller that writes only where a file is absent takes
+/// an empty one as absent and writes it with [replace] true.
 Future<bool> writeTextAtomic(
   File file,
   String text, {
   bool replace = true,
 }) async {
   final part = File('${file.path}.part');
+  var reserved = false;
   try {
     await part.writeAsString(text, flush: true);
     for (var wait = 50; ; wait *= 2) {
       try {
-        if (!replace && file.existsSync()) {
-          await part.delete();
-          return false;
+        if (!replace && !reserved) {
+          try {
+            await file.create(exclusive: true);
+            reserved = true;
+          } on FileSystemException {
+            // there already: kept
+            await part.delete();
+            return false;
+          }
         }
         await part.rename(file.path);
         return true;
@@ -38,6 +48,10 @@ Future<bool> writeTextAtomic(
   } catch (_) {
     try {
       if (part.existsSync()) await part.delete();
+    } catch (_) {}
+    // our reservation, still empty: not left behind
+    try {
+      if (reserved && file.lengthSync() == 0) await file.delete();
     } catch (_) {}
     rethrow;
   }

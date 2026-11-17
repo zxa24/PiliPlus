@@ -885,6 +885,47 @@ void main() {
       );
     });
 
+    // review 4, P1: an empty file of the name is a write cut off
+    test('an empty leftover of a picked name is filled; a file with text '
+        'is not touched', () async {
+      put('$base.en.srt', '');
+      put('$base.de.srt', 'kept as it is');
+      net.tracks([_track('en'), _track('de')]);
+      final written = await export();
+      expect(
+        File(path.join(folder, '$base.en.srt')).readAsStringSync(),
+        contains('line .en'),
+      );
+      expect(
+        File(path.join(folder, '$base.de.srt')).readAsStringSync(),
+        'kept as it is',
+      );
+      expect(net.log.where((l) => l.startsWith('caption')), ['caption .en']);
+      expect((written['subtitles']! as Map)['files'], [
+        '$base.en.srt',
+        '$base.de.srt',
+      ]);
+    });
+
+    // review 4, P3
+    test('a fetch that fails while a file of the name comes meanwhile: the '
+        'file is listed, and kept', () async {
+      net
+        ..tracks([_track('en')])
+        ..captions = {'.en': const YtResult.failed(_wall)}
+        ..onAsk = (asked) {
+          if (asked == 'caption .en') put('$base.en.srt', 'came meanwhile');
+        };
+      final written = await export();
+      final subs = written['subtitles']! as Map;
+      expect(subs['files'], ['$base.en.srt']);
+      expect(subs['failed'], [contains('$base.en.srt: ipBlocked')]);
+      expect(
+        File(path.join(folder, '$base.en.srt')).readAsStringSync(),
+        'came meanwhile',
+      );
+    });
+
     test('the record has no subtitle list, nor the copy', () async {
       net.tracks([_track('en')]);
       await export();

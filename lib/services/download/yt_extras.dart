@@ -547,11 +547,13 @@ abstract final class YtExtras {
     // a picked track is written only where no file of its name is: a
     // subtitle file is never written over and never deleted, whoever wrote
     // it (review 3). A run again after one cut off can leave the earlier
-    // pick's other tracks beside this pick's: subtitles of the same video
+    // pick's other tracks beside this pick's: subtitles of the same video.
+    // An empty file of the name counts as absent: what a write cut off
+    // between reserving the name and filling it leaves (review 4, P1)
     for (final (i, p) in picked.indexed) {
       progress?.extras(DownloadProgress.stepSubtitles, 1 + i, 1 + picked.length);
       final file = File(path.join(folder, p.name));
-      if (file.existsSync()) {
+      if (_hasText(file)) {
         files.add(p.name);
         continue;
       }
@@ -559,18 +561,19 @@ abstract final class YtExtras {
       final srt = r.ok ? vttToSrt(r.value!) : null;
       if (srt == null) {
         failed.add('${p.name}: ${r.ok ? 'no cues' : r.verdict}');
+        // one that came meanwhile is there all the same (review 4, P3)
+        if (_hasText(file)) files.add(p.name);
         continue;
       }
       calls.check();
       try {
-        // false: a file of that name came meanwhile, and stays
-        await writeTextAtomic(file, srt, replace: false);
+        // an empty one ours to fill; otherwise the name is reserved first,
+        // and a file that came meanwhile stays
+        await writeTextAtomic(file, srt, replace: file.existsSync() && !_hasText(file));
       } catch (e) {
         failed.add('${p.name}: $e');
-        if (file.existsSync()) files.add(p.name);
-        continue;
       }
-      files.add(p.name);
+      if (_hasText(file)) files.add(p.name);
     }
     // what the device transcribed of the video, written beside it (as
     // bilibili's: what it transcribes later is written as the cache keeps
@@ -588,6 +591,16 @@ abstract final class YtExtras {
       if (kDebugMode) debugPrint('youtube extras transcript: $e');
     }
     return {'files': files, if (failed.isNotEmpty) 'failed': failed};
+  }
+
+  /// Whether [file] is there with something in it (an empty one counts as
+  /// absent, review 4 P1).
+  static bool _hasText(File file) {
+    try {
+      return file.existsSync() && file.lengthSync() > 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// WebVTT as SRT; null when it has no cues.
