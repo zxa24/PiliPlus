@@ -79,29 +79,20 @@ void main() {
       expect(back.streamTypeTag, '136-140');
     });
 
-    // review 2 of the extras: P1's subtitle list, item 5's comment retry
-    test('what the extras keep in the record: written and read back, left '
-        'out while empty', () {
+    // review 2 of the extras, item 5: the comment retry
+    test('what the comment retry keeps in the record: written and read '
+        'back, left out while empty', () {
       final e = ytEntry(root)
-        ..subtitleFiles['v.en.srt'] = (sha1: 'a1', writing: null)
-        ..subtitleFiles['v.de.srt'] = (sha1: 'b2', writing: 'c3')
         ..commentsPending = true
         ..commentsTries = 2
         ..commentsAfter = DateTime(2026, 11, 17, 12)
         ..commentsNote = 'ipBlocked';
       final json = jsonDecode(jsonEncode(e.toJson())) as Map<String, dynamic>;
-      expect(json['written'], {
-        'subtitles': [
-          {'name': 'v.en.srt', 'sha1': 'a1'},
-          {'name': 'v.de.srt', 'sha1': 'b2', 'writing_sha1': 'c3'},
-        ],
-      });
       final back = YtDownloadEntry.fromJson(json);
       expect(back.toJson(), e.toJson());
       expect(back.commentsAfter, DateTime(2026, 11, 17, 12));
       final plain = ytEntry(root).toJson();
       for (final key in [
-        'written',
         'comments_pending',
         'comments_tries',
         'comments_after',
@@ -109,18 +100,6 @@ void main() {
       ]) {
         expect(plain.containsKey(key), isFalse, reason: key);
       }
-      // a line not of its shape (a path in the name): left out
-      final odd = YtDownloadEntry.fromJson({
-        ...plain,
-        'written': {
-          'subtitles': [
-            {'name': '../x.srt', 'sha1': 'a'},
-            {'name': 'ok.srt'},
-            {'name': 'v.en.srt', 'sha1': 'a1'},
-          ],
-        },
-      });
-      expect(odd.subtitleFiles.keys, ['v.en.srt']);
     });
 
     test('not one of these: refused', () {

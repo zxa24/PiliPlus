@@ -27,6 +27,16 @@ void main() {
     expect(names(), ['a.srt']);
   });
 
+  test('replace false: a file there is left as it is, no .part', () async {
+    final f = File(path.join(dir.path, 'c.srt'))..writeAsStringSync('theirs');
+    expect(await writeTextAtomic(f, 'ours', replace: false), isFalse);
+    expect(f.readAsStringSync(), 'theirs');
+    expect(names(), ['c.srt']);
+    final g = File(path.join(dir.path, 'd.srt'));
+    expect(await writeTextAtomic(g, 'ours', replace: false), isTrue);
+    expect(g.readAsStringSync(), 'ours');
+  });
+
   test('a rename that cannot happen: an error, no .part left', () async {
     // a folder where the file would go: the rename is refused
     Directory(path.join(dir.path, 'b.json')).createSync();

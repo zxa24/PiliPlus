@@ -1087,9 +1087,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
       transcriptKey: transcriptKey(entry),
       cancelled: cancelled,
       progress: progress,
-      // the subtitle files written are listed in the record first (review
-      // 2, P1)
-      saveRecord: () => _host.saveTaken(entry),
     ).whenComplete(close);
   }
 

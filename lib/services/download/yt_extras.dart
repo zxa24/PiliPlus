@@ -37,7 +37,7 @@ import 'package:PiliPlus/utils/atomic_text_file.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
-import 'package:crypto/crypto.dart' show md5, sha1;
+import 'package:crypto/crypto.dart' show md5;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 
@@ -220,9 +220,7 @@ abstract final class YtExtras {
   /// was written (for self tests). [cancelled] is looked at before every
   /// request and every [cancelPoll]: once true (the entry was deleted) [net]
   /// is closed, which ends what is in flight, and nothing more is fetched
-  /// or written. [saveRecord] saves [entry]'s record: the subtitle files
-  /// are listed in it before they are written ([YtDownloadEntry.
-  /// subtitleFiles]).
+  /// or written.
   static Future<Map<String, Object?>> export({
     required YtDownloadEntry entry,
     required String folder,
@@ -231,7 +229,6 @@ abstract final class YtExtras {
     required SubtitleCacheKey transcriptKey,
     bool Function()? cancelled,
     DownloadProgress? progress,
-    Future<void> Function()? saveRecord,
   }) async {
     final written = <String, Object?>{};
     void check() {
@@ -252,8 +249,7 @@ abstract final class YtExtras {
         ..remove('merged_parts')
         ..remove('extras_pending')
         ..remove('transcript_pending')
-        // this device's bookkeeping (review 2, P1, item 5)
-        ..remove('written')
+        // this device's bookkeeping (review 2, item 5)
         ..remove('comments_pending')
         ..remove('comments_tries')
         ..remove('comments_after')
@@ -300,15 +296,7 @@ abstract final class YtExtras {
       if (Pref.dlSaveSubtitle) {
         await step(
           DownloadProgress.stepSubtitles,
-          () => _subtitles(
-            entry,
-            folder,
-            base,
-            calls,
-            progress,
-            transcriptKey,
-            saveRecord,
-          ),
+          () => _subtitles(entry, folder, base, calls, progress, transcriptKey),
         );
       }
       if (Pref.dlSaveComments) {
@@ -548,94 +536,40 @@ abstract final class YtExtras {
     _Calls calls,
     DownloadProgress? progress,
     SubtitleCacheKey transcriptKey,
-    Future<void> Function()? saveRecord,
   ) async {
     final files = <String>[];
     final failed = <String>[];
-    // what earlier runs wrote, as the record says (review 2, P1)
-    final own = entry.subtitleFiles;
-    Future<void> save() async {
-      try {
-        await saveRecord?.call();
-      } catch (e) {
-        if (kDebugMode) debugPrint('youtube extras record: $e');
-      }
-    }
-
     final detail = await calls.detail(entry.videoId);
     final picked = detail.ok
         ? pickTracks(detail.value!.captionTracks, base)
         : const <({YtCaptionTrack track, String name})>[];
     if (!detail.ok) failed.add('captions: no detail (${detail.verdict})');
-    // a run again (the app closed during the export) may pick other tracks
-    // (the list varies between answers): the files an earlier run wrote
-    // that this pick does not keep go. Only the ones the record lists, and
-    // only while they are as written (review 2, P1): a file the user put
-    // there, another video's, or one of ours the user changed, stays. Not
-    // without a new pick
-    if (detail.ok) {
-      final keep = {for (final p in picked) p.name};
-      var changed = false;
-      for (final name in [...own.keys]) {
-        if (keep.contains(name)) continue;
-        final file = File(path.join(folder, name));
-        if (await _ownState(file, own[name]) == _Own.asWritten) {
-          try {
-            await file.delete();
-          } catch (_) {
-            // still there: still ours
-            continue;
-          }
-        }
-        own.remove(name);
-        changed = true;
-      }
-      if (changed) await save();
-    }
+    // a picked track is written only where no file of its name is: a
+    // subtitle file is never written over and never deleted, whoever wrote
+    // it (review 3). A run again after one cut off can leave the earlier
+    // pick's other tracks beside this pick's: subtitles of the same video
     for (final (i, p) in picked.indexed) {
       progress?.extras(DownloadProgress.stepSubtitles, 1 + i, 1 + picked.length);
       final file = File(path.join(folder, p.name));
-      final state = await _ownState(file, own[p.name]);
-      // a file of that name this app did not write, or one changed since:
-      // not written over (review 2, P1)
-      if (state == _Own.other) {
-        failed.add('${p.name}: a file of that name is there, not as this app '
-            'wrote it: left as it is');
+      if (file.existsSync()) {
+        files.add(p.name);
         continue;
       }
       final r = await calls.caption(detail.source, p.track);
       final srt = r.ok ? vttToSrt(r.value!) : null;
       if (srt == null) {
-        // an earlier run's copy of the same track stays: it is whole
-        final kept = state == _Own.asWritten;
-        failed.add(
-          '${p.name}: ${r.ok ? 'no cues' : r.verdict}'
-          '${kept ? ' (the earlier copy kept)' : ''}',
-        );
-        if (kept) files.add(p.name);
+        failed.add('${p.name}: ${r.ok ? 'no cues' : r.verdict}');
         continue;
       }
       calls.check();
-      // in the record before the file is: a run cut off meanwhile still
-      // knows it as this app's, whichever text it holds
-      final sha = sha1.convert(utf8.encode(srt)).toString();
-      final before = own[p.name];
-      own[p.name] = (sha1: before?.sha1 ?? sha, writing: sha);
-      await save();
       try {
-        await writeTextAtomic(file, srt);
+        // false: a file of that name came meanwhile, and stays
+        await writeTextAtomic(file, srt, replace: false);
       } catch (e) {
         failed.add('${p.name}: $e');
-        // written whole or not at all: the file is as it was
-        if (before == null) {
-          own.remove(p.name);
-        } else {
-          own[p.name] = before;
-        }
-        if (state == _Own.asWritten) files.add(p.name);
+        if (file.existsSync()) files.add(p.name);
         continue;
       }
-      own[p.name] = (sha1: sha, writing: null);
       files.add(p.name);
     }
     // what the device transcribed of the video, written beside it (as
@@ -740,19 +674,6 @@ abstract final class YtExtras {
     return int.tryParse(parts[1]) == null
         ? null
         : (lang: parts.first, source: SubtitleSource.author);
-  }
-
-  /// Whether [file] is one the extras wrote, as written ([rec], the
-  /// record's line for it).
-  static Future<_Own> _ownState(File file, YtWrittenFile? rec) async {
-    if (!file.existsSync()) return _Own.absent;
-    if (rec == null) return _Own.other;
-    try {
-      final sha = sha1.convert(await file.readAsBytes()).toString();
-      return sha == rec.sha1 || sha == rec.writing ? _Own.asWritten : _Own.other;
-    } catch (_) {
-      return _Own.other;
-    }
   }
 
   // ------------------------------------------------------------- comments
@@ -1050,9 +971,6 @@ class _Calls {
     check();
   }
 }
-
-/// Whether a subtitle file there is the extras' own ([YtExtras._ownState]).
-enum _Own { absent, asWritten, other }
 
 /// The comment step saved nothing: `comments unavailable (<why>)`, the
 /// step's error as design §6.2 has it; there is no comments file, so the
