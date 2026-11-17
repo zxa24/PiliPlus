@@ -1,8 +1,8 @@
 diff --git a/lib/services/download/download_service.dart b/lib/services/download/download_service.dart
-index 9f7c7c716..e70021d2d 100644
+index 70060519e..fa68f51e5 100644
 --- a/lib/services/download/download_service.dart
 +++ b/lib/services/download/download_service.dart
-@@ -1748,9 +1748,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
+@@ -1759,9 +1759,9 @@ class DownloadService extends GetxService with WidgetsBindingObserver {
      }).catchError((Object e) {
        EventLog.add('download', '${entry.logLabel}: extras job failed: $e');
      });
@@ -13,4 +13,4 @@ index 9f7c7c716..e70021d2d 100644
 +      if (identical(_extrasJobs['bili:${(entry as BiliDownloadEntryInfo).avid}'], job)) {
          _extrasJobs.remove(key);
          if (identical(_extrasTokens[key], token)) _extrasTokens.remove(key);
-         // comments a wall kept out (now or again): asked for when due
+         if (!token.cancelled) _afterExtras(entry);
