@@ -24,6 +24,7 @@ import 'package:PiliPlus/services/youtube/direct_source.dart';
 import 'package:PiliPlus/services/youtube/innertube_client.dart';
 import 'package:PiliPlus/services/youtube/invidious_source.dart';
 import 'package:PiliPlus/services/youtube/source_router.dart';
+import 'package:PiliPlus/services/youtube/yt_classifier.dart' show YtSignals;
 import 'package:PiliPlus/services/youtube/video_source.dart';
 import 'package:PiliPlus/services/youtube/yt_models.dart';
 import 'package:PiliPlus/services/youtube/yt_verdict.dart';
@@ -157,6 +158,9 @@ class _Net implements YtExtrasNet {
 
   /// Each pause's length, in order.
   final pauses = <Duration>[];
+
+  @override
+  bool detailAsksDirect = true;
 
   @override
   Future<void> pause(Duration duration) async {
@@ -1075,6 +1079,107 @@ void main() {
     });
   });
 
+  group('review 2: walls and gaps', () {
+    // P3: the session's comments table counts for the details too
+    test('the comments table alone has the direct source cooling: the '
+        "export's details and captions go to the fallback alone", () async {
+      YtExtras.commentsHealth['direct'] = YtSourceHealth()
+        ..cooldownUntil = DateTime.now().add(const Duration(minutes: 5))
+        ..cooldownStep = 1;
+      final modes = <YtSourceMode>[];
+      YtDownloadPlatform.routerForTest = (mode, {required own, required health}) {
+        modes.add(mode);
+        return YtSourceRouter(_NoNetDirect(), health: health, mode: mode);
+      };
+      YtDownloadPlatform.extrasNetForTest = (_, _) => net;
+      addTearDown(() {
+        YtDownloadPlatform.routerForTest = null;
+        YtDownloadPlatform.extrasNetForTest = null;
+      });
+      await YtDownloadPlatform(_NoHost()).extras(
+        entry: entry,
+        folder: folder,
+        base: base,
+      );
+      expect(modes, [YtSourceMode.fallbackOnly]);
+    });
+
+    // P3: the gap comes before a detail that may go to the direct source
+    test("the next export's detail to the direct source waits for the gap "
+        "after the last one's traffic there", () async {
+      var now = DateTime(2026, 11, 17, 12);
+      YtExtras.clock = () => now;
+      net.pages = {'top-1': YtResult.ok(YtPage([_comment('a')], null))};
+      await export();
+      now = now.add(const Duration(seconds: 10));
+      net = _Net()
+        ..pages = {'top-1': YtResult.ok(YtPage([_comment('a')], null))};
+      await export();
+      expect(net.log.take(2), ['pause', 'detail']);
+      expect(net.pauses.first, const Duration(seconds: 20));
+      // once per export: `next` right after it
+      expect(net.pauses.where((p) => p == const Duration(seconds: 20)), hasLength(1));
+    });
+
+    test('a detail that goes to the fallback alone does not wait', () async {
+      var now = DateTime(2026, 11, 17, 12);
+      YtExtras.clock = () => now;
+      await export();
+      now = now.add(const Duration(seconds: 10));
+      net = _Net()..detailAsksDirect = false;
+      await GStorage.setting.put(SettingBoxKey.dlSaveComments, false);
+      await export();
+      // the intro's `next` waits; the detail before it did not
+      expect(net.log.take(3), ['detail', 'pause', 'related']);
+    });
+
+    // P4: the live router's cooldown for a confirmed wall is the one kept
+    test("a confirmed wall on the first page: the router's cooldown kept, "
+        'not a second step up the ladder', () async {
+      final now = DateTime(2026, 11, 17, 12);
+      YtExtras.clock = () => now;
+      for (final key in [SettingBoxKey.dlSaveCover, SettingBoxKey.dlSaveSubtitle]) {
+        await GStorage.setting.put(key, false);
+      }
+      final direct = _Direct()
+        ..relatedAnswer = const YtResult.ok(
+          YtRelatedAndComments([], 'top-1', YtVideoExtra()),
+        )
+        ..answers.add(
+          const YtResult.failed(
+            YtVerdict(YtCause.ipBlocked, YtSignals.botCheckConfirmed),
+          ),
+        );
+      final live = YtExtrasLiveNet(
+        play: YtSourceRouter(_NoNetDirect(), sleep: (_) async {}),
+        direct: direct,
+        sleepForTest: (_) async {},
+      );
+      final written = await YtExtras.export(
+        entry: entry,
+        folder: folder,
+        base: base,
+        net: live,
+        transcriptKey: SubtitleCacheKey.youtube(entry.videoId),
+      );
+      expect(written['comments'], contains('comments unavailable'));
+      final h = YtExtras.commentsHealth['direct']!;
+      expect(h.cooldownStep, 1);
+      expect(h.cooldownUntil, now.add(ytCooldownLadder.first));
+    });
+
+    test('a wall the router did not confirm: one cooldown started, the '
+        'first step', () async {
+      final now = DateTime(2026, 11, 17, 12);
+      YtExtras.clock = () => now;
+      net.pages = {'top-1': const YtResult.failed(_wall)};
+      await export();
+      final h = YtExtras.commentsHealth['direct']!;
+      expect(h.cooldownStep, 1);
+      expect(h.cooldownUntil, now.add(ytCooldownLadder.first));
+    });
+  });
+
   test('the switches off: only the record and the intro', () async {
     for (final key in [
       SettingBoxKey.dlSaveCover,
@@ -1127,6 +1232,13 @@ class _Direct extends YtDirectSource {
 
   final answers = <YtResult<YtPage<YtComment>>>[];
   var asked = 0;
+
+  /// The `next` answer; null: not to be asked.
+  YtResult<YtRelatedAndComments>? relatedAnswer;
+
+  @override
+  Future<YtResult<YtRelatedAndComments>> related(String videoId) async =>
+      relatedAnswer ?? (throw StateError('related not expected'));
 
   @override
   Future<YtResult<YtPage<YtComment>>> comments(String token) async {

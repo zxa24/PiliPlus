@@ -1079,14 +1079,15 @@ final class YtDownloadPlatform implements DownloadPlatform {
       );
     }
     // a router of the export's own (own health, never the pages' shared
-    // one); while the pages' table says the direct source is walled (read,
-    // not changed), straight to the fallback (review 1, l6)
+    // one); while the pages' table or the session's comments table says
+    // the direct source is walled (read, not changed), straight to the
+    // fallback (review 1, l6; review 2, P3)
     final mode = YtSourceStore.debugMode;
     // sources of the export's own: a delete closes them, which ends their
     // requests (review 2, P2); not with a test's router
     final sources = routerForTest == null ? _ExtrasSources() : null;
     final play = _router(
-      mode == YtSourceMode.auto && directWalled()
+      mode == YtSourceMode.auto && YtExtras.directWall() != null
           ? YtSourceMode.fallbackOnly
           : mode,
       own: true,
@@ -1113,13 +1114,6 @@ final class YtDownloadPlatform implements DownloadPlatform {
       // 2, P1)
       saveRecord: () => _host.saveTaken(entry),
     ).whenComplete(() => sources?.close());
-  }
-
-  /// Whether the pages' shared table has the direct source cooling down.
-  static bool directWalled() {
-    final until = YtSourceRouter.sharedHealth[_directId]
-        ?.cooldownUntil;
-    return until != null && YtExtras.clock().isBefore(until);
   }
 
   @override

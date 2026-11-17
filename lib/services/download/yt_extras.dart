@@ -68,6 +68,11 @@ abstract class YtExtrasNet {
   /// The pause between comment requests.
   Future<void> pause(Duration duration);
 
+  /// Whether [detail] may ask the direct source (not when its router goes
+  /// to the fallback alone): the gap between exports comes before it then
+  /// (review 2, P3).
+  bool get detailAsksDirect;
+
   void close();
 }
 
@@ -93,7 +98,8 @@ abstract final class YtExtras {
   /// The self test's `--comment-gap-ms` changes it.
   static Duration commentGap = const Duration(seconds: 1);
 
-  /// Between two exports' comment traffic (their `next` requests): the
+  /// Between two exports' traffic to the direct source (their `next`
+  /// requests, and the details when they go there, review 2 P3): the
   /// backlog of a first launch (every stage-2 record at once) is spread out
   /// (review 1, l9; the 30 s is the user's, 2026-11-17).
   static Duration exportGap = const Duration(seconds: 30);
@@ -111,8 +117,9 @@ abstract final class YtExtras {
   /// cools. Never the pages' [YtSourceRouter.sharedHealth].
   static final commentsHealth = <String, YtSourceHealth>{};
 
-  /// When the last export's comment traffic ended ([exportGap]).
-  static DateTime? _lastCommentTraffic;
+  /// When the last export's traffic to the direct source ended
+  /// ([exportGap]).
+  static DateTime? _lastDirectTraffic;
 
   /// Tests only: in place of [DateTime.now].
   static DateTime Function() clock = DateTime.now;
@@ -121,7 +128,7 @@ abstract final class YtExtras {
   @visibleForTesting
   static void resetSessionForTest() {
     commentsHealth.clear();
-    _lastCommentTraffic = null;
+    _lastDirectTraffic = null;
     clock = DateTime.now;
   }
 
@@ -146,9 +153,14 @@ abstract final class YtExtras {
   static const _directId = 'direct';
 
   /// A wall the comments met: a cooldown in [commentsHealth] on the
-  /// router's ladder, so the session's next exports leave it alone.
+  /// router's ladder, so the session's next exports leave it alone. One the
+  /// router already started for it (a confirmed wall) is kept as it is:
+  /// not a second step up the ladder (review 2, P4).
   static void _noteWall() {
     final h = commentsHealth.putIfAbsent(_directId, YtSourceHealth.new);
+    if (h.cooldownUntil case final until? when clock().isBefore(until)) {
+      return;
+    }
     final step = math.min(h.cooldownStep, ytCooldownLadder.length - 1);
     h
       ..cooldownUntil = clock().add(ytCooldownLadder[step])
@@ -280,7 +292,7 @@ abstract final class YtExtras {
       }
     } finally {
       watch?.cancel();
-      if (calls.nextAsked) _lastCommentTraffic = clock();
+      if (calls.directAsked) _lastDirectTraffic = clock();
       net.close();
     }
     EventLog.add(
@@ -775,12 +787,14 @@ class _Calls {
   final clock = Stopwatch()..start();
   var count = 0;
 
-  /// Whether a `next` request (related, a comment page) was made: the
-  /// session's [YtExtras.exportGap] counts from this export's end then.
-  var nextAsked = false;
+  /// Whether the direct source was asked (`next`, a comment page, a detail
+  /// that may go there): the session's [YtExtras.exportGap] counts from
+  /// this export's end then.
+  var directAsked = false;
 
   Future<YtRoutedResult<YtVideoDetail>>? _detail;
   Future<YtResult<YtRelatedAndComments>>? _related;
+  Future<void>? _gap;
 
   Future<T> _timed<T>(
     String kind,
@@ -797,8 +811,13 @@ class _Calls {
     return r;
   }
 
-  Future<YtRoutedResult<YtVideoDetail>> detail(String id) => _detail ??=
-      _timed('detail', () => net.detail(id), (r) => r.verdict);
+  Future<YtRoutedResult<YtVideoDetail>> detail(String id) =>
+      _detail ??= _detailOnce(id);
+
+  Future<YtRoutedResult<YtVideoDetail>> _detailOnce(String id) async {
+    if (net.detailAsksDirect) await _beforeDirect();
+    return _timed('detail', () => net.detail(id), (r) => r.verdict);
+  }
 
   Future<YtResult<YtRelatedAndComments>> related(String id) =>
       _related ??= _relatedOnce(id);
@@ -808,21 +827,24 @@ class _Calls {
     if (YtExtras.directWall() case final wall?) {
       return YtResult.failed(YtVerdict(YtCause.transient, 'direct-wall', wall));
     }
-    await _exportGap();
+    await _beforeDirect();
     return _timed('related', () => net.related(id), (r) => r.verdict);
   }
 
-  /// The previous export's comment traffic is [YtExtras.exportGap] behind
-  /// before this one's first `next` (review 1, l9).
+  /// Once, before this export's first request to the direct source: the
+  /// previous export's traffic there is [YtExtras.exportGap] behind (review
+  /// 1, l9; the details too, review 2 P3).
+  Future<void> _beforeDirect() => _gap ??= _exportGap();
+
   Future<void> _exportGap() async {
-    if (YtExtras._lastCommentTraffic case final last?) {
+    if (YtExtras._lastDirectTraffic case final last?) {
       final wait = YtExtras.exportGap - YtExtras.clock().difference(last);
       if (wait > Duration.zero) {
         await net.pause(wait);
         check();
       }
     }
-    nextAsked = true;
+    directAsked = true;
   }
 
   Future<YtResult<String>> caption(
@@ -835,7 +857,7 @@ class _Calls {
   );
 
   Future<YtResult<YtPage<YtComment>>> comments(String token) {
-    nextAsked = true;
+    directAsked = true;
     return _timed('comments', () => net.comments(token), (r) => r.verdict);
   }
 
@@ -970,6 +992,8 @@ class YtExtrasLiveNet implements YtExtrasNet {
     _comments = YtSourceRouter(
       _direct,
       health: YtExtras.commentsHealth,
+      // the cooldowns it starts and [YtExtras.directWall] on one clock
+      clock: () => YtExtras.clock(),
       // a retry waits at least the pacing (review 1, l8)
       sleep: (d) => pause(d < YtExtras.commentGap ? YtExtras.commentGap : d),
     );
@@ -982,6 +1006,9 @@ class YtExtrasLiveNet implements YtExtrasNet {
 
   /// Closes [play]'s sources, when they are the export's own.
   final void Function()? closeSources;
+
+  @override
+  bool get detailAsksDirect => play.mode != YtSourceMode.fallbackOnly;
 
   /// Tests only: in place of the pauses (and the router's waits).
   final Future<void> Function(Duration)? sleepForTest;
