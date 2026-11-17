@@ -404,7 +404,6 @@ abstract final class _YtDl {
     // `--yt-extras off`: this launch saves no extras, as stage 2 did; the
     // record keeps `extras_pending` for a later launch (AC-E)
     if (_arg(args, '--yt-extras') == 'off') {
-      // ignore: invalid_use_of_visible_for_testing_member
       YtDownloadPlatform.extrasEnabledForTest = false;
     }
     final (xRequests, xWritten, xUnhook) = _YtX.hook(logSince);

@@ -388,7 +388,7 @@ class DownloadHarness {
     YtDownloadPlatform.openLocalForTest = null;
     YtDownloadPlatform.httpClientForTest = null;
     YtDownloadPlatform.toastForTest = null;
-    YtDownloadPlatform.extrasEnabledForTest = false;
+    YtDownloadPlatform.extrasEnabledForTest = true;
     YtDownloadPlatform.extrasForTest = null;
     FakeTransport.created = null;
     SubtitleCache.debugInstance = null;

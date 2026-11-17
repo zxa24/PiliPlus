@@ -4,7 +4,8 @@
 // streams are whole; the two streams of the current folder into one mp4 in
 // the export folder; a merge that fails keeps the streams apart (complete,
 // no export to play), damaged streams are removed and downloaded again; a
-// completion marks the extras for stage 4 and does not queue them.
+// completion marks the extras and queues them (stage 4), the mark cleared
+// once they are saved.
 import 'dart:io';
 
 import 'package:PiliPlus/models_new/download/download_entry.dart';
@@ -26,8 +27,8 @@ void main() {
       h.start(records: [(root) => ytEntry(root, maxHeight: 1080)]);
 
   test(
-    'a merge: after both streams are whole; the export, extras marked, '
-    'not queued',
+    'a merge: after both streams are whole; the export, extras marked and '
+    'queued once, the mark cleared when they are saved',
     () async {
       await start();
       final e = h.entry();
@@ -47,10 +48,16 @@ void main() {
         h.server.bodies['audio']!.length,
       ));
       expect(e.isCompleted, isTrue);
-      expect(e.extrasPending, isTrue);
-      expect((await h.record(e))['extras_pending'], isTrue);
-      expect(h.service.extrasQueue, isEmpty);
-      expect(queued.where((n) => n > 0), isEmpty);
+      // listed as saving its extras on its way out of the queue (stage 4)
+      expect(queued.where((n) => n > 0), isNotEmpty);
+      // the record is saved before the entry leaves the extras' queue
+      await until(
+        () => !e.extrasPending && h.service.extrasQueue.isEmpty,
+        reason: 'the extras',
+      );
+      expect(h.base.exported, [same(e)]);
+      expect(e.status, DownloadStatus.completed);
+      expect((await h.record(e))['extras_pending'], isFalse);
       expect(e.progress.value, 1);
       expect(path.basename(e.mergedPath!), endsWith('.mp4'));
       // the stream files go once completion is saved

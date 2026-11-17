@@ -822,14 +822,15 @@ final class YtDownloadPlatform implements DownloadPlatform {
   @override
   bool get playUrlFailuresAreNetwork => false;
 
-  /// The extras (description, subtitles, comments) come with stage 4: a
-  /// completed download keeps `extras_pending` until then (§10-7 Q2 c).
+  /// The extras (intro, cover, subtitles, comments) are saved after the
+  /// video (stage 4, design §6). Stage 2 left completed records marked
+  /// `extras_pending`: the first read of the list saves theirs (§10-7 Q2 c).
   @override
   bool get extrasEnabled => extrasEnabledForTest;
 
-  /// Tests only: stage 4's switch turned on (AC-E).
-  @visibleForTesting
-  static bool extrasEnabledForTest = false;
+  /// Tests and self tests only: false is stage 2's build, which leaves the
+  /// mark and saves none (AC-E; `--yt-extras off`).
+  static bool extrasEnabledForTest = true;
 
   /// A refusal of an Invidious address: that instance set aside and the
   /// video's addresses forgotten before the retry asks again (design §4.3
