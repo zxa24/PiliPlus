@@ -3,6 +3,10 @@ import 'package:PiliPlus/services/youtube/yt_video_id.dart';
 
 export 'package:PiliPlus/models_new/download/download_entry.dart';
 
+/// A file the extras wrote: the SHA-1 of its text, and while a new text
+/// is being written over it, that one's (either is the file as written).
+typedef YtWrittenFile = ({String sha1, String? writing});
+
 /// LibrePili: a YouTube download (feature-logs/download-platforms design
 /// §2.2, stage-2 plan §3.2): `<root>/yt_<videoId>/main/entry.librepili.json`,
 /// one entry per video group. Its streams live in `main/<streamTag>/`.
@@ -24,9 +28,10 @@ class YtDownloadEntry extends DownloadEntry {
     this.mergedPath,
     this.extrasPending = false,
     this.transcriptPending = false,
+    Map<String, YtWrittenFile>? subtitleFiles,
     required this.timeCreateStamp,
     required this.timeUpdateStamp,
-  });
+  }) : subtitleFiles = subtitleFiles ?? {};
 
   /// [DownloadEntry.platform] of these.
   static const platformId = 'youtube';
@@ -88,6 +93,12 @@ class YtDownloadEntry extends DownloadEntry {
   bool extrasPending;
   @override
   bool transcriptPending;
+
+  /// The subtitle files the extras wrote beside the export, by file name
+  /// (the record's `written.subtitles`, review 2 P1): a later run deletes
+  /// only these, and only while they are as written. The offline page does
+  /// not read it (it finds the subtitles by their names, design §7.1).
+  final Map<String, YtWrittenFile> subtitleFiles;
 
   /// Seconds, as bilibili's (the list sorts by [timeUpdateStamp]).
   final int timeCreateStamp;
@@ -156,9 +167,31 @@ class YtDownloadEntry extends DownloadEntry {
       mergedPath: json['merged_path'] as String?,
       extrasPending: json['extras_pending'] == true,
       transcriptPending: json['transcript_pending'] == true,
+      subtitleFiles: _writtenSubtitles(json['written']),
       timeCreateStamp: asInt(json['time_create_stamp']),
       timeUpdateStamp: asInt(json['time_update_stamp']),
     );
+  }
+
+  /// `written.subtitles`: what is not of its shape is left out (the files
+  /// it would have named are then not this app's to delete).
+  static Map<String, YtWrittenFile> _writtenSubtitles(Object? written) {
+    final out = <String, YtWrittenFile>{};
+    if (written case {'subtitles': final List files}) {
+      for (final f in files) {
+        if (f case {'name': final String name, 'sha1': final String sha1}
+            when name.isNotEmpty && !name.contains(RegExp(r'[\\/]'))) {
+          out[name] = (
+            sha1: sha1,
+            writing: switch (f['writing_sha1']) {
+              final String s => s,
+              _ => null,
+            },
+          );
+        }
+      }
+    }
+    return out;
   }
 
   Map<String, dynamic> toJson() => {
@@ -180,6 +213,13 @@ class YtDownloadEntry extends DownloadEntry {
     'merged_path': mergedPath,
     'extras_pending': extrasPending,
     'transcript_pending': transcriptPending,
+    if (subtitleFiles.isNotEmpty)
+      'written': {
+        'subtitles': [
+          for (final MapEntry(key: name, value: f) in subtitleFiles.entries)
+            {'name': name, 'sha1': f.sha1, 'writing_sha1': ?f.writing},
+        ],
+      },
     'time_create_stamp': timeCreateStamp,
     'time_update_stamp': timeUpdateStamp,
   };

@@ -29,6 +29,7 @@ import 'package:PiliPlus/services/youtube/yt_verdict.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:crypto/crypto.dart' show sha1;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
@@ -62,6 +63,8 @@ YtComment _comment(String id, {String? replies, String? avatar}) => YtComment(
   replyCount: replies == null ? 0 : 2,
   replyToken: replies,
 );
+
+String _sha(String text) => sha1.convert(utf8.encode(text)).toString();
 
 const _wall = YtVerdict(YtCause.ipBlocked, 'http-429', 'test wall');
 
@@ -237,6 +240,13 @@ void main() {
   Map<String, dynamic> readJson(String name) =>
       jsonDecode(File(path.join(folder, name)).readAsStringSync())
           as Map<String, dynamic>;
+
+  /// [name] written with [text] as the extras would have, and listed so in
+  /// the record.
+  void ours(String name, String text) {
+    File(path.join(folder, name)).writeAsStringSync(text);
+    entry.subtitleFiles[name] = (sha1: _sha(text), writing: null);
+  }
 
   List<String> srtFiles() =>
       Directory(folder)
@@ -604,6 +614,7 @@ void main() {
       final subs = written['subtitles']! as Map;
       expect(subs['files'], ['$base.en.srt']);
       expect(subs['failed'], [contains('$base.de.srt')]);
+      expect(entry.subtitleFiles.keys, ['$base.en.srt']);
     });
 
     // 3 (l3): a delete ends the request in flight
@@ -765,42 +776,9 @@ void main() {
       expect(net.log.indexOf('pause'), lessThan(net.log.indexOf('related')));
     });
 
-    // 7 (c4): the folder holds this pick
-    test('an earlier run\'s subtitle files not in this pick go; the '
-        'transcript and the user\'s own files stay; `files` is the folder',
-        () async {
-      for (final name in [
-        '$base.fr.srt',
-        '$base.en.srt',
-        '$base.zh-Hans.2.srt',
-        '$base.asr.srt',
-        '$base.srt',
-        '$base.english.srt',
-      ]) {
-        File(path.join(folder, name)).writeAsStringSync('old');
-      }
-      net.tracks([_track('en'), _track('de')]);
-      final written = await export();
-      expect(srtFiles(), [
-        '$base.asr.srt',
-        '$base.de.srt',
-        '$base.en.srt',
-        '$base.english.srt',
-        '$base.srt',
-      ]);
-      expect(
-        File(path.join(folder, '$base.en.srt')).readAsStringSync(),
-        contains('line .en'),
-      );
-      expect(
-        ((written['subtitles']! as Map)['files'] as List).toSet(),
-        YtExtras.ownedSubtitleFiles(folder, base).toSet(),
-      );
-    });
-
     test('a track of this pick that fails keeps its earlier copy, and '
         '`files` says so', () async {
-      File(path.join(folder, '$base.de.srt')).writeAsStringSync('earlier');
+      ours('$base.de.srt', 'earlier');
       net
         ..tracks([_track('en'), _track('de')])
         ..captions = {'.de': const YtResult.failed(_wall)};
@@ -812,6 +790,121 @@ void main() {
         File(path.join(folder, '$base.de.srt')).readAsStringSync(),
         'earlier',
       );
+    });
+  });
+
+  // review 2, P1: a file is the extras' own because the record lists it,
+  // as written; not because of its name
+  group('review 2: the subtitle files the record lists', () {
+    test('ours and unchanged, not in this pick: deleted, and out of the '
+        'record', () async {
+      ours('$base.fr.srt', 'old');
+      net.tracks([_track('en')]);
+      final written = await export();
+      expect(srtFiles(), ['$base.en.srt']);
+      expect(entry.subtitleFiles.keys, ['$base.en.srt']);
+      expect((written['subtitles']! as Map)['files'], ['$base.en.srt']);
+    });
+
+    test('ours but changed by the user since: kept, and no longer listed',
+        () async {
+      ours('$base.fr.srt', 'old');
+      File(path.join(folder, '$base.fr.srt')).writeAsStringSync('mine now');
+      net.tracks([_track('en')]);
+      await export();
+      expect(
+        File(path.join(folder, '$base.fr.srt')).readAsStringSync(),
+        'mine now',
+      );
+      expect(entry.subtitleFiles.keys, ['$base.en.srt']);
+    });
+
+    test('the user\'s own file with a language-code name: kept, not listed',
+        () async {
+      File(path.join(folder, '$base.fr.srt')).writeAsStringSync('mine');
+      net.tracks([_track('en')]);
+      final written = await export();
+      expect(srtFiles(), ['$base.en.srt', '$base.fr.srt']);
+      expect(
+        File(path.join(folder, '$base.fr.srt')).readAsStringSync(),
+        'mine',
+      );
+      expect(entry.subtitleFiles.keys, ['$base.en.srt']);
+      expect((written['subtitles']! as Map)['files'], ['$base.en.srt']);
+    });
+
+    test('another video\'s file whose name this pick would use: neither '
+        'deleted nor written over', () async {
+      // `movie.en.mp4`'s side file, beside an export of `movie`
+      File(path.join(folder, 'movie.en.srt')).writeAsStringSync('its own');
+      File(path.join(folder, 'movie.fr.srt')).writeAsStringSync('its own');
+      net.tracks([_track('en'), _track('de')]);
+      final written = await YtExtras.export(
+        entry: entry,
+        folder: folder,
+        base: 'movie',
+        net: net,
+        transcriptKey: SubtitleCacheKey.youtube(entry.videoId),
+      );
+      for (final name in ['movie.en.srt', 'movie.fr.srt']) {
+        expect(
+          File(path.join(folder, name)).readAsStringSync(),
+          'its own',
+          reason: name,
+        );
+      }
+      final subs = written['subtitles']! as Map;
+      expect(subs['files'], ['movie.de.srt']);
+      expect(subs['failed'], [contains('movie.en.srt: a file of that name')]);
+      expect(entry.subtitleFiles.keys, ['movie.de.srt']);
+      // asked only for the track it writes
+      expect(net.log, isNot(contains('caption .en')));
+    });
+
+    test('a file is in the record before it is on disk; a run cut off '
+        'between the two still knows it as its own', () async {
+      final seen = <(String, bool)>[];
+      net.tracks([_track('en')]);
+      await YtExtras.export(
+        entry: entry,
+        folder: folder,
+        base: base,
+        net: net,
+        transcriptKey: SubtitleCacheKey.youtube(entry.videoId),
+        saveRecord: () async {
+          final w = entry.toJson()['written'] as Map?;
+          final listed = [
+            for (final f in (w?['subtitles'] as List?) ?? const [])
+              (f as Map)['name'] as String,
+          ];
+          for (final name in listed) {
+            seen.add((name, File(path.join(folder, name)).existsSync()));
+          }
+        },
+      );
+      expect(seen.first, ('$base.en.srt', false));
+      // cut off: the record says it was being written (its old text is
+      // still there); the next run, picking something else, deletes it
+      entry.subtitleFiles['$base.ja.srt'] = (
+        sha1: _sha('older'),
+        writing: _sha('newer'),
+      );
+      File(path.join(folder, '$base.ja.srt')).writeAsStringSync('older');
+      net = _Net()..tracks([_track('en')]);
+      await export();
+      expect(srtFiles(), ['$base.en.srt']);
+    });
+
+    test('the record keeps them; the export folder\'s copy does not', () async {
+      net.tracks([_track('en')]);
+      await export();
+      final back = YtDownloadEntry.fromJson(
+        jsonDecode(jsonEncode(entry.toJson())) as Map<String, dynamic>,
+      );
+      expect(back.subtitleFiles['$base.en.srt']!.sha1, _sha(
+        File(path.join(folder, '$base.en.srt')).readAsStringSync(),
+      ));
+      expect(readJson(DownloadExtras.infoName).containsKey('written'), isFalse);
     });
   });
 
