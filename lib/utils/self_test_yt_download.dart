@@ -226,6 +226,9 @@ final class _YtRun {
   final requests = <String, List<String>>{'video': [], 'audio': []};
   final asked = <Map<String, Object?>>[];
   final dioHosts = <String>{};
+
+  /// Method, host and path of each (no query: it can carry keys).
+  final dioRequests = <String>[];
   final progressSamples = <List<Object?>>[];
   final keepAliveTexts = <String>[];
   var extrasQueueSeen = false;
@@ -324,6 +327,7 @@ abstract final class _YtDl {
     final dio = InterceptorsWrapper(
       onRequest: (options, handler) {
         run.dioHosts.add(options.uri.host);
+        run.dioRequests.add('${options.method} ${options.uri.host}${options.uri.path}');
         handler.next(options);
       },
     );
@@ -1166,6 +1170,7 @@ abstract final class _YtDl {
             : lastMs - firstMs,
         'toasts': toasts,
         'dioHosts': run.dioHosts.toList()..sort(),
+        'dioRequests': run.dioRequests,
         'transferRequests': run.requests.values.expand((r) => r).length,
         'sourcesAsked': run.asked,
       };

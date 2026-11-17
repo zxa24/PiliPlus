@@ -82,10 +82,12 @@ abstract final class YtExtras {
   /// An avatar's (or the intro's channel face's) byte cap (§6.4).
   static const imageMaxBytes = 64 * 1024;
 
-  /// Between comment pages and between reply requests (design §6.3; §9
-  /// probe 4 decides whether it is enough). The self test's
-  /// `--comment-gap-ms` changes it.
-  static Duration commentGap = const Duration(milliseconds: 200);
+  /// Between comment pages and between reply requests (design §6.3). 1 s,
+  /// not the design's 200 ms: §9 probe 4 met no wall at 200 ms, but the
+  /// IP was walled 11 min after a real download's 224 comment requests at
+  /// 200 ms (report 2026-11-17), and the brief's rule for a wall is 1 s.
+  /// The self test's `--comment-gap-ms` changes it.
+  static Duration commentGap = const Duration(seconds: 1);
 
   /// Self tests only: told of every request the extras make.
   static void Function(String kind, YtVerdict verdict, Duration took)?
