@@ -85,6 +85,10 @@ abstract final class YtExtras {
   /// Reply answers in a row that are not ok before the replies stop.
   static const maxReplyFailures = 3;
 
+  /// How many times the comments a wall kept out are asked for again
+  /// before they are given up (review 2, item 5).
+  static const commentRetries = 3;
+
   /// At most this many subtitle tracks (§10-1).
   static const maxTracks = 10;
 
@@ -150,6 +154,22 @@ abstract final class YtExtras {
     return null;
   }
 
+  /// Until when the direct source's known wall lasts (the later of the
+  /// two tables' cooldowns); null: none now.
+  static DateTime? directWallUntil() {
+    final now = clock();
+    DateTime? out;
+    for (final table in [YtSourceRouter.sharedHealth, commentsHealth]) {
+      final until = table[_directId]?.cooldownUntil;
+      if (until != null &&
+          now.isBefore(until) &&
+          (out == null || until.isAfter(out))) {
+        out = until;
+      }
+    }
+    return out;
+  }
+
   static const _directId = 'direct';
 
   /// A wall the comments met: a cooldown in [commentsHealth] on the
@@ -175,6 +195,16 @@ abstract final class YtExtras {
   static void Function(String key, Map<String, Object?> written)?
   onWrittenForTest;
 
+  /// The comment steps alone: the plan of [exportComments].
+  static Map<String, int> commentsPlan() => {
+    // their own steps: their first estimate is the 1 s pacing's (l12)
+    if (Pref.dlSaveComments) ...{
+      DownloadProgress.stepYtCommentList:
+          (Pref.dlCommentCount / DownloadProgress.commentsPerPage).ceil(),
+      DownloadProgress.stepYtComments: Pref.dlCommentCount,
+    },
+  };
+
   /// The step names, as bilibili's ([DownloadProgress]).
   static Map<String, int> plan() => DownloadProgress.extrasPlan(
     intro: true,
@@ -184,14 +214,7 @@ abstract final class YtExtras {
     danmaku: false,
     subtitles: Pref.dlSaveSubtitle,
     comments: 0,
-  )..addAll({
-    // their own steps: their first estimate is the 1 s pacing's (l12)
-    if (Pref.dlSaveComments) ...{
-      DownloadProgress.stepYtCommentList:
-          (Pref.dlCommentCount / DownloadProgress.commentsPerPage).ceil(),
-      DownloadProgress.stepYtComments: Pref.dlCommentCount,
-    },
-  });
+  )..addAll(commentsPlan());
 
   /// Writes the enabled extras of [entry] beside its export; returns what
   /// was written (for self tests). [cancelled] is looked at before every
@@ -229,8 +252,12 @@ abstract final class YtExtras {
         ..remove('merged_parts')
         ..remove('extras_pending')
         ..remove('transcript_pending')
-        // this device's bookkeeping (review 2, P1)
-        ..remove('written');
+        // this device's bookkeeping (review 2, P1, item 5)
+        ..remove('written')
+        ..remove('comments_pending')
+        ..remove('comments_tries')
+        ..remove('comments_after')
+        ..remove('comments_note');
       await writeTextAtomic(
         File(path.join(folder, DownloadExtras.infoName)),
         const JsonEncoder.withIndent(' ').convert(info),
@@ -255,6 +282,7 @@ abstract final class YtExtras {
     }
 
     final calls = _Calls(net, check);
+    YtCommentsUnavailable? unavailable;
     try {
       // always: small, and without it the offline page has no intro
       await step(
@@ -286,7 +314,21 @@ abstract final class YtExtras {
       if (Pref.dlSaveComments) {
         await step(
           DownloadProgress.stepComments,
-          () => _comments(entry, folder, base, calls, cancelled, progress),
+          () async {
+            try {
+              return await _comments(
+                entry,
+                folder,
+                base,
+                calls,
+                cancelled,
+                progress,
+              );
+            } on YtCommentsUnavailable catch (e) {
+              unavailable = e;
+              rethrow;
+            }
+          },
           shown: DownloadProgress.stepYtComments,
         );
       }
@@ -295,11 +337,137 @@ abstract final class YtExtras {
       if (calls.directAsked) _lastDirectTraffic = clock();
       net.close();
     }
+    if (!(cancelled?.call() ?? false)) {
+      // a wall kept them out: asked for again later; anything else (saved,
+      // not for another reason, not wanted): nothing to ask (item 5)
+      if (Pref.dlSaveComments && (unavailable?.walled ?? false)) {
+        entry
+          ..commentsPending = true
+          ..commentsTries = 0
+          ..commentsAfter = _retryAt(0)
+          ..commentsNote = unavailable!.why;
+      } else {
+        _doneWithComments(entry, null);
+      }
+    }
     EventLog.add(
       'download',
       '${entry.logLabel}: extras ${calls.count} requests in '
           '${calls.clock.elapsed.inSeconds} s: '
           '${written.entries.map((e) => '${e.key}=${_short(e.value)}').join('; ')}',
+    );
+    onWrittenForTest?.call(entry.key, written);
+    return written;
+  }
+
+  /// When comments a wall kept out are asked for again after [tries]
+  /// tries: the cooldown ladder's step, or the wall's end when later.
+  static DateTime _retryAt(int tries) {
+    final at = clock().add(
+      ytCooldownLadder[math.min(tries, ytCooldownLadder.length - 1)],
+    );
+    final wall = directWallUntil();
+    return wall != null && wall.isAfter(at) ? wall : at;
+  }
+
+  /// Nothing more to ask for [entry]'s comments; [note]: why, when they
+  /// were given up.
+  static void _doneWithComments(YtDownloadEntry entry, String? note) {
+    entry
+      ..commentsPending = false
+      ..commentsTries = 0
+      ..commentsAfter = null
+      ..commentsNote = note;
+  }
+
+  /// [entry]'s comments asked for again, nothing else written (review 2,
+  /// item 5: a wall kept them out of its extras), with an export's pacing
+  /// and gap; its retry state updated. Saved: nothing more to ask. The
+  /// direct source still walled: asked for once the wall ends, not
+  /// counted. Not saved: asked for again on the cooldown ladder, at most
+  /// [commentRetries] times, then given up with the reason
+  /// ([YtDownloadEntry.commentsNote]).
+  static Future<Map<String, Object?>> exportComments({
+    required YtDownloadEntry entry,
+    required String folder,
+    required String base,
+    required YtExtrasNet net,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  }) async {
+    final written = <String, Object?>{};
+    final video = entry.mergedPath;
+    final giveUp = !Pref.dlSaveComments
+        ? 'comments are switched off'
+        : video == null || !File(video).existsSync()
+        ? 'the video is gone'
+        : null;
+    if (giveUp != null) {
+      net.close();
+      _doneWithComments(entry, 'not asked again: $giveUp');
+      return written..['comments'] = 'not asked: $giveUp';
+    }
+    void check() {
+      if (cancelled?.call() ?? false) throw const YtExtrasCancelled();
+    }
+
+    final watch = cancelled == null
+        ? null
+        : Timer.periodic(cancelPoll, (_) {
+            if (cancelled()) net.close();
+          });
+    final calls = _Calls(net, check);
+    YtCommentsUnavailable? unavailable;
+    try {
+      if (!(cancelled?.call() ?? false)) {
+        progress?.extrasStart(DownloadProgress.stepYtComments);
+        try {
+          written['comments'] = await _comments(
+            entry,
+            folder,
+            base,
+            calls,
+            cancelled,
+            progress,
+          );
+        } catch (e) {
+          written['comments'] = 'error: $e';
+          if (e is YtCommentsUnavailable) unavailable = e;
+        } finally {
+          progress?.extrasDone(DownloadProgress.stepYtComments);
+        }
+      }
+    } finally {
+      watch?.cancel();
+      if (calls.directAsked) _lastDirectTraffic = clock();
+      net.close();
+    }
+    if (cancelled?.call() ?? false) return written;
+    final result = written['comments'];
+    if (result is String && !result.startsWith('error:')) {
+      _doneWithComments(entry, null);
+    } else if (unavailable case final u? when u.skipped) {
+      // not asked: still walled
+      entry
+        ..commentsAfter = _retryAt(entry.commentsTries)
+        ..commentsNote = u.why;
+    } else {
+      final why = unavailable?.why ?? '$result';
+      final tries = entry.commentsTries + 1;
+      if (tries >= commentRetries) {
+        _doneWithComments(entry, 'given up after $tries tries: $why');
+      } else {
+        entry
+          ..commentsTries = tries
+          ..commentsAfter = _retryAt(tries)
+          ..commentsNote = why;
+      }
+    }
+    EventLog.add(
+      'download',
+      '${entry.logLabel}: comments asked again, ${calls.count} requests: '
+          '${_short(result)}'
+          '${entry.commentsPending ? '; again after ${entry.commentsAfter}' : entry.commentsNote == null ? '' : '; ${entry.commentsNote}'}',
     );
     onWrittenForTest?.call(entry.key, written);
     return written;
@@ -599,15 +767,24 @@ abstract final class YtExtras {
   ) async {
     final maxRoots = Pref.dlCommentCount;
     final maxReplies = Pref.dlReplyCount;
-    // a known wall: not asked at all, the record is done all the same
-    // (review 1, l6)
-    if (directWall() case final wall?) return 'skipped, stoppedBy: $wall';
+    // a known wall: not asked at all (review 1, l6); asked for again once
+    // it is over (review 2, item 5)
+    if (directWall() case final wall?) {
+      throw YtCommentsUnavailable(
+        'skipped, stoppedBy: $wall',
+        walled: true,
+        skipped: true,
+      );
+    }
     final related = await calls.related(entry.videoId);
     String? token = related.ok ? related.value!.commentsToken : null;
     if (token == null) {
-      throw StateError(
-        'comments unavailable '
-        '(${related.ok ? 'no token' : related.verdict})',
+      throw YtCommentsUnavailable(
+        related.ok ? 'no token' : '${related.verdict}',
+        walled:
+            !related.ok &&
+            (related.verdict.cause == YtCause.ipBlocked ||
+                related.verdict.signal == _Calls.directWallSignal),
       );
     }
     // a wall met stops this step; what was taken is written (§6.3)
@@ -632,7 +809,10 @@ abstract final class YtExtras {
         // nothing came: no file, so the offline page says 「未保存评论」
         // (review 1, l1)
         if (roots.isEmpty) {
-          throw StateError('comments unavailable (${r.verdict})');
+          throw YtCommentsUnavailable(
+            '${r.verdict}',
+            walled: r.verdict.cause == YtCause.ipBlocked,
+          );
         }
         break;
       }
@@ -822,10 +1002,13 @@ class _Calls {
   Future<YtResult<YtRelatedAndComments>> related(String id) =>
       _related ??= _relatedOnce(id);
 
+  /// The signal of a `next` not asked because the direct source is walled.
+  static const directWallSignal = 'direct-wall';
+
   Future<YtResult<YtRelatedAndComments>> _relatedOnce(String id) async {
     // the direct source alone answers it: not asked while it is walled
     if (YtExtras.directWall() case final wall?) {
-      return YtResult.failed(YtVerdict(YtCause.transient, 'direct-wall', wall));
+      return YtResult.failed(YtVerdict(YtCause.transient, directWallSignal, wall));
     }
     await _beforeDirect();
     return _timed('related', () => net.related(id), (r) => r.verdict);
@@ -870,6 +1053,26 @@ class _Calls {
 
 /// Whether a subtitle file there is the extras' own ([YtExtras._ownState]).
 enum _Own { absent, asWritten, other }
+
+/// The comment step saved nothing: `comments unavailable (<why>)`, the
+/// step's error as design §6.2 has it; there is no comments file, so the
+/// offline page says 「未保存评论」. [walled]: because the direct source is
+/// walled, so they are asked for again later (review 2, item 5);
+/// [skipped]: not asked at all, the wall known before.
+class YtCommentsUnavailable implements Exception {
+  const YtCommentsUnavailable(
+    this.why, {
+    this.walled = false,
+    this.skipped = false,
+  });
+
+  final String why;
+  final bool walled;
+  final bool skipped;
+
+  @override
+  String toString() => 'comments unavailable ($why)';
+}
 
 /// An export stopped because its entry was deleted.
 class YtExtrasCancelled implements Exception {

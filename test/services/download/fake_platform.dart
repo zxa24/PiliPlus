@@ -264,6 +264,31 @@ class FakePlatform implements DownloadPlatform {
 
   @override
   Map<String, int> extrasPlan() => {};
+
+  /// What [commentsRetryAt] answers per key (review 2, item 5).
+  final commentsAt = <DownloadKey, DateTime>{};
+
+  /// The keys whose comments were asked again, in order.
+  final commentKeys = <DownloadKey>[];
+
+  @override
+  DateTime? commentsRetryAt(DownloadEntry entry) => commentsAt[entry.key];
+
+  @override
+  Map<String, int> commentsPlan() => {};
+
+  @override
+  Future<Map<String, Object?>> retryComments({
+    required DownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  }) async {
+    commentKeys.add(entry.key);
+    commentsAt.remove(entry.key);
+    return {};
+  }
   @override
   SubtitleCacheKey transcriptKey(DownloadEntry entry) =>
       SubtitleCacheKey.youtube(entry.key);

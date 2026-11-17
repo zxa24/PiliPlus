@@ -1078,6 +1078,26 @@ final class YtDownloadPlatform implements DownloadPlatform {
         progress: progress,
       );
     }
+    final (:net, :close) = _extrasNet(cancelled);
+    return YtExtras.export(
+      entry: entry,
+      folder: folder,
+      base: base,
+      net: net,
+      transcriptKey: transcriptKey(entry),
+      cancelled: cancelled,
+      progress: progress,
+      // the subtitle files written are listed in the record first (review
+      // 2, P1)
+      saveRecord: () => _host.saveTaken(entry),
+    ).whenComplete(close);
+  }
+
+  /// The network of one export (or one comments retry), and what closes
+  /// its own sources once it is over.
+  ({YtExtrasNet net, void Function() close}) _extrasNet(
+    bool Function()? cancelled,
+  ) {
     // a router of the export's own (own health, never the pages' shared
     // one); while the pages' table or the session's comments table says
     // the direct source is walled (read, not changed), straight to the
@@ -1095,10 +1115,7 @@ final class YtDownloadPlatform implements DownloadPlatform {
       direct: sources?.direct,
       fallback: sources?.invidious,
     );
-    return YtExtras.export(
-      entry: entry,
-      folder: folder,
-      base: base,
+    return (
       net:
           extrasNetForTest?.call(play, cancelled) ??
           YtExtrasLiveNet(
@@ -1107,13 +1124,60 @@ final class YtDownloadPlatform implements DownloadPlatform {
             cancelled: cancelled,
             closeSources: sources?.close,
           ),
-      transcriptKey: transcriptKey(entry),
+      close: () => sources?.close(),
+    );
+  }
+
+  /// Tests only: in place of a whole comments retry.
+  @visibleForTesting
+  static Future<Map<String, Object?>> Function({
+    required YtDownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  })?
+  commentsForTest;
+
+  /// The comments a wall kept out of the extras (review 2, item 5): asked
+  /// for again from [YtDownloadEntry.commentsAfter] on.
+  @override
+  DateTime? commentsRetryAt(DownloadEntry entry) {
+    entry as YtDownloadEntry;
+    if (!entry.commentsPending) return null;
+    return entry.commentsAfter ?? DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  @override
+  Map<String, int> commentsPlan() => YtExtras.commentsPlan();
+
+  @override
+  Future<Map<String, Object?>> retryComments({
+    required DownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  }) {
+    entry as YtDownloadEntry;
+    if (commentsForTest case final retry?) {
+      return retry(
+        entry: entry,
+        folder: folder,
+        base: base,
+        cancelled: cancelled,
+        progress: progress,
+      );
+    }
+    final (:net, :close) = _extrasNet(cancelled);
+    return YtExtras.exportComments(
+      entry: entry,
+      folder: folder,
+      base: base,
+      net: net,
       cancelled: cancelled,
       progress: progress,
-      // the subtitle files written are listed in the record first (review
-      // 2, P1)
-      saveRecord: () => _host.saveTaken(entry),
-    ).whenComplete(() => sources?.close());
+    ).whenComplete(close);
   }
 
   @override

@@ -29,6 +29,10 @@ class YtDownloadEntry extends DownloadEntry {
     this.extrasPending = false,
     this.transcriptPending = false,
     Map<String, YtWrittenFile>? subtitleFiles,
+    this.commentsPending = false,
+    this.commentsTries = 0,
+    this.commentsAfter,
+    this.commentsNote,
     required this.timeCreateStamp,
     required this.timeUpdateStamp,
   }) : subtitleFiles = subtitleFiles ?? {};
@@ -100,6 +104,20 @@ class YtDownloadEntry extends DownloadEntry {
   /// not read it (it finds the subtitles by their names, design §7.1).
   final Map<String, YtWrittenFile> subtitleFiles;
 
+  /// The comments a wall kept out of the extras are to be asked for again
+  /// (`comments_pending`, review 2 item 5); the other extras are saved
+  /// ([extrasPending] is cleared all the same).
+  bool commentsPending;
+
+  /// How many times they were asked for again and not saved.
+  int commentsTries;
+
+  /// Not asked for again before this.
+  DateTime? commentsAfter;
+
+  /// Why they were last not saved, or why they were given up.
+  String? commentsNote;
+
   /// Seconds, as bilibili's (the list sorts by [timeUpdateStamp]).
   final int timeCreateStamp;
   @override
@@ -168,6 +186,13 @@ class YtDownloadEntry extends DownloadEntry {
       extrasPending: json['extras_pending'] == true,
       transcriptPending: json['transcript_pending'] == true,
       subtitleFiles: _writtenSubtitles(json['written']),
+      commentsPending: json['comments_pending'] == true,
+      commentsTries: asInt(json['comments_tries']),
+      commentsAfter: switch (json['comments_after']) {
+        final int ms => DateTime.fromMillisecondsSinceEpoch(ms),
+        _ => null,
+      },
+      commentsNote: json['comments_note'] as String?,
       timeCreateStamp: asInt(json['time_create_stamp']),
       timeUpdateStamp: asInt(json['time_update_stamp']),
     );
@@ -213,6 +238,11 @@ class YtDownloadEntry extends DownloadEntry {
     'merged_path': mergedPath,
     'extras_pending': extrasPending,
     'transcript_pending': transcriptPending,
+    if (commentsPending) 'comments_pending': true,
+    if (commentsTries > 0) 'comments_tries': commentsTries,
+    if (commentsAfter case final after?)
+      'comments_after': after.millisecondsSinceEpoch,
+    'comments_note': ?commentsNote,
     if (subtitleFiles.isNotEmpty)
       'written': {
         'subtitles': [

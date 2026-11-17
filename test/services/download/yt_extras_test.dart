@@ -461,7 +461,10 @@ void main() {
     // the wall `next` met holds for the comments: not asked (review 1, l9)
     expect(
       written['comments'],
-      startsWith('skipped, stoppedBy: direct source cooling down until'),
+      startsWith(
+        'error: comments unavailable (skipped, stoppedBy: direct source '
+        'cooling down until',
+      ),
     );
     expect(
       File(path.join(folder, '$base${YtExtras.commentsSuffix}')).existsSync(),
@@ -479,7 +482,7 @@ void main() {
     final written = await export();
     expect(
       written['comments'],
-      'error: Bad state: comments unavailable (no token)',
+      'error: comments unavailable (no token)',
     );
   });
 
@@ -649,8 +652,7 @@ void main() {
       final written = await export();
       expect(
         written['comments'],
-        'error: Bad state: comments unavailable '
-        '(ipBlocked<http-429> :: test wall)',
+        'error: comments unavailable (ipBlocked<http-429> :: test wall)',
       );
       expect(
         File(
@@ -699,7 +701,10 @@ void main() {
       expect(written['intro'], contains('no extra'));
       expect(
         written['comments'],
-        startsWith('skipped, stoppedBy: direct source cooling down'),
+        startsWith(
+          'error: comments unavailable (skipped, stoppedBy: direct source '
+          'cooling down',
+        ),
       );
       expect(
         File(
@@ -758,7 +763,10 @@ void main() {
       expect(first.log, contains('comments top-2'));
       expect(net.log, isNot(contains('related')));
       expect(net.log.where((l) => l.startsWith('comments')), isEmpty);
-      expect(written['comments'], startsWith('skipped, stoppedBy:'));
+      expect(
+        written['comments'],
+        startsWith('error: comments unavailable (skipped, stoppedBy:'),
+      );
     });
 
     test('the next export\'s first `next` waits for the gap after the last '
@@ -1177,6 +1185,234 @@ void main() {
       final h = YtExtras.commentsHealth['direct']!;
       expect(h.cooldownStep, 1);
       expect(h.cooldownUntil, now.add(ytCooldownLadder.first));
+    });
+  });
+
+  // review 2, item 5: comments a wall kept out are asked for again
+  group('review 2: the comments a wall kept out', () {
+    final now = DateTime(2026, 11, 17, 12);
+    File commentsFile() =>
+        File(path.join(folder, '$base${YtExtras.commentsSuffix}'));
+
+    test('a wall at the export: marked to be asked again after the first '
+        'cooldown; no comments file; the other extras saved', () async {
+      YtExtras.clock = () => now;
+      net
+        ..tracks([_track('en')])
+        ..pages = {'top-1': const YtResult.failed(_wall)};
+      final written = await export();
+      expect(
+        written['comments'],
+        'error: comments unavailable (ipBlocked<http-429> :: test wall)',
+      );
+      expect(commentsFile().existsSync(), isFalse);
+      expect(srtFiles(), ['$base.en.srt']);
+      expect(entry.commentsPending, isTrue);
+      expect(entry.commentsTries, 0);
+      expect(entry.commentsAfter, now.add(ytCooldownLadder.first));
+      expect(entry.commentsNote, contains('ipBlocked'));
+      final json = entry.toJson();
+      expect(json['comments_pending'], isTrue);
+      expect(json['comments_after'], isA<int>());
+    });
+
+    test('a wall known before the export: not asked, marked, asked again '
+        'once the wall is over', () async {
+      YtExtras.clock = () => now;
+      final until = now.add(const Duration(hours: 1));
+      YtSourceRouter.sharedHealth['direct'] = YtSourceHealth()
+        ..cooldownUntil = until;
+      await export();
+      expect(net.log.where((l) => l.startsWith('comments')), isEmpty);
+      expect(entry.commentsPending, isTrue);
+      expect(entry.commentsAfter, until);
+    });
+
+    test('not a wall (the video has no comments): not marked', () async {
+      net.relatedAnswer = const YtResult.ok(
+        YtRelatedAndComments([], null, YtVideoExtra()),
+      );
+      entry.commentsPending = true;
+      await export();
+      expect(entry.commentsPending, isFalse);
+      expect(entry.toJson().containsKey('comments_pending'), isFalse);
+    });
+
+    test("the export folder's copy leaves the retry state out", () async {
+      entry
+        ..commentsPending = true
+        ..commentsTries = 1
+        ..commentsAfter = now
+        ..commentsNote = 'a wall';
+      await GStorage.setting.put(SettingBoxKey.dlSaveComments, false);
+      await export();
+      final info = readJson(DownloadExtras.infoName);
+      for (final key in [
+        'comments_pending',
+        'comments_tries',
+        'comments_after',
+        'comments_note',
+      ]) {
+        expect(info.containsKey(key), isFalse, reason: key);
+      }
+    });
+
+    Future<Map<String, Object?>> again() => YtExtras.exportComments(
+      entry: entry,
+      folder: folder,
+      base: base,
+      net: net,
+    );
+
+    test('asked again and saved: only the comments asked for, the mark '
+        'cleared', () async {
+      entry
+        ..commentsPending = true
+        ..commentsTries = 1;
+      net.pages = {'top-1': YtResult.ok(YtPage([_comment('a')], null))};
+      final written = await again();
+      expect(written['comments'], startsWith('1 comments'));
+      expect(commentsFile().existsSync(), isTrue);
+      expect(net.log.where((l) => l == 'detail' || l.startsWith('caption')), isEmpty);
+      expect(entry.commentsPending, isFalse);
+      expect(entry.commentsTries, 0);
+      expect(entry.commentsNote, isNull);
+    });
+
+    test('still walled when asked again: not asked, not counted, asked once '
+        'the wall is over', () async {
+      YtExtras.clock = () => now;
+      final until = now.add(const Duration(minutes: 40));
+      YtExtras.commentsHealth['direct'] = YtSourceHealth()
+        ..cooldownUntil = until;
+      entry
+        ..commentsPending = true
+        ..commentsTries = 1;
+      await again();
+      expect(net.log, isEmpty);
+      expect(entry.commentsPending, isTrue);
+      expect(entry.commentsTries, 1);
+      expect(entry.commentsAfter, until);
+    });
+
+    test('three tries that fail: the mark cleared, the reason kept',
+        () async {
+      var at = now;
+      YtExtras.clock = () => at;
+      entry.commentsPending = true;
+      for (var i = 1; i <= YtExtras.commentRetries; i++) {
+        // past the cooldown the last try met
+        at = at.add(const Duration(hours: 7));
+        net = _Net()..pages = {'top-1': const YtResult.failed(_wall)};
+        await again();
+        expect(net.log, contains('comments top-1'), reason: 'try $i');
+        if (i < YtExtras.commentRetries) {
+          expect(entry.commentsPending, isTrue, reason: 'try $i');
+          expect(entry.commentsTries, i);
+          expect(
+            entry.commentsAfter,
+            at.add(ytCooldownLadder[i]),
+            reason: 'try $i: on the ladder',
+          );
+        }
+      }
+      expect(entry.commentsPending, isFalse);
+      expect(entry.commentsNote, startsWith('given up after 3 tries: ipBlocked'));
+      expect(commentsFile().existsSync(), isFalse);
+      final back = YtDownloadEntry.fromJson(
+        jsonDecode(jsonEncode(entry.toJson())) as Map<String, dynamic>,
+      );
+      expect(back.commentsPending, isFalse);
+      expect(back.commentsNote, entry.commentsNote);
+    });
+
+    test('the video gone: given up without a request', () async {
+      entry.commentsPending = true;
+      File(entry.mergedPath!).deleteSync();
+      await again();
+      expect(net.log, isEmpty);
+      expect(entry.commentsPending, isFalse);
+      expect(entry.commentsNote, contains('the video is gone'));
+    });
+  });
+
+  group('review 2: the comments asked for again, by the service', () {
+    final h = DownloadHarness();
+    tearDown(() async {
+      YtDownloadPlatform.routerForTest = null;
+      YtDownloadPlatform.extrasNetForTest = null;
+      await h.stop();
+    });
+
+    test('the next launch, the wall over: only the comments asked for; the '
+        'mark cleared; the other files as they were', () async {
+      net.pages = {'top-1': YtResult.ok(YtPage([_comment('a')], null))};
+      YtDownloadPlatform.routerForTest =
+          (mode, {required own, required health}) =>
+              YtSourceRouter(_NoNetDirect(), health: health, mode: mode);
+      YtDownloadPlatform.extrasNetForTest = (_, _) => net;
+      late File record;
+      late Directory export;
+      final before = <String, (String, DateTime)>{};
+      await h.start(
+        entries: const [],
+        before: (root) {
+          export = Directory(path.join(root.path, base))..createSync();
+          final mp4 = File(path.join(export.path, '$base.mp4'))
+            ..writeAsBytesSync([1]);
+          for (final (name, text) in [
+            (DownloadExtras.infoName, '{"the": "copy"}'),
+            ('$base${YtExtras.introSuffix}', '{"the": "intro"}'),
+            ('$base.en.srt', 'the subtitle'),
+            ('cover.jpg', 'the cover'),
+          ]) {
+            final f = File(path.join(export.path, name))
+              ..writeAsStringSync(text);
+            before[name] = (text, f.lastModifiedSync());
+          }
+          record = writeYtRecord(
+            root,
+            ytEntry(root, completed: true, merged: mp4.path)
+              ..commentsPending = true
+              ..commentsTries = 1
+              ..commentsAfter = DateTime(2026)
+              ..commentsNote = 'ipBlocked',
+          );
+        },
+      );
+      Map<String, dynamic>? onDisk() {
+        try {
+          return jsonDecode(record.readAsStringSync()) as Map<String, dynamic>;
+        } on FormatException {
+          return null;
+        } on FileSystemException {
+          return null;
+        }
+      }
+
+      await until(() {
+        final json = onDisk();
+        return json != null && json['comments_pending'] == null;
+      }, reason: 'the record without the mark');
+      final e = h.service.downloadList.single as YtDownloadEntry;
+      expect(e.commentsPending, isFalse);
+      expect(e.status, DownloadStatus.completed);
+      expect(onDisk()!['extras_pending'], isFalse);
+      final comments = File(
+        path.join(export.path, '$base${YtExtras.commentsSuffix}'),
+      );
+      expect(comments.existsSync(), isTrue);
+      expect(
+        net.log.where((l) => !l.startsWith('image') && l != 'pause'),
+        ['related', 'comments top-1'],
+      );
+      for (final MapEntry(key: name, value: (text, at)) in before.entries) {
+        final f = File(path.join(export.path, name));
+        expect(f.readAsStringSync(), text, reason: name);
+        expect(f.lastModifiedSync(), at, reason: name);
+      }
+      expect(h.exported, isEmpty, reason: 'no whole export');
+      expect(h.service.extrasQueue, isEmpty);
     });
   });
 

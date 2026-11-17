@@ -228,6 +228,23 @@ final class _BiliPlatform implements DownloadPlatform {
   @override
   Map<String, int> extrasPlan() => DownloadExtras.plan();
 
+  /// Bilibili's comments are not asked again: a failed step is not retried
+  /// (design §6.1).
+  @override
+  DateTime? commentsRetryAt(DownloadEntry entry) => null;
+
+  @override
+  Map<String, int> commentsPlan() => const {};
+
+  @override
+  Future<Map<String, Object?>> retryComments({
+    required DownloadEntry entry,
+    required String folder,
+    required String base,
+    bool Function()? cancelled,
+    DownloadProgress? progress,
+  }) => throw UnsupportedError('bilibili comments are not asked again');
+
   @override
   SubtitleCacheKey transcriptKey(DownloadEntry entry) =>
       SubtitleCacheKey.bilibili((entry as BiliDownloadEntryInfo).cid);
