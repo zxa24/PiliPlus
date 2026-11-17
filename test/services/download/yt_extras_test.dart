@@ -893,6 +893,75 @@ void main() {
     });
   });
 
+  group('review 1: the live network', () {
+    late _Direct direct;
+    final sleeps = <Duration>[];
+    setUp(() {
+      direct = _Direct();
+      sleeps.clear();
+    });
+
+    YtExtrasLiveNet live({bool Function()? cancelled}) => YtExtrasLiveNet(
+      play: YtSourceRouter(_NoNetDirect()),
+      direct: direct,
+      cancelled: cancelled,
+      sleepForTest: (d) async => sleeps.add(d),
+    );
+
+    // 4 (c2, l8): a retry is paced too
+    test('a comment page the router asks again waits at least the pacing',
+        () async {
+      direct.answers.addAll([
+        const YtResult.failed(YtVerdict(YtCause.transient, 'timeout')),
+        YtResult.ok(YtPage([_comment('a')], null)),
+      ]);
+      final r = await live().comments('t');
+      expect(r.ok, isTrue);
+      expect(direct.asked, 2);
+      expect(sleeps, isNotEmpty);
+      for (final d in sleeps) {
+        expect(d, greaterThanOrEqualTo(YtExtras.commentGap));
+      }
+    });
+
+    // 3 (c2): a retry sees the delete
+    test('deleted while the router waits to ask again: not asked again',
+        () async {
+      var deleted = false;
+      direct.answers.addAll([
+        const YtResult.failed(YtVerdict(YtCause.transient, 'timeout')),
+        YtResult.ok(YtPage([_comment('a')], null)),
+      ]);
+      final net = YtExtrasLiveNet(
+        play: YtSourceRouter(_NoNetDirect()),
+        direct: direct,
+        cancelled: () => deleted,
+        sleepForTest: (d) async => deleted = true,
+      );
+      await expectLater(
+        net.comments('t'),
+        throwsA(isA<YtExtrasCancelled>()),
+      );
+      expect(direct.asked, 1);
+    });
+
+    test('closed: a pause is over at once, no source is asked', () async {
+      final net = YtExtrasLiveNet(
+        play: YtSourceRouter(_NoNetDirect()),
+        direct: direct,
+      )..close();
+      await net.pause(const Duration(hours: 1)).timeout(
+        const Duration(seconds: 2),
+      );
+      await expectLater(net.comments('t'), throwsA(isA<YtExtrasCancelled>()));
+      expect(direct.asked, 0);
+    });
+
+    test('one comments table for the session', () {
+      expect(identical(live().commentsHealth, YtExtras.commentsHealth), isTrue);
+    });
+  });
+
   group('review 2: a delete ends the details and the captions', () {
     final h = DownloadHarness();
     tearDown(() async {
